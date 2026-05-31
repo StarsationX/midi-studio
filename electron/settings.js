@@ -17,6 +17,8 @@ const DEFAULTS = {
   },
   paths: { forgeEnvDir: '', forgePythonPath: '', modelsDir: '' },
   ui: { lastTab: 'forge', autoCheckUpdates: true },
+  libraryDir: '',    // manual override: folder the Midi-Player lists .mid files from
+  lastOutputDir: '', // folder the most recent Forge transcription was written to (the default)
 };
 
 function deepMerge(a, b) {

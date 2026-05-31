@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('forge', {
   getDroppedFilePath: (file) => webUtils.getPathForFile(file),
   getSettings: () => ipcRenderer.invoke('forge:getSettings'),
   setSettings: (patch) => ipcRenderer.invoke('forge:setSettings', patch),
+  getOutputDir: () => ipcRenderer.invoke('app:getOutputDir'),
   openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
   showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
   onStatus: onChannel('forge:status'),
@@ -59,4 +60,9 @@ contextBridge.exposeInMainWorld('studio', {
   openForgeFolder: () => ipcRenderer.invoke('app:openForgeFolder'),
   cleanReinstall: () => ipcRenderer.invoke('app:cleanReinstall'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
+  getLibraryDir: () => ipcRenderer.invoke('app:getLibraryDir'),
+  setLibraryDir: (dir) => ipcRenderer.invoke('app:setLibraryDir', dir),
+  listMidis: (dir) => ipcRenderer.invoke('app:listMidis', dir),
+  pickFolder: () => ipcRenderer.invoke('app:pickFolder'),
+  onLibraryChanged: onChannel('library-changed'),
 });

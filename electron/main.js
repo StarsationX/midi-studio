@@ -60,6 +60,34 @@ function broadcast(channel, payload) {
   } catch (_) {}
 }
 
+// List every .mid/.midi in a folder (one level of subfolders), for the player's
+// "Songs folder" picker. Capped so a huge tree can't hang the UI.
+function listMidis(dir) {
+  if (!dir || !paths.exists(dir)) return [];
+  const out = [];
+  const walk = (d, depth) => {
+    let entries; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (out.length >= 1000) return;
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) { if (depth < 1) walk(full, depth + 1); }
+      else if (e.isFile() && /\.midi?$/i.test(e.name)) out.push(full);
+    }
+  };
+  walk(dir, 0);
+  out.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  return out;
+}
+
+// The program's output folder — where Forge writes transcriptions and the
+// Midi-Player lists from by default. The Forge "Output folder" setting overrides
+// it; otherwise it's Documents\MIDI Studio.
+function programOutputDir() {
+  const set = settings.get('forge.outputDir');
+  if (set && String(set).trim()) return String(set);
+  return path.join(os.homedir(), 'Documents', 'MIDI Studio');
+}
+
 function createWindow() {
   const wb = settings.get('window') || {};
   win = new BrowserWindow({
@@ -125,7 +153,25 @@ function createServices() {
   });
   Promise.resolve(sidecar.start()).catch((e) => broadcast('engine-error', `Player engine failed to start: ${e && e.message || e}`));
 
-  const forgeEmit = (payload) => broadcast('forge:status', payload);
+  const forgeEmit = (payload) => {
+    // Move each finished transcription into the program's output folder so they
+    // collect in one place, then tell the player to re-scan.
+    if (payload && payload.event === 'forge.done' && payload.ok && payload.result && payload.result.midiPath) {
+      let mp = String(payload.result.midiPath);
+      try {
+        const outDir = programOutputDir();
+        fs.mkdirSync(outDir, { recursive: true });
+        if (paths.exists(mp) && path.resolve(path.dirname(mp)).toLowerCase() !== path.resolve(outDir).toLowerCase()) {
+          const dest = path.join(outDir, path.basename(mp));
+          try { fs.renameSync(mp, dest); } catch { fs.copyFileSync(mp, dest); try { fs.unlinkSync(mp); } catch {} }
+          mp = dest;
+        }
+      } catch (_) {}
+      payload.result.midiPath = mp;
+      broadcast('library-changed', path.dirname(mp));
+    }
+    broadcast('forge:status', payload);
+  };
   forge = new ForgeRunner({ emit: forgeEmit, getSettings: () => settings.forgePaths() });
   provisioner = new ForgeProvisioner({ emit: forgeEmit, getSettings: () => settings.forgePaths() });
 }
@@ -161,6 +207,20 @@ function wireIpc() {
   ipcMain.handle('app:openExternal', (_e, url) => (/^https?:\/\//i.test(String(url)) ? shell.openExternal(url) : null));
   ipcMain.handle('app:version', () => app.getVersion());
   ipcMain.handle('app:getUi', () => settings.get('ui') || {});
+  ipcMain.handle('app:getOutputDir', () => programOutputDir());
+  ipcMain.handle('app:getLibraryDir', () => {
+    const manual = settings.get('libraryDir');
+    if (manual) return manual;
+    const d = programOutputDir();
+    try { fs.mkdirSync(d, { recursive: true }); } catch {}
+    return d;
+  });
+  ipcMain.handle('app:setLibraryDir', (_e, dir) => settings.merge({ libraryDir: String(dir || '') }).libraryDir);
+  ipcMain.handle('app:listMidis', (_e, dir) => listMidis(String(dir || '')));
+  ipcMain.handle('app:pickFolder', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Choose a folder of MIDI files', properties: ['openDirectory'] });
+    return r.canceled ? null : r.filePaths[0];
+  });
   ipcMain.handle('app:setUi', (_e, patch) => settings.merge({ ui: isObj(patch) ? patch : {} }).ui);
   ipcMain.handle('app:forgeInfo', () => {
     const s = settings.forgePaths();

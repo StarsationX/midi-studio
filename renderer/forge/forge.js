@@ -79,8 +79,10 @@
   $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') doFetch(); });
 
   // ---- output folder ----
+  // Show the effective program output folder when the user hasn't overridden it.
+  function showDefaultOut() { if (F.getOutputDir) F.getOutputDir().then((d) => { if (!outputDir && d) $('out-dir').textContent = d; }).catch(() => {}); }
   $('pick-out').addEventListener('click', async () => { const d = await F.pickOutDir(); if (d) { outputDir = d; $('out-dir').textContent = d; $('clear-out').hidden = false; F.setSettings({ outputDir: d }); } });
-  $('clear-out').addEventListener('click', () => { outputDir = ''; $('out-dir').textContent = 'next to the input file'; $('clear-out').hidden = true; F.setSettings({ outputDir: '' }); });
+  $('clear-out').addEventListener('click', () => { outputDir = ''; $('clear-out').hidden = true; F.setSettings({ outputDir: '' }); showDefaultOut(); });
 
   // ---- pipeline + advanced ----
   $('pipeline').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; pipeline = b.dataset.v; document.querySelectorAll('#pipeline button').forEach((x) => x.classList.toggle('is-active', x === b)); syncPipelineUI(); });
@@ -97,6 +99,7 @@
     if (s.pipeline) { pipeline = s.pipeline; document.querySelectorAll('#pipeline button').forEach((x) => x.classList.toggle('is-active', x.dataset.v === pipeline)); }
     if (s.skipSeparation) $('skipsep').checked = true;
     if (s.outputDir) { outputDir = s.outputDir; $('out-dir').textContent = s.outputDir; $('clear-out').hidden = false; }
+    else showDefaultOut();
     if (s.advanced) for (const [k, v] of Object.entries(s.advanced)) { const el = $(k); if (!el) continue; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; }
     syncPipelineUI();
   }).catch(() => {});
@@ -121,10 +124,11 @@
     const p = $('output-path').textContent; if (!p) return;
     try {
       parent.document.querySelector('.tab[data-tab="player"]').click();
-      const pf = parent.document.getElementById('frame-player');
-      if (pf && pf.contentWindow && pf.contentWindow.api) { pf.contentWindow.api.send({ cmd: 'load_midi', path: p, mapping: 'roblox88', tempo: 1.0 }); logLine('→ Sent to Midi-Player'); }
-      else logLine('Open the Midi-Player tab, then drag this .mid in.');
-    } catch (_) { logLine('Couldn\'t hand off — open Midi-Player and load the .mid manually.'); }
+      const w = (parent.document.getElementById('frame-player') || {}).contentWindow;
+      if (w && typeof w.setMidiFile === 'function') { w.setMidiFile(p); logLine('→ Loaded into Midi-Player'); }
+      else if (w && w.api) { w.api.send({ cmd: 'load_midi', path: p, mapping: 'roblox88', tempo: 1.0 }); logLine('→ Sent to Midi-Player'); }
+      else logLine('Open the Midi-Player tab, then pick it from Recent.');
+    } catch (_) { logLine('Couldn\'t hand off — open Midi-Player and pick it from Recent.'); }
   });
   $('log-clear').addEventListener('click', () => { $('log').textContent = ''; });
   $('err-dismiss').addEventListener('click', () => { $('errcard').hidden = true; });
