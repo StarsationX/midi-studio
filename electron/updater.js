@@ -1,7 +1,8 @@
 // updater.js — hardened built-in self-updater for the portable build.
 // GitHub Releases -> SemVer compare -> download portable .exe -> SHA-256 verify
-// vs SHA256SUMS.txt -> atomic swap (move + .bak backup + bounded wait + restore
-// on failure). The forge env in %LOCALAPPDATA% is never touched by an app update.
+// against GitHub's per-asset `digest` -> atomic swap (move + .bak backup +
+// bounded wait + restore on failure). The forge env in %LOCALAPPDATA% is never
+// touched by an app update.
 'use strict';
 
 const { app, shell } = require('electron');
