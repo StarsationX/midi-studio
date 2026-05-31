@@ -55,17 +55,6 @@ function getJson(url, n = 0) {
     }).on('error', rej);
   });
 }
-function getText(url, n = 0) {
-  return new Promise((res, rej) => {
-    try { assertHttps(url); } catch (e) { return rej(e); }
-    if (n > 5) return rej(new Error('Too many redirects'));
-    https.get(url, { headers: { 'User-Agent': 'midi-studio-updater' } }, (r) => {
-      if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) { r.resume(); return res(getText(r.headers.location, n + 1)); }
-      if (r.statusCode !== 200) { r.resume(); return rej(new Error(`HTTP ${r.statusCode}`)); }
-      let b = ''; r.setEncoding('utf8'); r.on('data', (c) => (b += c)); r.on('end', () => res(b));
-    }).on('error', rej);
-  });
-}
 function download(url, dest, onProgress, n = 0) {
   return new Promise((res, rej) => {
     try { assertHttps(url); } catch (e) { return rej(e); }
@@ -89,16 +78,9 @@ function sha256File(p) {
     s.on('error', rej); s.on('data', (d) => h.update(d)); s.on('end', () => res(h.digest('hex').toLowerCase()));
   });
 }
-function parseSums(t) {
-  const m = {};
-  for (const line of String(t).split(/\r?\n/)) { const x = line.trim().match(/^([0-9a-fA-F]{64})\s+\*?(.+)$/); if (x) m[x[2].trim()] = x[1].toLowerCase(); }
-  return m;
-}
 
 const pickPortable = (a) => (a || []).find((x) => /-portable\.exe$/i.test(x.name)) || (a || []).find((x) => /portable.*\.exe$/i.test(x.name));
 const pickSetup = (a) => (a || []).find((x) => /setup.*\.exe$/i.test(x.name)) || (a || []).find((x) => /\.exe$/i.test(x.name) && !/portable/i.test(x.name));
-const pickSums = (a) => (a || []).find((x) => /sha256sums?(\.txt)?$/i.test(x.name));
-
 let cached = null;
 function stagingDir() { const d = path.join(app.getPath('userData'), 'updates'); try { fs.mkdirSync(d, { recursive: true }); } catch {} return d; }
 
@@ -108,13 +90,15 @@ async function checkForUpdates(send, { manual } = {}) {
     const rel = await getJson(LATEST_API);
     const latest = rel.tag_name || rel.name || '';
     const current = app.getVersion();
-    const portable = pickPortable(rel.assets), setup = pickSetup(rel.assets), sums = pickSums(rel.assets);
+    const portable = pickPortable(rel.assets), setup = pickSetup(rel.assets);
     if (cmpVer(latest, current) > 0 && (portable || setup)) {
       cached = {
         version: String(latest).replace(/^v/i, ''), current,
-        portable: portable ? { url: portable.browser_download_url, name: portable.name, size: portable.size } : null,
-        setup: setup ? { url: setup.browser_download_url, name: setup.name, size: setup.size } : null,
-        sumsUrl: sums ? sums.browser_download_url : null, notes: rel.body || '', htmlUrl: rel.html_url,
+        // GitHub serves a per-asset `digest` ("sha256:…") in the release API,
+        // so we verify against that — no SHA256SUMS.txt sidecar needed.
+        portable: portable ? { url: portable.browser_download_url, name: portable.name, size: portable.size, digest: portable.digest } : null,
+        setup: setup ? { url: setup.browser_download_url, name: setup.name, size: setup.size, digest: setup.digest } : null,
+        notes: rel.body || '', htmlUrl: rel.html_url,
       };
       const isPortable = !!process.env.PORTABLE_EXECUTABLE_FILE;
       send({ state: 'available', version: cached.version, current,
@@ -124,13 +108,14 @@ async function checkForUpdates(send, { manual } = {}) {
   } catch (e) { if (manual) send({ state: 'error', message: String((e && e.message) || e), manual: true }); }
 }
 
-async function verifyChecksum(file, name) {
-  if (!cached || !cached.sumsUrl) return false;
-  const sums = parseSums(await getText(cached.sumsUrl));
-  const expected = sums[name];
-  if (!expected) return false;
-  const actual = await sha256File(file);
-  if (actual !== expected) throw new Error(`Checksum mismatch for ${name}`);
+// Verify a downloaded file against the GitHub asset's `digest` ("sha256:<hex>").
+// Returns false if the digest is absent (older release) so the caller can fall
+// back to opening the release page; throws on a real MISMATCH (never swap then).
+async function verifyDigest(file, digest) {
+  const want = String(digest || '').replace(/^sha256:/i, '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(want)) return false;
+  const got = await sha256File(file);
+  if (got !== want) throw new Error('Checksum mismatch — download does not match the GitHub release digest');
   return true;
 }
 
@@ -145,7 +130,7 @@ async function applyUpdate(send) {
         const dst = path.join(stagingDir(), cached.setup.name);
         await download(cached.setup.url, dst, (p) => send({ state: 'downloading', percent: Math.round(p * 100) }));
         send({ state: 'verifying' });
-        if (!(await verifyChecksum(dst, cached.setup.name))) { try { fs.unlinkSync(dst); } catch {} shell.openExternal(cached.htmlUrl); send({ state: 'manual', htmlUrl: cached.htmlUrl }); return; }
+        if (!(await verifyDigest(dst, cached.setup.digest))) { try { fs.unlinkSync(dst); } catch {} shell.openExternal(cached.htmlUrl); send({ state: 'manual', htmlUrl: cached.htmlUrl }); return; }
         send({ state: 'ready' });
         spawn(dst, ['/S'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
         setTimeout(() => app.quit(), 400);
@@ -161,9 +146,9 @@ async function applyUpdate(send) {
     await download(cached.portable.url, newExe, (p) => send({ state: 'downloading', percent: Math.round(p * 100) }));
     send({ state: 'verifying' });
     let verified = false;
-    try { verified = await verifyChecksum(newExe, cached.portable.name); }
+    try { verified = await verifyDigest(newExe, cached.portable.digest); }
     catch (mm) { try { fs.unlinkSync(newExe); } catch {} send({ state: 'error', message: String(mm.message || mm) }); return; }
-    if (!verified) { try { fs.unlinkSync(newExe); } catch {} shell.openExternal(cached.htmlUrl); send({ state: 'manual', htmlUrl: cached.htmlUrl, reason: 'no-checksum' }); return; }
+    if (!verified) { try { fs.unlinkSync(newExe); } catch {} shell.openExternal(cached.htmlUrl); send({ state: 'manual', htmlUrl: cached.htmlUrl, reason: 'no-digest' }); return; }
 
     send({ state: 'ready' });
     const bak = `${target}.bak`, pid = process.pid;
@@ -193,4 +178,4 @@ async function applyUpdate(send) {
   } catch (e) { send({ state: 'error', message: String((e && e.message) || e) }); }
 }
 
-module.exports = { checkForUpdates, applyUpdate, cmpVer, parseVer, parseSums, pickPortableAsset: pickPortable };
+module.exports = { checkForUpdates, applyUpdate, cmpVer, parseVer, verifyDigest, pickPortableAsset: pickPortable };

@@ -31,9 +31,20 @@ const assets = [
 ];
 ok(u.pickPortableAsset(assets).name === 'MIDI-Studio-2.1.0-portable.exe', 'picks portable not Setup');
 
-// SHA256SUMS parsing
-const sums = u.parseSums('aa'.repeat(32) + '  a.exe\n' + 'bb'.repeat(32) + ' *b.exe');
-ok(sums['a.exe'] === 'aa'.repeat(32) && sums['b.exe'] === 'bb'.repeat(32), 'sums parse');
+// verifyDigest — verifies a file against GitHub's per-asset "sha256:<hex>" digest
+(async () => {
+  const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
+  const f = path.join(os.tmpdir(), `ms-digest-test-${process.pid}`);
+  fs.writeFileSync(f, 'hello midi studio');
+  const sha = crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+  ok(await u.verifyDigest(f, 'sha256:' + sha) === true, 'verifyDigest accepts matching digest');
+  ok(await u.verifyDigest(f, '') === false, 'verifyDigest returns false when digest absent');
+  let threw = false; try { await u.verifyDigest(f, 'sha256:' + 'ab'.repeat(32)); } catch { threw = true; }
+  ok(threw, 'verifyDigest throws on mismatch');
+  try { fs.unlinkSync(f); } catch {}
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+})();
 
 // paths: forge resolution
 ok(typeof p.forgeEnvReady({}) === 'boolean', 'forgeEnvReady boolean');
@@ -41,6 +52,4 @@ const fp = p.forgeEnvPython({});
 ok(fp === null || typeof fp === 'string', 'forgeEnvPython string|null');
 const env = p.forgeChildEnv({});
 ok(typeof env.MIDI_STUDIO_FORGE_ENV_DIR === 'string' && env.MIDI_STUDIO_FORGE_ENV_DIR.length > 0, 'forgeChildEnv has env dir');
-
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
+// (the async verifyDigest IIFE above prints the final pass/fail + exits)

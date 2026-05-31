@@ -11,8 +11,8 @@
     "test": "node tools/run-tests.js",
     "build:engine": "cmd /c build-portable.bat",
     "build:dir": "npm run build:engine && electron-builder --win --x64 -c.win.target=dir",
-    "build:portable": "npm run build:dir && electron-builder --prepackaged dist/win-unpacked --win --x64 -c.win.target=portable && node tools/checksums.js",
-    "build:nsis": "npm run build:engine && electron-builder --win nsis --x64 && node tools/checksums.js"
+    "build:portable": "npm run build:dir && electron-builder --prepackaged dist/win-unpacked --win --x64 -c.win.target=portable",
+    "build:nsis": "npm run build:engine && electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "^32.0.0",

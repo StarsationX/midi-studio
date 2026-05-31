@@ -25,9 +25,10 @@ model into `%LOCALAPPDATA%\midi-studio\forge-env` (~3 GB, NVIDIA GPU recommended
 ## Updates
 
 The app checks [Releases](https://github.com/StarsationX/midi-studio/releases) a few seconds after
-launch (toggleable in **⚙ Settings**), verifies the new build's **SHA-256** against the release's
-`SHA256SUMS.txt`, and applies it with a safe swap (keeps a backup, restores on failure). You can also
-check manually from the version badge or **⚙ Settings**.
+launch (toggleable in **⚙ Settings**), verifies the download's **SHA-256** against the **digest GitHub
+publishes for each release asset** (`asset.digest` in the API — no sidecar checksum file needed), and
+applies it with a safe swap (keeps a backup, restores on failure). You can also check manually from
+the version badge or **⚙ Settings**.
 
 ## Build from source
 
