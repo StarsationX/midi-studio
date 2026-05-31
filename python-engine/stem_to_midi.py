@@ -9,7 +9,16 @@ ROOT = Path(__file__).resolve().parent
 # dir to sys.path, so a sibling `import audio_utils` would fail. Add it ourselves.
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-FFMPEG_SHARED_BIN = str(ROOT / "ffmpeg" / "ffmpeg-master-latest-win64-lgpl-shared" / "bin")
+
+# FFmpeg lives in the provisioned forge-env, not this (read-only when packaged)
+# script dir; resolve a base that holds it, falling back to ROOT for dev/source.
+_ASSET_BASE = Path(sys.executable).resolve().parent
+if _ASSET_BASE.name.lower() in ("python", "scripts"):
+    _ASSET_BASE = _ASSET_BASE.parent
+if not (_ASSET_BASE / "ffmpeg").exists() and (ROOT / "ffmpeg").exists():
+    _ASSET_BASE = ROOT
+
+FFMPEG_SHARED_BIN = str(_ASSET_BASE / "ffmpeg" / "ffmpeg-master-latest-win64-lgpl-shared" / "bin")
 if Path(FFMPEG_SHARED_BIN).exists():
     os.environ["PATH"] = FFMPEG_SHARED_BIN + os.pathsep + os.environ.get("PATH", "")
     os.add_dll_directory(FFMPEG_SHARED_BIN)

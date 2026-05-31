@@ -6,9 +6,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 
+# Assets (FFmpeg/model/MSST) live in the provisioned forge-env, not this script
+# dir; resolve a base that holds them, falling back to ROOT for dev/source.
+_ASSET_BASE = Path(sys.executable).resolve().parent
+if _ASSET_BASE.name.lower() in ("python", "scripts"):
+    _ASSET_BASE = _ASSET_BASE.parent
+if not (_ASSET_BASE / "ffmpeg").exists() and (ROOT / "ffmpeg").exists():
+    _ASSET_BASE = ROOT
+MODELS_BASE = Path(os.environ.get("MIDI_STUDIO_MODELS_DIR") or (_ASSET_BASE / "models"))
+
 # torchcodec dlopen-loads the FFmpeg shared libs at import time - put them on PATH
 # before importing anything that touches torchcodec/torchaudio.
-FFMPEG_BIN = ROOT / "ffmpeg" / "ffmpeg-master-latest-win64-lgpl-shared" / "bin"
+FFMPEG_BIN = _ASSET_BASE / "ffmpeg" / "ffmpeg-master-latest-win64-lgpl-shared" / "bin"
 if FFMPEG_BIN.exists():
     os.environ["PATH"] = str(FFMPEG_BIN) + os.pathsep + os.environ.get("PATH", "")
     try:
@@ -80,12 +89,12 @@ except Exception as e:
     issues.append(f"CUDA check: {e}")
 
 print("\nAssets:")
-check_file(ROOT / "models" / "bs_rofo_sw" / "BS-Rofo-SW-Fixed.ckpt", "BS-Rofo-SW-Fixed.ckpt", min_bytes=600 * 1024 * 1024)
-check_file(ROOT / "models" / "bs_rofo_sw" / "BS-Rofo-SW-Fixed.yaml", "BS-Rofo-SW-Fixed.yaml", min_bytes=100)
+check_file(MODELS_BASE / "bs_rofo_sw" / "BS-Rofo-SW-Fixed.ckpt", "BS-Rofo-SW-Fixed.ckpt", min_bytes=600 * 1024 * 1024)
+check_file(MODELS_BASE / "bs_rofo_sw" / "BS-Rofo-SW-Fixed.yaml", "BS-Rofo-SW-Fixed.yaml", min_bytes=100)
 
 # ffmpeg.exe in the shared build is a small stub; the codec code is in the DLLs.
 # Verify the DLLs are present instead.
-ffmpeg_bin = ROOT / "ffmpeg" / "ffmpeg-master-latest-win64-lgpl-shared" / "bin"
+ffmpeg_bin = _ASSET_BASE / "ffmpeg" / "ffmpeg-master-latest-win64-lgpl-shared" / "bin"
 check_file(ffmpeg_bin / "ffmpeg.exe", "ffmpeg.exe", min_bytes=100_000)
 if ffmpeg_bin.exists():
     dll_count = sum(1 for _ in ffmpeg_bin.glob("*.dll"))
@@ -95,7 +104,7 @@ if ffmpeg_bin.exists():
         print(f"{FAIL} FFmpeg shared DLLs: only {dll_count} found (expected 6+)")
         issues.append("FFmpeg shared DLLs missing")
 
-check_file(ROOT / "msst" / "inference.py", "msst/inference.py", min_bytes=100)
+check_file(_ASSET_BASE / "msst" / "inference.py", "msst/inference.py", min_bytes=100)
 
 print()
 if issues:

@@ -9,7 +9,17 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-FFMPEG_BIN = ROOT / "ffmpeg" / "ffmpeg-master-latest-win64-lgpl-shared" / "bin"
+
+# FFmpeg lives in the provisioned forge-env (next to the heavy interpreter), not
+# this (read-only when packaged) script dir. Resolve a base that actually holds
+# it; fall back to ROOT for a co-located dev/source checkout.
+_ASSET_BASE = Path(sys.executable).resolve().parent
+if _ASSET_BASE.name.lower() in ("python", "scripts"):
+    _ASSET_BASE = _ASSET_BASE.parent
+if not (_ASSET_BASE / "ffmpeg").exists() and (ROOT / "ffmpeg").exists():
+    _ASSET_BASE = ROOT
+
+FFMPEG_BIN = _ASSET_BASE / "ffmpeg" / "ffmpeg-master-latest-win64-lgpl-shared" / "bin"
 if FFMPEG_BIN.exists():
     os.environ["PATH"] = str(FFMPEG_BIN) + os.pathsep + os.environ.get("PATH", "")
 
