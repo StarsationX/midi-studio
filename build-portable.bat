@@ -1,0 +1,33 @@
+@echo off
+rem Builds the LIGHT sidecar Python into python-engine\python so the packaged app
+rem ships a real interpreter (it runs ipc_main.py AND provision_forge.py under
+rem sys.executable). Only the tiny player deps go here; the heavy forge env is
+rem provisioned at runtime into %LOCALAPPDATA%, never bundled.
+setlocal enableextensions
+set "PYVER=3.13.5"
+set "ENGINE=%~dp0python-engine"
+set "PYDIR=%ENGINE%\python"
+
+if exist "%PYDIR%\python.exe" ( echo [build] light python present & goto deps )
+
+echo [build] downloading embeddable Python %PYVER% ...
+mkdir "%PYDIR%" 2>nul
+curl -fL -o "%PYDIR%\python-embed.zip" "https://www.python.org/ftp/python/%PYVER%/python-%PYVER%-embed-amd64.zip" || goto err
+powershell -NoProfile -Command "Expand-Archive -Force '%PYDIR%\python-embed.zip' '%PYDIR%'" || goto err
+del "%PYDIR%\python-embed.zip" 2>nul
+for %%f in ("%PYDIR%\python*._pth") do powershell -NoProfile -Command "(Get-Content '%%f') -replace '#import site','import site' | Set-Content '%%f'"
+echo [build] bootstrapping pip ...
+curl -fL -o "%PYDIR%\get-pip.py" "https://bootstrap.pypa.io/get-pip.py" || goto err
+"%PYDIR%\python.exe" "%PYDIR%\get-pip.py" --no-warn-script-location || goto err
+del "%PYDIR%\get-pip.py" 2>nul
+
+:deps
+echo [build] installing light player deps ...
+"%PYDIR%\python.exe" -m pip install --no-warn-script-location -r "%ENGINE%\requirements-player.txt" || goto err
+echo [build] verifying imports (fails the build if the sidecar can't start) ...
+"%PYDIR%\python.exe" -c "import mido,pynput,pygame,psutil,win32gui,win32con,win32process; print('imports OK')" || goto err
+echo [build] light sidecar python ready at %PYDIR%
+exit /b 0
+:err
+echo [build] FAILED
+exit /b 1

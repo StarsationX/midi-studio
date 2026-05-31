@@ -1,0 +1,16 @@
+# dependencies & build output (never committed — built by npm / build-portable.bat)
+node_modules/
+dist/
+out/
+
+# the bundled light Python is a build artifact (built by build-portable.bat)
+python-engine/python/
+
+# python caches
+**/__pycache__/
+*.pyc
+
+# misc
+*.log
+.DS_Store
+Thumbs.db

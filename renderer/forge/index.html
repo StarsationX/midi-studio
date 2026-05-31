@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+  <title>Midi-Forge</title>
+  <link rel="stylesheet" href="../shared/tokens.css" />
+  <link rel="stylesheet" href="./forge.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="envbar" id="envbar">
+      <span class="dot" id="env-dot"></span>
+      <span id="env-text">Checking Midi-Forge…</span>
+      <span class="spacer"></span>
+      <button class="link" id="env-recheck">Re-check</button>
+    </div>
+
+    <!-- SETUP panel (shown when forge isn't provisioned) -->
+    <section class="card setup" id="setup" hidden>
+      <h2>Set up Midi-Forge</h2>
+      <p class="muted">One-time download of the model + dependencies (~3 GB, NVIDIA GPU recommended).
+        The Midi-Player tab works without this.</p>
+      <div class="setup-actions">
+        <button class="btn btn-primary" id="setup-start">Set up Midi-Forge</button>
+        <button class="btn btn-ghost" id="setup-cancel" hidden>Cancel</button>
+      </div>
+      <div class="prog" id="setup-prog" hidden>
+        <div class="prog-row"><span id="setup-step">Preparing…</span><span id="setup-pct" class="mono"></span></div>
+        <div class="bar"><div class="bar-fill" id="setup-bar"></div></div>
+        <div class="muted small" id="setup-msg"></div>
+      </div>
+    </section>
+
+    <!-- WORKSPACE -->
+    <section class="work" id="work">
+      <div class="card">
+        <label class="lbl">Input</label>
+        <div class="dropzone" id="dropzone">
+          <input id="input-path" type="text" readonly placeholder="Drop a song here, or browse…" />
+          <button class="btn" id="browse">Browse…</button>
+        </div>
+        <div class="row url-row">
+          <input id="url" type="text" placeholder="…or paste a YouTube / audio URL" />
+          <button class="btn" id="fetch">Fetch</button>
+        </div>
+        <div class="row out-row">
+          <span class="out-label">Output folder: <span id="out-dir" class="mono muted">next to the input file</span></span>
+          <span class="spacer"></span>
+          <button class="link" id="clear-out" hidden>Reset</button>
+          <button class="btn" id="pick-out">Change…</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <label class="lbl">Pipeline</label>
+        <div class="seg" id="pipeline">
+          <button data-v="piano" class="is-active">Piano (separate + Transkun)</button>
+          <button data-v="general">General (basic-pitch)</button>
+        </div>
+        <label class="check"><input type="checkbox" id="skipsep" /> Skip separation (input is already an isolated stem)</label>
+
+        <button class="adv-toggle" id="adv-toggle" aria-expanded="false">Advanced ▾</button>
+        <div class="adv" id="adv" hidden>
+          <div class="adv-sub muted small">Common</div>
+          <div class="adv-grid">
+            <label class="check"><input type="checkbox" id="LOUDNESS_NORM" checked /> LOUDNESS_NORM</label>
+            <label>VELOCITY_GAMMA <input type="number" id="VELOCITY_GAMMA" step="0.05" value="0.85" /></label>
+            <label>MIN_NOTE_SEC <input type="number" id="MIN_NOTE_SEC" step="0.01" value="0.05" /></label>
+            <label>MIN_VELOCITY <input type="number" id="MIN_VELOCITY" value="20" /></label>
+          </div>
+          <div class="adv-group" data-group="piano">
+            <div class="adv-sub muted small">Piano pipeline (separation + Transkun)</div>
+            <div class="adv-grid">
+              <label class="check"><input type="checkbox" id="USE_TTA" /> USE_TTA (cleaner, 2× slower)</label>
+              <label>BIGSHIFTS <input type="number" id="BIGSHIFTS" min="1" max="7" value="1" /></label>
+              <label>SEGMENT_HOP <input type="number" id="SEGMENT_HOP" step="0.1" placeholder="off" /></label>
+              <label>PIANO_MIN_PITCH <input type="number" id="PIANO_MIN_PITCH" value="21" /></label>
+              <label>PIANO_MAX_PITCH <input type="number" id="PIANO_MAX_PITCH" value="108" /></label>
+            </div>
+          </div>
+          <div class="adv-group" data-group="general" hidden>
+            <div class="adv-sub muted small">General pipeline (basic-pitch)</div>
+            <div class="adv-grid">
+              <label>BP_ONSET_THRESHOLD <input type="number" id="BP_ONSET_THRESHOLD" step="0.05" min="0.05" max="0.95" value="0.5" /></label>
+              <label>BP_FRAME_THRESHOLD <input type="number" id="BP_FRAME_THRESHOLD" step="0.05" min="0.05" max="0.95" value="0.3" /></label>
+              <label>BP_MIN_NOTE_MS <input type="number" id="BP_MIN_NOTE_MS" step="10" value="120" /></label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card run-card">
+        <button class="btn btn-primary big" id="start" disabled>▶ Start</button>
+        <button class="btn btn-ghost" id="cancel" hidden>Cancel</button>
+        <div class="prog" id="job-prog" hidden>
+          <div class="prog-row"><span id="job-stage">Queued</span><span id="job-pct" class="mono"></span></div>
+          <div class="bar"><div class="bar-fill" id="job-bar"></div></div>
+        </div>
+        <div class="output" id="output" hidden>
+          <span>✓ Output:</span>
+          <span class="mono" id="output-path"></span>
+          <button class="link" id="output-open">Open folder</button>
+          <button class="link" id="output-toplayer">Send to Midi-Player ⤷</button>
+        </div>
+        <div class="errcard" id="errcard" hidden>
+          <span class="err-x">✖</span>
+          <span id="err-msg"></span>
+          <span class="spacer"></span>
+          <button class="link" id="err-dismiss">Dismiss</button>
+        </div>
+      </div>
+
+      <div class="card log-card">
+        <div class="log-head"><span>Log</span><button class="link" id="log-clear">Clear</button></div>
+        <pre class="log" id="log"></pre>
+      </div>
+    </section>
+  </div>
+  <div class="drop-overlay" id="drop-overlay" aria-hidden="true">
+    <div class="drop-card">⬇ Drop audio to load</div>
+  </div>
+  <script src="./forge.js"></script>
+</body>
+</html>

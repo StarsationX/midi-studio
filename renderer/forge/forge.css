@@ -1,0 +1,98 @@
+/* forge.css — Midi-Forge tab layout. Tokens + components from ../shared/tokens.css */
+
+body { height: 100%; overflow-y: auto; }
+.wrap { max-width: 840px; margin: 0 auto; padding: var(--s5) var(--s5) var(--s8); display: flex; flex-direction: column; gap: var(--s4); }
+
+/* ---- env status strip ------------------------------------------------- */
+.envbar {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: 10px var(--s4); border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--line);
+  box-shadow: var(--sh-1); font-size: 13px;
+}
+.envbar .spacer { flex: 1; }
+#env-text { color: var(--text-2); font-weight: 500; }
+
+/* ---- cards ------------------------------------------------------------ */
+.card { display: flex; flex-direction: column; gap: var(--s3); }
+
+/* input */
+.dropzone {
+  display: flex; gap: var(--s2); align-items: center;
+  border: 1.5px dashed var(--line-2); border-radius: var(--r);
+  padding: 8px; background: var(--bg-2);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.dropzone.drag { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dropzone input { flex: 1; border: 0; background: transparent; box-shadow: none; }
+.dropzone input:focus { box-shadow: none; }
+.row { display: flex; gap: var(--s2); }
+.url-row input { flex: 1; }
+
+/* pipeline */
+.adv-toggle { align-self: flex-start; background: none; border: 0; color: var(--accent); cursor: pointer; font-weight: 600; padding: 2px 0; margin-top: var(--s1); }
+.adv-toggle:hover { color: var(--accent-2); }
+.adv { border-top: 1px solid var(--line); padding-top: var(--s3); }
+.adv-sub { margin: 2px 0 8px; font-weight: 700; letter-spacing: .3px; }
+.adv-group { margin-top: var(--s3); }
+.adv-group .adv-sub { margin-top: 0; }
+.adv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3) var(--s5); }
+.adv-grid label { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); font-size: 13px; color: var(--text-2); }
+.adv-grid input[type="number"] { width: 88px; height: 32px; text-align: right; }
+.adv-grid .check { justify-content: flex-start; }
+
+/* run */
+.run-card { gap: var(--s4); }
+.run-card .btn.big { align-self: flex-start; }
+.prog-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; margin-bottom: 8px; color: var(--text-2); }
+.prog-row #job-stage, .prog-row #setup-step { font-weight: 600; color: var(--text); }
+
+.out-row { align-items: center; }
+.out-label { font-size: 13px; color: var(--text-2); }
+.out-row .spacer { flex: 1; }
+
+/* error card (job failure, visible — not just a log line) */
+.errcard {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; font-size: 13px;
+  padding: 10px var(--s3); border-radius: var(--r);
+  background: var(--err-soft); border: 1px solid #f8717140; color: var(--text);
+}
+.errcard .err-x { color: var(--err); font-weight: 700; }
+.errcard .spacer { flex: 1; }
+
+/* whole-window drag overlay */
+.drop-overlay {
+  position: fixed; inset: 0; z-index: 9000; display: none;
+  background: rgba(8,10,14,.72); backdrop-filter: blur(2px);
+  align-items: center; justify-content: center;
+}
+.drop-overlay.show { display: flex; }
+.drop-card {
+  padding: 28px 44px; border-radius: var(--r-lg); font-size: 18px; font-weight: 700; color: var(--text);
+  background: var(--surface); border: 2px dashed var(--accent-line); box-shadow: var(--sh-pop);
+}
+
+/* success output row */
+.output {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; font-size: 13px;
+  padding: 10px var(--s3); border-radius: var(--r);
+  background: var(--ok-soft); border: 1px solid #34d39940; color: var(--text);
+}
+.output > span:first-child { color: var(--ok); font-weight: 700; }
+
+/* ---- setup / dependency panel ---------------------------------------- */
+.setup { gap: var(--s3); }
+.setup h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.setup > p { margin: 0; color: var(--text-2); }
+.setup-actions { display: flex; gap: var(--s2); margin-top: var(--s1); }
+.prog { width: 100%; }
+
+/* ---- log console ------------------------------------------------------ */
+.log-card { padding: 0; overflow: hidden; gap: 0; }
+.log-head { display: flex; justify-content: space-between; align-items: center; padding: 10px var(--s4); border-bottom: 1px solid var(--line); font-weight: 600; font-size: 13px; color: var(--text-2); }
+.log {
+  margin: 0; padding: var(--s3) var(--s4); max-height: 220px; overflow: auto;
+  background: var(--bg-2);
+  font-family: "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px; line-height: 1.6; color: var(--text-2); white-space: pre-wrap; word-break: break-word;
+}

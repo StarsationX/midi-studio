@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+  <title>MIDI Player</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 18V6h2v12H3zm4 0V6h2v12H7zm5 2V4h2v16h-2zm5-2V6h2v12h-2zm5-9V6h-2v3h2zm0 6v-3h-2v3h2z" fill="currentColor"/>
+      </svg>
+      <span class="brand-name">MIDI Player</span>
+      <button class="version-badge" id="version-badge" title="Check for updates">v—</button>
+    </div>
+    <div class="header-status" id="header-status">
+      <span class="status-dot"></span>
+      <span class="status-text" id="status-text">Idle</span>
+    </div>
+  </header>
+
+  <div class="update-banner" id="update-banner">
+    <div class="update-icon">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l4 4h-3v6h-2V7H8l4-4zM5 19v-2h14v2H5z" fill="currentColor"/></svg>
+    </div>
+    <div class="update-text">
+      <div class="update-title" id="update-title">Update available</div>
+      <div class="update-sub" id="update-sub"></div>
+    </div>
+    <div class="update-progress" id="update-progress"><div class="update-progress-bar" id="update-progress-bar"></div></div>
+    <button class="btn btn-update" id="update-apply">Update &amp; restart</button>
+    <button class="btn btn-ghost" id="update-dismiss" title="Dismiss">✕</button>
+  </div>
+
+  <main class="app-grid">
+
+    <!-- ============================================================
+         Sidebar — accordion (one section open at a time)
+         ============================================================ -->
+    <aside class="panel sidebar">
+
+      <section class="section is-open" data-section="source">
+        <button class="section-head" type="button">
+          <h2 class="section-title">Source</h2>
+          <svg class="caret" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 10l5 5 5-5z" fill="currentColor"/>
+          </svg>
+        </button>
+        <div class="section-body">
+          <div class="field">
+            <label>MIDI file</label>
+            <div class="file-row">
+              <input id="midi-path" type="text" readonly placeholder="Drag a .mid here, or browse…"/>
+              <button id="midi-browse" class="btn btn-icon" title="Browse">…</button>
+            </div>
+          </div>
+          <div class="field" id="recent-field" style="display:none">
+            <label>Recent</label>
+            <div class="file-row">
+              <select id="recent-select"><option value="">— recent files —</option></select>
+              <button id="recent-clear" class="btn btn-icon" title="Clear recent files">✕</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Target window</label>
+            <div class="file-row">
+              <select id="target-select"><option value="">— refresh to populate —</option></select>
+              <button id="target-refresh" class="btn btn-icon" title="Refresh">↻</button>
+            </div>
+            <label class="check" style="margin-top:8px">
+              <input id="auto-pick-target" type="checkbox"/> Auto-select last target on launch
+            </label>
+          </div>
+          <div class="field">
+            <label>Mapping</label>
+            <div class="file-row">
+              <select id="mapping-select">
+                <option value="roblox">roblox — 36 keys (1…m)</option>
+                <option value="roblox61">roblox61 — 61 keys + Shift</option>
+                <option value="roblox66">roblox66 — 66 keys + Shift</option>
+                <option value="roblox88">roblox88 — full 88 keys</option>
+                <option value="roblox88ctrl">roblox88ctrl — 88 keys + Ctrl</option>
+                <option value="virtualpiano">virtualpiano — 88 keys</option>
+                <option value="virtualpiano66">virtualpiano66 — 66 keys</option>
+              </select>
+              <button id="mapping-browse" class="btn btn-icon" title="Custom mapping">+</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" data-section="playback">
+        <button class="section-head" type="button">
+          <h2 class="section-title">Playback</h2>
+          <svg class="caret" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 10l5 5 5-5z" fill="currentColor"/>
+          </svg>
+        </button>
+        <div class="section-body">
+          <div class="field">
+            <label>Tempo <span class="muted" id="tempo-label">1.00×</span></label>
+            <input id="tempo" type="range" min="0.25" max="3" step="0.05" value="1"/>
+          </div>
+          <div class="field-row">
+            <div class="field" style="max-width:120px">
+              <label>Countdown</label>
+              <input id="countdown" type="number" min="0" max="10" value="0"/>
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <label class="check"><input id="stats" type="checkbox"/> Timing stats</label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" data-section="hotkeys">
+        <button class="section-head" type="button">
+          <h2 class="section-title">Hotkeys</h2>
+          <svg class="caret" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 10l5 5 5-5z" fill="currentColor"/>
+          </svg>
+        </button>
+        <div class="section-body">
+          <div class="hotkey-grid">
+            <span class="muted">Play</span>
+            <input id="hotkey-play" type="text" value="<f6>" />
+            <span class="muted">Pause</span>
+            <input id="hotkey-pause" type="text" value="<f8>" />
+            <span class="muted">Stop</span>
+            <input id="hotkey-stop" type="text" value="<f7>" />
+            <span></span><span></span>
+            <button id="hotkey-apply" class="btn">Apply</button>
+          </div>
+          <div class="muted small" id="hotkey-status" style="margin-top:10px">Defaults active.</div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ============================================================
+         Main column — visualizer / transport / log
+         ============================================================ -->
+    <section class="main-col">
+
+      <div class="panel viz-panel">
+        <canvas id="viz" class="viz"></canvas>
+        <div class="viz-empty" id="viz-empty">
+          <div class="viz-empty-glow"></div>
+          <div class="viz-empty-text">Drag a MIDI file here</div>
+          <div class="viz-empty-cta">or click ⌄ to browse</div>
+        </div>
+      </div>
+
+      <div class="panel transport-panel">
+        <div class="track-strip is-empty" id="track-strip">
+          <span class="track-name" id="track-name">No file loaded</span>
+          <span class="track-meta" id="track-meta"></span>
+        </div>
+
+        <div class="transport-row">
+          <button id="play" class="btn-play" title="Play (F6)" aria-label="Play">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button id="pause" class="btn-icon-only" disabled title="Pause (F8)" aria-label="Pause">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+          </button>
+          <button id="stop" class="btn-icon-only" disabled title="Stop (F7)" aria-label="Stop">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg>
+          </button>
+
+          <div class="transport-time" id="time-elapsed">00:00</div>
+
+          <div class="scrubber" id="scrubber" role="slider"
+               tabindex="0" aria-label="Seek"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="scrubber-rail">
+              <div class="scrubber-hover" id="scrubber-hover"></div>
+              <div class="scrubber-fill"  id="scrubber-fill"></div>
+              <div class="scrubber-thumb" id="scrubber-thumb"></div>
+            </div>
+            <div class="scrubber-tooltip" id="scrubber-tooltip">00:00</div>
+          </div>
+
+          <div class="transport-time right" id="time-total">00:00</div>
+        </div>
+      </div>
+
+      <div class="panel log-panel is-collapsed" id="log-panel">
+        <div class="log-header" id="log-header">
+          <h2>Log</h2>
+          <div class="log-header-actions">
+            <button id="log-clear" class="btn btn-ghost" title="Clear">Clear</button>
+            <svg class="log-caret" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 10l5 5 5-5z" fill="currentColor"/>
+            </svg>
+          </div>
+        </div>
+        <pre id="log" class="log"></pre>
+      </div>
+
+    </section>
+  </main>
+
+  <div id="drop-overlay" class="drop-overlay">
+    <div class="drop-card">
+      <svg viewBox="0 0 24 24" class="drop-icon" aria-hidden="true">
+        <path d="M19 13v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6h2v6h10v-6h2zm-6-9 5 5h-3v6h-4V9H8l5-5z"
+              fill="currentColor"/>
+      </svg>
+      <div class="drop-title">Drop to load</div>
+      <div class="drop-sub">.mid / .midi → MIDI file · .json → custom mapping</div>
+    </div>
+  </div>
+
+  <script src="visualizer.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

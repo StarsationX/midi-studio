@@ -1,0 +1,184 @@
+/* tokens.css — ONE design system shared by the shell + the Midi-Forge tab.
+   (The Midi-Player tab keeps its own original stylesheet, deliberately untouched.)
+   Premium dark audio-tool: layered matte surfaces, hairline borders, one
+   restrained accent, gentle elevation, subtle motion. */
+
+:root {
+  /* ---- surfaces (layered, matched to the player tab's #0e1014 base) ---- */
+  --bg:          #0e1014;
+  --bg-2:        #0b0d11;   /* recessed wells (inputs, log) */
+  --surface:     #15171d;   /* cards / panels */
+  --surface-2:   #1b1e26;   /* controls, hover */
+  --surface-3:   #232732;   /* pressed / elevated control */
+
+  /* ---- hairlines ---- */
+  --line:        #232733;
+  --line-2:      #2e333f;   /* stronger / hover border */
+  --line-soft:   #ffffff0d; /* inner highlight */
+
+  /* ---- text hierarchy ---- */
+  --text:        #e8ebf1;
+  --text-2:      #aab2c0;   /* secondary (AA on surfaces) */
+  --text-3:      #767f8e;   /* tertiary / muted labels */
+
+  /* ---- accent (matched to the Midi-Player tab so the whole app is one
+         identity: cyan→purple, with dark ink on filled accents) ---- */
+  --accent:      #5dd0ff;             /* cyan — links, status, focus, gradient start */
+  --accent-2:    #8e7dff;             /* purple — gradient end */
+  --accent-ink:  #062234;             /* readable text/icon on filled accent */
+  --accent-grad: linear-gradient(180deg, #6fd4ff, #3aa6e6);
+  --accent-soft: rgba(93,208,255,.13);
+  --accent-line: rgba(93,208,255,.42);
+
+  /* ---- semantic ---- */
+  --ok:   #34d399;  --ok-soft:   #34d39920;
+  --warn: #f5b544;  --warn-soft: #f5b54420;
+  --err:  #f87171;  --err-soft:  #f8717120;
+
+  /* ---- radius scale ---- */
+  --r-sm: 8px;  --r: 10px;  --r-lg: 14px;  --r-pill: 999px;
+
+  /* ---- spacing scale (4-based) ---- */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
+
+  /* ---- elevation ---- */
+  --sh-1: 0 1px 2px #00000040;
+  --sh-2: 0 10px 28px -12px #000000a0;
+  --sh-pop: 0 18px 48px -16px #000000c0;
+  --glow: 0 0 22px -6px rgba(93,208,255,.5);
+
+  /* ---- motion ---- */
+  --dur: 150ms;
+  --dur-2: 220ms;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+
+  /* ---- focus ring (keyboard only) ---- */
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+
+* { box-sizing: border-box; }
+/* Restore the hidden attribute — component display rules below (e.g. .btn,
+   .card) would otherwise override [hidden] at equal specificity. */
+[hidden] { display: none !important; }
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13.5px/1.5 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- type utilities ---- */
+.mono { font-family: "Cascadia Code", "JetBrains Mono", ui-monospace, "SF Mono", monospace; font-variant-ligatures: none; }
+.muted { color: var(--text-3); }
+.small { font-size: 12px; }
+.lbl {
+  display: block; font-size: 11px; font-weight: 700; letter-spacing: .6px;
+  text-transform: uppercase; color: var(--text-3); margin-bottom: var(--s3);
+}
+
+/* ---- buttons (one family, used by shell + forge) ---- */
+.btn {
+  --bh: 34px;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  height: var(--bh); padding: 0 14px;
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  font: 600 13px/1 inherit; cursor: pointer; white-space: nowrap;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+              transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), filter var(--dur) var(--ease);
+}
+.btn:hover { background: var(--surface-3); border-color: var(--line-2); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled, .btn[disabled] { opacity: .45; cursor: not-allowed; transform: none; }
+.btn.big { height: 40px; padding: 0 22px; font-size: 14px; }
+
+.btn-primary {
+  background: var(--accent-grad); color: var(--accent-ink);
+  border-color: rgba(255,255,255,.22);
+  box-shadow: inset 0 1px 0 #ffffff40, var(--glow); font-weight: 700;
+}
+.btn-primary:hover { filter: brightness(1.06); border-color: rgba(255,255,255,.3); }
+.btn-primary:disabled { box-shadow: none; filter: none; }
+
+.btn-ghost { background: transparent; border-color: transparent; color: var(--text-3); }
+.btn-ghost:hover { background: #ffffff0d; color: var(--text); border-color: transparent; }
+
+.link {
+  background: none; border: 0; padding: 2px 4px; border-radius: 6px;
+  color: var(--accent); font: 600 12px/1 inherit; cursor: pointer;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.link:hover { color: var(--accent-2); background: var(--accent-soft); }
+
+/* ---- text inputs ---- */
+.input, input[type="text"], input[type="number"] {
+  height: 36px; padding: 0 11px;
+  background: var(--bg-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  font: 13.5px/1 inherit;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+input::placeholder { color: var(--text-3); }
+.input:focus, input[type="text"]:focus, input[type="number"]:focus {
+  outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---- cards ---- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s4);
+  box-shadow: var(--sh-1);
+}
+
+/* ---- progress bar ---- */
+.bar { height: 6px; background: var(--bg-2); border-radius: var(--r-pill); overflow: hidden; }
+.bar-fill {
+  height: 100%; width: 0;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-radius: var(--r-pill); transition: width var(--dur-2) var(--ease);
+}
+.bar-fill.indet {
+  width: 32% !important;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: indet 1.15s var(--ease) infinite;
+}
+@keyframes indet { 0% { margin-left: -34%; } 100% { margin-left: 102%; } }
+
+/* ---- status dot ---- */
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: 0 0 auto; box-shadow: 0 0 0 3px #ffffff08; }
+.dot.ok   { background: var(--ok);   box-shadow: 0 0 0 3px var(--ok-soft); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+.dot.err  { background: var(--err);  box-shadow: 0 0 0 3px var(--err-soft); }
+
+/* ---- checkbox row ---- */
+.check { display: inline-flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: 13px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+/* ---- segmented control ---- */
+.seg { display: inline-flex; gap: 3px; padding: 3px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r); }
+.seg button {
+  background: transparent; border: 0; color: var(--text-3);
+  padding: 7px 14px; border-radius: 7px; font: 600 13px/1 inherit; cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.seg button:hover { color: var(--text); }
+.seg button.is-active { background: var(--surface-3); color: #fff; box-shadow: var(--sh-1); }
+
+/* ---- keyboard focus ring (mouse clicks don't show it) ---- */
+:focus-visible { outline: none; box-shadow: var(--ring); }
+.btn:focus-visible, .seg button:focus-visible, .link:focus-visible, .tab:focus-visible { box-shadow: var(--ring); }
+
+/* ---- custom scrollbars (premium touch) ---- */
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-thumb { background: #ffffff14; border: 3px solid transparent; background-clip: padding-box; border-radius: var(--r-pill); }
+::-webkit-scrollbar-thumb:hover { background: #ffffff24; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- respect reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}
