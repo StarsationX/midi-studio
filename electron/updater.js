@@ -153,28 +153,38 @@ async function applyUpdate(send) {
 
     send({ state: 'ready' });
     const bak = `${target}.bak`, pid = process.pid;
+    const batPath = path.join(stagingDir(), `apply-update-${cached.version}.bat`);
+    const vbsPath = path.join(stagingDir(), `apply-update-${cached.version}.vbs`);
     const bat = [
       '@echo off', 'setlocal enableextensions',
-      `set "SRC=${newExe}"`, `set "DST=${target}"`, `set "BAK=${bak}"`, `set "PID=${pid}"`,
-      'set /a tries=0',
-      ':waitloop', 'tasklist /fi "PID eq %PID%" 2>nul | find "%PID%" >nul', 'if errorlevel 1 goto exited',
-      'set /a tries+=1', 'if %tries% GEQ 60 goto giveup', 'ping 127.0.0.1 -n 2 >nul', 'goto waitloop',
-      ':exited',
-      'if exist "%BAK%" del "%BAK%" >nul 2>nul',
-      'if exist "%DST%" move /y "%DST%" "%BAK%" >nul 2>nul',
-      'if exist "%DST%" goto restore',          // first move failed -> DST still locked
-      'move /y "%SRC%" "%DST%" >nul 2>nul',
-      'if not exist "%DST%" goto restore',       // new exe did not land -> recover
-      'start "" "%DST%" --post-update',
-      'del "%BAK%" >nul 2>nul',
-      'goto cleanup',
+      `set "SRC=${newExe}"`, `set "DST=${target}"`, `set "BAK=${bak}"`, `set "PID=${pid}"`, `set "VBS=${vbsPath}"`,
+      // 1) wait for THIS app process to exit (bounded ~120s)
+      'set /a t=0',
+      ':wpid', 'tasklist /fi "PID eq %PID%" 2>nul | find "%PID%" >nul || goto unlocked',
+      'set /a t+=1', 'if %t% GEQ 60 goto unlocked', 'ping 127.0.0.1 -n 2 >nul', 'goto wpid',
+      // 2) take the exe — RETRY until the portable launcher releases the file lock (~3 min).
+      //    A single failed move was the old bug: it relaunched and looped forever.
+      ':unlocked', 'if exist "%BAK%" del "%BAK%" >nul 2>nul', 'set /a t=0',
+      ':take', 'if not exist "%DST%" goto place',
+      'move /y "%DST%" "%BAK%" >nul 2>nul', 'if not exist "%DST%" goto place',
+      'set /a t+=1', 'if %t% GEQ 90 goto giveup', 'ping 127.0.0.1 -n 2 >nul', 'goto take',
+      // 3) drop the new exe in place and relaunch
+      ':place', 'move /y "%SRC%" "%DST%" >nul 2>nul', 'if not exist "%DST%" goto restore',
+      'start "" "%DST%" --post-update', 'del "%BAK%" >nul 2>nul', 'goto cleanup',
+      // recover the original if anything failed, so the user is never left without an app
       ':restore', 'if exist "%BAK%" move /y "%BAK%" "%DST%" >nul 2>nul', 'start "" "%DST%"', 'goto cleanup',
-      ':giveup', 'del "%SRC%" >nul 2>nul',
-      ':cleanup', 'del "%SRC%" >nul 2>nul', '(goto) 2>nul & del "%~f0"', '',
+      ':giveup', 'if exist "%BAK%" move /y "%BAK%" "%DST%" >nul 2>nul', 'start "" "%DST%"',
+      ':cleanup', 'del "%SRC%" >nul 2>nul', 'del "%VBS%" >nul 2>nul', '(goto) 2>nul & del "%~f0"', '',
     ].join('\r\n');
-    const batPath = path.join(stagingDir(), `apply-update-${cached.version}.bat`);
     fs.writeFileSync(batPath, bat, 'utf8');
-    spawn('cmd.exe', ['/c', batPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    // Run the batch fully HIDDEN (no flashing cmd window) via a tiny VBS shim;
+    // fall back to a hidden cmd spawn if Windows Script Host is unavailable.
+    try {
+      fs.writeFileSync(vbsPath, 'CreateObject("WScript.Shell").Run "cmd /c ""' + batPath + '""", 0, False', 'utf8');
+      spawn('wscript.exe', [vbsPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } catch (_) {
+      spawn('cmd.exe', ['/c', batPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    }
     setTimeout(() => app.quit(), 400);
   } catch (e) { send({ state: 'error', message: String((e && e.message) || e) }); }
 }
