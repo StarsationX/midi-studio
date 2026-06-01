@@ -4,7 +4,8 @@
   const $ = (id) => document.getElementById(id);
   const ADV_KEYS = ['USE_TTA', 'LOUDNESS_NORM', 'BIGSHIFTS', 'SEGMENT_HOP', 'VELOCITY_GAMMA',
     'MIN_NOTE_SEC', 'MIN_VELOCITY', 'PIANO_MIN_PITCH', 'PIANO_MAX_PITCH',
-    'BP_ONSET_THRESHOLD', 'BP_FRAME_THRESHOLD', 'BP_MIN_NOTE_MS'];
+    'BP_ONSET_THRESHOLD', 'BP_FRAME_THRESHOLD', 'BP_MIN_NOTE_MS',
+    'MAX_POLYPHONY', 'OCTAVE_FOLD'];
 
   // Show only the tuning group relevant to the selected pipeline.
   function syncPipelineUI() {

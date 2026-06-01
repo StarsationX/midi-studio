@@ -73,6 +73,22 @@ def _script_dir():
 
 SCRIPT_DIR = _script_dir()
 
+# A persistent, user-writable mappings folder in AppData (set by the Electron
+# main process). The portable .exe re-extracts to a fresh temp dir every launch,
+# so any mapping kept next to the bundled ones would vanish; AppData survives.
+# We resolve a mapping name here first, then fall back to the bundled presets.
+USER_MAPPINGS_DIR = os.environ.get("MIDI_STUDIO_MAPPINGS_DIR") or ""
+
+
+def _resolve_mapping(arg):
+    """Prefer a user-managed copy in AppData so custom / edited mappings persist."""
+    if USER_MAPPINGS_DIR and arg and not os.path.isabs(str(arg)):
+        name = str(arg)
+        cand = os.path.join(USER_MAPPINGS_DIR, name if name.endswith(".json") else name + ".json")
+        if os.path.isfile(cand):
+            return cand
+    return arg
+
 # ---------------------------------------------------------------------------
 # stdio plumbing
 # ---------------------------------------------------------------------------
@@ -128,7 +144,7 @@ class Bridge:
     def cmd_load_midi(self, msg):
         try:
             mapping_data, note_to_key = engine.load_mapping(
-                msg["mapping"], SCRIPT_DIR)
+                _resolve_mapping(msg["mapping"]), SCRIPT_DIR)
             tempo = float(msg.get("tempo", 1.0))
             events, unmapped, total, bpm = engine.parse_midi(
                 msg["path"], note_to_key, tempo)
@@ -284,7 +300,7 @@ class Bridge:
                 return
 
             mapping_data, note_to_key = engine.load_mapping(
-                mapping_arg, SCRIPT_DIR)
+                _resolve_mapping(mapping_arg), SCRIPT_DIR)
             events, unmapped, total_dur, bpm = engine.parse_midi(
                 midi_path, note_to_key, tempo)
             if not events:

@@ -82,6 +82,32 @@ function modelsDir(settings) {
   return path.join(pythonEngineDir(), 'models');
 }
 
+// A persistent, user-writable home for mappings. The portable .exe re-extracts
+// to a fresh temp dir each launch, so mappings kept beside the bundled ones get
+// wiped; this folder lives in %APPDATA%\midi-studio and survives relaunch/update.
+function userMappingsDir() {
+  return path.join(app.getPath('userData'), 'mappings');
+}
+
+// Ensure the folder exists and seed it (first run only) with the bundled presets
+// so it's discoverable and editable. Never overwrites existing files — user
+// edits and custom mappings are preserved. Returns the directory path.
+function ensureUserMappings() {
+  const dir = userMappingsDir();
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const src = path.join(pythonEngineDir(), 'mappings');
+    if (exists(src)) {
+      for (const f of fs.readdirSync(src)) {
+        if (!/\.json$/i.test(f)) continue;
+        const dst = path.join(dir, f);
+        if (!exists(dst)) { try { fs.copyFileSync(path.join(src, f), dst); } catch (_) {} }
+      }
+    }
+  } catch (_) {}
+  return dir;
+}
+
 function appIcon() {
   const ico = isPackaged()
     ? path.join(process.resourcesPath, 'build', 'icon.ico')
@@ -117,4 +143,5 @@ module.exports = {
   pythonEngineDir, bundledPlayerPython,
   forgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
   modelsDir, rendererIndexHtml, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,
+  userMappingsDir, ensureUserMappings,
 };

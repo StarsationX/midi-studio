@@ -13,8 +13,11 @@
   field.className = 'field';
   field.innerHTML =
     '<label>Transcribed songs <span class="muted small" id="lib-count"></span></label>' +
+    '<input id="lib-search" type="text" placeholder="Search songs…" autocomplete="off" ' +
+      'style="width:100%;margin-bottom:6px;display:none" />' +
     '<div class="file-row">' +
       '<select id="lib-select"><option value="">— choose a folder —</option></select>' +
+      '<button id="lib-refresh" class="btn btn-icon" title="Rescan folder">↻</button>' +
       '<button id="lib-browse" class="btn btn-icon" title="Choose a folder of MIDIs">📁</button>' +
     '</div>';
   // Place it at the very top of the Source panel so it's the first control.
@@ -22,28 +25,44 @@
 
   const sel = field.querySelector('#lib-select');
   const browse = field.querySelector('#lib-browse');
+  const refreshBtn = field.querySelector('#lib-refresh');
+  const search = field.querySelector('#lib-search');
   const count = field.querySelector('#lib-count');
+  const LAST_KEY = 'midi-studio.lib.last';
   let dir = '';
+  let allFiles = [];   // full list for this folder (unfiltered)
 
-  async function refresh() {
-    if (!dir) { sel.innerHTML = '<option value="">— choose a folder —</option>'; count.textContent = ''; return; }
-    let list = [];
-    try { list = await studio.listMidis(dir); } catch (_) {}
+  function render() {
+    const q = search.value.trim().toLowerCase();
+    const list = q ? allFiles.filter((p) => p.split(/[\\/]/).pop().toLowerCase().includes(q)) : allFiles;
+    const last = localStorage.getItem(LAST_KEY) || '';
     sel.innerHTML = '';
     const head = document.createElement('option');
     head.value = '';
-    head.textContent = list.length ? `— ${list.length} MIDI${list.length > 1 ? 's' : ''} —` : '— no MIDIs here —';
+    head.textContent = !allFiles.length ? '— no MIDIs here —'
+      : list.length ? `— ${list.length}${q ? ' match' + (list.length > 1 ? 'es' : '') : ' MIDI' + (list.length > 1 ? 's' : '')} —`
+      : '— no matches —';
     sel.appendChild(head);
     for (const p of list) {
       const o = document.createElement('option');
       o.value = p; o.textContent = p.split(/[\\/]/).pop(); o.title = p;
+      if (p === last) o.selected = true;       // re-select the last-played song
       sel.appendChild(o);
     }
-    count.textContent = dir ? dir.split(/[\\/]/).filter(Boolean).pop() : '';
+    search.style.display = allFiles.length > 6 ? '' : 'none';  // only when worth it
+  }
+
+  async function refresh() {
+    if (!dir) { allFiles = []; sel.innerHTML = '<option value="">— choose a folder —</option>'; count.textContent = ''; return; }
+    try { allFiles = await studio.listMidis(dir); } catch (_) { allFiles = []; }
+    render();
+    count.textContent = dir.split(/[\\/]/).filter(Boolean).pop();
     count.title = dir;
   }
 
-  sel.addEventListener('change', () => { if (sel.value) setMidiFile(sel.value); });
+  search.addEventListener('input', render);
+  sel.addEventListener('change', () => { if (sel.value) { localStorage.setItem(LAST_KEY, sel.value); setMidiFile(sel.value); } });
+  refreshBtn.addEventListener('click', refresh);
   browse.addEventListener('click', async () => {
     const d = await studio.pickFolder();
     if (d) { dir = d; try { await studio.setLibraryDir(d); } catch (_) {} refresh(); }
@@ -55,4 +74,19 @@
   function syncDir() { studio.getLibraryDir().then((d) => { dir = d || ''; refresh(); }).catch(() => {}); }
   syncDir();
   if (studio.onLibraryChanged) studio.onLibraryChanged(syncDir);
+
+  // A discoverable shortcut to the persistent AppData mappings folder. Drop
+  // custom mapping .json files there and they survive every relaunch/update.
+  if (studio.openMappingsDir) {
+    const mb = document.getElementById('mapping-browse');
+    if (mb && !document.getElementById('mapping-folder')) {
+      const fb = document.createElement('button');
+      fb.id = 'mapping-folder';
+      fb.className = mb.className;
+      fb.title = 'Open mappings folder (custom mappings kept here persist)';
+      fb.textContent = '📁';
+      fb.addEventListener('click', () => { try { studio.openMappingsDir(); } catch (_) {} });
+      mb.insertAdjacentElement('afterend', fb);
+    }
+  }
 })();

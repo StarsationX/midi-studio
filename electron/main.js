@@ -141,6 +141,14 @@ function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTi
 
 // ---- services ---------------------------------------------------------------
 function createServices() {
+  // Make user mappings persistent (AppData) and tell the player engine where
+  // to find them — set BEFORE the sidecar spawns so it inherits the env var.
+  try {
+    const md = paths.ensureUserMappings();
+    process.env.MIDI_STUDIO_MAPPINGS_DIR = md;
+    blog(`user mappings dir=${md}`);
+  } catch (e) { blog(`ensureUserMappings failed: ${e && e.message}`); }
+
   sidecar = new PlayerSidecar({
     getSettings: () => settings.getAll(),
     onEvent: (payload) => {
@@ -190,9 +198,13 @@ function wireIpc() {
   });
   ipcMain.handle('dialog:openMapping', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Select mapping JSON',
-      defaultPath: path.join(paths.pythonEngineDir(), 'mappings'), properties: ['openFile'],
+      defaultPath: paths.userMappingsDir(), properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }, { name: 'All files', extensions: ['*'] }] });
     return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle('app:openMappingsDir', () => {
+    const d = paths.ensureUserMappings();
+    return shell.openPath(d);
   });
   ipcMain.handle('forge:pickInput', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Select a song / audio file', properties: ['openFile'],

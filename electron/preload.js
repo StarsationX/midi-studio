@@ -64,5 +64,6 @@ contextBridge.exposeInMainWorld('studio', {
   setLibraryDir: (dir) => ipcRenderer.invoke('app:setLibraryDir', dir),
   listMidis: (dir) => ipcRenderer.invoke('app:listMidis', dir),
   pickFolder: () => ipcRenderer.invoke('app:pickFolder'),
+  openMappingsDir: () => ipcRenderer.invoke('app:openMappingsDir'),
   onLibraryChanged: onChannel('library-changed'),
 });

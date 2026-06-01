@@ -40,23 +40,79 @@ BP_ONSET = float(os.environ.get("BP_ONSET_THRESHOLD", "0.5"))
 BP_FRAME = float(os.environ.get("BP_FRAME_THRESHOLD", "0.3"))
 BP_MIN_NOTE_MS = int(os.environ.get("BP_MIN_NOTE_MS", "58"))
 
+# Constrain detection to the playable piano band (A0..C8). basic-pitch otherwise
+# happily emits sub-bass rumble and ultrasonic harmonic ghosts that the piano
+# player can't play anyway — limiting at the source yields a much cleaner MIDI.
+def _env_freq(name, default):
+    v = os.environ.get(name, "")
+    try:
+        f = float(v)
+        return f if f > 0 else None  # 0 / blank => no limit
+    except ValueError:
+        return default
+BP_MIN_FREQ = _env_freq("BP_MIN_FREQ", 27.5)     # A0
+BP_MAX_FREQ = _env_freq("BP_MAX_FREQ", 4186.0)   # C8
+
+# Fold notes that land just outside the target range back in by whole octaves
+# (instead of dropping them) so the melodic line survives on an 88-key board.
+OCTAVE_FOLD = os.environ.get("OCTAVE_FOLD", "1") in ("1", "true", "True", "yes")
+FOLD_MIN = int(os.environ.get("FOLD_MIN_PITCH", "21"))    # A0
+FOLD_MAX = int(os.environ.get("FOLD_MAX_PITCH", "108"))   # C8
+# Cap simultaneous notes (keeps the loudest in each chord). 0 = unlimited.
+# Basic-pitch general output is dense; a low cap makes Roblox-piano playback
+# far cleaner and avoids dropped/spammed keys.
+MAX_POLYPHONY = int(os.environ.get("MAX_POLYPHONY", "0"))
+
 LOUDNESS_NORM = os.environ.get("LOUDNESS_NORM", "1") in ("1", "true", "True", "yes")
 TARGET_RMS_DB = float(os.environ.get("TARGET_RMS_DB", "-20.0"))
 PEAK_CEILING_DB = float(os.environ.get("PEAK_CEILING_DB", "-1.0"))
 VELOCITY_GAMMA = float(os.environ.get("VELOCITY_GAMMA", "0.85"))
 
 
+def _fold_pitch(p: int) -> int:
+    if FOLD_MAX - FOLD_MIN < 12:        # degenerate range -> just clamp
+        return max(0, min(127, p))
+    while p < FOLD_MIN:
+        p += 12
+    while p > FOLD_MAX:
+        p -= 12
+    return p
+
+
+def _cap_polyphony(notes, max_poly):
+    """Limit chord density: group notes by near-equal onset and keep the loudest."""
+    if max_poly <= 0 or len(notes) <= max_poly:
+        return notes
+    notes = sorted(notes, key=lambda n: n.start)
+    out, group, gstart = [], [], None
+    Q = 0.035  # notes starting within 35 ms count as one chord
+    for nt in notes:
+        if gstart is None or nt.start - gstart <= Q:
+            if gstart is None:
+                gstart = nt.start
+            group.append(nt)
+        else:
+            out.extend(group if len(group) <= max_poly
+                       else sorted(group, key=lambda n: n.velocity, reverse=True)[:max_poly])
+            group, gstart = [nt], nt.start
+    out.extend(group if len(group) <= max_poly
+               else sorted(group, key=lambda n: n.velocity, reverse=True)[:max_poly])
+    return out
+
+
 def clean_midi(midi_path: Path) -> tuple[int, int]:
     pm = pretty_midi.PrettyMIDI(str(midi_path))
     before = sum(len(i.notes) for i in pm.instruments)
     for inst in pm.instruments:
-        inst.notes = [
-            n for n in inst.notes
-            if (n.end - n.start) >= MIN_NOTE_SEC
-            and n.velocity >= MIN_VELOCITY
-            and MIN_PITCH <= n.pitch <= MAX_PITCH
-        ]
-        expand_velocities(inst.notes, gamma=VELOCITY_GAMMA, floor=MIN_VELOCITY)
+        notes = [n for n in inst.notes
+                 if (n.end - n.start) >= MIN_NOTE_SEC and n.velocity >= MIN_VELOCITY]
+        if OCTAVE_FOLD:
+            for n in notes:
+                n.pitch = _fold_pitch(n.pitch)
+        notes = [n for n in notes if MIN_PITCH <= n.pitch <= MAX_PITCH]
+        notes = _cap_polyphony(notes, MAX_POLYPHONY)
+        expand_velocities(notes, gamma=VELOCITY_GAMMA, floor=MIN_VELOCITY)
+        inst.notes = notes
     after = sum(len(i.notes) for i in pm.instruments)
     pm.write(str(midi_path))
     return before, after
@@ -76,6 +132,8 @@ def main() -> int:
     print(f"Input:  {src.name}")
     print(f"Output: {out_midi.name}")
     print(f"basic-pitch settings: onset={BP_ONSET}, frame={BP_FRAME}, min_note_ms={BP_MIN_NOTE_MS}")
+    print(f"band: {BP_MIN_FREQ}-{BP_MAX_FREQ} Hz | octave-fold: {OCTAVE_FOLD} "
+          f"[{FOLD_MIN}-{FOLD_MAX}] | max-polyphony: {MAX_POLYPHONY or 'unlimited'}")
 
     norm_wav = src.with_name(src.stem + "_norm.wav") if LOUDNESS_NORM else None
     try:
@@ -93,8 +151,8 @@ def main() -> int:
             onset_threshold=BP_ONSET,
             frame_threshold=BP_FRAME,
             minimum_note_length=BP_MIN_NOTE_MS,
-            minimum_frequency=None,
-            maximum_frequency=None,
+            minimum_frequency=BP_MIN_FREQ,
+            maximum_frequency=BP_MAX_FREQ,
             multiple_pitch_bends=False,
             melodia_trick=True,
         )
