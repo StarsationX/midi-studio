@@ -1,6 +1,6 @@
 {
   "name": "midi-studio",
-  "version": "2.0.7",
+  "version": "2.0.9",
   "description": "Audio/YouTube → MIDI (Midi-Forge) + MIDI → keypress player (Midi-Player) in one Windows app.",
   "author": "StarsationX",
   "license": "MIT",

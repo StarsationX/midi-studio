@@ -14,3 +14,6 @@ python-engine/python/
 *.log
 .DS_Store
 Thumbs.db
+
+# local transcription test scratch
+_gentest/

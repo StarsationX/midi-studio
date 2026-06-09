@@ -157,12 +157,18 @@ class Provisioner:
     def install_deps(self):
         req = self.engine_dir / "requirements.txt"
         step(-1, "Packages", "Installing Python packages…")
+        # --prefer-binary: the embeddable Python has no dev headers (Python.h), so
+        # it CANNOT compile C-extension sdists. A few pins (e.g. ncls, a Transkun
+        # dep) no longer publish a wheel for current Pythons, so pip would try to
+        # build from source and fail with "No module named Cython" / missing
+        # Python.h. We ship those wheels in python-engine/wheelhouse (added to
+        # --find-links by _pip); prefer-binary makes pip take them over an sdist.
         if req.exists():
-            self._pip("-r", str(req))
+            self._pip("-r", str(req), "--prefer-binary")
         else:
             log(f"requirements.txt not found at {req}")
-        self._pip("--no-deps", "basic-pitch==0.4.0")
-        self._pip("onnxruntime")
+        self._pip("--no-deps", "--prefer-binary", "basic-pitch==0.4.0")
+        self._pip("--prefer-binary", "onnxruntime")
 
     def fetch_msst(self):
         if (self.env_dir / "msst" / "inference.py").exists():

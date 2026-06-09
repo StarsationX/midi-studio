@@ -5,11 +5,19 @@
   const ADV_KEYS = ['USE_TTA', 'LOUDNESS_NORM', 'BIGSHIFTS', 'SEGMENT_HOP', 'VELOCITY_GAMMA',
     'MIN_NOTE_SEC', 'MIN_VELOCITY', 'PIANO_MIN_PITCH', 'PIANO_MAX_PITCH',
     'BP_ONSET_THRESHOLD', 'BP_FRAME_THRESHOLD', 'BP_MIN_NOTE_MS',
-    'MAX_POLYPHONY', 'OCTAVE_FOLD'];
+    'MAX_POLYPHONY', 'OCTAVE_FOLD', 'EXCLUDE_VOCALS'];
+
+  const PIPELINE_HINT = {
+    piano: 'Separate + Transkun on the piano stem — best for piano performances.',
+    general: 'Separate, mix every pitched stem, then Transkun — best for full songs (any genre).',
+    fast: 'basic-pitch straight on the audio — quick and rough, lower quality.',
+  };
 
   // Show only the tuning group relevant to the selected pipeline.
   function syncPipelineUI() {
     document.querySelectorAll('.adv-group').forEach((g) => { g.hidden = (g.dataset.group !== pipeline); });
+    const h = document.getElementById('pipeline-hint');
+    if (h && PIPELINE_HINT[pipeline]) h.textContent = PIPELINE_HINT[pipeline];
   }
   const AUDIO_EXT = /\.(mp3|wav|flac|m4a|ogg|opus|aac|wma)$/i;
 
