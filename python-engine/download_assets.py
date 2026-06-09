@@ -16,8 +16,12 @@ ROOT = Path(__file__).resolve().parent
 # co-located repo folder for a dev/source run.
 _MODELS_BASE = Path(os.environ.get("MIDI_STUDIO_MODELS_DIR") or (ROOT / "models"))
 MODEL_DIR = _MODELS_BASE / "bs_rofo_sw"
-CKPT_URL = "https://huggingface.co/jarredou/BS-ROFO-SW-Fixed/resolve/main/BS-Rofo-SW-Fixed.ckpt"
-YAML_URL = "https://huggingface.co/jarredou/BS-ROFO-SW-Fixed/resolve/main/BS-Rofo-SW-Fixed.yaml"
+# The upstream HuggingFace repo (jarredou/BS-ROFO-SW-Fixed) went gated and now
+# returns HTTP 401, so we host a copy on our own GitHub release. GitHub CDN
+# supports range requests, so _fetch's resume still works.
+_ASSET_BASE_URL = "https://github.com/StarsationX/midi-studio/releases/download/assets-v1"
+CKPT_URL = f"{_ASSET_BASE_URL}/BS-Rofo-SW-Fixed.ckpt"
+YAML_URL = f"{_ASSET_BASE_URL}/BS-Rofo-SW-Fixed.yaml"
 
 # FFmpeg sits next to the env (sibling of models) so song_to_midi.py finds it there.
 FFMPEG_DIR = (_MODELS_BASE.parent / "ffmpeg") if os.environ.get("MIDI_STUDIO_MODELS_DIR") else (ROOT / "ffmpeg")
