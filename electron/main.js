@@ -239,6 +239,11 @@ function wireIpc() {
     return { version: app.getVersion(), forgeReady: paths.forgeEnvReady(s),
       forgePython: paths.forgeEnvPython(s), forgeEnvDir: paths.forgeEnvDir(s) };
   });
+  ipcMain.handle('app:openSetupLog', () => {
+    const p = paths.forgeSetupLog();
+    if (!paths.exists(p)) return { ok: false, error: 'no setup log yet' };
+    return shell.openPath(p).then((err) => (err ? shell.showItemInFolder(p) : null)).then(() => ({ ok: true, path: p }));
+  });
   ipcMain.handle('app:openForgeFolder', () => {
     const dir = paths.forgeEnvDir(settings.forgePaths());
     const target = paths.exists(dir) ? dir : (paths.exists(path.dirname(dir)) ? path.dirname(dir) : paths.localAppData());

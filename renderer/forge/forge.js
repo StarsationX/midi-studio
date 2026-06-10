@@ -156,7 +156,18 @@
       }
       case 'forge.provision.log': logLine(s.line); break;
       case 'forge.provision.done': $('setup-msg').textContent = 'Done!'; $('setup-cancel').hidden = true; $('setup-cancel').textContent = 'Cancel'; $('setup-start').disabled = false; $('setup-start').textContent = 'Set up Midi-Forge'; refreshEnv(); break;
-      case 'forge.provision.error': $('setup-msg').textContent = '✖ ' + (s.message || 'Setup failed.'); $('setup-cancel').hidden = true; $('setup-cancel').textContent = 'Cancel'; $('setup-start').disabled = false; $('setup-start').textContent = /cancel/i.test(s.message || '') ? 'Set up Midi-Forge' : 'Retry setup'; break;
+      case 'forge.provision.error': {
+        $('setup-msg').textContent = '✖ ' + (s.message || 'Setup failed.');
+        $('setup-cancel').hidden = true; $('setup-cancel').textContent = 'Cancel';
+        $('setup-start').disabled = false; $('setup-start').textContent = /cancel/i.test(s.message || '') ? 'Set up Midi-Forge' : 'Retry setup';
+        // Offer the full log so it can be shared (the panel above is ephemeral).
+        if (!/cancel/i.test(s.message || '') && window.studio && window.studio.openSetupLog) {
+          let b = $('setup-log-btn');
+          if (!b) { b = document.createElement('button'); b.id = 'setup-log-btn'; b.className = 'btn btn-ghost'; b.style.marginTop = '8px'; b.textContent = '📄 Open setup log'; b.addEventListener('click', () => window.studio.openSetupLog()); $('setup-msg').insertAdjacentElement('afterend', b); }
+          b.hidden = false;
+        }
+        break;
+      }
 
       case 'forge.progress': {
         $('job-stage').textContent = s.stage || '';

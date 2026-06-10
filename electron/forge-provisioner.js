@@ -4,6 +4,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const paths = require('./paths');
 const { bundledPlayerPython } = require('./paths');
@@ -27,6 +28,14 @@ class ForgeProvisioner {
     if (this.isRunning()) return;
     const py = lightPython();
     const env = paths.forgeChildEnv(this._getSettings());
+    // Tee the full run to a persistent file so a user can share it after a
+    // failure (the in-app log panel is ephemeral and not easily copyable).
+    this._logPath = paths.forgeSetupLog();
+    try {
+      fs.mkdirSync(path.dirname(this._logPath), { recursive: true });
+      this._logFd = fs.openSync(this._logPath, 'w');
+      fs.writeSync(this._logFd, `=== Midi-Forge setup log — ${new Date().toISOString()} ===\n`);
+    } catch { this._logFd = null; }
     let child;
     try {
       child = spawn(py, [path.join(paths.pythonEngineDir(), 'provision_forge.py')], {
@@ -50,13 +59,14 @@ class ForgeProvisioner {
       if (line.startsWith('MFAIL|')) { this._emit({ event: 'forge.provision.error', message: line.slice(6) }); return; }
       this._emit({ event: 'forge.provision.log', line });
     };
-    const pump = (c) => { buf += c; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).replace(/\r$/, ''); buf = buf.slice(i + 1); if (l.trim()) onLine(l.trim()); } };
+    const pump = (c) => { if (this._logFd != null) { try { fs.writeSync(this._logFd, c); } catch {} } buf += c; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).replace(/\r$/, ''); buf = buf.slice(i + 1); if (l.trim()) onLine(l.trim()); } };
     child.stdout.setEncoding('utf-8'); child.stdout.on('data', pump);
     child.stderr.setEncoding('utf-8'); child.stderr.on('data', pump);
     child.on('exit', (code) => {
       this._child = null;
+      if (this._logFd != null) { try { fs.writeSync(this._logFd, `\n=== exited code=${code} cancelled=${!!child.__cancelled} ===\n`); fs.closeSync(this._logFd); } catch {} this._logFd = null; }
       if (child.__cancelled) this._emit({ event: 'forge.provision.error', message: 'Setup cancelled.' });
-      else if (code !== 0) this._emit({ event: 'forge.provision.error', message: `Setup failed (exit ${code}).` });
+      else if (code !== 0) this._emit({ event: 'forge.provision.error', message: `Setup failed (exit ${code}). Full log: ${this._logPath}`, logPath: this._logPath });
       // success already signaled by MDONE
     });
   }

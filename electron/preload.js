@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('studio', {
   setUi: (patch) => ipcRenderer.invoke('app:setUi', patch),
   forgeInfo: () => ipcRenderer.invoke('app:forgeInfo'),
   openForgeFolder: () => ipcRenderer.invoke('app:openForgeFolder'),
+  openSetupLog: () => ipcRenderer.invoke('app:openSetupLog'),
   cleanReinstall: () => ipcRenderer.invoke('app:cleanReinstall'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   getLibraryDir: () => ipcRenderer.invoke('app:getLibraryDir'),

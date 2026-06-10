@@ -114,10 +114,12 @@ if issues:
     print("\nmidi-forge will not run correctly until these are fixed. Re-run install.bat to retry.")
     sys.exit(1)
 if warnings:
-    print(f"{len(warnings)} warning(s):")
+    # Warnings are NON-FATAL — e.g. "no CUDA" on an AMD/Intel/no-GPU machine just
+    # means slower CPU-mode transcription, not a broken install. Exiting non-zero
+    # here would make the provisioner reject a perfectly usable setup at 95%.
+    print(f"{len(warnings)} warning(s) (setup is still usable):")
     for x in warnings:
         print(f"  - {x}")
-    sys.exit(1)
 
 print("All checks passed. midi-forge is ready.")
 sys.exit(0)

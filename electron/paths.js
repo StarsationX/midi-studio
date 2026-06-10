@@ -108,6 +108,12 @@ function ensureUserMappings() {
   return dir;
 }
 
+// A persistent file the Forge provisioner tees its full output to, so a user can
+// share the complete setup log after a failure (the in-app panel is ephemeral).
+function forgeSetupLog() {
+  return path.join(localAppData(), 'midi-studio', 'forge-setup.log');
+}
+
 function appIcon() {
   const ico = isPackaged()
     ? path.join(process.resourcesPath, 'build', 'icon.ico')
@@ -143,5 +149,5 @@ module.exports = {
   pythonEngineDir, bundledPlayerPython,
   forgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
   modelsDir, rendererIndexHtml, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,
-  userMappingsDir, ensureUserMappings,
+  userMappingsDir, ensureUserMappings, forgeSetupLog,
 };
