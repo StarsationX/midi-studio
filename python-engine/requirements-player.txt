@@ -1,6 +1,8 @@
 mido>=1.3.0
 pynput>=1.7.6
-pygame>=2.5.0
 psutil>=5.9.0
 pywin32>=306; sys_platform == "win32"
 pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
+# pygame is intentionally NOT bundled: it was only used by midi_player.py's
+# standalone visualizer (display_thread), which the Electron app never calls
+# (the renderer draws its own). Dropping it saves ~23 MB from the bundle.

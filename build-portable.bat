@@ -25,7 +25,15 @@ del "%PYDIR%\get-pip.py" 2>nul
 echo [build] installing light player deps ...
 "%PYDIR%\python.exe" -m pip install --no-warn-script-location -r "%ENGINE%\requirements-player.txt" || goto err
 echo [build] verifying imports (fails the build if the sidecar can't start) ...
-"%PYDIR%\python.exe" -c "import mido,pynput,pygame,psutil,win32gui,win32con,win32process; print('imports OK')" || goto err
+"%PYDIR%\python.exe" -c "import mido,pynput,psutil,win32gui,win32con,win32process; print('imports OK')" || goto err
+
+echo [build] slimming bundle (this gets re-extracted on every portable launch) ...
+set "SP=%PYDIR%\Lib\site-packages"
+rem pip/setuptools/wheel aren't needed at runtime; pythonwin is the pywin32 IDE;
+rem the .chm is a help file; isapi/demos are samples. ~20 MB removed.
+for %%D in (pip pip-* setuptools setuptools-* wheel wheel-* pkg_resources pythonwin win32comext\axdebug win32comext\axscript) do rd /s /q "%SP%\%%D" 2>nul
+del /q "%SP%\PyWin32.chm" 2>nul
+for /d /r "%PYDIR%" %%P in (__pycache__) do rd /s /q "%%P" 2>nul
 echo [build] light sidecar python ready at %PYDIR%
 exit /b 0
 :err

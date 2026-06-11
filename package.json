@@ -1,6 +1,6 @@
 {
   "name": "midi-studio",
-  "version": "2.0.12",
+  "version": "2.0.13",
   "description": "Audio/YouTube → MIDI (Midi-Forge) + MIDI → keypress player (Midi-Player) in one Windows app.",
   "author": "StarsationX",
   "license": "MIT",
@@ -22,6 +22,7 @@
     "appId": "com.starsationx.midistudio",
     "productName": "MIDI Studio",
     "directories": { "output": "dist" },
+    "electronLanguages": ["en-US"],
     "files": ["electron/**/*", "renderer/**/*", "package.json"],
     "extraResources": [
       {
