@@ -1,6 +1,6 @@
 {
   "name": "midi-studio",
-  "version": "2.0.13",
+  "version": "2.1.0",
   "description": "Audio/YouTube → MIDI (Midi-Forge) + MIDI → keypress player (Midi-Player) in one Windows app.",
   "author": "StarsationX",
   "license": "MIT",
@@ -46,6 +46,9 @@
       "uninstallerIcon": "build/icon.ico",
       "artifactName": "MIDI-Studio-${version}-Setup.${ext}"
     },
-    "portable": { "artifactName": "MIDI-Studio-${version}-portable.${ext}" }
+    "portable": {
+      "artifactName": "MIDI-Studio-${version}-portable.${ext}",
+      "splashImage": "build/splash.bmp"
+    }
   }
 }

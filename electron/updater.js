@@ -104,7 +104,9 @@ async function checkForUpdates(send, { manual } = {}) {
       const isPortable = !!process.env.PORTABLE_EXECUTABLE_FILE;
       send({ state: 'available', version: cached.version, current,
         size: (isPortable ? cached.portable : cached.setup || cached.portable)?.size || 0,
-        notes: cached.notes.slice(0, 4000), canSelfUpdate: isPortable && !!cached.portable, htmlUrl: cached.htmlUrl });
+        notes: cached.notes.slice(0, 4000),
+        // portable swaps its own exe; installed (NSIS) silently runs the new Setup — both self-update
+        canSelfUpdate: isPortable ? !!cached.portable : !!cached.setup, htmlUrl: cached.htmlUrl });
     } else { cached = null; if (manual) send({ state: 'none', current, manual: true }); }
   } catch (e) { if (manual) send({ state: 'error', message: String((e && e.message) || e), manual: true }); }
 }

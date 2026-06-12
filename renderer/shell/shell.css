@@ -1,78 +1,99 @@
-/* shell.css — app chrome only. Tokens + components come from ../shared/tokens.css */
+/* shell.css — app chrome. Design system in ../shared/tokens.css.
+   Console Pro: flat graphite toolbar, tab blocks with lime underline +
+   keyboard hints, precise modal, flat alert strips. */
 
 html, body { height: 100%; overflow: hidden; }
 body { display: flex; flex-direction: column; }
 
-/* ---- top bar ---------------------------------------------------------- */
+/* ---- top bar ----------------------------------------------------------- */
 .topbar {
-  display: flex; align-items: center; gap: var(--s5);
-  height: 54px; padding: 0 var(--s4); flex: 0 0 auto;
-  background: linear-gradient(180deg, #16181f, #101218);
+  display: flex; align-items: stretch; gap: var(--s6);
+  height: 52px; padding: 0 0 0 var(--s5); flex: 0 0 auto;
+  background: #1a1b20;
   border-bottom: 1px solid var(--line);
-  box-shadow: inset 0 1px 0 var(--line-soft);
   -webkit-app-region: drag; user-select: none;
 }
-.brand { display: flex; align-items: center; gap: var(--s2); }
+.brand { display: flex; align-items: center; gap: 10px; }
 .brand-mark {
-  width: 26px; height: 26px; display: grid; place-items: center;
-  color: var(--accent-ink); font-size: 14px; border-radius: 7px;
-  background: var(--accent-grad);
-  box-shadow: var(--glow), inset 0 1px 0 #ffffff55;
+  width: 24px; height: 24px; display: grid; place-items: center;
+  color: var(--accent-ink); font-size: 13px; border-radius: var(--r-sm);
+  background: var(--accent);
 }
-.brand-name { font-weight: 700; font-size: 14.5px; letter-spacing: .2px; }
+.brand-name { font-weight: 800; font-size: 15px; letter-spacing: .2px; }
 
-/* tab switcher — a single inset track with a sliding pill feel */
-.tabs {
-  display: flex; gap: 3px; padding: 3px; border-radius: var(--r);
-  background: var(--bg-2); border: 1px solid var(--line);
-  -webkit-app-region: no-drag;
-}
+/* tab switcher — flat blocks, lime underline on active, key hints */
+.tabs { display: flex; gap: 0; -webkit-app-region: no-drag; align-self: stretch; }
 .tab {
-  -webkit-app-region: no-drag; background: transparent; color: var(--text-3);
-  border: 0; padding: 7px 18px; border-radius: 7px;
-  font: 600 13px/1 inherit; cursor: pointer;
+  -webkit-app-region: no-drag; position: relative;
+  background: transparent; color: var(--text-3);
+  border: 0; border-left: 1px solid var(--line); border-right: 1px solid transparent;
+  padding: 0 22px;
+  font: 600 13px/1 var(--font-body); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 9px;
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.tab:hover { color: var(--text); }
+.tab:last-child { border-right: 1px solid var(--line); }
+.tab::after {  /* keyboard hint chip */
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+  color: var(--text-3); padding: 2px 5px; border: 1px solid var(--line-2);
+  border-radius: 3px; background: var(--bg-2);
+}
+.tab[data-tab="forge"]::after  { content: "^1"; }
+.tab[data-tab="player"]::after { content: "^2"; }
+.tab:hover { color: var(--text-2); background: #1f2126; }
 .tab.is-active {
-  color: var(--accent-ink); font-weight: 700;
-  background: var(--accent-grad);
-  box-shadow: var(--glow), inset 0 1px 0 #ffffff55;
+  color: var(--text); background: var(--bg);
+  box-shadow: inset 0 2px 0 var(--accent);
 }
+.tab.is-active::after { color: var(--accent); border-color: var(--accent-line); }
 
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s3); -webkit-app-region: no-drag; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s3); padding-right: var(--s4); -webkit-app-region: no-drag; }
 .version-badge {
-  -webkit-app-region: no-drag; display: inline-flex; align-items: center; gap: 6px;
-  height: 30px; padding: 0 12px; border-radius: var(--r-pill);
-  background: #ffffff0a; color: var(--text-3); border: 1px solid var(--line);
-  font: 600 12px/1 inherit; cursor: pointer;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  -webkit-app-region: no-drag; display: inline-flex; align-items: center;
+  height: 24px; padding: 0 9px; border-radius: 3px;
+  background: var(--bg-2); color: var(--text-3); border: 1px solid var(--line-2);
+  font: 600 10.5px/1 var(--font-mono); letter-spacing: .4px;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-.version-badge:hover { color: var(--text); border-color: var(--line-2); background: #ffffff12; }
+.version-badge:hover { color: var(--accent); border-color: var(--accent-line); }
 .iconbtn {
-  -webkit-app-region: no-drag; width: 30px; height: 30px; border-radius: 8px;
-  background: #ffffff0a; color: var(--text-3); border: 1px solid var(--line);
-  font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  -webkit-app-region: no-drag; width: 28px; height: 28px; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-3); border: 1px solid transparent;
+  font-size: 14px; line-height: 1; cursor: pointer; display: grid; place-items: center;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-.iconbtn:hover { color: var(--text); border-color: var(--line-2); background: #ffffff12; }
+.iconbtn:hover { color: var(--text); background: var(--surface-2); border-color: var(--line-2); }
 
-/* ---- settings modal --------------------------------------------------- */
+/* ---- settings modal ----------------------------------------------------- */
 .modal-scrim { position: fixed; inset: 0; z-index: 10001; display: flex; align-items: center; justify-content: center;
-  background: rgba(6,8,12,.6); backdrop-filter: blur(3px); animation: ub-in var(--dur-2) var(--ease); }
+  background: rgba(8, 9, 11, .7); animation: ub-in var(--dur-2) var(--ease); }
 .modal-scrim[hidden] { display: none; }
-.modal { width: min(560px, calc(100% - 48px)); background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--r-lg); box-shadow: var(--sh-pop); overflow: hidden; }
-.modal-head { display: flex; align-items: center; justify-content: space-between; padding: var(--s4);
-  border-bottom: 1px solid var(--line); }
-.modal-head h2 { margin: 0; font-size: 15px; }
+.modal {
+  width: min(560px, calc(100% - 48px));
+  background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: var(--r-lg); box-shadow: var(--sh-pop); overflow: hidden;
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between; padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line); background: #1a1b20;
+}
+.modal-head h2 {
+  margin: 0; font-family: var(--font-mono);
+  font-size: 12px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--text-2);
+}
 .modal-body { padding: var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
 .srow { display: flex; align-items: center; gap: var(--s4); justify-content: space-between; }
-.skey { color: var(--text-3); font-size: 13px; flex: 0 0 90px; }
+.skey {
+  color: var(--text-3); flex: 0 0 100px;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  letter-spacing: 1.2px; text-transform: uppercase;
+}
 .sval { color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .modal-actions { display: flex; gap: var(--s2); flex-wrap: wrap; padding-top: var(--s1); }
 
-/* ---- tab surfaces ----------------------------------------------------- */
+/* ---- tab surfaces ------------------------------------------------------- */
 .stage { position: relative; flex: 1 1 auto; min-height: 0; }
 .tabframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--bg); display: none; }
 .tabframe.is-active { display: block; }
@@ -80,37 +101,39 @@ body { display: flex; flex-direction: column; }
    modal is open so the dialog renders solid. */
 body.modal-open .tabframe { visibility: hidden; }
 
-/* ---- update banner ---------------------------------------------------- */
+/* ---- update banner ------------------------------------------------------ */
 .update-banner {
   display: flex; align-items: center; gap: var(--s3);
   margin: var(--s3) var(--s4) 0; padding: var(--s3) var(--s4);
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--r-lg); box-shadow: var(--sh-2);
+  background: var(--surface); border: 1px solid var(--line-2);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r); box-shadow: var(--sh-2);
   animation: ub-in var(--dur-2) var(--ease);
 }
-@keyframes ub-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes ub-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 .update-banner[hidden] { display: none; }
 .ub-icon {
-  width: 32px; height: 32px; border-radius: var(--r-sm); flex: 0 0 auto;
-  display: grid; place-items: center; font-size: 16px;
-  background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-line);
+  width: 30px; height: 30px; border-radius: var(--r-sm); flex: 0 0 auto;
+  display: grid; place-items: center; font-size: 14px;
+  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line);
 }
 .ub-text { flex: 1 1 auto; min-width: 0; }
 .ub-title { font-weight: 600; }
-.ub-sub { color: var(--text-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ub-prog { height: 5px; background: var(--bg-2); border-radius: var(--r-pill); margin-top: 8px; overflow: hidden; }
-.ub-prog-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: var(--r-pill); transition: width var(--dur-2) var(--ease); }
+.ub-sub { color: var(--text-3); font-size: 11.5px; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ub-prog { height: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.ub-prog-fill { height: 100%; width: 0; background: var(--accent); transition: width var(--dur-2) var(--ease); }
 
-/* ---- toasts ----------------------------------------------------------- */
+/* ---- toasts -------------------------------------------------------------- */
 .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 10000; }
 .toast {
-  min-width: 220px; max-width: 380px; padding: 11px 14px; border-radius: var(--r);
-  background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
-  box-shadow: var(--sh-pop); font-size: 13px; font-weight: 500;
+  min-width: 220px; max-width: 380px; padding: 10px 14px; border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--line-2); border-left: 2px solid var(--accent);
+  box-shadow: var(--sh-pop); font-size: 12.5px; font-weight: 500;
   animation: toast-in var(--dur-2) var(--ease);
 }
 .toast.out { animation: toast-out var(--dur-2) var(--ease) forwards; }
-.toast--ok { border-color: #34d39950; }
-.toast--err { border-color: #f8717150; }
-@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@keyframes toast-out { to { opacity: 0; transform: translateY(10px); } }
+.toast--ok { border-left-color: var(--ok); }
+.toast--err { border-left-color: var(--err); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }

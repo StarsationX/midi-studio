@@ -171,7 +171,7 @@ def window_alive(win):
 # ---------------------------------------------------------------------------
 
 PRESETS = ("virtualpiano", "virtualpiano66",
-           "roblox", "roblox61", "roblox66", "roblox88", "roblox88ctrl")
+           "roblox", "roblox61", "roblox66", "roblox88", "roblox88ctrl", "drums")
 
 
 def load_mapping(arg, script_dir):

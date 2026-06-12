@@ -21,6 +21,7 @@ const STAGE_KEYWORDS = [
 ];
 
 function selectScript(pipeline, skipSeparation) {
+  if (pipeline === 'drums') return ['drums_to_midi.py', STAGES_3];  // handles its own skip-sep
   if (skipSeparation) return ['transcribe.py', STAGES_2];   // input is already a stem
   if (pipeline === 'fast') return ['stem_to_midi.py', STAGES_2];  // basic-pitch, quick/rough
   // 'piano' and 'general' both separate + Transkun; GENERAL_MODE (set in run())
@@ -116,6 +117,7 @@ class ForgeRunner {
     const env = Object.assign({}, paths.forgeChildEnv(this._settings()));
     for (const [k, v] of Object.entries(advanced || {})) { if (v !== null && v !== undefined && v !== '') env[k] = (v === true ? '1' : v === false ? '0' : String(v)); }
     if (pipeline === 'general') env.GENERAL_MODE = '1';  // mix all pitched stems for Transkun
+    if (pipeline === 'drums' && skipSeparation) env.SKIP_SEPARATION = '1';
     const audioOut = inputPath.replace(/\.[^./\\]+$/, '') + '.mid';
     this._emit({ event: 'forge.progress', jobId, stage: 'Queued', percent: -1, message: `Starting ${script}` });
     this._spawnJob(jobId, [py, path.join(paths.pythonEngineDir(), script), inputPath], env, stageTable, audioOut);

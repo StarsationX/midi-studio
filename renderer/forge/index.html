@@ -9,14 +9,14 @@
   <link rel="stylesheet" href="./forge.css" />
 </head>
 <body>
-  <div class="wrap">
-    <div class="envbar" id="envbar">
-      <span class="dot" id="env-dot"></span>
-      <span id="env-text">Checking Midi-Forge…</span>
-      <span class="spacer"></span>
-      <button class="link" id="env-recheck">Re-check</button>
-    </div>
+  <div class="envbar" id="envbar">
+    <span class="dot" id="env-dot"></span>
+    <span id="env-text">Checking Midi-Forge…</span>
+    <span class="spacer"></span>
+    <button class="link" id="env-recheck">Re-check</button>
+  </div>
 
+  <div class="wrap">
     <!-- SETUP panel (shown when forge isn't provisioned) -->
     <section class="card setup" id="setup" hidden>
       <h2>Set up Midi-Forge</h2>
@@ -35,13 +35,16 @@
 
     <!-- WORKSPACE -->
     <section class="work" id="work">
+      <label class="lbl">Input</label>
       <div class="card">
-        <label class="lbl">Input</label>
         <div class="dropzone" id="dropzone">
+          <div class="dz-icon" aria-hidden="true">↑</div>
           <input id="input-path" type="text" readonly placeholder="Drop a song here, or browse…" />
-          <button class="btn" id="browse">Browse…</button>
+          <div class="dz-types" aria-hidden="true">mp3 · wav · flac · m4a · ogg — up to 30 min</div>
+          <button class="btn" id="browse">Browse files</button>
         </div>
         <div class="row url-row">
+          <span class="url-chip" aria-hidden="true">YOUTUBE</span>
           <input id="url" type="text" placeholder="…or paste a YouTube / audio URL" />
           <button class="btn" id="fetch">Fetch</button>
         </div>
@@ -53,12 +56,13 @@
         </div>
       </div>
 
+      <label class="lbl">Pipeline</label>
       <div class="card">
-        <label class="lbl">Pipeline</label>
         <div class="seg" id="pipeline">
-          <button data-v="piano" class="is-active">Piano (piano covers)</button>
-          <button data-v="general">General (any song)</button>
-          <button data-v="fast">Fast (basic-pitch)</button>
+          <button data-v="piano" class="is-active"><b>Piano</b><i>piano covers — highest accuracy</i></button>
+          <button data-v="general"><b>General</b><i>any song — full-mix transcription</i></button>
+          <button data-v="fast"><b>Fast</b><i>basic-pitch — quick &amp; rough</i></button>
+          <button data-v="drums"><b>Drums</b><i>drum kit — kick/snare/hats</i></button>
         </div>
         <div class="muted small" id="pipeline-hint" style="margin:4px 0 2px">Separate + Transkun on the piano stem — best for piano performances.</div>
         <label class="check"><input type="checkbox" id="skipsep" /> Skip separation (input is already an isolated stem)</label>
@@ -89,6 +93,13 @@
               <label class="check"><input type="checkbox" id="EXCLUDE_VOCALS" /> Exclude vocals (instrumental only)</label>
             </div>
           </div>
+          <div class="adv-group" data-group="drums" hidden>
+            <div class="adv-sub muted small">Drums pipeline (onset + band classification)</div>
+            <div class="adv-grid">
+              <label>ONSET_DELTA <input type="number" id="ONSET_DELTA" step="0.01" min="0.02" max="0.3" value="0.07" title="Lower = more hits detected" /></label>
+              <label>DRUM_MIN_GAP_MS <input type="number" id="DRUM_MIN_GAP_MS" step="10" min="20" max="200" value="50" title="Per-drum retrigger gap" /></label>
+            </div>
+          </div>
           <div class="adv-group" data-group="fast" hidden>
             <div class="adv-sub muted small">Fast pipeline (basic-pitch — quick, rougher)</div>
             <div class="adv-grid">
@@ -101,8 +112,15 @@
         </div>
       </div>
 
+      <label class="lbl">Run</label>
       <div class="card run-card">
-        <button class="btn btn-primary big" id="start" disabled>▶ Start</button>
+        <div class="run-row">
+          <button class="btn btn-primary big" id="start" disabled>▶ Start</button>
+          <div class="run-info" aria-hidden="true">
+            <div><span>PIPELINE</span><span id="run-info-pipeline" class="mono">piano</span></div>
+            <div><span>OUTPUT</span><span id="run-info-out" class="mono">Documents\MIDI Studio</span></div>
+          </div>
+        </div>
         <button class="btn btn-ghost" id="cancel" hidden>Cancel</button>
         <div class="prog" id="job-prog" hidden>
           <div class="prog-row"><span id="job-stage">Queued</span><span id="job-pct" class="mono"></span></div>

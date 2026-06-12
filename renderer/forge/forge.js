@@ -5,12 +5,13 @@
   const ADV_KEYS = ['USE_TTA', 'LOUDNESS_NORM', 'BIGSHIFTS', 'SEGMENT_HOP', 'VELOCITY_GAMMA',
     'MIN_NOTE_SEC', 'MIN_VELOCITY', 'PIANO_MIN_PITCH', 'PIANO_MAX_PITCH',
     'BP_ONSET_THRESHOLD', 'BP_FRAME_THRESHOLD', 'BP_MIN_NOTE_MS',
-    'MAX_POLYPHONY', 'OCTAVE_FOLD', 'EXCLUDE_VOCALS'];
+    'MAX_POLYPHONY', 'OCTAVE_FOLD', 'EXCLUDE_VOCALS', 'ONSET_DELTA', 'DRUM_MIN_GAP_MS'];
 
   const PIPELINE_HINT = {
     piano: 'Separate + Transkun on the piano stem — best for piano performances.',
     general: 'Separate, mix every pitched stem, then Transkun — best for full songs (any genre).',
     fast: 'basic-pitch straight on the audio — quick and rough, lower quality.',
+    drums: 'Separate, then classify each drum hit (kick/snare/hats/cymbals) — for Roblox drum kits.',
   };
 
   // Show only the tuning group relevant to the selected pipeline.
@@ -18,6 +19,9 @@
     document.querySelectorAll('.adv-group').forEach((g) => { g.hidden = (g.dataset.group !== pipeline); });
     const h = document.getElementById('pipeline-hint');
     if (h && PIPELINE_HINT[pipeline]) h.textContent = PIPELINE_HINT[pipeline];
+    const ri = $('run-info-pipeline'); if (ri) ri.textContent = pipeline;
+    const ro = $('run-info-out');
+    if (ro) ro.textContent = ($('out-dir').textContent || '').split(/[\\/]/).slice(-2).join('\\') || '—';
   }
   const AUDIO_EXT = /\.(mp3|wav|flac|m4a|ogg|opus|aac|wma)$/i;
 
@@ -89,8 +93,8 @@
 
   // ---- output folder ----
   // Show the effective program output folder when the user hasn't overridden it.
-  function showDefaultOut() { if (F.getOutputDir) F.getOutputDir().then((d) => { if (!outputDir && d) $('out-dir').textContent = d; }).catch(() => {}); }
-  $('pick-out').addEventListener('click', async () => { const d = await F.pickOutDir(); if (d) { outputDir = d; $('out-dir').textContent = d; $('clear-out').hidden = false; F.setSettings({ outputDir: d }); } });
+  function showDefaultOut() { if (F.getOutputDir) F.getOutputDir().then((d) => { if (!outputDir && d) $('out-dir').textContent = d; syncPipelineUI(); }).catch(() => {}); }
+  $('pick-out').addEventListener('click', async () => { const d = await F.pickOutDir(); if (d) { outputDir = d; $('out-dir').textContent = d; $('clear-out').hidden = false; F.setSettings({ outputDir: d }); syncPipelineUI(); } });
   $('clear-out').addEventListener('click', () => { outputDir = ''; $('clear-out').hidden = true; F.setSettings({ outputDir: '' }); showDefaultOut(); });
 
   // ---- pipeline + advanced ----

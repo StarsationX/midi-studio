@@ -17,3 +17,6 @@ Thumbs.db
 
 # local transcription test scratch
 _gentest/
+
+# design mockups / scratch
+_design/

@@ -5,7 +5,7 @@
 // updates.
 
 const CHANNEL_COLORS = [
-  '#5aa9ff','#ff7a7a','#7affb8','#ffc857','#c87aff','#ff7adc','#7adcff','#ffff82',
+  '#b8e62e','#ff7a7a','#7affb8','#ffc857','#c87aff','#ff7adc','#7adcff','#ffff82',
   '#82ffff','#ff82c8','#c8ff82','#c8c8c8','#ffa500','#b4b4ff','#82b482','#dcdcdc',
 ];
 const LOOKAHEAD = 3.0;
@@ -146,7 +146,7 @@ class Visualizer {
     const H = this.canvas.height / this.dpr;
     if (W < 20 || H < 20) return;
 
-    ctx.fillStyle = '#0b0d12';
+    ctx.fillStyle = '#101115';
     ctx.fillRect(0, 0, W, H);
 
     const rollH = Math.floor(H * 0.72);
@@ -158,7 +158,7 @@ class Visualizer {
     const pxPerSec = rollH / LOOKAHEAD;
 
     if (!this.events.length) {
-      ctx.fillStyle = '#5e667a';
+      ctx.fillStyle = '#62656d';
       ctx.font = '500 14px -apple-system, "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('Load a MIDI to begin', W / 2, H / 2);
@@ -171,7 +171,7 @@ class Visualizer {
     const viewEnd = elapsed + LOOKAHEAD;
 
     // octave grid
-    ctx.strokeStyle = '#161b27';
+    ctx.strokeStyle = '#1f2126';
     ctx.lineWidth = 1;
     for (const n of this.whiteNotes) {
       if (n % 12 === 0) {
@@ -224,8 +224,8 @@ class Visualizer {
 
     // hit line (white with soft glow)
     const lg = ctx.createLinearGradient(0, hitY - 12, 0, hitY + 1);
-    lg.addColorStop(0, 'rgba(90,169,255,0)');
-    lg.addColorStop(1, 'rgba(90,169,255,0.35)');
+    lg.addColorStop(0, 'rgba(184,230,46,0)');
+    lg.addColorStop(1, 'rgba(184,230,46,0.35)');
     ctx.fillStyle = lg;
     ctx.fillRect(0, hitY - 12, W, 13);
     ctx.fillStyle = '#ffffff';
@@ -241,7 +241,7 @@ class Visualizer {
     const showLabels = wkeyW >= 14;
 
     // shadow under keyboard
-    ctx.fillStyle = '#0a0c10';
+    ctx.fillStyle = '#101115';
     ctx.fillRect(0, kbTop, W, kbH);
 
     // whites
@@ -251,17 +251,17 @@ class Visualizer {
       const ch = active.get(n);
       const fill = ch !== undefined
         ? CHANNEL_COLORS[ch % CHANNEL_COLORS.length]
-        : '#e4e7ee';
+        : '#e8e9ea';
       ctx.fillStyle = fill;
       ctx.fillRect(Math.floor(g.x), kbTop, Math.floor(g.w) - 1, kbH);
-      ctx.strokeStyle = '#1c2030';
+      ctx.strokeStyle = '#1f2126';
       ctx.lineWidth = 1;
       ctx.strokeRect(Math.floor(g.x) + 0.5, kbTop + 0.5,
                      Math.floor(g.w) - 1, kbH - 1);
       if (showLabels) {
         const lbl = this.noteToKey[n];
         if (lbl) {
-          ctx.fillStyle = '#1d212c';
+          ctx.fillStyle = '#272a31';
           ctx.font = '600 9px Consolas, monospace';
           ctx.textAlign = 'center';
           ctx.fillText(lbl, g.x + g.w / 2, kbTop + kbH - 8);
@@ -277,7 +277,7 @@ class Visualizer {
       const ch = active.get(n);
       const fill = ch !== undefined
         ? CHANNEL_COLORS[ch % CHANNEL_COLORS.length]
-        : '#13161e';
+        : '#16181d';
       ctx.fillStyle = fill;
       ctx.fillRect(Math.floor(g.x), kbTop, Math.ceil(g.w), bkH);
       // subtle highlight on top of black
@@ -290,7 +290,7 @@ class Visualizer {
       if (showLabels && g.w >= 10) {
         const lbl = this.noteToKey[n];
         if (lbl) {
-          ctx.fillStyle = ch !== undefined ? '#0a0c10' : '#cfd0d4';
+          ctx.fillStyle = ch !== undefined ? '#101115' : '#c2c5cb';
           ctx.font = '600 8px Consolas, monospace';
           ctx.textAlign = 'center';
           ctx.fillText(lbl, g.x + g.w / 2, kbTop + bkH - 6);
