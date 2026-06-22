@@ -11,8 +11,7 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark">⬣</span>
-      <span class="brand-name">MIDI Studio</span>
+      <img class="brand-logo" src="./shared/logo.png" alt="MIDI Studio" />
     </div>
     <nav class="tabs" id="tabs">
       <button class="tab is-active" data-tab="forge">Midi-Forge</button>
@@ -34,6 +33,16 @@
         <div class="srow"><span class="skey">Version</span><span class="sval mono" id="s-version">—</span></div>
         <div class="srow"><span class="skey">Midi-Forge</span><span class="sval" id="s-forge">checking…</span></div>
         <div class="srow"><span class="skey">Forge env</span><span class="sval mono small" id="s-forgedir">—</span></div>
+        <div class="srow">
+          <span class="skey">Theme</span>
+          <select class="sval" id="s-theme">
+            <option value="lime">Lime (default)</option>
+            <option value="cyan">Cyan</option>
+            <option value="indigo">Indigo</option>
+            <option value="magenta">Magenta</option>
+            <option value="amber">Amber</option>
+          </select>
+        </div>
         <div class="srow">
           <span class="skey">On launch</span>
           <label class="check"><input type="checkbox" id="s-autoupdate" checked /> Check for updates automatically</label>

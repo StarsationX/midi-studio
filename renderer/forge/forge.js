@@ -1,6 +1,8 @@
 // forge.js — Midi-Forge tab controller. Drives window.forge.
 (() => {
   const F = window.forge;
+  // self-apply saved theme on load (shell also pushes it live on change)
+  if (window.studio && studio.getUi) studio.getUi().then((u) => { if (u && u.theme) document.documentElement.dataset.theme = u.theme; }).catch(() => {});
   const $ = (id) => document.getElementById(id);
   const ADV_KEYS = ['USE_TTA', 'LOUDNESS_NORM', 'BIGSHIFTS', 'SEGMENT_HOP', 'VELOCITY_GAMMA',
     'MIN_NOTE_SEC', 'MIN_VELOCITY', 'PIANO_MIN_PITCH', 'PIANO_MAX_PITCH',

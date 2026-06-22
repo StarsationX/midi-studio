@@ -78,6 +78,24 @@
   --ring: 0 0 0 1px var(--bg), 0 0 0 3px var(--accent-deep);
 }
 
+/* ---- themes: swap the accent only (set data-theme on <html>) ------------- */
+[data-theme="cyan"] {
+  --accent: #2bd4e6; --accent-2: #5fe6f2; --accent-deep: #1f9aa8; --accent-ink: #042027;
+  --accent-soft: #102a2d; --accent-line: #2a5258; --ok: #2bd4e6; --ok-soft: #102a2d;
+}
+[data-theme="indigo"] {
+  --accent: #6c8cff; --accent-2: #8aa3ff; --accent-deep: #475fd6; --accent-ink: #f4f6ff;
+  --accent-soft: #1a2140; --accent-line: #354478; --ok: #6c8cff; --ok-soft: #1a2140;
+}
+[data-theme="magenta"] {
+  --accent: #ff5db0; --accent-2: #ff85c4; --accent-deep: #c93d85; --accent-ink: #2a0a1c;
+  --accent-soft: #2a1420; --accent-line: #532a40; --ok: #ff5db0; --ok-soft: #2a1420;
+}
+[data-theme="amber"] {
+  --accent: #ffb02e; --accent-2: #ffc35c; --accent-deep: #cc8410; --accent-ink: #271401;
+  --accent-soft: #2a2317; --accent-line: #4a3a1f; --ok: #ffb02e; --ok-soft: #2a2317;
+}
+
 * { box-sizing: border-box; }
 /* Restore the hidden attribute — component display rules would otherwise win. */
 [hidden] { display: none !important; }

@@ -13,13 +13,9 @@ body { display: flex; flex-direction: column; }
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag; user-select: none;
 }
-.brand { display: flex; align-items: center; gap: 10px; }
-.brand-mark {
-  width: 24px; height: 24px; display: grid; place-items: center;
-  color: var(--accent-ink); font-size: 13px; border-radius: var(--r-sm);
-  background: var(--accent);
-}
-.brand-name { font-weight: 800; font-size: 15px; letter-spacing: .2px; }
+.brand { display: flex; align-items: center; gap: 10px; -webkit-app-region: no-drag; }
+.brand-logo { height: 30px; width: auto; display: block; }
+#s-theme { height: 30px; }
 
 /* tab switcher — flat blocks, lime underline on active, key hints */
 .tabs { display: flex; gap: 0; -webkit-app-region: no-drag; align-self: stretch; }

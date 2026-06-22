@@ -5,6 +5,12 @@
   // ---- tabs (with persistence + keyboard) ----
   const tabs = document.getElementById('tabs');
   const frames = [...document.querySelectorAll('.tabframe')];
+
+  // ---- theme (accent swap; applied to shell html + both iframe docs) ----
+  let curTheme = '';
+  const setFrameTheme = (f) => { try { f.contentDocument.documentElement.dataset.theme = curTheme; } catch {} };
+  function applyTheme(t) { curTheme = t || ''; document.documentElement.dataset.theme = curTheme; frames.forEach(setFrameTheme); }
+  frames.forEach((f) => f.addEventListener('load', () => setFrameTheme(f)));
   function activate(name, persist = true) {
     if (!frames.some((f) => f.dataset.tab === name)) return;
     document.querySelectorAll('.tab').forEach((t) => {
@@ -24,7 +30,7 @@
     if (e.key === '2') { activate('player'); e.preventDefault(); }
   });
   // Restore last tab.
-  if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui && ui.lastTab) activate(ui.lastTab, false); }).catch(() => {});
+  if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui) { if (ui.lastTab) activate(ui.lastTab, false); applyTheme(ui.theme); } }).catch(() => {});
 
   // ---- version badge ----
   const badge = document.getElementById('version-badge');
@@ -92,13 +98,14 @@
       $('s-forge').textContent = i.forgeReady ? 'Ready' : 'Not set up';
       $('s-forgedir').textContent = i.forgeEnvDir || '—';
     }).catch(() => {});
-    if (studio.getUi) studio.getUi().then((ui) => { $('s-autoupdate').checked = !ui || ui.autoCheckUpdates !== false; }).catch(() => {});
+    if (studio.getUi) studio.getUi().then((ui) => { $('s-autoupdate').checked = !ui || ui.autoCheckUpdates !== false; $('s-theme').value = (ui && ui.theme) || 'lime'; }).catch(() => {});
   }
   function closeSettings() { modal.hidden = true; document.body.classList.remove('modal-open'); }
   document.getElementById('settings-btn').addEventListener('click', openSettings);
   document.getElementById('settings-close').addEventListener('click', closeSettings);
   modal.addEventListener('click', (e) => { if (e.target === modal) closeSettings(); });
   $('s-autoupdate').addEventListener('change', (e) => studio.setUi && studio.setUi({ autoCheckUpdates: e.target.checked }));
+  $('s-theme').addEventListener('change', (e) => { applyTheme(e.target.value); studio.setUi && studio.setUi({ theme: e.target.value }); });
   $('s-openforge').addEventListener('click', () => studio.openForgeFolder && studio.openForgeFolder());
   $('s-recheck').addEventListener('click', () => { studio.checkForUpdates({ manual: true }); closeSettings(); });
   $('s-repo').addEventListener('click', (e) => { e.preventDefault(); studio.openExternal && studio.openExternal('https://github.com/StarsationX/midi-studio'); });

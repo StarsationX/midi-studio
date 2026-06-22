@@ -23,10 +23,9 @@
   --fg-faint:  #62656d;
   --fg-disabled: #44474f;
 
-  --accent:    #b8e62e;
-  --accent-2:  #c6f23e;
-  --accent-3:  #8fb320;
-  --good:      #b8e62e;
+  /* --accent / --accent-2 inherit from tokens.css so themes apply here too */
+  --accent-3:  var(--accent-deep);
+  --good:      var(--accent);
   --bad:       #e65a5a;
   --warn:      #e6c84a;
 
@@ -194,8 +193,8 @@ input[type="range"]:hover::-webkit-slider-thumb { border-color: var(--accent-3);
   flex-shrink: 0;
   border-radius: var(--r-sm);
   display: flex; align-items: center; justify-content: center;
-  background: #252a1a;
-  border: 1px solid #4d5640;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
   color: var(--accent);
 }
 .update-icon svg { width: 15px; height: 15px; fill: currentColor; }
@@ -218,7 +217,7 @@ input[type="range"]:hover::-webkit-slider-thumb { border-color: var(--accent-3);
 }
 .btn-update {
   background: var(--accent);
-  color: #161900;
+  color: var(--accent-ink);
   border: 1px solid var(--accent-3);
   border-radius: var(--r-sm);
   height: 30px; padding: 0 13px;
@@ -561,7 +560,7 @@ input[type="range"]:hover::-webkit-slider-thumb { border-color: var(--accent-3);
   width: 46px; height: 46px;
   border-radius: var(--r-md);
   background: var(--accent);
-  color: #161900;
+  color: var(--accent-ink);
   border: 1px solid var(--accent-3);
   display: inline-flex; align-items: center; justify-content: center;
   transition: background var(--t-fast);
@@ -593,8 +592,8 @@ input[type="range"]:hover::-webkit-slider-thumb { border-color: var(--accent-3);
 .btn-icon-only svg { width: 15px; height: 15px; fill: currentColor; }
 .btn-icon-only.is-resume {
   color: var(--good);
-  border-color: #4d5640;
-  background: #22261a;
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
 }
 
 .transport-time {

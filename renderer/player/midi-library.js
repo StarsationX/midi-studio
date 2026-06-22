@@ -4,6 +4,8 @@
 // the player's global setMidiFile() — app.js itself is untouched.
 (() => {
   const studio = window.studio;
+  // self-apply saved theme on load (shell also pushes it live on change)
+  if (studio && studio.getUi) studio.getUi().then((u) => { if (u && u.theme) document.documentElement.dataset.theme = u.theme; }).catch(() => {});
   if (!studio || typeof setMidiFile !== 'function' || !studio.listMidis) return;
 
   const body = document.querySelector('.section[data-section="source"] .section-body');
