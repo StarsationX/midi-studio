@@ -6,11 +6,28 @@
   const tabs = document.getElementById('tabs');
   const frames = [...document.querySelectorAll('.tabframe')];
 
-  // ---- theme (accent swap; applied to shell html + both iframe docs) ----
-  let curTheme = '';
-  const setFrameTheme = (f) => { try { f.contentDocument.documentElement.dataset.theme = curTheme; } catch {} };
-  function applyTheme(t) { curTheme = t || ''; document.documentElement.dataset.theme = curTheme; frames.forEach(setFrameTheme); }
-  frames.forEach((f) => f.addEventListener('load', () => setFrameTheme(f)));
+  // ---- theme + custom accent (applied to shell html + both iframe docs) ----
+  let curTheme = '', curVars = null;
+  const ACCENT_KEYS = ['--accent', '--accent-2', '--accent-deep', '--accent-ink', '--accent-soft', '--accent-line', '--ok'];
+  function deriveAccent(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim()); if (!m) return null;
+    const n = parseInt(m[1], 16), r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
+    const h2 = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    const blend = (tr, tg, tb, p) => '#' + h2(r + (tr - r) * p) + h2(g + (tg - g) * p) + h2(b + (tb - b) * p);
+    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return { '--accent': '#' + m[1], '--accent-2': blend(255, 255, 255, 0.18), '--accent-deep': blend(0, 0, 0, 0.28),
+      '--accent-ink': lum > 0.6 ? '#0c0d10' : '#f4f6ff', '--accent-soft': blend(20, 21, 25, 0.86),
+      '--accent-line': blend(20, 21, 25, 0.62), '--ok': '#' + m[1] };
+  }
+  const skin = (el) => { try {
+    el.dataset.theme = curTheme;
+    if (curVars) for (const k of ACCENT_KEYS) el.style.setProperty(k, curVars[k]);
+    else for (const k of ACCENT_KEYS) el.style.removeProperty(k);
+  } catch {} };
+  const applySkin = () => { skin(document.documentElement); frames.forEach((f) => skin(f.contentDocument && f.contentDocument.documentElement)); };
+  function applyTheme(t) { curTheme = t || ''; applySkin(); }
+  function applyAccent(hex) { curVars = hex ? deriveAccent(hex) : null; applySkin(); }
+  frames.forEach((f) => f.addEventListener('load', () => skin(f.contentDocument && f.contentDocument.documentElement)));
   function activate(name, persist = true) {
     if (!frames.some((f) => f.dataset.tab === name)) return;
     document.querySelectorAll('.tab').forEach((t) => {
@@ -30,7 +47,7 @@
     if (e.key === '2') { activate('player'); e.preventDefault(); }
   });
   // Restore last tab.
-  if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui) { if (ui.lastTab) activate(ui.lastTab, false); applyTheme(ui.theme); } }).catch(() => {});
+  if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui) { if (ui.lastTab) activate(ui.lastTab, false); applyTheme(ui.theme); if (ui.accent) applyAccent(ui.accent); } }).catch(() => {});
 
   // ---- version badge ----
   const badge = document.getElementById('version-badge');
@@ -98,14 +115,16 @@
       $('s-forge').textContent = i.forgeReady ? 'Ready' : 'Not set up';
       $('s-forgedir').textContent = i.forgeEnvDir || '—';
     }).catch(() => {});
-    if (studio.getUi) studio.getUi().then((ui) => { $('s-autoupdate').checked = !ui || ui.autoCheckUpdates !== false; $('s-theme').value = (ui && ui.theme) || 'lime'; }).catch(() => {});
+    if (studio.getUi) studio.getUi().then((ui) => { $('s-autoupdate').checked = !ui || ui.autoCheckUpdates !== false; $('s-theme').value = (ui && ui.theme) || 'lime'; $('s-accent').value = (ui && ui.accent) || (getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'); }).catch(() => {});
   }
   function closeSettings() { modal.hidden = true; document.body.classList.remove('modal-open'); }
   document.getElementById('settings-btn').addEventListener('click', openSettings);
   document.getElementById('settings-close').addEventListener('click', closeSettings);
   modal.addEventListener('click', (e) => { if (e.target === modal) closeSettings(); });
   $('s-autoupdate').addEventListener('change', (e) => studio.setUi && studio.setUi({ autoCheckUpdates: e.target.checked }));
-  $('s-theme').addEventListener('change', (e) => { applyTheme(e.target.value); studio.setUi && studio.setUi({ theme: e.target.value }); });
+  $('s-theme').addEventListener('change', (e) => { applyAccent(''); applyTheme(e.target.value); studio.setUi && studio.setUi({ theme: e.target.value, accent: '' });
+    $('s-accent').value = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'; });
+  $('s-accent').addEventListener('input', (e) => { applyAccent(e.target.value); studio.setUi && studio.setUi({ accent: e.target.value }); });
   $('s-openforge').addEventListener('click', () => studio.openForgeFolder && studio.openForgeFolder());
   $('s-recheck').addEventListener('click', () => { studio.checkForUpdates({ manual: true }); closeSettings(); });
   $('s-repo').addEventListener('click', (e) => { e.preventDefault(); studio.openExternal && studio.openExternal('https://github.com/StarsationX/midi-studio'); });
