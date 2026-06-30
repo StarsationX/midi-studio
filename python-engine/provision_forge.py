@@ -76,11 +76,11 @@ class Provisioner:
             raise ProvisionError(
                 f"Not enough free disk for {where}: need ~{min_gb} GB, {free:.1f} GB free.")
 
-    def _run(self, args):
+    def _run(self, args, env=None):
         log("$ " + " ".join(str(a) for a in args))
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding="utf-8", errors="replace",
-                                cwd=str(self.env_dir), creationflags=_NO_WINDOW)
+                                cwd=str(self.env_dir), env=env, creationflags=_NO_WINDOW)
         for line in proc.stdout:
             log(line.rstrip())
         if proc.wait() != 0:
@@ -209,7 +209,7 @@ class Provisioner:
         if not script.exists():
             log("verify_install.py missing; skipping deep verify"); return
         env = dict(os.environ, MIDI_STUDIO_MODELS_DIR=str(self.models_dir))
-        self._run([str(self.py), str(script)])
+        self._run([str(self.py), str(script)], env=env)
 
     def finalize(self):
         (self.env_dir / "env.json").write_text(json.dumps(

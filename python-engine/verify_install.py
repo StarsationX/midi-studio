@@ -15,16 +15,6 @@ if not (_ASSET_BASE / "ffmpeg").exists() and (ROOT / "ffmpeg").exists():
     _ASSET_BASE = ROOT
 MODELS_BASE = Path(os.environ.get("MIDI_STUDIO_MODELS_DIR") or (_ASSET_BASE / "models"))
 
-# torchcodec dlopen-loads the FFmpeg shared libs at import time - put them on PATH
-# before importing anything that touches torchcodec/torchaudio.
-FFMPEG_BIN = _ASSET_BASE / "ffmpeg" / "ffmpeg-master-latest-win64-lgpl-shared" / "bin"
-if FFMPEG_BIN.exists():
-    os.environ["PATH"] = str(FFMPEG_BIN) + os.pathsep + os.environ.get("PATH", "")
-    try:
-        os.add_dll_directory(str(FFMPEG_BIN))
-    except (AttributeError, OSError):
-        pass
-
 PASS = "  [OK  ]"
 WARN = "  [WARN]"
 FAIL = "  [FAIL]"
@@ -64,7 +54,11 @@ def check_file(path: Path, label: str, min_bytes: int = 1) -> None:
 print("Python packages:")
 check_import("torch")
 check_import("torchaudio")
-check_import("torchcodec")
+# torchcodec is NOT checked: it's only pulled in as a torchaudio companion and is
+# never used at runtime (MSST loads via librosa, transkun via pydub→ffmpeg.exe, our
+# scripts via soundfile). It also dlopen-loads the FFmpeg shared libs and only ships
+# cores for FFmpeg 4–8, so when the unpinned BtbN "master" build rolls to a newer
+# FFmpeg major it fails to load — which used to fail the whole install for nothing.
 check_import("pretty_midi")
 check_import("librosa")
 check_import("soundfile")
