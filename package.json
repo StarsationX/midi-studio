@@ -10,9 +10,9 @@
     "dev": "electron . --dev",
     "test": "node tools/run-tests.js",
     "build:engine": "cmd /c build-portable.bat",
-    "build:dir": "npm run build:engine && electron-builder --win --x64 -c.win.target=dir",
-    "build:portable": "npm run build:dir && electron-builder --prepackaged dist/win-unpacked --win --x64 -c.win.target=portable",
-    "build:nsis": "npm run build:engine && electron-builder --win nsis --x64"
+    "build:dir": "npm run build:engine && electron-builder --win --x64 -c.win.target=dir -p never",
+    "build:portable": "npm run build:dir && electron-builder --prepackaged dist/win-unpacked --win --x64 -c.win.target=portable -p never",
+    "build:nsis": "npm run build:engine && electron-builder --win nsis --x64 -p never"
   },
   "devDependencies": {
     "electron": "^32.0.0",
