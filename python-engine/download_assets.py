@@ -23,6 +23,13 @@ _ASSET_BASE_URL = "https://github.com/StarsationX/midi-studio/releases/download/
 CKPT_URL = f"{_ASSET_BASE_URL}/BS-Rofo-SW-Fixed.ckpt"
 YAML_URL = f"{_ASSET_BASE_URL}/BS-Rofo-SW-Fixed.yaml"
 
+# MDX-Net instrumental model for the ONNX + DirectML separation path (non-CUDA
+# GPUs, e.g. AMD RX 580). Hosted on the public UVR model mirror.
+ONNX_DIR = _MODELS_BASE / "onnx"
+MDX_NAME = "UVR-MDX-NET-Inst_HQ_3.onnx"
+MDX_URL = ("https://github.com/TRvlvr/model_repo/releases/download/"
+           f"all_public_uvr_models/{MDX_NAME}")
+
 # FFmpeg sits next to the env (sibling of models) so song_to_midi.py finds it there.
 FFMPEG_DIR = (_MODELS_BASE.parent / "ffmpeg") if os.environ.get("MIDI_STUDIO_MODELS_DIR") else (ROOT / "ffmpeg")
 FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip"
@@ -121,6 +128,11 @@ def fetch_model() -> None:
     _fetch(CKPT_URL, MODEL_DIR / "BS-Rofo-SW-Fixed.ckpt", "BS-Rofo-SW-Fixed.ckpt")
 
 
+def fetch_onnx() -> None:
+    print("\nMDX-Net ONNX model (DirectML separation for non-NVIDIA GPUs):")
+    _fetch(MDX_URL, ONNX_DIR / MDX_NAME, MDX_NAME)
+
+
 def fetch_ffmpeg() -> None:
     print("\nFFmpeg shared DLLs (BtbN build):")
     target = FFMPEG_DIR / "ffmpeg-master-latest-win64-lgpl-shared"
@@ -144,6 +156,7 @@ def main() -> int:
     socket.setdefaulttimeout(READ_TIMEOUT)
     try:
         fetch_model()
+        fetch_onnx()
         fetch_ffmpeg()
     except Exception as e:
         print(f"\n[ERROR] {type(e).__name__}: {e}")

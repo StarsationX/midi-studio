@@ -100,6 +100,23 @@ if ffmpeg_bin.exists():
 
 check_file(_ASSET_BASE / "msst" / "inference.py", "msst/inference.py", min_bytes=100)
 
+# Non-fatal: the MDX-Net ONNX model + DirectML provider power GPU separation on
+# non-NVIDIA cards. Missing => that path falls back to CPU, so warn, don't fail.
+onnx_model = MODELS_BASE / "onnx" / "UVR-MDX-NET-Inst_HQ_3.onnx"
+if onnx_model.exists():
+    print(f"{PASS} MDX-Net ONNX model ({onnx_model.stat().st_size / (1024 * 1024):.0f} MB)")
+else:
+    print(f"{WARN} MDX-Net ONNX model missing (DirectML separation unavailable)")
+    warnings.append("MDX-Net ONNX model missing - non-NVIDIA GPU separation falls back to CPU")
+try:
+    import onnxruntime as _ort
+    if "DmlExecutionProvider" in _ort.get_available_providers():
+        print(f"{PASS} DirectML provider available (GPU separation for non-NVIDIA)")
+    else:
+        print(f"{WARN} DirectML provider not available (onnxruntime-directml not installed?)")
+except Exception:
+    pass
+
 print()
 if issues:
     print(f"{len(issues)} issue(s) found:")

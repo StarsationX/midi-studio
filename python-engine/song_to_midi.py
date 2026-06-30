@@ -39,6 +39,13 @@ MSST_DIR = _ASSET_BASE / "msst"
 BS_ROFO_DIR = MODELS_BASE / "bs_rofo_sw"
 BS_ROFO_YAML = BS_ROFO_DIR / "BS-Rofo-SW-Fixed.yaml"
 BS_ROFO_CKPT = BS_ROFO_DIR / "BS-Rofo-SW-Fixed.ckpt"
+ONNX_MDX_MODEL = MODELS_BASE / "onnx" / "UVR-MDX-NET-Inst_HQ_3.onnx"
+
+# Which separator to use:
+#   msst     - BS-Rofo 6-stem piano roformer (SOTA; CUDA, or slow on CPU)
+#   onnx_dml - MDX-Net on ONNX Runtime + DirectML (any DX12 GPU, e.g. AMD RX 580)
+#   auto     - CUDA -> msst; else DirectML GPU -> onnx_dml; else msst on CPU
+SEPARATION_BACKEND = os.environ.get("SEPARATION_BACKEND", "auto").lower()
 
 MIN_NOTE_SEC = float(os.environ.get("MIN_NOTE_SEC", "0.05"))
 MIN_VELOCITY = int(os.environ.get("MIN_VELOCITY", "20"))
@@ -224,6 +231,32 @@ def clean_midi(midi_path: Path) -> tuple[int, int]:
     return before, after
 
 
+def _resolve_backend() -> str:
+    if SEPARATION_BACKEND in ("msst", "onnx_dml"):
+        return SEPARATION_BACKEND
+    if torch.cuda.is_available():        # NVIDIA: BS-Rofo on CUDA is best
+        return "msst"
+    try:                                 # no CUDA: prefer a DX12 GPU over slow CPU
+        import onnxruntime as ort
+        if "DmlExecutionProvider" in ort.get_available_providers() and ONNX_MDX_MODEL.exists():
+            return "onnx_dml"
+    except Exception:
+        pass
+    return "msst"
+
+
+def separate_onnx(src: Path, work_dir: Path) -> Path:
+    """Vocal-removed instrumental via MDX-Net on ONNX Runtime + DirectML (GPU)."""
+    print("\n[1/3] Separating with MDX-Net (ONNX Runtime + DirectML GPU)")
+    if not ONNX_MDX_MODEL.exists():
+        raise RuntimeError(f"ONNX model missing: {ONNX_MDX_MODEL}")
+    t0 = time.time()
+    import separate_onnx_dml as on
+    out = on.separate(src, work_dir, ONNX_MDX_MODEL)
+    print(f"  instrumental -> {out.name} ({time.time() - t0:.1f}s)")
+    return out
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("Usage: song_to_midi.py <audio_file>")
@@ -243,7 +276,11 @@ def main() -> int:
     work_dir = src.parent / "stems" / safe_name(src.stem)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    if GENERAL_MODE:
+    backend = _resolve_backend()
+    if backend == "onnx_dml":
+        print("Separator: MDX-Net (ONNX + DirectML) — GPU path for non-CUDA cards")
+        stem_wav = separate_onnx(src, work_dir)
+    elif GENERAL_MODE:
         print("Mode: General (mixing all pitched stems, not just piano)")
         stem_wav = mix_pitched_stems(src, work_dir)
     else:

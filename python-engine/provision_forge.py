@@ -168,7 +168,10 @@ class Provisioner:
         else:
             log(f"requirements.txt not found at {req}")
         self._pip("--no-deps", "--prefer-binary", "basic-pitch==0.4.0")
-        self._pip("--prefer-binary", "onnxruntime")
+        # onnxruntime-directml (not plain onnxruntime): ships both the CPU EP
+        # (basic-pitch) AND DmlExecutionProvider, which gives GPU separation on
+        # ANY DirectX 12 card — the only GPU path for non-CUDA users (AMD/Intel).
+        self._pip("--prefer-binary", "onnxruntime-directml")
 
     def fetch_msst(self):
         if (self.env_dir / "msst" / "inference.py").exists():
