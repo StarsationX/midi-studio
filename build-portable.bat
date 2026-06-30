@@ -8,7 +8,17 @@ set "PYVER=3.13.5"
 set "ENGINE=%~dp0python-engine"
 set "PYDIR=%ENGINE%\python"
 
-if exist "%PYDIR%\python.exe" ( echo [build] light python present & goto deps )
+rem build:portable and build:nsis each invoke build:engine, so this runs twice.
+rem The first pass slims pip out of the bundle, so a naive "python present -> goto
+rem deps" makes the second pass die on `pip install` (No module named pip). Instead:
+rem if the bundle's already built (deps import), we're done; if it's present but
+rem broken, wipe it and rebuild from scratch (which restores pip).
+if exist "%PYDIR%\python.exe" (
+  echo [build] light python present — verifying existing bundle ...
+  "%PYDIR%\python.exe" -c "import mido,pynput,psutil,win32gui,win32con,win32process" && ( echo [build] already built, skipping & exit /b 0 )
+  echo [build] present but incomplete — wiping and rebuilding
+  rd /s /q "%PYDIR%" 2>nul
+)
 
 echo [build] downloading embeddable Python %PYVER% ...
 mkdir "%PYDIR%" 2>nul
