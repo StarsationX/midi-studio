@@ -175,17 +175,41 @@ def mix_pitched_stems(src: Path, work_dir: Path) -> Path:
     return out
 
 
+TRANSCRIBE_BACKEND = os.environ.get("TRANSCRIBE_BACKEND", "auto").lower()
+TRANSKUN_ONNX = MODELS_BASE / "onnx" / "transkun_v2.onnx"
+
+
+def _resolve_transcribe_backend() -> str:
+    if TRANSCRIBE_BACKEND in ("cuda", "cpu", "onnx_dml"):
+        return TRANSCRIBE_BACKEND
+    if torch.cuda.is_available():
+        return "cuda"
+    try:
+        import onnxruntime as ort
+        if ("DmlExecutionProvider" in ort.get_available_providers()
+                and TRANSKUN_ONNX.exists()):
+            return "onnx_dml"
+    except Exception:
+        pass
+    return "cpu"
+
+
 def transcribe_to_midi(piano_wav: Path, out_midi: Path) -> None:
-    print(f"\n[2/3] Transcribing with Transkun V2 (SOTA piano MIDI)")
+    backend = _resolve_transcribe_backend()
+    print(f"\n[2/3] Transcribing with Transkun V2 (SOTA piano MIDI) — {backend}")
     t0 = time.time()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    # Use `-m transkun.transcribe` instead of transkun.exe so it works in the
-    # portable bundle (no console_scripts shims in embedded Python).
-    cmd = [str(PY), "-m", "transkun.transcribe", str(piano_wav), str(out_midi), "--device", device]
-    if SEGMENT_HOP:
-        cmd += ["--segmentHopSize", SEGMENT_HOP]
-    if SEGMENT_SIZE:
-        cmd += ["--segmentSize", SEGMENT_SIZE]
+    if backend == "onnx_dml":
+        cmd = [str(PY), str(Path(__file__).resolve().parent / "transcribe_onnx_dml.py"),
+               str(piano_wav), str(out_midi)]
+    else:
+        # Use `-m transkun.transcribe` instead of transkun.exe so it works in the
+        # portable bundle (no console_scripts shims in embedded Python).
+        cmd = [str(PY), "-m", "transkun.transcribe", str(piano_wav), str(out_midi),
+               "--device", backend]
+        if SEGMENT_HOP:
+            cmd += ["--segmentHopSize", SEGMENT_HOP]
+        if SEGMENT_SIZE:
+            cmd += ["--segmentSize", SEGMENT_SIZE]
     rc = subprocess.run(cmd, check=False).returncode
     if rc != 0:
         raise RuntimeError(f"Transkun failed with exit code {rc}")

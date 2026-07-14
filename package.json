@@ -1,7 +1,7 @@
 {
   "name": "midi-studio",
-  "version": "2.1.5",
-  "description": "Audio/YouTube → MIDI (Midi-Forge) + MIDI → keypress player (Midi-Player) in one Windows app.",
+  "version": "2.3.0",
+  "description": "Audio/YouTube â†’ MIDI (Midi-Forge) + MIDI â†’ keypress player (Midi-Player) in one Windows app.",
   "author": "StarsationX",
   "license": "MIT",
   "main": "electron/main.js",
@@ -21,21 +21,43 @@
   "build": {
     "appId": "com.starsationx.midistudio",
     "productName": "MIDI Studio",
-    "directories": { "output": "dist" },
-    "electronLanguages": ["en-US"],
-    "files": ["electron/**/*", "renderer/**/*", "package.json"],
+    "directories": {
+      "output": "dist"
+    },
+    "electronLanguages": [
+      "en-US"
+    ],
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
     "extraResources": [
       {
         "from": "python-engine",
         "to": "python-engine",
-        "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"]
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
       }
     ],
     "win": {
       "icon": "build/icon.ico",
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "MIDI-Studio-${version}-${target}.${ext}"
     },

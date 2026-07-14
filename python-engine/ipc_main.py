@@ -16,7 +16,8 @@ Protocol (newline-delimited JSON in both directions):
     {"cmd": "resume"}
     {"cmd": "toggle_pause"}
     {"cmd": "seek", "time": 12.34}
-    {"cmd": "set_hotkeys", "play": "<f6>", "stop": "<f7>", "pause": "<f8>"}
+    {"cmd": "set_hotkeys", "play": "<f6>", "stop": "<f7>", "pause": "<f8>",
+                           "tempo_up": "", "tempo_down": "", "tempo_set": ""}
     {"cmd": "shutdown"}
 
   OUT (Python -> Electron):
@@ -33,7 +34,7 @@ Protocol (newline-delimited JSON in both directions):
                           "total_notes": 856, "focus_lost": false,
                           "user_paused": false, "frozen_elapsed": null}
     {"event": "playback_done", "stats": {...}}
-    {"event": "hotkey", "name": "play"|"stop"|"pause"}
+    {"event": "hotkey", "name": "play"|"stop"|"pause"|"tempo_up"|"tempo_down"|"tempo_set"}
     {"event": "error", "message": "..."}
 """
 
@@ -121,6 +122,9 @@ class Bridge:
         self.play_hotkey = "<f6>"
         self.stop_hotkey = "<f7>"
         self.pause_hotkey = "<f8>"
+        self.tempo_up_hotkey = ""
+        self.tempo_down_hotkey = ""
+        self.tempo_set_hotkey = ""
         self.last_play_args = None         # so a hotkey "play" can re-fire
         self._stop_requested = False
         self._restart_hotkeys()
@@ -167,8 +171,13 @@ class Bridge:
 
     def cmd_play(self, msg):
         if self.session_thread and self.session_thread.is_alive():
-            log("warn", "Play requested but a session is already running.")
-            return
+            # A stop immediately followed by play (e.g. live tempo change)
+            # can arrive while the old session thread is still winding down.
+            # Give it a moment instead of dropping the play.
+            self.session_thread.join(timeout=1.0)
+            if self.session_thread.is_alive():
+                log("warn", "Play requested but a session is already running.")
+                return
         self.last_play_args = msg
         self._stop_requested = False
         self.session_thread = threading.Thread(
@@ -231,6 +240,9 @@ class Bridge:
         self.play_hotkey = msg.get("play", "<f6>") or ""
         self.stop_hotkey = msg.get("stop", "<f7>") or ""
         self.pause_hotkey = msg.get("pause", "<f8>") or ""
+        self.tempo_up_hotkey = msg.get("tempo_up", "") or ""
+        self.tempo_down_hotkey = msg.get("tempo_down", "") or ""
+        self.tempo_set_hotkey = msg.get("tempo_set", "") or ""
         self._restart_hotkeys()
 
     def cmd_shutdown(self, _):
@@ -266,13 +278,25 @@ class Bridge:
         if self.pause_hotkey:
             bindings[self.pause_hotkey] = lambda: emit(
                 {"event": "hotkey", "name": "pause"})
+        if self.tempo_up_hotkey:
+            bindings[self.tempo_up_hotkey] = lambda: emit(
+                {"event": "hotkey", "name": "tempo_up"})
+        if self.tempo_down_hotkey:
+            bindings[self.tempo_down_hotkey] = lambda: emit(
+                {"event": "hotkey", "name": "tempo_down"})
+        if self.tempo_set_hotkey:
+            bindings[self.tempo_set_hotkey] = lambda: emit(
+                {"event": "hotkey", "name": "tempo_set"})
         if not bindings:
             return
         try:
             self.hotkey_listener = GlobalHotKeys(bindings)
             self.hotkey_listener.start()
             log("info", f"Hotkeys: play={self.play_hotkey} "
-                        f"stop={self.stop_hotkey} pause={self.pause_hotkey}")
+                        f"stop={self.stop_hotkey} pause={self.pause_hotkey}"
+                        + (f" tempo+={self.tempo_up_hotkey}" if self.tempo_up_hotkey else "")
+                        + (f" tempo-={self.tempo_down_hotkey}" if self.tempo_down_hotkey else "")
+                        + (f" tempo=set:{self.tempo_set_hotkey}" if self.tempo_set_hotkey else ""))
         except Exception as e:
             log("error", f"Failed to bind hotkeys: {e}")
 
@@ -285,6 +309,7 @@ class Bridge:
             tempo = float(msg.get("tempo", 1.0))
             countdown = int(msg.get("countdown", 3))
             collect_stats = bool(msg.get("stats", False))
+            sustain = bool(msg.get("sustain", False))
             midi_path = msg["midi_path"]
             try:
                 start_at = float(msg.get("start_at", 0.0))
@@ -360,7 +385,7 @@ class Bridge:
             self.progress_thread.start()
 
             engine.playback_loop(events, self.session_state, self.kb,
-                                 latency, None, collect_stats)
+                                 latency, None, collect_stats, sustain)
 
             stats_payload = None
             if collect_stats and self.session_state.timing_errors:

@@ -29,6 +29,44 @@ import torch
 from audio_utils import expand_velocities, find_python, load_normalize_save
 
 PY = find_python()
+
+# Transcription backend:
+#   cuda     - transkun on torch CUDA (NVIDIA)
+#   onnx_dml - transkun acoustic model on ONNX Runtime + DirectML (any DX12 GPU)
+#   cpu      - transkun on torch CPU
+#   auto     - CUDA -> cuda; else DirectML GPU + model present -> onnx_dml; else cpu
+TRANSCRIBE_BACKEND = os.environ.get("TRANSCRIBE_BACKEND", "auto").lower()
+_MODELS_BASE = Path(os.environ.get("MIDI_STUDIO_MODELS_DIR") or (ROOT / "models"))
+TRANSKUN_ONNX = _MODELS_BASE / "onnx" / "transkun_v2.onnx"
+
+
+def resolve_transcribe_backend():
+    if TRANSCRIBE_BACKEND in ("cuda", "cpu", "onnx_dml"):
+        return TRANSCRIBE_BACKEND
+    if torch.cuda.is_available():
+        return "cuda"
+    try:
+        import onnxruntime as ort
+        if ("DmlExecutionProvider" in ort.get_available_providers()
+                and TRANSKUN_ONNX.exists()):
+            return "onnx_dml"
+    except Exception:
+        pass
+    return "cpu"
+
+
+def transkun_cmd(backend, src, out_midi):
+    """Build the transcription subprocess command for the chosen backend."""
+    if backend == "onnx_dml":
+        return [str(PY), str(ROOT / "transcribe_onnx_dml.py"),
+                str(src), str(out_midi)]
+    cmd = [str(PY), "-m", "transkun.transcribe", str(src), str(out_midi),
+           "--device", backend]
+    if SEGMENT_HOP:
+        cmd += ["--segmentHopSize", SEGMENT_HOP]
+    if SEGMENT_SIZE:
+        cmd += ["--segmentSize", SEGMENT_SIZE]
+    return cmd
 MIN_NOTE_SEC = float(os.environ.get("MIN_NOTE_SEC", "0.05"))
 MIN_VELOCITY = int(os.environ.get("MIN_VELOCITY", "20"))
 PIANO_MIN_PITCH = int(os.environ.get("PIANO_MIN_PITCH", "21"))
@@ -70,8 +108,10 @@ def main() -> int:
         return 1
 
     out_midi = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else src.with_suffix(".mid")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Device: {device}" + (f" ({torch.cuda.get_device_name(0)})" if device == "cuda" else ""))
+    backend = resolve_transcribe_backend()
+    print(f"Backend: {backend}"
+          + (f" ({torch.cuda.get_device_name(0)})" if backend == "cuda" else "")
+          + (" (ONNX Runtime + DirectML)" if backend == "onnx_dml" else ""))
 
     norm_wav = src.with_name(src.stem + "_norm.wav") if LOUDNESS_NORM else None
     try:
@@ -84,11 +124,7 @@ def main() -> int:
 
         print(f"Transcribing with Transkun V2: {src.name}")
         t0 = time.time()
-        cmd = [str(PY), "-m", "transkun.transcribe", str(transcribe_src), str(out_midi), "--device", device]
-        if SEGMENT_HOP:
-            cmd += ["--segmentHopSize", SEGMENT_HOP]
-        if SEGMENT_SIZE:
-            cmd += ["--segmentSize", SEGMENT_SIZE]
+        cmd = transkun_cmd(backend, transcribe_src, out_midi)
         rc = subprocess.run(cmd, check=False).returncode
         if rc != 0:
             print(f"Transkun failed with exit code {rc}")

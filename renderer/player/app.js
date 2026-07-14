@@ -20,10 +20,16 @@ const els = {
   tempoLabel: $('tempo-label'),
   countdown: $('countdown'),
   stats: $('stats'),
+  sustain: $('sustain'),
   // sidebar — hotkeys
   hkPlay: $('hotkey-play'),
   hkStop: $('hotkey-stop'),
   hkPause: $('hotkey-pause'),
+  hkTempoUp: $('hotkey-tempo-up'),
+  hkTempoDown: $('hotkey-tempo-down'),
+  hkTempoSet: $('hotkey-tempo-set'),
+  tempoStep: $('tempo-step'),
+  tempoPreset: $('tempo-preset'),
   hkApply: $('hotkey-apply'),
   hkStatus: $('hotkey-status'),
   // header
@@ -72,9 +78,15 @@ const settings = Object.assign({
   tempo: 1.0,
   countdown: 0,
   stats: false,
+  sustain: true,
   playHotkey: '<f6>',
   stopHotkey: '<f7>',
   pauseHotkey: '<f8>',
+  tempoUpHotkey: '',
+  tempoDownHotkey: '',
+  tempoSetHotkey: '',
+  tempoStep: 0.1,
+  tempoPreset: 1.0,
   targetHint: '',
   openSection: 'source',
   logCollapsed: true,
@@ -99,6 +111,8 @@ let bpm = 0;
 let isPlaying = false;
 let isPaused = false;
 let isFocusLost = false;
+let pendingRestartAt = null;   // seconds; set by a live tempo change
+let pendingSeekAfterLoad = null; // seconds; pre-seek viz after next midi_loaded
 const viz = new Visualizer(els.vizCanvas);
 
 // --------------------------------------------------------------------------
@@ -132,9 +146,15 @@ function applySettingsToUI() {
   els.tempoLabel.textContent = `${Number(settings.tempo).toFixed(2)}×`;
   els.countdown.value = settings.countdown;
   els.stats.checked = !!settings.stats;
+  els.sustain.checked = settings.sustain !== false;
   els.hkPlay.value = settings.playHotkey;
   els.hkStop.value = settings.stopHotkey;
   els.hkPause.value = settings.pauseHotkey;
+  els.hkTempoUp.value = settings.tempoUpHotkey || '';
+  els.hkTempoDown.value = settings.tempoDownHotkey || '';
+  els.hkTempoSet.value = settings.tempoSetHotkey || '';
+  els.tempoStep.value = settings.tempoStep;
+  els.tempoPreset.value = settings.tempoPreset;
   els.autoPickTarget.checked = settings.autoPickTarget !== false;
 
   // Open the persisted section
@@ -226,6 +246,10 @@ window.api.onEngineEvent((evt) => {
       els.timeElapsed.textContent = fmtClock(0);
       els.scrubFill.style.width = '0%';
       els.scrubThumb.style.left = '0%';
+      if (pendingSeekAfterLoad !== null) {
+        viz.seek(Math.min(pendingSeekAfterLoad, totalDuration));
+        pendingSeekAfterLoad = null;
+      }
       break;
 
     case 'countdown':
@@ -276,6 +300,14 @@ window.api.onEngineEvent((evt) => {
       // Reset notes counter on the track strip
       const tn = document.getElementById('track-notes');
       if (tn) tn.textContent = `${totalNotes} / ${totalNotes}`;
+      // A live tempo change stops the session, then resumes here at the
+      // same musical position rescaled to the new tempo.
+      if (pendingRestartAt !== null) {
+        const at = pendingRestartAt;
+        pendingRestartAt = null;
+        loadMidi();                 // reload events/visualizer at new tempo
+        sendPlay(at, 0);            // no countdown on a tempo restart
+      }
       break;
 
     case 'hotkey':
@@ -284,6 +316,9 @@ window.api.onEngineEvent((evt) => {
         else doPlay();
       } else if (evt.name === 'stop') doStop();
       else if (evt.name === 'pause') doTogglePause();
+      else if (evt.name === 'tempo_up') nudgeTempo(+(settings.tempoStep || 0.1));
+      else if (evt.name === 'tempo_down') nudgeTempo(-(settings.tempoStep || 0.1));
+      else if (evt.name === 'tempo_set') setTempo(settings.tempoPreset || 1.0);
       break;
 
     case 'error':
@@ -424,13 +459,131 @@ els.stats.addEventListener('change', () => {
   saveSettings();
 });
 
+els.sustain.addEventListener('change', () => {
+  settings.sustain = els.sustain.checked;
+  saveSettings();
+});
+
 els.hkApply.addEventListener('click', () => {
   settings.playHotkey = els.hkPlay.value.trim() || '<f6>';
   settings.stopHotkey = els.hkStop.value.trim() || '<f7>';
   settings.pauseHotkey = els.hkPause.value.trim() || '<f8>';
+  settings.tempoUpHotkey = els.hkTempoUp.value.trim();
+  settings.tempoDownHotkey = els.hkTempoDown.value.trim();
+  settings.tempoSetHotkey = els.hkTempoSet.value.trim();
   saveSettings();
   sendHotkeys();
 });
+
+els.tempoStep.addEventListener('change', () => {
+  settings.tempoStep = Math.abs(parseFloat(els.tempoStep.value)) || 0.1;
+  els.tempoStep.value = settings.tempoStep;
+  saveSettings();
+});
+els.tempoPreset.addEventListener('change', () => {
+  settings.tempoPreset = parseFloat(els.tempoPreset.value) || 1.0;
+  els.tempoPreset.value = settings.tempoPreset;
+  saveSettings();
+});
+
+// ---- hotkey capture: click a box, press the key, done -----------------
+// Maps a DOM KeyboardEvent to pynput GlobalHotKeys syntax. Letters/digits
+// stay bare ("q"), F-keys and named keys use <...>, anything else (+, -,
+// numpad, media keys) falls back to the Windows virtual-key code <NNN>,
+// which pynput accepts natively.
+const PYNPUT_NAMED = {
+  ' ': '<space>', 'Enter': '<enter>', 'Tab': '<tab>',
+  'Home': '<home>', 'End': '<end>', 'Insert': '<insert>',
+  'PageUp': '<page_up>', 'PageDown': '<page_down>',
+  'ArrowUp': '<up>', 'ArrowDown': '<down>',
+  'ArrowLeft': '<left>', 'ArrowRight': '<right>',
+  'Pause': '<pause>', 'ScrollLock': '<scroll_lock>',
+  'CapsLock': '<caps_lock>', 'NumLock': '<num_lock>',
+  'PrintScreen': '<print_screen>',
+};
+
+function keyEventToPynput(e) {
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return null;
+  const mods = [];
+  if (e.ctrlKey) mods.push('<ctrl>');
+  if (e.altKey) mods.push('<alt>');
+  if (e.shiftKey) mods.push('<shift>');
+  let base;
+  if (/^F\d{1,2}$/.test(e.key)) {
+    base = `<${e.key.toLowerCase()}>`;
+  } else if (/^[a-z0-9]$/i.test(e.key) && !e.code.startsWith('Numpad')) {
+    base = e.key.toLowerCase();
+  } else if (PYNPUT_NAMED[e.key]) {
+    base = PYNPUT_NAMED[e.key];
+  } else if (e.keyCode) {
+    base = `<${e.keyCode}>`;   // virtual-key code fallback (e.g. +/−/numpad)
+  } else {
+    return null;
+  }
+  return [...mods, base].join('+');
+}
+
+function initHotkeyCapture(input) {
+  input.addEventListener('focus', () => {
+    input.dataset.prev = input.value;
+    input.value = '';
+    input.placeholder = 'press a key…';
+    suspendHotkeys();
+  });
+  input.addEventListener('blur', () => {
+    if (!input.value) input.value = input.dataset.prev || '';
+    input.placeholder = 'unset';
+    sendHotkeys();               // restore active bindings
+  });
+  input.addEventListener('keydown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === 'Escape') { input.blur(); return; }
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      input.dataset.prev = '';
+      input.blur();
+      return;
+    }
+    const combo = keyEventToPynput(e);
+    if (!combo) return;          // modifier-only press — keep listening
+    input.value = combo;
+    input.dataset.prev = combo;
+    input.blur();
+  });
+}
+[els.hkPlay, els.hkStop, els.hkPause,
+ els.hkTempoUp, els.hkTempoDown, els.hkTempoSet].forEach(initHotkeyCapture);
+
+// ---- tempo hotkey actions ---------------------------------------------
+function nudgeTempo(delta) {
+  setTempo((parseFloat(els.tempo.value) || 1.0) + delta);
+}
+
+function setTempo(t) {
+  const min = parseFloat(els.tempo.min), max = parseFloat(els.tempo.max);
+  t = Math.round(Math.max(min, Math.min(max, t)) * 100) / 100;
+  const prev = parseFloat(els.tempo.value) || 1.0;
+  if (t === prev) return;
+  els.tempo.value = t;
+  settings.tempo = t;
+  els.tempoLabel.textContent = `${t.toFixed(2)}×`;
+  saveSettings();
+  log('info', `Tempo → ${t.toFixed(2)}×`);
+  if (isPlaying && !isPaused) {
+    // Event times are baked at parse time, so restart the session at the
+    // equivalent musical position under the new tempo scale.
+    pendingRestartAt = viz.elapsed() * prev / t;
+    window.api.send({ cmd: 'stop' });
+  } else if (isPlaying && isPaused) {
+    // Paused: never auto-resume. End the session and pre-seek the scrubber
+    // to the equivalent spot — the next Play picks it up from there.
+    pendingSeekAfterLoad = viz.elapsed() * prev / t;
+    window.api.send({ cmd: 'stop' });
+    loadMidi();
+  } else {
+    loadMidi();
+  }
+}
 
 els.play.addEventListener('click', doPlay);
 els.pause.addEventListener('click', doTogglePause);
@@ -465,9 +618,26 @@ function sendHotkeys() {
     play: settings.playHotkey,
     stop: settings.stopHotkey,
     pause: settings.pauseHotkey,
+    tempo_up: settings.tempoUpHotkey || '',
+    tempo_down: settings.tempoDownHotkey || '',
+    tempo_set: settings.tempoSetHotkey || '',
   });
-  els.hkStatus.textContent =
-    `Play ${settings.playHotkey}   ·   Pause ${settings.pauseHotkey}   ·   Stop ${settings.stopHotkey}`;
+  const parts = [
+    `Play ${settings.playHotkey}`,
+    `Pause ${settings.pauseHotkey}`,
+    `Stop ${settings.stopHotkey}`,
+  ];
+  if (settings.tempoUpHotkey) parts.push(`T+ ${settings.tempoUpHotkey}`);
+  if (settings.tempoDownHotkey) parts.push(`T− ${settings.tempoDownHotkey}`);
+  if (settings.tempoSetHotkey) parts.push(`T= ${settings.tempoSetHotkey}`);
+  els.hkStatus.textContent = parts.join('   ·   ');
+}
+
+// Suspend global hotkeys while a capture box is focused so pressing the
+// key being (re)bound doesn't fire its old action.
+function suspendHotkeys() {
+  window.api.send({ cmd: 'set_hotkeys', play: '', stop: '', pause: '',
+                    tempo_up: '', tempo_down: '', tempo_set: '' });
 }
 
 function requestWindows() { window.api.send({ cmd: 'list_windows' }); }
@@ -529,28 +699,40 @@ function selectedTarget() {
   return Number.isNaN(idx) ? null : windows[idx];
 }
 
-function doPlay() {
-  if (isPlaying) return;
+function sendPlay(startAt, countdown) {
   const path = els.midiPath.value;
   const target = selectedTarget();
   if (!path) { log('error', 'Pick a MIDI file first.'); return; }
   if (!target) { log('error', 'Pick a target window first (Refresh).'); return; }
-  // If the user pre-seeked via the scrubber before pressing Play, start
-  // playback from that position instead of t=0.
-  const preSeek = viz.elapsed();
   window.api.send({
     cmd: 'play',
     midi_path: path,
     target_hwnd: target.hwnd,
     mapping: resolveMappingArg(),
     tempo: parseFloat(els.tempo.value),
-    countdown: parseInt(els.countdown.value, 10) || 0,
+    countdown: countdown,
     stats: !!els.stats.checked,
-    start_at: preSeek > 0.25 ? preSeek : 0,
+    sustain: !!els.sustain.checked,
+    start_at: startAt,
   });
 }
 
-function doStop()  { if (isPlaying) window.api.send({ cmd: 'stop' }); }
+function doPlay() {
+  if (isPlaying) return;
+  // If the user pre-seeked via the scrubber before pressing Play, start
+  // playback from that position instead of t=0.
+  const preSeek = viz.elapsed();
+  sendPlay(preSeek > 0.25 ? preSeek : 0, parseInt(els.countdown.value, 10) || 0);
+}
+
+function doStop()  {
+  // User stop wins over a pending tempo restart. Always send the stop —
+  // even if the UI thinks nothing is playing — so a restart session that
+  // was just dispatched gets killed instead of continuing.
+  pendingRestartAt = null;
+  pendingSeekAfterLoad = null;
+  window.api.send({ cmd: 'stop' });
+}
 function doPause() {
   if (!isPlaying || isPaused) return;
   isPaused = true;

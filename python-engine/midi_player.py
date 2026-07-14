@@ -17,6 +17,7 @@ import argparse
 import contextlib
 import ctypes
 import gc
+import heapq
 import json
 import queue
 import statistics
@@ -340,6 +341,27 @@ def play_keys(kb, value):
             kb.release(mk)
 
 
+def press_keys_hold(kb, value, held):
+    """Sustain variant: press and KEEP the base key down; the caller releases
+    it at note-end. Modifiers are still tapped around the press only, so a
+    held note can't shift-corrupt other notes fired while it sounds.
+    A still-held base key is released first so the game sees a fresh
+    keydown. Returns the base key to release later."""
+    mods, base = _parse_mapping_value(value)
+    mod_keys = [_MOD_KEYS[m] for m in mods if m in _MOD_KEYS]
+    if base in held:
+        kb.release(base)
+        del held[base]
+    for mk in mod_keys:
+        kb.press(mk)
+    try:
+        kb.press(base)
+    finally:
+        for mk in reversed(mod_keys):
+            kb.release(mk)
+    return base
+
+
 def benchmark_keypress(kb, samples=20):
     """Average wall-clock cost of one press+release. Used to nudge target
     times earlier so the keypress LANDS on the beat rather than starts on it."""
@@ -421,7 +443,8 @@ def _hybrid_sleep(target):
             return
 
 
-def playback_loop(events, state, kb, latency_offset, q, collect_stats):
+def playback_loop(events, state, kb, latency_offset, q, collect_stats,
+                  sustain=False):
     """ZERO allocation in the inner body. Every variable is local.
 
     Wrapped in hi_res_timer() so time.sleep() honours millisecond targets
@@ -430,7 +453,15 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats):
 
     Pause handling: the sleep is sliced into ~25 ms chunks while we still
     have time, so a user pause (or focus-loss) is detected within ~25 ms
-    instead of waiting out the full inter-note gap."""
+    instead of waiting out the full inter-note gap.
+
+    Sustain: when enabled, keys are held for the note's duration instead of
+    tapped. Releases are scheduled on a min-heap in timeline seconds (so a
+    pause, which shifts `base`, keeps them consistent) and drained during
+    the sleep slices. Re-pressing a still-held key releases it first so the
+    game sees a fresh keydown; stale heap entries are skipped lazily.
+    Pause/seek/stop release everything (a paused note stays released —
+    resuming does not re-press it)."""
     pause_event = state.pause_event
     stop_event = state.stop_event
     perf = time.perf_counter
@@ -439,6 +470,24 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats):
     play = play_keys
     spin = _SPIN_THRESHOLD
     poll = _PAUSE_POLL_SLICE
+
+    heappush = heapq.heappush
+    heappop = heapq.heappop
+    held = {}       # base key -> scheduled release time (timeline seconds)
+    rel_heap = []   # (release time, base key)
+
+    def release_due(now_t):
+        while rel_heap and rel_heap[0][0] <= now_t:
+            rt, k = heappop(rel_heap)
+            if held.get(k) == rt:        # skip stale entries (key re-pressed)
+                kb.release(k)
+                del held[k]
+
+    def release_all():
+        for k in held:
+            kb.release(k)
+        held.clear()
+        rel_heap.clear()
 
     boost_thread_priority()
     gc_was_enabled = gc.isenabled()
@@ -461,6 +510,8 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats):
             seek = state.seek_request
             if seek is not None:
                 state.seek_request = None
+                if held:
+                    release_all()
                 target_t = max(0.0, seek)
                 j = 0
                 while j < total and events[j][0] < target_t:
@@ -484,6 +535,8 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats):
                     return
 
                 if not pause_event.is_set():
+                    if held:
+                        release_all()          # no stuck keys while paused
                     ps = perf()
                     state.frozen_elapsed = ps - base   # freeze visualizer
                     pause_event.wait()
@@ -504,6 +557,8 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats):
                     if state.seek_request is not None:
                         interrupted = True
                         break
+                    if rel_heap:
+                        release_due(perf() - base)
                     remaining = target - perf()
                     if remaining <= 0:
                         break
@@ -538,7 +593,14 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats):
                 continue
 
             actual = perf()
-            play(kb, key)
+            if sustain:
+                bk = press_keys_hold(kb, key, held)
+                # Floor tiny durations so the keydown registers before keyup.
+                rt = t_sec + (duration if duration > 0.03 else 0.03)
+                held[bk] = rt
+                heappush(rel_heap, (rt, bk))
+            else:
+                play(kb, key)
 
             if put_nowait is not None:
                 try:
@@ -553,8 +615,15 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats):
 
             i += 1
 
+        # Let the last held notes ring out to their full length.
+        while rel_heap and not stop_event.is_set():
+            release_due(perf() - base)
+            if rel_heap:
+                time.sleep(poll)
+
         stop_event.set()
     finally:
+        release_all()
         if gc_was_enabled:
             gc.enable()
 
@@ -828,6 +897,8 @@ def main():
                    help="disable the pygame display window (max performance)")
     p.add_argument("--countdown", type=int, default=3,
                    help="seconds to wait before playback starts (default 3)")
+    p.add_argument("--sustain", action="store_true",
+                   help="hold keys for each note's duration instead of tapping")
     args = p.parse_args()
 
     script_dir = Path(__file__).resolve().parent
@@ -915,7 +986,7 @@ def main():
         daemon=True, name="focus-monitor").start()
 
     try:
-        playback_loop(events, state, kb, latency, q, args.stats)
+        playback_loop(events, state, kb, latency, q, args.stats, args.sustain)
     except KeyboardInterrupt:
         pass
     finally:

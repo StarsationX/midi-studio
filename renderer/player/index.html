@@ -116,6 +116,9 @@
               <label class="check"><input id="stats" type="checkbox"/> Timing stats</label>
             </div>
           </div>
+          <label class="check" title="Hold keys down for the note's full length instead of a quick tap">
+            <input id="sustain" type="checkbox" checked/> Sustain (hold long notes)
+          </label>
         </div>
       </section>
 
@@ -129,15 +132,25 @@
         <div class="section-body">
           <div class="hotkey-grid">
             <span class="muted">Play</span>
-            <input id="hotkey-play" type="text" value="<f6>" />
+            <input id="hotkey-play" class="hk-capture" type="text" value="<f6>" readonly />
             <span class="muted">Pause</span>
-            <input id="hotkey-pause" type="text" value="<f8>" />
+            <input id="hotkey-pause" class="hk-capture" type="text" value="<f8>" readonly />
             <span class="muted">Stop</span>
-            <input id="hotkey-stop" type="text" value="<f7>" />
-            <span></span><span></span>
+            <input id="hotkey-stop" class="hk-capture" type="text" value="<f7>" readonly />
+            <span class="muted">Tempo +</span>
+            <input id="hotkey-tempo-up" class="hk-capture" type="text" value="" placeholder="unset" readonly />
+            <span class="muted">Tempo −</span>
+            <input id="hotkey-tempo-down" class="hk-capture" type="text" value="" placeholder="unset" readonly />
+            <span class="muted">Tempo =</span>
+            <input id="hotkey-tempo-set" class="hk-capture" type="text" value="" placeholder="unset" readonly />
+            <span class="muted">± step</span>
+            <input id="tempo-step" type="number" min="0.01" max="1" step="0.01" value="0.10" />
+            <span class="muted">= value</span>
+            <input id="tempo-preset" type="number" min="0.25" max="3" step="0.05" value="1.00" />
             <button id="hotkey-apply" class="btn">Apply</button>
           </div>
           <div class="muted small" id="hotkey-status" style="margin-top:10px">Defaults active.</div>
+          <div class="muted small" style="margin-top:4px">Click a hotkey box, then press the key. Backspace clears, Esc cancels.</div>
         </div>
       </section>
     </aside>

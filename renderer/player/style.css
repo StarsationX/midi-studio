@@ -396,11 +396,13 @@ input[type="range"]:hover::-webkit-slider-thumb { border-color: var(--accent-3);
 
 .hotkey-grid {
   display: grid;
-  grid-template-columns: 46px 1fr 46px 1fr;
+  grid-template-columns: 52px 1fr 52px 1fr;
   gap: 6px;
   align-items: center;
 }
-.hotkey-grid > input { padding: 5px 9px; height: 28px; }
+.hotkey-grid > input { padding: 5px 9px; height: 28px; min-width: 0; }
+.hk-capture { cursor: pointer; }
+.hk-capture:focus { outline: 1px solid var(--accent); background: var(--bg-4); }
 .hotkey-grid > .btn { grid-column: span 4; margin-top: 4px; }
 
 .muted { color: var(--fg-muted); font-size: 11px; }
