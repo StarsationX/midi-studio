@@ -47,8 +47,14 @@ def resolve_transcribe_backend():
         return "cuda"
     try:
         import onnxruntime as ort
-        if ("DmlExecutionProvider" in ort.get_available_providers()
-                and TRANSKUN_ONNX.exists()):
+        if "DmlExecutionProvider" in ort.get_available_providers():
+            if not TRANSKUN_ONNX.exists():
+                # Installs provisioned before v2.3.0 lack the model — fetch it
+                # now (idempotent, ~54 MB) instead of silently using the CPU.
+                from download_assets import fetch_transkun_onnx
+                print("Transkun ONNX model missing — downloading (one-time)...")
+                if not fetch_transkun_onnx():
+                    return "cpu"       # offline; next run retries
             return "onnx_dml"
     except Exception:
         pass

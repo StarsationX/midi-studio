@@ -134,12 +134,35 @@ def fetch_model() -> None:
     _fetch(CKPT_URL, MODEL_DIR / "BS-Rofo-SW-Fixed.ckpt", "BS-Rofo-SW-Fixed.ckpt")
 
 
+def fetch_mdx_onnx() -> bool:
+    """Idempotent fetch of the MDX separation model. False on failure
+    (offline) so callers can fall back instead of crashing."""
+    try:
+        _fetch(MDX_URL, ONNX_DIR / MDX_NAME, MDX_NAME)
+        return True
+    except Exception as e:
+        print(f"  [warn] MDX ONNX fetch failed: {e}")
+        return False
+
+
+def fetch_transkun_onnx() -> bool:
+    """Idempotent fetch of the Transkun ONNX model files. Used on demand by
+    the backend resolvers so installs provisioned before v2.3.0 gain the
+    DirectML transcription path without re-running setup."""
+    try:
+        for name in TRANSKUN_ONNX_FILES:
+            _fetch(f"{_ASSET_BASE_URL}/{name}", ONNX_DIR / name, name)
+        return True
+    except Exception as e:
+        print(f"  [warn] transkun ONNX fetch failed: {e}")
+        return False
+
+
 def fetch_onnx() -> None:
     print("\nMDX-Net ONNX model (DirectML separation for non-NVIDIA GPUs):")
-    _fetch(MDX_URL, ONNX_DIR / MDX_NAME, MDX_NAME)
+    fetch_mdx_onnx()
     print("\nTranskun v2 ONNX model (DirectML transcription for non-NVIDIA GPUs):")
-    for name in TRANSKUN_ONNX_FILES:
-        _fetch(f"{_ASSET_BASE_URL}/{name}", ONNX_DIR / name, name)
+    fetch_transkun_onnx()
 
 
 def fetch_ffmpeg() -> None:
