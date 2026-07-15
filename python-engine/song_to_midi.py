@@ -96,19 +96,54 @@ def stage_input(src: Path, stage_dir: Path) -> Path:
     return staged
 
 
+def _separation_batch() -> int:
+    """Chunks per forward for BS-Rofo, scaled to VRAM (stock config is 1)."""
+    env = os.environ.get("SEPARATION_BATCH")
+    if env:
+        return max(1, int(env))
+    try:
+        if torch.cuda.is_available():
+            gb = torch.cuda.get_device_properties(0).total_memory / 2**30
+            # thresholds sit slightly under nominal sizes: an "8 GB" card
+            # reports ~7.99 GB
+            return 6 if gb >= 11.5 else 4 if gb >= 7.5 else 2 if gb >= 5.5 else 1
+    except Exception:
+        pass
+    return 1
+
+
+def _patched_msst_config(work_dir: Path, batch: int) -> Path:
+    """Copy of the BS-Rofo YAML with inference.batch_size bumped. Textual edit
+    on purpose: the YAML carries !!python/tuple tags that safe_load rejects,
+    and a byte-preserving copy can't break MSST's own loader."""
+    import re
+    text = BS_ROFO_YAML.read_text(encoding="utf-8")
+    new, n = re.subn(
+        r"(inference:\s*(?:\n[ \t]+[^\n]*)*?\n[ \t]+batch_size:)[ \t]*\d+",
+        rf"\g<1> {batch}", text, count=1)
+    if n != 1:
+        print("  [warn] couldn't patch inference.batch_size — using stock config")
+        return BS_ROFO_YAML
+    patched = work_dir / "bs_rofo_inference.yaml"
+    patched.write_text(new, encoding="utf-8")
+    return patched
+
+
 def run_separation(src: Path, work_dir: Path) -> Path:
     """Run MSST BS-Roformer and return the folder of separated stem .wav files."""
-    print(f"\n[1/3] Separating with BS-Rofo-SW-Fixed (SOTA 6-stem)")
+    batch = _separation_batch()
+    print(f"\n[1/3] Separating with BS-Rofo-SW-Fixed (SOTA 6-stem, batch {batch})")
     t0 = time.time()
     input_dir = work_dir / "input"
     output_dir = work_dir / "stems"
     output_dir.mkdir(parents=True, exist_ok=True)
     stage_input(src, input_dir)
 
+    config = _patched_msst_config(work_dir, batch) if batch > 1 else BS_ROFO_YAML
     cmd = [
         str(PY), "inference.py",
         "--model_type", "bs_roformer",
-        "--config_path", str(BS_ROFO_YAML),
+        "--config_path", str(config),
         "--start_check_point", str(BS_ROFO_CKPT),
         "--input_folder", str(input_dir),
         "--store_dir", str(output_dir),
@@ -118,7 +153,9 @@ def run_separation(src: Path, work_dir: Path) -> Path:
         cmd.append("--use_tta")
     if BIGSHIFTS > 1:
         cmd += ["--bigshifts", str(BIGSHIFTS)]
-    rc = subprocess.run(cmd, cwd=str(MSST_DIR), check=False).returncode
+    # TF32 for cuBLAS/cuDNN inside MSST without touching its code.
+    env = dict(os.environ, NVIDIA_TF32_OVERRIDE="1")
+    rc = subprocess.run(cmd, cwd=str(MSST_DIR), check=False, env=env).returncode
     if rc != 0:
         raise RuntimeError(f"MSST inference failed with exit code {rc}")
     print(f"  separation done in {time.time() - t0:.1f}s")
@@ -198,9 +235,13 @@ def transcribe_to_midi(piano_wav: Path, out_midi: Path) -> None:
     backend = _resolve_transcribe_backend()
     print(f"\n[2/3] Transcribing with Transkun V2 (SOTA piano MIDI) — {backend}")
     t0 = time.time()
-    if backend == "onnx_dml":
-        cmd = [str(PY), str(Path(__file__).resolve().parent / "transcribe_onnx_dml.py"),
+    env = os.environ
+    if backend in ("cuda", "onnx_dml"):
+        # Pipelined backbone (batched TF32 on CUDA / prefetch on DirectML)
+        # overlapping the CPU semi-CRF decode. SEGMENT_HOP is honoured via env.
+        cmd = [str(PY), str(Path(__file__).resolve().parent / "transcribe_fast.py"),
                str(piano_wav), str(out_midi)]
+        env = dict(os.environ, TRANSCRIBE_BACKEND=backend)
     else:
         # Use `-m transkun.transcribe` instead of transkun.exe so it works in the
         # portable bundle (no console_scripts shims in embedded Python).
@@ -210,7 +251,7 @@ def transcribe_to_midi(piano_wav: Path, out_midi: Path) -> None:
             cmd += ["--segmentHopSize", SEGMENT_HOP]
         if SEGMENT_SIZE:
             cmd += ["--segmentSize", SEGMENT_SIZE]
-    rc = subprocess.run(cmd, check=False).returncode
+    rc = subprocess.run(cmd, check=False, env=env).returncode
     if rc != 0:
         raise RuntimeError(f"Transkun failed with exit code {rc}")
     print(f"  done in {time.time() - t0:.1f}s")

@@ -57,8 +57,11 @@ def resolve_transcribe_backend():
 
 def transkun_cmd(backend, src, out_midi):
     """Build the transcription subprocess command for the chosen backend."""
-    if backend == "onnx_dml":
-        return [str(PY), str(ROOT / "transcribe_onnx_dml.py"),
+    if backend in ("cuda", "onnx_dml"):
+        # Pipelined backbone (batched TF32 on CUDA / prefetch on DirectML);
+        # reads TRANSCRIBE_BACKEND + SEGMENT_HOP from the environment.
+        os.environ["TRANSCRIBE_BACKEND"] = backend
+        return [str(PY), str(ROOT / "transcribe_fast.py"),
                 str(src), str(out_midi)]
     cmd = [str(PY), "-m", "transkun.transcribe", str(src), str(out_midi),
            "--device", backend]
