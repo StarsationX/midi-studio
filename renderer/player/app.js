@@ -28,8 +28,11 @@ const els = {
   hkTempoUp: $('hotkey-tempo-up'),
   hkTempoDown: $('hotkey-tempo-down'),
   hkTempoSet: $('hotkey-tempo-set'),
+  hkSeekFwd: $('hotkey-seek-fwd'),
+  hkSeekBack: $('hotkey-seek-back'),
   tempoStep: $('tempo-step'),
   tempoPreset: $('tempo-preset'),
+  seekStep: $('seek-step'),
   hkApply: $('hotkey-apply'),
   hkStatus: $('hotkey-status'),
   // header
@@ -85,8 +88,11 @@ const settings = Object.assign({
   tempoUpHotkey: '',
   tempoDownHotkey: '',
   tempoSetHotkey: '',
+  seekFwdHotkey: '',
+  seekBackHotkey: '',
   tempoStep: 0.1,
   tempoPreset: 1.0,
+  seekStep: 5,
   targetHint: '',
   openSection: 'source',
   logCollapsed: true,
@@ -153,8 +159,11 @@ function applySettingsToUI() {
   els.hkTempoUp.value = settings.tempoUpHotkey || '';
   els.hkTempoDown.value = settings.tempoDownHotkey || '';
   els.hkTempoSet.value = settings.tempoSetHotkey || '';
+  els.hkSeekFwd.value = settings.seekFwdHotkey || '';
+  els.hkSeekBack.value = settings.seekBackHotkey || '';
   els.tempoStep.value = settings.tempoStep;
   els.tempoPreset.value = settings.tempoPreset;
+  els.seekStep.value = settings.seekStep;
   els.autoPickTarget.checked = settings.autoPickTarget !== false;
 
   // Open the persisted section
@@ -319,6 +328,8 @@ window.api.onEngineEvent((evt) => {
       else if (evt.name === 'tempo_up') nudgeTempo(+(settings.tempoStep || 0.1));
       else if (evt.name === 'tempo_down') nudgeTempo(-(settings.tempoStep || 0.1));
       else if (evt.name === 'tempo_set') setTempo(settings.tempoPreset || 1.0);
+      else if (evt.name === 'seek_fwd') seekRelative(+(settings.seekStep || 5));
+      else if (evt.name === 'seek_back') seekRelative(-(settings.seekStep || 5));
       break;
 
     case 'error':
@@ -471,8 +482,16 @@ els.hkApply.addEventListener('click', () => {
   settings.tempoUpHotkey = els.hkTempoUp.value.trim();
   settings.tempoDownHotkey = els.hkTempoDown.value.trim();
   settings.tempoSetHotkey = els.hkTempoSet.value.trim();
+  settings.seekFwdHotkey = els.hkSeekFwd.value.trim();
+  settings.seekBackHotkey = els.hkSeekBack.value.trim();
   saveSettings();
   sendHotkeys();
+});
+
+els.seekStep.addEventListener('change', () => {
+  settings.seekStep = Math.max(1, Math.abs(parseFloat(els.seekStep.value)) || 5);
+  els.seekStep.value = settings.seekStep;
+  saveSettings();
 });
 
 els.tempoStep.addEventListener('change', () => {
@@ -552,7 +571,20 @@ function initHotkeyCapture(input) {
   });
 }
 [els.hkPlay, els.hkStop, els.hkPause,
- els.hkTempoUp, els.hkTempoDown, els.hkTempoSet].forEach(initHotkeyCapture);
+ els.hkTempoUp, els.hkTempoDown, els.hkTempoSet,
+ els.hkSeekFwd, els.hkSeekBack].forEach(initHotkeyCapture);
+
+// ---- seek hotkey action -----------------------------------------------
+// Same flow as the scrubber's arrow keys: drag-lock the visualizer so stale
+// progress packets can't yank it back, seek, then release.
+function seekRelative(delta) {
+  if (totalDuration <= 0) return;
+  const next = Math.max(0, Math.min(totalDuration, viz.elapsed() + delta));
+  viz.setDragLock(true);
+  viz.seek(next);
+  requestSeek(next);
+  setTimeout(() => viz.setDragLock(false), 250);
+}
 
 // ---- tempo hotkey actions ---------------------------------------------
 function nudgeTempo(delta) {
@@ -621,6 +653,8 @@ function sendHotkeys() {
     tempo_up: settings.tempoUpHotkey || '',
     tempo_down: settings.tempoDownHotkey || '',
     tempo_set: settings.tempoSetHotkey || '',
+    seek_fwd: settings.seekFwdHotkey || '',
+    seek_back: settings.seekBackHotkey || '',
   });
   const parts = [
     `Play ${settings.playHotkey}`,
@@ -630,6 +664,8 @@ function sendHotkeys() {
   if (settings.tempoUpHotkey) parts.push(`T+ ${settings.tempoUpHotkey}`);
   if (settings.tempoDownHotkey) parts.push(`T− ${settings.tempoDownHotkey}`);
   if (settings.tempoSetHotkey) parts.push(`T= ${settings.tempoSetHotkey}`);
+  if (settings.seekFwdHotkey) parts.push(`→ ${settings.seekFwdHotkey}`);
+  if (settings.seekBackHotkey) parts.push(`← ${settings.seekBackHotkey}`);
   els.hkStatus.textContent = parts.join('   ·   ');
 }
 
@@ -637,7 +673,8 @@ function sendHotkeys() {
 // key being (re)bound doesn't fire its old action.
 function suspendHotkeys() {
   window.api.send({ cmd: 'set_hotkeys', play: '', stop: '', pause: '',
-                    tempo_up: '', tempo_down: '', tempo_set: '' });
+                    tempo_up: '', tempo_down: '', tempo_set: '',
+                    seek_fwd: '', seek_back: '' });
 }
 
 function requestWindows() { window.api.send({ cmd: 'list_windows' }); }

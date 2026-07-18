@@ -147,6 +147,12 @@
             <input id="tempo-step" type="number" min="0.01" max="1" step="0.01" value="0.10" />
             <span class="muted">= value</span>
             <input id="tempo-preset" type="number" min="0.25" max="3" step="0.05" value="1.00" />
+            <span class="muted">Skip →</span>
+            <input id="hotkey-seek-fwd" class="hk-capture" type="text" value="" placeholder="unset" readonly />
+            <span class="muted">← Back</span>
+            <input id="hotkey-seek-back" class="hk-capture" type="text" value="" placeholder="unset" readonly />
+            <span class="muted">Seek s</span>
+            <input id="seek-step" type="number" min="1" max="60" step="1" value="5" />
             <button id="hotkey-apply" class="btn">Apply</button>
           </div>
           <div class="muted small" id="hotkey-status" style="margin-top:10px">Defaults active.</div>

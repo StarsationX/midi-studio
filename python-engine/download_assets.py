@@ -36,6 +36,12 @@ MDX_URL = ("https://github.com/TRvlvr/model_repo/releases/download/"
 TRANSKUN_ONNX_FILES = ("transkun_v2.onnx", "transkun_v2.onnx.data",
                        "transkun_v2_config.json")
 
+# Drums stem model for General Mode on DirectML (general = instrumental −
+# drums). kuielab MDX-B family, same public UVR mirror as the MDX model.
+DRUMS_NAME = "kuielab_b_drums.onnx"
+DRUMS_URL = ("https://github.com/TRvlvr/model_repo/releases/download/"
+             f"all_public_uvr_models/{DRUMS_NAME}")
+
 # FFmpeg sits next to the env (sibling of models) so song_to_midi.py finds it there.
 FFMPEG_DIR = (_MODELS_BASE.parent / "ffmpeg") if os.environ.get("MIDI_STUDIO_MODELS_DIR") else (ROOT / "ffmpeg")
 FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip"
@@ -145,6 +151,16 @@ def fetch_mdx_onnx() -> bool:
         return False
 
 
+def fetch_drums_onnx() -> bool:
+    """Idempotent fetch of the drums stem model (General Mode on DirectML)."""
+    try:
+        _fetch(DRUMS_URL, ONNX_DIR / DRUMS_NAME, DRUMS_NAME)
+        return True
+    except Exception as e:
+        print(f"  [warn] drums ONNX fetch failed: {e}")
+        return False
+
+
 def fetch_transkun_onnx() -> bool:
     """Idempotent fetch of the Transkun ONNX model files. Used on demand by
     the backend resolvers so installs provisioned before v2.3.0 gain the
@@ -161,6 +177,8 @@ def fetch_transkun_onnx() -> bool:
 def fetch_onnx() -> None:
     print("\nMDX-Net ONNX model (DirectML separation for non-NVIDIA GPUs):")
     fetch_mdx_onnx()
+    print("\nDrums ONNX model (DirectML General Mode):")
+    fetch_drums_onnx()
     print("\nTranskun v2 ONNX model (DirectML transcription for non-NVIDIA GPUs):")
     fetch_transkun_onnx()
 

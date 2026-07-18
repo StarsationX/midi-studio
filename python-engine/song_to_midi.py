@@ -40,6 +40,7 @@ BS_ROFO_DIR = MODELS_BASE / "bs_rofo_sw"
 BS_ROFO_YAML = BS_ROFO_DIR / "BS-Rofo-SW-Fixed.yaml"
 BS_ROFO_CKPT = BS_ROFO_DIR / "BS-Rofo-SW-Fixed.ckpt"
 ONNX_MDX_MODEL = MODELS_BASE / "onnx" / "UVR-MDX-NET-Inst_HQ_3.onnx"
+ONNX_DRUMS_MODEL = MODELS_BASE / "onnx" / "kuielab_b_drums.onnx"
 
 # Which separator to use:
 #   msst     - BS-Rofo 6-stem piano roformer (SOTA; CUDA, or slow on CPU)
@@ -333,6 +334,23 @@ def separate_onnx(src: Path, work_dir: Path) -> Path:
     return out
 
 
+def separate_onnx_general(src: Path, work_dir: Path) -> Path:
+    """General mode on DirectML: instrumental minus the drums stem — every
+    pitched instrument, mirroring mix_pitched_stems on the CUDA path."""
+    print("\n[1/3] Separating with MDX-Net (ONNX + DirectML, general: −vocals −drums)")
+    if not ONNX_DRUMS_MODEL.exists():
+        from download_assets import fetch_drums_onnx
+        print("Drums ONNX model missing — downloading (one-time)...")
+        if not fetch_drums_onnx():
+            print("  drums model unavailable (offline?) — using instrumental only")
+            return separate_onnx(src, work_dir)
+    t0 = time.time()
+    import separate_onnx_dml as on
+    out = on.separate_general(src, work_dir, ONNX_MDX_MODEL, ONNX_DRUMS_MODEL)
+    print(f"  general mix -> {out.name} ({time.time() - t0:.1f}s)")
+    return out
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("Usage: song_to_midi.py <audio_file>")
@@ -355,7 +373,11 @@ def main() -> int:
     backend = _resolve_backend()
     if backend == "onnx_dml":
         print("Separator: MDX-Net (ONNX + DirectML) — GPU path for non-CUDA cards")
-        stem_wav = separate_onnx(src, work_dir)
+        if GENERAL_MODE:
+            print("Mode: General (vocals + drums removed, all pitched stems kept)")
+            stem_wav = separate_onnx_general(src, work_dir)
+        else:
+            stem_wav = separate_onnx(src, work_dir)
     elif GENERAL_MODE:
         print("Mode: General (mixing all pitched stems, not just piano)")
         stem_wav = mix_pitched_stems(src, work_dir)
