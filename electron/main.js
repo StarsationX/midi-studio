@@ -192,9 +192,9 @@ function wireIpc() {
   ipcMain.handle('engine:send', (_e, msg) => (isObj(msg) ? sidecar.send(msg) : false));
 
   ipcMain.handle('dialog:openMidi', async () => {
-    const r = await dialog.showOpenDialog(win, { title: 'Select MIDI file', properties: ['openFile'],
+    const r = await dialog.showOpenDialog(win, { title: 'Select MIDI file(s)', properties: ['openFile', 'multiSelections'],
       filters: [{ name: 'MIDI', extensions: ['mid', 'midi'] }, { name: 'All files', extensions: ['*'] }] });
-    return r.canceled ? null : r.filePaths[0];
+    return r.canceled ? [] : r.filePaths;
   });
   ipcMain.handle('dialog:openMapping', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Select mapping JSON',
@@ -207,9 +207,9 @@ function wireIpc() {
     return shell.openPath(d);
   });
   ipcMain.handle('forge:pickInput', async () => {
-    const r = await dialog.showOpenDialog(win, { title: 'Select a song / audio file', properties: ['openFile'],
+    const r = await dialog.showOpenDialog(win, { title: 'Select song / audio file(s)', properties: ['openFile', 'multiSelections'],
       filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'flac', 'm4a', 'ogg', 'opus', 'aac', 'wma'] }, { name: 'All files', extensions: ['*'] }] });
-    return r.canceled ? null : r.filePaths[0];
+    return r.canceled ? [] : r.filePaths;
   });
   ipcMain.handle('forge:pickOutDir', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Output folder', properties: ['openDirectory', 'createDirectory'] });

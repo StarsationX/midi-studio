@@ -181,3 +181,18 @@ body { height: 100%; overflow-y: auto; }
   font-size: 11.5px; line-height: 1.65; color: var(--text-2);
   white-space: pre-wrap; word-break: break-word;
 }
+
+/* ---- queue ---- */
+.queue { border-top: 1px solid var(--line); padding-top: var(--s2); }
+.queue-head .spacer { flex: 1; }
+.lbl-inline { font-size: 12.5px; color: var(--text-2); font-weight: 600; }
+.queue-list { list-style: none; margin: var(--s2) 0 0; padding: 0; max-height: 168px; overflow-y: auto; }
+.queue-list li { display: flex; align-items: center; gap: var(--s2); padding: 4px 6px; border-radius: 6px; font-size: 12.5px; color: var(--text-2); }
+.queue-list li + li { margin-top: 2px; }
+.queue-list li.is-running { background: var(--bg-2); color: var(--text); }
+.queue-list .qi-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-list .qi-state { font-size: 11px; opacity: .7; }
+.queue-list .qi-x { background: none; border: 0; color: inherit; cursor: pointer; opacity: .5; font-size: 13px; padding: 0 2px; }
+.queue-list .qi-x:hover { opacity: 1; }
+
+.queue-list .qi-empty { opacity: .45; font-style: italic; }

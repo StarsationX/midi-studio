@@ -156,4 +156,4 @@ urllib3==2.7.0
 wandb==0.26.1
 Werkzeug==3.1.8
 yarl==1.23.0
-yt-dlp==2026.3.17
+yt-dlp>=2026.7.4

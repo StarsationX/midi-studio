@@ -51,12 +51,13 @@
           </svg>
         </button>
         <div class="section-body">
-          <div class="field">
-            <label>MIDI file</label>
-            <div class="file-row">
-              <input id="midi-path" type="text" readonly placeholder="Drag a .mid here, or browse…"/>
-              <button id="midi-browse" class="btn btn-icon" title="Browse">…</button>
+          <div class="field" id="queue-field">
+            <div class="queue-head">
+              <span class="queue-title">Queue <span id="queue-count" class="queue-count"></span></span>
+              <label class="queue-loop"><input type="checkbox" id="queue-loop"/> loop</label>
+              <button id="queue-clear" class="btn btn-icon" title="Clear queue">✕</button>
             </div>
+            <ol class="queue-list" id="queue-list"></ol>
           </div>
           <div class="field" id="recent-field" style="display:none">
             <label>Recent</label>
@@ -116,27 +117,48 @@
               <label class="check"><input id="stats" type="checkbox"/> Timing stats</label>
             </div>
           </div>
-          <label class="check" title="Hold keys down for the note's full length instead of a quick tap">
-            <input id="sustain" type="checkbox" checked/> Sustain (hold long notes)
-          </label>
         </div>
       </section>
 
-      <section class="section" data-section="hotkeys">
+      <section class="section" data-section="settings">
         <button class="section-head" type="button">
-          <h2 class="section-title">Hotkeys</h2>
+          <h2 class="section-title">Settings</h2>
           <svg class="caret" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M7 10l5 5 5-5z" fill="currentColor"/>
           </svg>
         </button>
         <div class="section-body">
+          <div class="field">
+            <label>MIDI file</label>
+            <div class="file-row">
+              <input id="midi-path" type="text" readonly placeholder="Drag a .mid here, or browse…"/>
+              <button id="midi-browse" class="btn btn-icon" title="Browse">…</button>
+            </div>
+          </div>
+          <label class="check" title="Hold keys down for the note's full length instead of a quick tap">
+            <input id="sustain" type="checkbox" checked/> Sustain (hold long notes)
+          </label>
+          <div class="field-row">
+            <div class="field" style="max-width:130px">
+              <label>Note colour</label>
+              <div class="file-row">
+                <input id="note-color" type="color" value="#b8e62e"/>
+                <button id="note-color-reset" class="btn btn-icon" title="Back to per-channel colours">↻</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Fall speed <span class="muted" id="fall-speed-label">1.00×</span></label>
+              <input id="fall-speed" type="range" min="0.25" max="4" step="0.05" value="1"/>
+            </div>
+          </div>
+          <div class="hotkey-label">Hotkeys</div>
           <div class="hotkey-grid">
             <span class="muted">Play</span>
-            <input id="hotkey-play" class="hk-capture" type="text" value="<f6>" readonly />
+            <input id="hotkey-play" class="hk-capture" type="text" value="F6" data-hk="<f6>" readonly />
             <span class="muted">Pause</span>
-            <input id="hotkey-pause" class="hk-capture" type="text" value="<f8>" readonly />
+            <input id="hotkey-pause" class="hk-capture" type="text" value="F8" data-hk="<f8>" readonly />
             <span class="muted">Stop</span>
-            <input id="hotkey-stop" class="hk-capture" type="text" value="<f7>" readonly />
+            <input id="hotkey-stop" class="hk-capture" type="text" value="F7" data-hk="<f7>" readonly />
             <span class="muted">Tempo +</span>
             <input id="hotkey-tempo-up" class="hk-capture" type="text" value="" placeholder="unset" readonly />
             <span class="muted">Tempo −</span>

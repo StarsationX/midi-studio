@@ -30,6 +30,53 @@
   let envReady = false, busy = false, inputPath = '', pipeline = 'piano';
   let currentJob = null, pendingCancel = false, outputDir = '';
 
+  // ---- queue ----------------------------------------------------------------
+  // Extra inputs to convert after the current one, run strictly one at a time
+  // (each job already saturates the GPU, so parallelism would only thrash).
+  let queue = [], runningQueue = false;
+
+  function renderQueue() {
+    // Always shown -- an empty queue with a hint is how anyone finds out it exists.
+    const list = $('queue-list');
+    $('queue-count').textContent = queue.length ? `· ${queue.length} waiting` : '';
+    list.innerHTML = '';
+    if (inputPath) list.appendChild(queueItem(inputPath, -1));
+    queue.forEach((p, i) => list.appendChild(queueItem(p, i)));
+    if (!inputPath && !queue.length) {
+      const li = document.createElement('li');
+      li.className = 'qi-empty';
+      li.textContent = 'Empty — drop or browse several files to batch them.';
+      list.appendChild(li);
+    }
+  }
+  function queueItem(path, i) {
+    const li = document.createElement('li');
+    const running = i < 0;
+    li.className = running ? 'is-running' : '';
+    const name = document.createElement('span');
+    name.className = 'qi-name'; name.textContent = path.split(/[\\/]/).pop(); name.title = path;
+    const state = document.createElement('span');
+    state.className = 'qi-state'; state.textContent = running ? (busy ? 'running' : 'ready') : 'queued';
+    li.append(name, state);
+    if (!running) {
+      const x = document.createElement('button');
+      x.className = 'qi-x'; x.type = 'button'; x.title = 'Remove'; x.textContent = '✕';
+      x.addEventListener('click', () => { queue.splice(i, 1); renderQueue(); updateStart(); });
+      li.appendChild(x);
+    }
+    return li;
+  }
+  function addInputs(paths) {
+    const ps = (paths || []).filter(Boolean);
+    if (!ps.length) return;
+    // A lone pick with nothing running or queued still just replaces the input —
+    // otherwise everything appends, so re-browsing never silently drops a file.
+    if (!busy && !queue.length && ps.length === 1) setInput(ps[0]);
+    else { queue.push(...ps); if (!inputPath && !busy) setInput(queue.shift()); }
+    renderQueue(); updateStart();
+  }
+  $('queue-clear').addEventListener('click', () => { queue = []; renderQueue(); updateStart(); });
+
   const logLine = (t) => { const el = $('log'); el.textContent += t + '\n'; el.scrollTop = el.scrollHeight; };
 
   // ---- enable/disable state ----
@@ -39,7 +86,7 @@
     $('fetch').disabled = b; $('browse').disabled = b;
     $('cancel').hidden = !b; updateStart();
   }
-  function setInput(p) { inputPath = p; $('input-path').value = p; updateStart(); }
+  function setInput(p) { inputPath = p; $('input-path').value = p; updateStart(); renderQueue(); }
 
   // ---- env status (probed only on load / re-check / provision-done) ----
   function setEnv(state, text) { $('env-dot').className = 'dot ' + (state || ''); $('env-text').textContent = text; }
@@ -67,20 +114,23 @@
   });
 
   // ---- input: browse + drop (no env re-probe on change) ----
-  $('browse').addEventListener('click', async () => { const p = await F.pickInput(); if (p) setInput(p); });
+  $('browse').addEventListener('click', async () => { const r = await F.pickInput(); addInputs(Array.isArray(r) ? r : [r]); });
 
-  function acceptDrop(file) {
-    if (!file) return;
-    const p = F.getDroppedFilePath(file);
-    if (p && (AUDIO_EXT.test(p) || !/\.[a-z0-9]+$/i.test(p))) setInput(p);
-    else logLine('Ignored (not an audio file): ' + (p || file.name));
+  function acceptDrop(files) {
+    const ok = [];
+    for (const f of files || []) {
+      const p = F.getDroppedFilePath(f);
+      if (p && (AUDIO_EXT.test(p) || !/\.[a-z0-9]+$/i.test(p))) ok.push(p);
+      else logLine('Ignored (not an audio file): ' + (p || f.name));
+    }
+    addInputs(ok);
   }
   const ov = $('drop-overlay');
   let dragDepth = 0;
   window.addEventListener('dragenter', (e) => { e.preventDefault(); if (busy) return; dragDepth++; ov.classList.add('show'); });
   window.addEventListener('dragover', (e) => { e.preventDefault(); });
   window.addEventListener('dragleave', (e) => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; ov.classList.remove('show'); } });
-  window.addEventListener('drop', (e) => { e.preventDefault(); dragDepth = 0; ov.classList.remove('show'); if (busy) return; acceptDrop(e.dataTransfer && e.dataTransfer.files[0]); });
+  window.addEventListener('drop', (e) => { e.preventDefault(); dragDepth = 0; ov.classList.remove('show'); if (busy) return; acceptDrop(e.dataTransfer && e.dataTransfer.files); });
 
   // ---- URL fetch ----
   function doFetch() {
@@ -122,16 +172,26 @@
 
   // ---- run / cancel ----
   function hideResults() { $('output').hidden = true; $('errcard').hidden = true; }
-  $('start').addEventListener('click', () => {
+  function startJob() {
     if (!inputPath || busy) return;
     const advanced = collectAdvanced();
     F.setSettings({ pipeline, skipSeparation: $('skipsep').checked, advanced });
     hideResults(); $('job-prog').hidden = false; $('job-stage').textContent = 'Queued'; $('job-bar').className = 'bar-fill indet'; $('job-pct').textContent = '';
     setBusy(true); currentJob = null; pendingCancel = false;
-    logLine('▶ Start (' + pipeline + ($('skipsep').checked ? ', skip-sep' : '') + ')');
+    const n = queue.length ? ` — ${queue.length} more queued` : '';
+    logLine('▶ Start ' + inputPath.split(/[\/]/).pop() + ' (' + pipeline + ($('skipsep').checked ? ', skip-sep' : '') + ')' + n);
+    renderQueue();
     F.run({ inputPath, pipeline, skipSeparation: $('skipsep').checked, advanced }).then((id) => { currentJob = id; if (pendingCancel) F.cancel(id); });
+  }
+  $('start').addEventListener('click', () => { runningQueue = queue.length > 0; startJob(); });
+  $('cancel').addEventListener('click', () => {
+    // Cancelling the visible job abandons the whole batch — a half-run queue
+    // that keeps going after you hit Cancel is never what anyone means.
+    if (queue.length) { queue = []; logLine('Queue cleared.'); }
+    runningQueue = false; renderQueue();
+    if (currentJob) F.cancel(currentJob); else pendingCancel = true;
+    $('cancel').textContent = 'Cancelling…';
   });
-  $('cancel').addEventListener('click', () => { if (currentJob) F.cancel(currentJob); else pendingCancel = true; $('cancel').textContent = 'Cancelling…'; });
 
   // ---- output actions ----
   $('output-open').addEventListener('click', async () => { const p = $('output-path').textContent; if (p) { const r = await F.showItem(p); if (r && !r.ok) showError('File not found — it may have moved.'); } });
@@ -186,12 +246,16 @@
         setBusy(false); $('cancel').textContent = 'Cancel'; currentJob = null; pendingCancel = false; $('job-prog').hidden = true;
         if (s.ok) {
           const out = (s.result && (s.result.midiPath || s.result.downloadedPath)) || '';
-          if (s.result && s.result.downloadedPath) { setInput(out); logLine('✓ Downloaded: ' + out); }
+          if (s.result && s.result.downloadedPath) { addInputs([out]); logLine('✓ Downloaded: ' + out); }
           else { $('output').hidden = false; $('output-path').textContent = out; logLine('✓ Done: ' + out); }
         } else { showError(s.error || 'Job failed.'); logLine('✖ ' + (s.error || 'failed')); }
+        // Keep draining the batch: one failure shouldn't strand the rest.
+        if (runningQueue && queue.length) { setInput(queue.shift()); startJob(); }
+        else { runningQueue = false; renderQueue(); }
         break;
     }
   });
 
+  renderQueue();
   refreshEnv();
 })();

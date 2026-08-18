@@ -44,9 +44,17 @@
           <button class="btn" id="browse">Browse files</button>
         </div>
         <div class="row url-row">
-          <span class="url-chip" aria-hidden="true">YOUTUBE</span>
-          <input id="url" type="text" placeholder="…or paste a YouTube / audio URL" />
+          <span class="url-chip" aria-hidden="true">URL</span>
+          <input id="url" type="text" placeholder="…or paste any link — YouTube, SoundCloud, Bandcamp, direct MP3" />
           <button class="btn" id="fetch">Fetch</button>
+        </div>
+        <div class="queue" id="queue-wrap">
+          <div class="row queue-head">
+            <span class="lbl-inline">Queue <span id="queue-count" class="muted"></span></span>
+            <span class="spacer"></span>
+            <button class="link" id="queue-clear">Clear</button>
+          </div>
+          <ol class="queue-list" id="queue-list"></ol>
         </div>
         <div class="row out-row">
           <span class="out-label">Output folder: <span id="out-dir" class="mono muted">next to the input file</span></span>

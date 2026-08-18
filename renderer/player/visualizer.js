@@ -8,7 +8,7 @@ const CHANNEL_COLORS = [
   '#b8e62e','#ff7a7a','#7affb8','#ffc857','#c87aff','#ff7adc','#7adcff','#ffff82',
   '#82ffff','#ff82c8','#c8ff82','#c8c8c8','#ffa500','#b4b4ff','#82b482','#dcdcdc',
 ];
-const LOOKAHEAD = 3.0;
+const LOOKAHEAD = 3.0;      // seconds of music visible above the keys
 
 class Visualizer {
   constructor(canvas) {
@@ -21,6 +21,10 @@ class Visualizer {
     this.whiteNotes = [];
     this.whiteIdx = new Map();
     this.cursor = 0;
+
+    // User style (see setStyle). noteColor null => per-channel rainbow.
+    this.lookahead = LOOKAHEAD;
+    this.noteColor = null;
 
     // sync state — set by clockSet(), used by elapsed()
     this.syncServerElapsed = 0;
@@ -47,6 +51,17 @@ class Visualizer {
   }
 
   // Called from the renderer on midi_loaded.
+  // speed: 1 = default fall rate; 2 = twice as fast (half the lookahead).
+  // color: '#rrggbb' to paint every channel the same, or null for rainbow.
+  setStyle({ speed, color } = {}) {
+    if (speed) this.lookahead = LOOKAHEAD / Math.max(0.25, Math.min(4, speed));
+    this.noteColor = color || null;
+  }
+
+  _chColor(ch) {
+    return this.noteColor || CHANNEL_COLORS[ch % CHANNEL_COLORS.length];
+  }
+
   load(events, noteToKey) {
     this.events = events.map(e => ({
       t: e[0], key: e[1], dur: e[2], note: e[3], ch: e[4]
@@ -155,7 +170,7 @@ class Visualizer {
     const wkeyW = W / nWhite;
     const bkeyW = wkeyW * 0.6;
     const hitY = rollH - 4;
-    const pxPerSec = rollH / LOOKAHEAD;
+    const pxPerSec = rollH / this.lookahead;
 
     if (!this.events.length) {
       ctx.fillStyle = '#62656d';
@@ -168,7 +183,7 @@ class Visualizer {
 
     const elapsed = this.elapsed();
     const viewStart = elapsed - 0.3;
-    const viewEnd = elapsed + LOOKAHEAD;
+    const viewEnd = elapsed + this.lookahead;
 
     // octave grid
     ctx.strokeStyle = '#1f2126';
@@ -207,7 +222,7 @@ class Visualizer {
       const isActive = e.t <= elapsed && elapsed <= e.t + e.dur + 0.05;
       if (isActive) active.set(e.note, e.ch);
 
-      const baseCol = CHANNEL_COLORS[e.ch % CHANNEL_COLORS.length];
+      const baseCol = this._chColor(e.ch);
       // Subtle vertical glow per note
       const grd = ctx.createLinearGradient(0, yTop, 0, yBot);
       grd.addColorStop(0, baseCol + (isActive ? 'ff' : 'cc'));
@@ -250,7 +265,7 @@ class Visualizer {
       if (!g) continue;
       const ch = active.get(n);
       const fill = ch !== undefined
-        ? CHANNEL_COLORS[ch % CHANNEL_COLORS.length]
+        ? this._chColor(ch)
         : '#e8e9ea';
       ctx.fillStyle = fill;
       ctx.fillRect(Math.floor(g.x), kbTop, Math.floor(g.w) - 1, kbH);
@@ -276,7 +291,7 @@ class Visualizer {
       if (!g) continue;
       const ch = active.get(n);
       const fill = ch !== undefined
-        ? CHANNEL_COLORS[ch % CHANNEL_COLORS.length]
+        ? this._chColor(ch)
         : '#16181d';
       ctx.fillStyle = fill;
       ctx.fillRect(Math.floor(g.x), kbTop, Math.ceil(g.w), bkH);

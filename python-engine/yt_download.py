@@ -44,6 +44,13 @@ def download(url: str, out_dir: Path) -> Path:
 
     opts = {
         "format": "bestaudio/best",
+        # ponytail: web/android_vr GVS urls now 403 without a PO token, and their
+        # opus formats outrank android's in bestaudio sorting -- so pin android
+        # alone here. download() retries with yt-dlp's default clients if it fails.
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
+        # yt-dlp only enables deno by default; node ships on most dev boxes and
+        # Electron installs, and the nsig challenge needs *some* JS runtime.
+        "js_runtimes": {"node": {}, "deno": {}},
         "outtmpl": str(out_dir / "%(title)s.%(ext)s"),
         "restrictfilenames": False,
         "windowsfilenames": True,
@@ -58,9 +65,22 @@ def download(url: str, out_dir: Path) -> Path:
     }
     if FFMPEG_BIN.exists():
         opts["ffmpeg_location"] = str(FFMPEG_BIN)
+    # Login-walled sources (most Instagram reels, some TikTok) only work with a
+    # signed-in session. Opt in per-run rather than always poking at browser
+    # profiles: set YT_COOKIES_BROWSER=chrome|edge|firefox|brave.
+    browser = os.environ.get("YT_COOKIES_BROWSER", "").strip().lower()
+    if browser:
+        opts["cookiesfrombrowser"] = (browser,)
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except yt_dlp.utils.DownloadError:
+        # The pinned android client broke; fall back to yt-dlp's own rotation.
+        print("Retrying with yt-dlp's default player clients...")
+        opts.pop("extractor_args", None)
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
 
     # After FFmpegExtractAudio the file is <title>.mp3; derive it robustly.
     title = info.get("title", "audio")
@@ -94,10 +114,16 @@ def main() -> int:
         msg = str(e)
         print(f"[ERROR] {type(e).__name__}: {msg}")
         low = msg.lower()
-        if "unavailable" in low or "private" in low:
+        if "login" in low or "rate-limit" in low or "cookies" in low or "empty media response" in low:
+            print("Hint: this post needs a signed-in session (common for Instagram).")
+            print("      Set YT_COOKIES_BROWSER=firefox (or chrome/edge/brave) and retry.")
+        elif "unavailable" in low or "private" in low:
             print("Hint: the video may be private, deleted, or region-locked.")
         elif "sign in" in low or "age" in low or "confirm your age" in low:
             print("Hint: age-restricted videos can't be downloaded without sign-in.")
+        elif "403" in low or "forbidden" in low:
+            print("Hint: YouTube changed its player. Updating yt-dlp usually fixes it:")
+            print(f'      "{sys.executable}" -m pip install -U yt-dlp')
         elif "javascript" in low or "format" in low or "nsig" in low:
             print("Hint: YouTube sometimes needs a JS runtime for certain videos.")
             print("      Installing Deno (https://deno.com) and reopening usually fixes it.")

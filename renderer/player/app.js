@@ -7,6 +7,11 @@ const els = {
   // sidebar — source
   midiPath: $('midi-path'),
   midiBrowse: $('midi-browse'),
+  queueField: $('queue-field'),
+  queueList: $('queue-list'),
+  queueCount: $('queue-count'),
+  queueClear: $('queue-clear'),
+  queueLoop: $('queue-loop'),
   recentField: $('recent-field'),
   recentSelect: $('recent-select'),
   recentClear: $('recent-clear'),
@@ -21,6 +26,10 @@ const els = {
   countdown: $('countdown'),
   stats: $('stats'),
   sustain: $('sustain'),
+  noteColor: $('note-color'),
+  noteColorReset: $('note-color-reset'),
+  fallSpeed: $('fall-speed'),
+  fallSpeedLabel: $('fall-speed-label'),
   // sidebar — hotkeys
   hkPlay: $('hotkey-play'),
   hkStop: $('hotkey-stop'),
@@ -95,6 +104,8 @@ const settings = Object.assign({
   seekStep: 5,
   targetHint: '',
   openSection: 'source',
+  noteColor: '',            // '' = per-channel rainbow
+  fallSpeed: 1,
   logCollapsed: true,
   recentFiles: [],          // most-recent-first list of MIDI paths
   autoPickTarget: true,     // auto-select the remembered target on launch
@@ -153,14 +164,17 @@ function applySettingsToUI() {
   els.countdown.value = settings.countdown;
   els.stats.checked = !!settings.stats;
   els.sustain.checked = settings.sustain !== false;
-  els.hkPlay.value = settings.playHotkey;
-  els.hkStop.value = settings.stopHotkey;
-  els.hkPause.value = settings.pauseHotkey;
-  els.hkTempoUp.value = settings.tempoUpHotkey || '';
-  els.hkTempoDown.value = settings.tempoDownHotkey || '';
-  els.hkTempoSet.value = settings.tempoSetHotkey || '';
-  els.hkSeekFwd.value = settings.seekFwdHotkey || '';
-  els.hkSeekBack.value = settings.seekBackHotkey || '';
+  els.noteColor.value = settings.noteColor || '#b8e62e';
+  els.fallSpeed.value = settings.fallSpeed || 1;
+  applyVizStyle();
+  setHotkeyInput(els.hkPlay, settings.playHotkey);
+  setHotkeyInput(els.hkStop, settings.stopHotkey);
+  setHotkeyInput(els.hkPause, settings.pauseHotkey);
+  setHotkeyInput(els.hkTempoUp, settings.tempoUpHotkey || '');
+  setHotkeyInput(els.hkTempoDown, settings.tempoDownHotkey || '');
+  setHotkeyInput(els.hkTempoSet, settings.tempoSetHotkey || '');
+  setHotkeyInput(els.hkSeekFwd, settings.seekFwdHotkey || '');
+  setHotkeyInput(els.hkSeekBack, settings.seekBackHotkey || '');
   els.tempoStep.value = settings.tempoStep;
   els.tempoPreset.value = settings.tempoPreset;
   els.seekStep.value = settings.seekStep;
@@ -168,7 +182,9 @@ function applySettingsToUI() {
 
   // Open the persisted section
   document.querySelectorAll('.section').forEach((sec) => {
-    sec.classList.toggle('is-open', sec.dataset.section === settings.openSection);
+    // 'hotkeys' was renamed to 'settings'; keep old saved state working.
+    const open = settings.openSection === 'hotkeys' ? 'settings' : settings.openSection;
+    sec.classList.toggle('is-open', sec.dataset.section === open);
   });
 
   // Log collapse state
@@ -176,10 +192,14 @@ function applySettingsToUI() {
 
   // Recent files dropdown
   renderRecents();
+  renderQueue();
 
   // If a previous MIDI was loaded, restore the track-strip placeholder.
   if (settings.midiPath) {
     lastMidiPath = settings.midiPath;
+    tracks = [settings.midiPath];
+    curIdx = 0;
+    els.midiPath.value = settings.midiPath;
   }
   updateTrackStrip();
 }
@@ -225,6 +245,7 @@ window.api.onEngineEvent((evt) => {
       log('info', 'Engine ready.');
       sendHotkeys();
       requestWindows();
+      if (curIdx >= 0) loadMidi();     // restore last session's file for real
       break;
 
     case 'log':
@@ -259,6 +280,8 @@ window.api.onEngineEvent((evt) => {
         viz.seek(Math.min(pendingSeekAfterLoad, totalDuration));
         pendingSeekAfterLoad = null;
       }
+      renderQueue();
+      if (autoPlayNext) { autoPlayNext = false; sendPlay(0, 0); }
       break;
 
     case 'countdown':
@@ -278,6 +301,7 @@ window.api.onEngineEvent((evt) => {
       bpm = evt.bpm;
       viz.startClock(evt.duration, evt.start_elapsed || 0);
       setStatus('playing', 'Playing');
+      renderQueue();
       updateTrackStrip();
       break;
 
@@ -316,7 +340,11 @@ window.api.onEngineEvent((evt) => {
         pendingRestartAt = null;
         loadMidi();                 // reload events/visualizer at new tempo
         sendPlay(at, 0);            // no countdown on a tempo restart
+      } else if (!userStopped) {
+        advanceQueue();             // natural end -> next row in the playlist
       }
+      userStopped = false;
+      renderQueue();                // drop the ▶ marker back to a row number
       break;
 
     case 'hotkey':
@@ -414,9 +442,8 @@ function updateTrackStrip() {
 // UI actions
 // --------------------------------------------------------------------------
 els.midiBrowse.addEventListener('click', async () => {
-  const p = await window.api.pickMidi();
-  if (!p) return;
-  setMidiFile(p);
+  const r = await window.api.pickMidi();
+  addToQueue(Array.isArray(r) ? r : [r]);
 });
 
 els.recentSelect.addEventListener('change', () => {
@@ -476,14 +503,15 @@ els.sustain.addEventListener('change', () => {
 });
 
 els.hkApply.addEventListener('click', () => {
-  settings.playHotkey = els.hkPlay.value.trim() || '<f6>';
-  settings.stopHotkey = els.hkStop.value.trim() || '<f7>';
-  settings.pauseHotkey = els.hkPause.value.trim() || '<f8>';
-  settings.tempoUpHotkey = els.hkTempoUp.value.trim();
-  settings.tempoDownHotkey = els.hkTempoDown.value.trim();
-  settings.tempoSetHotkey = els.hkTempoSet.value.trim();
-  settings.seekFwdHotkey = els.hkSeekFwd.value.trim();
-  settings.seekBackHotkey = els.hkSeekBack.value.trim();
+  const hk = (el) => (el.dataset.hk || '').trim();
+  settings.playHotkey = hk(els.hkPlay) || '<f6>';
+  settings.stopHotkey = hk(els.hkStop) || '<f7>';
+  settings.pauseHotkey = hk(els.hkPause) || '<f8>';
+  settings.tempoUpHotkey = hk(els.hkTempoUp);
+  settings.tempoDownHotkey = hk(els.hkTempoDown);
+  settings.tempoSetHotkey = hk(els.hkTempoSet);
+  settings.seekFwdHotkey = hk(els.hkSeekFwd);
+  settings.seekBackHotkey = hk(els.hkSeekBack);
   saveSettings();
   sendHotkeys();
 });
@@ -521,6 +549,13 @@ const PYNPUT_NAMED = {
   'PrintScreen': '<print_screen>',
 };
 
+// e.code -> unshifted character, so Shift+; still binds as ';' and not ':'.
+const CODE_CHAR = {
+  Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/',
+  Backslash: '\\', BracketLeft: '[', BracketRight: ']',
+  Minus: '-', Equal: '=', Backquote: '`', IntlBackslash: '`',
+};
+
 function keyEventToPynput(e) {
   if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return null;
   const mods = [];
@@ -534,6 +569,10 @@ function keyEventToPynput(e) {
     base = e.key.toLowerCase();
   } else if (PYNPUT_NAMED[e.key]) {
     base = PYNPUT_NAMED[e.key];
+  } else if (CODE_CHAR[e.code]) {
+    base = CODE_CHAR[e.code];
+  } else if (e.key && e.key.length === 1 && !e.code.startsWith('Numpad')) {
+    base = e.key.toLowerCase();
   } else if (e.keyCode) {
     base = `<${e.keyCode}>`;   // virtual-key code fallback (e.g. +/−/numpad)
   } else {
@@ -542,15 +581,44 @@ function keyEventToPynput(e) {
   return [...mods, base].join('+');
 }
 
+const HK_LABEL = {
+  '<space>': 'Space', '<enter>': 'Enter', '<tab>': 'Tab', '<esc>': 'Esc',
+  '<home>': 'Home', '<end>': 'End', '<insert>': 'Insert', '<delete>': 'Delete',
+  '<page_up>': 'PgUp', '<page_down>': 'PgDn',
+  '<up>': '\u2191', '<down>': '\u2193', '<left>': '\u2190', '<right>': '\u2192',
+  '<ctrl>': 'Ctrl', '<alt>': 'Alt', '<shift>': 'Shift', '<cmd>': 'Win',
+  '<pause>': 'Pause', '<scroll_lock>': 'ScrLk', '<caps_lock>': 'Caps',
+  '<num_lock>': 'NumLk', '<print_screen>': 'PrtSc',
+};
+
+// pynput syntax -> what a person would write on a sticky note.
+function hkLabel(combo) {
+  if (!combo) return '';
+  return combo.split('+').map((part) => {
+    if (HK_LABEL[part]) return HK_LABEL[part];
+    const m = /^<f(\d{1,2})>$/.exec(part);
+    if (m) return 'F' + m[1];
+    const vk = /^<(\d+)>$/.exec(part);
+    if (vk) return 'key ' + vk[1];        // numpad / media -- no nicer name
+    return part.length === 1 ? part.toUpperCase() : part;
+  }).join('+');
+}
+
+// Both halves of a capture box: dataset.hk is the truth, .value is for humans.
+function setHotkeyInput(input, combo) {
+  input.dataset.hk = combo || '';
+  input.value = hkLabel(combo);
+}
+
 function initHotkeyCapture(input) {
   input.addEventListener('focus', () => {
-    input.dataset.prev = input.value;
+    input.dataset.prev = input.dataset.hk || '';
     input.value = '';
     input.placeholder = 'press a key…';
     suspendHotkeys();
   });
   input.addEventListener('blur', () => {
-    if (!input.value) input.value = input.dataset.prev || '';
+    if (!input.value) setHotkeyInput(input, input.dataset.prev || '');
     input.placeholder = 'unset';
     sendHotkeys();               // restore active bindings
   });
@@ -565,7 +633,7 @@ function initHotkeyCapture(input) {
     }
     const combo = keyEventToPynput(e);
     if (!combo) return;          // modifier-only press — keep listening
-    input.value = combo;
+    setHotkeyInput(input, combo);
     input.dataset.prev = combo;
     input.blur();
   });
@@ -657,15 +725,15 @@ function sendHotkeys() {
     seek_back: settings.seekBackHotkey || '',
   });
   const parts = [
-    `Play ${settings.playHotkey}`,
-    `Pause ${settings.pauseHotkey}`,
-    `Stop ${settings.stopHotkey}`,
+    `Play ${hkLabel(settings.playHotkey)}`,
+    `Pause ${hkLabel(settings.pauseHotkey)}`,
+    `Stop ${hkLabel(settings.stopHotkey)}`,
   ];
-  if (settings.tempoUpHotkey) parts.push(`T+ ${settings.tempoUpHotkey}`);
-  if (settings.tempoDownHotkey) parts.push(`T− ${settings.tempoDownHotkey}`);
-  if (settings.tempoSetHotkey) parts.push(`T= ${settings.tempoSetHotkey}`);
-  if (settings.seekFwdHotkey) parts.push(`→ ${settings.seekFwdHotkey}`);
-  if (settings.seekBackHotkey) parts.push(`← ${settings.seekBackHotkey}`);
+  if (settings.tempoUpHotkey) parts.push(`T+ ${hkLabel(settings.tempoUpHotkey)}`);
+  if (settings.tempoDownHotkey) parts.push(`T− ${hkLabel(settings.tempoDownHotkey)}`);
+  if (settings.tempoSetHotkey) parts.push(`T= ${hkLabel(settings.tempoSetHotkey)}`);
+  if (settings.seekFwdHotkey) parts.push(`→ ${hkLabel(settings.seekFwdHotkey)}`);
+  if (settings.seekBackHotkey) parts.push(`← ${hkLabel(settings.seekBackHotkey)}`);
   els.hkStatus.textContent = parts.join('   ·   ');
 }
 
@@ -700,8 +768,9 @@ function loadMidi() {
   });
 }
 
-// Set the MIDI file from any source (browse / recents / drop) and load it.
-function setMidiFile(p) {
+// Put a path in the box and hand it to the engine. Playlist bookkeeping lives
+// in selectTrack() -- call that (or setMidiFile) rather than this directly.
+function loadPath(p) {
   els.midiPath.value = p;
   settings.midiPath = p;
   saveSettings();
@@ -731,6 +800,129 @@ function renderRecents() {
   }
 }
 
+// ---- visualizer style -----------------------------------------------------
+function applyVizStyle() {
+  const speed = parseFloat(els.fallSpeed.value) || 1;
+  els.fallSpeedLabel.textContent = `${speed.toFixed(2)}\u00d7`;
+  els.noteColor.classList.toggle('is-off', !settings.noteColor);
+  viz.setStyle({ speed, color: settings.noteColor || null });
+}
+
+els.noteColor.addEventListener('input', () => {
+  settings.noteColor = els.noteColor.value;
+  saveSettings();
+  applyVizStyle();
+});
+els.noteColorReset.addEventListener('click', () => {
+  settings.noteColor = '';          // back to the per-channel palette
+  saveSettings();
+  applyVizStyle();
+});
+els.fallSpeed.addEventListener('input', () => {
+  settings.fallSpeed = parseFloat(els.fallSpeed.value) || 1;
+  saveSettings();
+  applyVizStyle();
+});
+
+// ---- play queue -----------------------------------------------------------
+// A playlist, not a consume-queue: tracks stay in the list once played, one row
+// is the current track, and any row can be clicked to jump to it. Session-only.
+let tracks = [], curIdx = -1, userStopped = false, autoPlayNext = false;
+
+function renderQueue() {
+  els.queueCount.textContent = tracks.length ? `(${tracks.length})` : '';
+  els.queueList.innerHTML = '';
+  if (!tracks.length) {
+    const li = document.createElement('li');
+    li.className = 'q-empty';
+    li.textContent = 'Empty \u2014 drop or browse .mid files to build a playlist.';
+    els.queueList.appendChild(li);
+    return;
+  }
+  tracks.forEach((path, i) => els.queueList.appendChild(queueRow(path, i)));
+}
+
+function queueRow(path, i) {
+  const li = document.createElement('li');
+  const isCurrent = i === curIdx;
+  if (isCurrent) li.className = 'is-current';
+  li.title = isCurrent ? path : path + '\n(click to play)';
+
+  const num = document.createElement('span');
+  num.className = 'q-num';
+  num.textContent = isCurrent && isPlaying ? '\u25b6' : String(i + 1);
+
+  const n = document.createElement('span');
+  n.className = 'qn'; n.textContent = path.split(/[\\/]/).pop();
+
+  const x = document.createElement('button');
+  x.className = 'qx'; x.type = 'button'; x.title = 'Remove'; x.textContent = '\u2715';
+  x.addEventListener('click', (e) => { e.stopPropagation(); removeTrack(i); });
+
+  li.append(num, n, x);
+  li.addEventListener('click', () => playTrack(i));
+  return li;
+}
+
+// Load a track. Plays it too when `andPlay`, once 'midi_loaded' comes back.
+function selectTrack(i, andPlay) {
+  if (i < 0 || i >= tracks.length) return;
+  curIdx = i;
+  autoPlayNext = !!andPlay;
+  loadPath(tracks[i]);
+  renderQueue();
+}
+
+// Clicking a row: jump to it, and keep playing if we already were.
+function playTrack(i) {
+  if (i === curIdx && !isPlaying && totalDuration > 0) { doPlay(); return; }
+  const keepGoing = isPlaying;
+  if (isPlaying) { userStopped = true; window.api.send({ cmd: 'stop' }); }
+  selectTrack(i, keepGoing);
+}
+
+function removeTrack(i) {
+  tracks.splice(i, 1);
+  if (i === curIdx) curIdx = -1;          // loaded file is no longer in the list
+  else if (i < curIdx) curIdx--;
+  renderQueue();
+}
+
+// Append files; load the first new one if nothing is loaded / playing.
+function addToQueue(paths) {
+  const ps = (paths || []).filter(p => p && /\.midi?$/i.test(p));
+  if (!ps.length) return;
+  const first = tracks.length;
+  tracks.push(...ps);
+  renderQueue();
+  if (!isPlaying && curIdx < 0) selectTrack(first, false);
+}
+
+// Public entry for browse / recents / library / the Forge hand-off: put the file
+// in the playlist (or find it there) and make it current.
+function setMidiFile(path) {
+  if (!path) return;
+  let i = tracks.indexOf(path);
+  if (i < 0) { tracks.push(path); i = tracks.length - 1; }
+  const keepGoing = isPlaying;
+  if (isPlaying) { userStopped = true; window.api.send({ cmd: 'stop' }); }
+  selectTrack(i, keepGoing);
+}
+
+// Natural end of a track -> the next row. Returns true if it took over.
+function advanceQueue() {
+  if (curIdx < 0) return false;
+  let next = curIdx + 1;
+  if (next >= tracks.length) {
+    if (!els.queueLoop.checked) return false;
+    next = 0;                              // loop wraps; a lone track repeats
+  }
+  selectTrack(next, true);
+  return true;
+}
+
+els.queueClear.addEventListener('click', () => { tracks = []; curIdx = -1; renderQueue(); });
+
 function selectedTarget() {
   const idx = parseInt(els.targetSelect.value, 10);
   return Number.isNaN(idx) ? null : windows[idx];
@@ -756,6 +948,7 @@ function sendPlay(startAt, countdown) {
 
 function doPlay() {
   if (isPlaying) return;
+  userStopped = false;
   // If the user pre-seeked via the scrubber before pressing Play, start
   // playback from that position instead of t=0.
   const preSeek = viz.elapsed();
@@ -768,6 +961,7 @@ function doStop()  {
   // was just dispatched gets killed instead of continuing.
   pendingRestartAt = null;
   pendingSeekAfterLoad = null;
+  userStopped = true;               // suppresses queue advance in playback_done
   window.api.send({ cmd: 'stop' });
 }
 function doPause() {
@@ -949,11 +1143,12 @@ window.addEventListener('drop', (e) => {
   for (const f of files) {
     try { paths.push(window.api.getDroppedFilePath(f)); } catch (_) {}
   }
-  const midi = paths.find(p => /\.midi?$/i.test(p));
+  const midis = paths.filter(p => /\.midi?$/i.test(p));
   const json = paths.find(p => /\.json$/i.test(p));
-  if (midi) {
-    log('info', `Dropped MIDI: ${midi.split(/[\\/]/).pop()}`);
-    setMidiFile(midi);
+  if (midis.length) {
+    log('info', midis.length === 1 ? `Dropped MIDI: ${midis[0].split(/[\\/]/).pop()}`
+                                   : `Dropped ${midis.length} MIDI files`);
+    addToQueue(midis);
   } else if (json) {
     settings.customMappingPath = json;
     settings.mapping = '__custom__';
