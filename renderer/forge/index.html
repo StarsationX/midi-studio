@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' file:; connect-src 'self' file:;" />
   <title>Midi-Forge</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="./forge.css" />
@@ -41,7 +41,10 @@
           <div class="dz-icon" aria-hidden="true">↑</div>
           <input id="input-path" type="text" readonly placeholder="Drop a song here, or browse…" />
           <div class="dz-types" aria-hidden="true">mp3 · wav · flac · m4a · ogg — up to 30 min</div>
-          <button class="btn" id="browse">Browse files</button>
+          <div class="input-actions">
+            <button class="btn" id="browse">Choose song</button>
+            <button class="btn btn-ghost" id="queue-add" title="Add files without replacing the current song">+ Add to queue</button>
+          </div>
         </div>
         <div class="row url-row">
           <span class="url-chip" aria-hidden="true">URL</span>
@@ -52,7 +55,8 @@
           <div class="row queue-head">
             <span class="lbl-inline">Queue <span id="queue-count" class="muted"></span></span>
             <span class="spacer"></span>
-            <button class="link" id="queue-clear">Clear</button>
+            <button class="link" id="queue-undo" hidden>Undo</button>
+            <button class="link" id="queue-clear">Clear waiting</button>
           </div>
           <ol class="queue-list" id="queue-list"></ol>
         </div>
@@ -74,47 +78,73 @@
         </div>
         <div class="muted small" id="pipeline-hint" style="margin:4px 0 2px">Separate + Transkun on the piano stem — best for piano performances.</div>
         <label class="check"><input type="checkbox" id="skipsep" /> Skip separation (input is already an isolated stem)</label>
+        <div class="time-panel">
+          <div class="time-head">
+            <label class="check"><input type="checkbox" id="time-enabled" /> Custom time range</label>
+            <div class="time-presets">
+              <button class="link" id="time-from-playhead" type="button">Start here</button>
+              <button class="link" id="time-to-playhead" type="button">Stop here</button>
+              <button class="link" id="time-reset" type="button">Full song</button>
+            </div>
+          </div>
+          <div class="wave-shell" id="wave-shell">
+            <canvas id="waveform" tabindex="0" role="slider" aria-label="Audio preview and forge range" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></canvas>
+            <div class="wave-loading mono" id="wave-loading" hidden>Loading waveform...</div>
+          </div>
+          <div class="time-grid">
+            <label>Start <input type="text" id="time-start" placeholder="0:00" inputmode="decimal" /></label>
+            <label>Stop <input type="text" id="time-end" placeholder="end" inputmode="decimal" /></label>
+            <button class="btn" id="preview" type="button">Preview</button>
+            <button class="btn btn-ghost" id="preview-stop" type="button">Stop</button>
+          </div>
+          <div class="time-readout mono" id="time-readout">00:00.000 / 00:00.000</div>
+          <div class="muted small" id="time-hint">Drag across the waveform to select. Click to move the preview playhead.</div>
+          <audio id="preview-audio"></audio>
+        </div>
 
         <button class="adv-toggle" id="adv-toggle" aria-expanded="false">Advanced ▾</button>
         <div class="adv" id="adv" hidden>
-          <div class="adv-sub muted small">Common</div>
+          <div class="adv-head">
+            <div class="adv-sub muted small">Sound cleanup</div>
+            <button class="link" id="adv-reset" type="button">Reset tuning</button>
+          </div>
           <div class="adv-grid">
-            <label class="check"><input type="checkbox" id="LOUDNESS_NORM" checked /> LOUDNESS_NORM</label>
-            <label>VELOCITY_GAMMA <input type="number" id="VELOCITY_GAMMA" step="0.05" value="0.85" /></label>
-            <label>MIN_NOTE_SEC <input type="number" id="MIN_NOTE_SEC" step="0.01" value="0.05" /></label>
-            <label>MIN_VELOCITY <input type="number" id="MIN_VELOCITY" value="20" /></label>
-            <label>Max simultaneous notes <input type="number" id="MAX_POLYPHONY" step="1" min="0" max="12" value="0" title="0 = unlimited. Lower = cleaner Roblox-piano playback." /></label>
+            <label class="check" title="Balances quiet and loud recordings before transcription"><input type="checkbox" id="LOUDNESS_NORM" checked /> Balance input volume</label>
+            <label title="Controls the contrast between soft and strong notes">Note dynamics <span class="adv-value"><input type="number" id="VELOCITY_GAMMA" step="0.05" min="0.2" max="2" value="0.85" /></span></label>
+            <label title="Notes shorter than this are removed as noise">Shortest note <span class="adv-value"><input type="number" id="MIN_NOTE_SEC" step="0.01" min="0" value="0.05" /><i>s</i></span></label>
+            <label title="Notes quieter than this MIDI velocity are removed">Quiet-note cutoff <span class="adv-value"><input type="number" id="MIN_VELOCITY" min="0" max="127" value="20" /></span></label>
+            <label title="Maximum keys pressed at once. Zero keeps every detected note.">Chord size limit <span class="adv-value"><input type="number" id="MAX_POLYPHONY" step="1" min="0" max="12" value="0" /><i>0 = all</i></span></label>
           </div>
           <div class="adv-group" data-group="piano">
-            <div class="adv-sub muted small">Piano pipeline (separation + Transkun)</div>
+            <div class="adv-sub muted small">Piano recognition</div>
             <div class="adv-grid">
-              <label class="check"><input type="checkbox" id="USE_TTA" /> USE_TTA (cleaner, 2× slower)</label>
-              <label>BIGSHIFTS <input type="number" id="BIGSHIFTS" min="1" max="7" value="1" /></label>
-              <label>SEGMENT_HOP <input type="number" id="SEGMENT_HOP" step="0.1" placeholder="off" /></label>
-              <label>PIANO_MIN_PITCH <input type="number" id="PIANO_MIN_PITCH" value="21" /></label>
-              <label>PIANO_MAX_PITCH <input type="number" id="PIANO_MAX_PITCH" value="108" /></label>
+              <label class="check" title="Runs a second analysis pass for cleaner results, but takes about twice as long"><input type="checkbox" id="USE_TTA" /> Extra accuracy pass</label>
+              <label title="More shifted analysis passes may recover difficult notes but take longer">Analysis passes <span class="adv-value"><input type="number" id="BIGSHIFTS" min="1" max="7" value="1" /><i>1-7</i></span></label>
+              <label title="Smaller spacing creates more overlap and may recover notes, but takes longer">Segment spacing <span class="adv-value"><input type="number" id="SEGMENT_HOP" min="0.1" step="0.1" placeholder="auto" /><i>s</i></span></label>
+              <label title="Lowest piano note to keep. A full piano starts at MIDI note 21.">Lowest note <span class="adv-value"><input type="number" id="PIANO_MIN_PITCH" min="0" max="127" value="21" /></span></label>
+              <label title="Highest piano note to keep. A full piano ends at MIDI note 108.">Highest note <span class="adv-value"><input type="number" id="PIANO_MAX_PITCH" min="0" max="127" value="108" /></span></label>
             </div>
           </div>
           <div class="adv-group" data-group="general" hidden>
-            <div class="adv-sub muted small">General pipeline (separate + Transkun, all pitched stems)</div>
+            <div class="adv-sub muted small">Full-song recognition</div>
             <div class="adv-grid">
-              <label class="check"><input type="checkbox" id="EXCLUDE_VOCALS" /> Exclude vocals (instrumental only)</label>
+              <label class="check" title="Ignores the vocal stem and transcribes instruments only"><input type="checkbox" id="EXCLUDE_VOCALS" /> Ignore vocals</label>
             </div>
           </div>
           <div class="adv-group" data-group="drums" hidden>
-            <div class="adv-sub muted small">Drums pipeline (onset + band classification)</div>
+            <div class="adv-sub muted small">Drum detection</div>
             <div class="adv-grid">
-              <label>ONSET_DELTA <input type="number" id="ONSET_DELTA" step="0.01" min="0.02" max="0.3" value="0.07" title="Lower = more hits detected" /></label>
-              <label>DRUM_MIN_GAP_MS <input type="number" id="DRUM_MIN_GAP_MS" step="10" min="20" max="200" value="50" title="Per-drum retrigger gap" /></label>
+              <label title="Lower values find softer hits; higher values reduce false hits">Hit sensitivity <span class="adv-value"><input type="number" id="ONSET_DELTA" step="0.01" min="0.02" max="0.3" value="0.07" /><i>lower = more</i></span></label>
+              <label title="Minimum time before the same drum can trigger again">Repeat-hit spacing <span class="adv-value"><input type="number" id="DRUM_MIN_GAP_MS" step="10" min="20" max="200" value="50" /><i>ms</i></span></label>
             </div>
           </div>
           <div class="adv-group" data-group="fast" hidden>
-            <div class="adv-sub muted small">Fast pipeline (basic-pitch — quick, rougher)</div>
+            <div class="adv-sub muted small">Fast recognition</div>
             <div class="adv-grid">
-              <label>BP_ONSET_THRESHOLD <input type="number" id="BP_ONSET_THRESHOLD" step="0.05" min="0.05" max="0.95" value="0.5" /></label>
-              <label>BP_FRAME_THRESHOLD <input type="number" id="BP_FRAME_THRESHOLD" step="0.05" min="0.05" max="0.95" value="0.3" /></label>
-              <label>BP_MIN_NOTE_MS <input type="number" id="BP_MIN_NOTE_MS" step="10" value="120" /></label>
-              <label class="check"><input type="checkbox" id="OCTAVE_FOLD" checked /> Fold out-of-range octaves in</label>
+              <label title="Higher values reduce false note starts; lower values detect softer attacks">Note-start confidence <span class="adv-value"><input type="number" id="BP_ONSET_THRESHOLD" step="0.05" min="0.05" max="0.95" value="0.5" /></span></label>
+              <label title="Higher values keep only clearer sustained notes">Sustained-note confidence <span class="adv-value"><input type="number" id="BP_FRAME_THRESHOLD" step="0.05" min="0.05" max="0.95" value="0.3" /></span></label>
+              <label title="Detected notes shorter than this are removed">Shortest note <span class="adv-value"><input type="number" id="BP_MIN_NOTE_MS" step="10" min="10" value="120" /><i>ms</i></span></label>
+              <label class="check" title="Moves notes by octaves until they fit the playable keyboard"><input type="checkbox" id="OCTAVE_FOLD" checked /> Fit notes to keyboard range</label>
             </div>
           </div>
         </div>

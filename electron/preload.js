@@ -6,6 +6,7 @@
 'use strict';
 
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { pathToFileURL } = require('url');
 
 const onChannel = (channel) => (handler) => {
   const fn = (_e, payload) => handler(payload);
@@ -42,6 +43,7 @@ contextBridge.exposeInMainWorld('forge', {
   getSettings: () => ipcRenderer.invoke('forge:getSettings'),
   setSettings: (patch) => ipcRenderer.invoke('forge:setSettings', patch),
   getOutputDir: () => ipcRenderer.invoke('app:getOutputDir'),
+  fileUrl: (p) => pathToFileURL(String(p || '')).href,
   openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
   showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
   onStatus: onChannel('forge:status'),

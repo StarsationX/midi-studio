@@ -8,6 +8,14 @@
     'MIN_NOTE_SEC', 'MIN_VELOCITY', 'PIANO_MIN_PITCH', 'PIANO_MAX_PITCH',
     'BP_ONSET_THRESHOLD', 'BP_FRAME_THRESHOLD', 'BP_MIN_NOTE_MS',
     'MAX_POLYPHONY', 'OCTAVE_FOLD', 'EXCLUDE_VOCALS', 'ONSET_DELTA', 'DRUM_MIN_GAP_MS'];
+  const ADV_DEFAULTS = {
+    USE_TTA: false, LOUDNESS_NORM: true, BIGSHIFTS: 1, SEGMENT_HOP: '',
+    VELOCITY_GAMMA: 0.85, MIN_NOTE_SEC: 0.05, MIN_VELOCITY: 20,
+    PIANO_MIN_PITCH: 21, PIANO_MAX_PITCH: 108, BP_ONSET_THRESHOLD: 0.5,
+    BP_FRAME_THRESHOLD: 0.3, BP_MIN_NOTE_MS: 120, MAX_POLYPHONY: 0,
+    OCTAVE_FOLD: true, EXCLUDE_VOCALS: false, ONSET_DELTA: 0.07,
+    DRUM_MIN_GAP_MS: 50,
+  };
 
   const PIPELINE_HINT = {
     piano: 'Separate + Transkun on the piano stem — best for piano performances.',
@@ -29,11 +37,55 @@
 
   let envReady = false, busy = false, inputPath = '', pipeline = 'piano';
   let currentJob = null, pendingCancel = false, outputDir = '';
+  let activeState = 'ready', skipRequested = false;
+  let previewTimer = null;
+  let wavePeaks = [], waveDuration = 0, waveToken = 0, waveDrag = null, audioCtx = null;
 
   // ---- queue ----------------------------------------------------------------
   // Extra inputs to convert after the current one, run strictly one at a time
   // (each job already saturates the GPU, so parallelism would only thrash).
-  let queue = [], runningQueue = false;
+  let queue = [], runningQueue = false, queueUndo = null;
+  const QUEUE_STORAGE_KEY = 'midi-forge.queue.v1';
+
+  function saveQueue() {
+    try {
+      localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify({
+        current: activeState === 'done' ? '' : (inputPath || ''),
+        waiting: queue.slice(0, 100),
+      }));
+    } catch (_) {}
+  }
+
+  function restoreQueue() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(QUEUE_STORAGE_KEY) || '{}');
+      const current = typeof saved.current === 'string' && AUDIO_EXT.test(saved.current)
+        ? saved.current : '';
+      const waiting = Array.isArray(saved.waiting)
+        ? saved.waiting.filter((p) => typeof p === 'string' && AUDIO_EXT.test(p))
+        : [];
+      const seen = new Set();
+      const unique = [current, ...waiting].filter((p) => {
+        if (!p) return false;
+        const key = p.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (unique.length) {
+        const restoredCount = unique.length;
+        setInput(unique.shift());
+        queue = unique;
+        activeState = 'ready';
+        logLine(`Restored ${restoredCount} song${restoredCount === 1 ? '' : 's'} from your last session.`);
+      }
+    } catch (_) {}
+  }
+
+  function rememberQueue() {
+    queueUndo = { inputPath, activeState, queue: queue.slice() };
+    $('queue-undo').hidden = false;
+  }
 
   function renderQueue() {
     // Always shown -- an empty queue with a hint is how anyone finds out it exists.
@@ -48,45 +100,329 @@
       li.textContent = 'Empty — drop or browse several files to batch them.';
       list.appendChild(li);
     }
+    saveQueue();
   }
   function queueItem(path, i) {
     const li = document.createElement('li');
-    const running = i < 0;
-    li.className = running ? 'is-running' : '';
+    const active = i < 0;
+    li.className = active ? `is-running is-${activeState}` : '';
     const name = document.createElement('span');
     name.className = 'qi-name'; name.textContent = path.split(/[\\/]/).pop(); name.title = path;
     const state = document.createElement('span');
-    state.className = 'qi-state'; state.textContent = running ? (busy ? 'running' : 'ready') : 'queued';
+    state.className = 'qi-state'; state.textContent = active ? (busy ? 'running' : activeState) : 'queued';
     li.append(name, state);
-    if (!running) {
+    if (active) {
+      const action = document.createElement('button');
+      action.className = busy ? 'qi-skip' : 'qi-x';
+      action.type = 'button';
+      action.title = busy ? 'Skip this song and continue the queue' : 'Remove current song';
+      action.textContent = busy ? '⏭' : '✕';
+      action.addEventListener('click', () => busy ? skipCurrent() : removeActive());
+      li.appendChild(action);
+    } else {
+      const up = document.createElement('button');
+      up.className = 'qi-move'; up.type = 'button'; up.title = 'Move up'; up.textContent = '↑'; up.disabled = i === 0;
+      up.addEventListener('click', () => { if (i < 1) return; rememberQueue(); [queue[i - 1], queue[i]] = [queue[i], queue[i - 1]]; renderQueue(); });
+      const down = document.createElement('button');
+      down.className = 'qi-move'; down.type = 'button'; down.title = 'Move down'; down.textContent = '↓'; down.disabled = i === queue.length - 1;
+      down.addEventListener('click', () => { if (i >= queue.length - 1) return; rememberQueue(); [queue[i], queue[i + 1]] = [queue[i + 1], queue[i]]; renderQueue(); });
       const x = document.createElement('button');
       x.className = 'qi-x'; x.type = 'button'; x.title = 'Remove'; x.textContent = '✕';
-      x.addEventListener('click', () => { queue.splice(i, 1); renderQueue(); updateStart(); });
-      li.appendChild(x);
+      x.addEventListener('click', () => { rememberQueue(); queue.splice(i, 1); renderQueue(); updateStart(); });
+      li.append(up, down, x);
     }
     return li;
   }
-  function addInputs(paths) {
-    const ps = (paths || []).filter(Boolean);
-    if (!ps.length) return;
-    // A lone pick with nothing running or queued still just replaces the input —
-    // otherwise everything appends, so re-browsing never silently drops a file.
-    if (!busy && !queue.length && ps.length === 1) setInput(ps[0]);
-    else { queue.push(...ps); if (!inputPath && !busy) setInput(queue.shift()); }
+  function addInputs(paths, mode = 'smart') {
+    const raw = (paths || []).filter(Boolean);
+    if (!raw.length) return;
+    rememberQueue();
+    if (mode === 'replace' && !busy) {
+      const chosen = raw.shift();
+      queue = queue.filter((p) => p.toLowerCase() !== chosen.toLowerCase());
+      setInput(chosen);
+    }
+    const seen = new Set([inputPath, ...queue].filter(Boolean).map((p) => p.toLowerCase()));
+    const ps = raw.filter((p) => !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
+    if (mode === 'smart' && !busy && !inputPath && ps.length) setInput(ps.shift());
+    queue.push(...ps);
+    if (busy && queue.length) runningQueue = true;
     renderQueue(); updateStart();
   }
-  $('queue-clear').addEventListener('click', () => { queue = []; renderQueue(); updateStart(); });
+  $('queue-clear').addEventListener('click', () => { if (!queue.length) return; rememberQueue(); queue = []; renderQueue(); updateStart(); });
+  $('queue-undo').addEventListener('click', () => {
+    if (!queueUndo || busy) return;
+    const now = { inputPath, activeState, queue: queue.slice() };
+    const previous = queueUndo;
+    queueUndo = now;
+    queue = previous.queue.slice();
+    if (previous.inputPath !== inputPath) setInput(previous.inputPath);
+    activeState = previous.activeState || 'ready';
+    renderQueue(); updateStart();
+  });
+
+  function removeActive() {
+    if (busy || !inputPath) return;
+    rememberQueue();
+    if (queue.length) setInput(queue.shift());
+    else setInput('');
+    renderQueue(); updateStart();
+  }
+
+  function skipCurrent() {
+    if (!busy) { removeActive(); return; }
+    skipRequested = true;
+    runningQueue = queue.length > 0;
+    if (currentJob) F.cancel(currentJob);
+    else pendingCancel = true;
+    logLine('Skipping current song…');
+    renderQueue();
+  }
 
   const logLine = (t) => { const el = $('log'); el.textContent += t + '\n'; el.scrollTop = el.scrollHeight; };
 
+  // ---- waveform editor ------------------------------------------------------
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  function formatClock(sec) {
+    sec = Math.max(0, Number(sec) || 0);
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    const ms = Math.floor((sec - Math.floor(sec)) * 1000);
+    return `${h ? `${String(h).padStart(2, '0')}:` : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+  }
+  function buildPeaks(buffer, buckets) {
+    const data = buffer.getChannelData(0);
+    const peaks = [];
+    const stride = Math.max(1, Math.floor(data.length / buckets));
+    for (let i = 0; i < buckets; i++) {
+      const a = i * stride, b = Math.min(data.length, a + stride);
+      let min = 1, max = -1;
+      for (let j = a; j < b; j++) {
+        const v = data[j];
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      peaks.push([min, max]);
+    }
+    return peaks;
+  }
+  function waveRange() {
+    const t = collectTiming();
+    if (!t.enabled || Number.isNaN(t.start) || Number.isNaN(t.end)) {
+      return { enabled: false, start: 0, end: waveDuration || 0 };
+    }
+    const start = clamp(t.start || 0, 0, waveDuration || Number.MAX_SAFE_INTEGER);
+    const end = t.end == null ? (waveDuration || start) : clamp(t.end, 0, waveDuration || t.end);
+    return { enabled: true, start, end: Math.max(start, end) };
+  }
+  function updateTimeReadout() {
+    const a = $('preview-audio');
+    const now = Number.isFinite(a.currentTime) ? a.currentTime : 0;
+    const total = waveDuration || (Number.isFinite(a.duration) ? a.duration : 0);
+    const range = waveRange();
+    const sel = range.enabled && range.end > range.start ? ` | ${formatClock(range.start)}-${formatClock(range.end)}` : '';
+    $('time-readout').textContent = `${formatClock(now)} / ${formatClock(total)}${sel}`;
+  }
+  function setupWaveCanvas() {
+    const canvas = $('waveform');
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.floor(rect.width * dpr));
+    const h = Math.max(1, Math.floor(rect.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { canvas, ctx, w: rect.width, h: rect.height };
+  }
+  function drawWaveform() {
+    const { ctx, w, h } = setupWaveCanvas();
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = css('--bg-2') || '#0f1013';
+    ctx.fillRect(0, 0, w, h);
+
+    const mid = h / 2;
+    ctx.strokeStyle = css('--line') || '#2b2e36';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, mid + 0.5);
+    ctx.lineTo(w, mid + 0.5);
+    ctx.stroke();
+
+    const gridCount = waveDuration > 0 ? Math.min(12, Math.max(4, Math.floor(w / 110))) : 6;
+    ctx.strokeStyle = css('--line-soft') || '#3a3d4566';
+    ctx.fillStyle = css('--text-3') || '#62656d';
+    ctx.font = '10px "JetBrains Mono", monospace';
+    for (let i = 0; i <= gridCount; i++) {
+      const x = (i / gridCount) * w;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, h);
+      ctx.stroke();
+      if (waveDuration > 0 && i < gridCount) ctx.fillText(formatClock((i / gridCount) * waveDuration).replace(/\.000$/, ''), x + 6, 14);
+    }
+
+    if (wavePeaks.length) {
+      ctx.strokeStyle = css('--text-2') || '#9b9ea6';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x < w; x++) {
+        const p = wavePeaks[Math.min(wavePeaks.length - 1, Math.floor((x / w) * wavePeaks.length))];
+        const y1 = mid + p[0] * (h * 0.42);
+        const y2 = mid + p[1] * (h * 0.42);
+        ctx.moveTo(x + 0.5, y1);
+        ctx.lineTo(x + 0.5, y2);
+      }
+      ctx.stroke();
+    }
+
+    const range = waveRange();
+    if (waveDuration > 0 && range.enabled) {
+      const sx = (range.start / waveDuration) * w;
+      const ex = (range.end / waveDuration) * w;
+      ctx.fillStyle = 'rgba(0, 0, 0, .34)';
+      ctx.fillRect(0, 0, sx, h);
+      ctx.fillRect(ex, 0, w - ex, h);
+      ctx.fillStyle = css('--accent-soft') || '#252a1a';
+      ctx.globalAlpha = 0.55;
+      ctx.fillRect(sx, 0, Math.max(1, ex - sx), h);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = css('--accent') || '#b8e62e';
+      ctx.lineWidth = 2;
+      for (const x of [sx, ex]) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+        ctx.fillStyle = css('--accent') || '#b8e62e';
+        ctx.fillRect(x - 4, 0, 8, 12);
+        ctx.fillRect(x - 4, h - 12, 8, 12);
+      }
+    }
+
+    const a = $('preview-audio');
+    if (waveDuration > 0 && Number.isFinite(a.currentTime)) {
+      const px = clamp(a.currentTime / waveDuration, 0, 1) * w;
+      $('waveform').setAttribute('aria-valuenow', String(Math.round(clamp(a.currentTime / waveDuration, 0, 1) * 100)));
+      ctx.strokeStyle = '#ffffff';
+      ctx.globalAlpha = 0.65;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 0.5, 0);
+      ctx.lineTo(px + 0.5, h);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    updateTimeReadout();
+  }
+  async function loadWaveform(p) {
+    const token = ++waveToken;
+    wavePeaks = [];
+    waveDuration = 0;
+    $('wave-loading').hidden = false;
+    drawWaveform();
+    if (!p || !F.fileUrl) { $('wave-loading').hidden = true; return; }
+    try {
+      const res = await fetch(F.fileUrl(p));
+      const bytes = await res.arrayBuffer();
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const audio = await audioCtx.decodeAudioData(bytes);
+      if (token !== waveToken) return;
+      waveDuration = audio.duration || 0;
+      wavePeaks = buildPeaks(audio, 4096);
+    } catch (e) {
+      if (token === waveToken) logLine('Waveform unavailable for this file; time fields and preview still work.');
+    } finally {
+      if (token === waveToken) {
+        $('wave-loading').hidden = true;
+        drawWaveform();
+      }
+    }
+  }
+  function setTimingRange(start, end) {
+    $('time-enabled').checked = true;
+    $('time-start').value = formatTime(start);
+    $('time-end').value = formatTime(end);
+    validateTiming(false);
+    updateStart();
+    drawWaveform();
+  }
+  function syncTimingControls() {
+    const enabled = $('time-enabled').checked;
+    $('time-start').disabled = !enabled;
+    $('time-end').disabled = !enabled;
+    $('time-from-playhead').disabled = !inputPath;
+    $('time-to-playhead').disabled = !inputPath;
+    $('time-reset').disabled = !enabled;
+  }
+  function waveSecondsFromEvent(e) {
+    const rect = $('waveform').getBoundingClientRect();
+    return clamp(((e.clientX - rect.left) / rect.width) * waveDuration, 0, waveDuration);
+  }
+
   // ---- enable/disable state ----
-  function updateStart() { $('start').disabled = !(envReady && inputPath && !busy); }
+  function parseTimeValue(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    const parts = s.split(':').map((p) => p.trim());
+    if (parts.length > 3 || parts.some((p) => p === '' || Number.isNaN(Number(p)))) return NaN;
+    let sec = 0;
+    for (const p of parts) sec = sec * 60 + Number(p);
+    return sec >= 0 ? sec : NaN;
+  }
+  function formatTime(sec) {
+    if (sec == null || Number.isNaN(sec)) return '';
+    const whole = Math.floor(sec), frac = sec - whole;
+    const m = Math.floor(whole / 60), s = whole % 60;
+    const tail = frac > 0 ? (Math.round(frac * 1000) / 1000).toString().slice(1) : '';
+    return `${m}:${String(s).padStart(2, '0')}${tail}`;
+  }
+  function collectTiming() {
+    if (!$('time-enabled').checked) return { enabled: false, start: '', end: '' };
+    return {
+      enabled: true,
+      start: parseTimeValue($('time-start').value),
+      end: parseTimeValue($('time-end').value),
+    };
+  }
+  function validateTiming(show) {
+    const t = collectTiming();
+    let ok = true, msg = 'Use seconds or mm:ss. Leave Stop blank to forge through the end.';
+    if (t.enabled) {
+      if (Number.isNaN(t.start) || Number.isNaN(t.end)) { ok = false; msg = 'Enter times as seconds, mm:ss, or hh:mm:ss.'; }
+      else if (t.start != null && t.end != null && t.end <= t.start) { ok = false; msg = 'Stop must be after Start.'; }
+      else msg = `Forge range: ${formatTime(t.start || 0)} to ${t.end == null ? 'end' : formatTime(t.end)}.`;
+    }
+    $('time-hint').textContent = msg;
+    $('time-hint').classList.toggle('is-error', !ok);
+    if (show && !ok) logLine('Time range error: ' + msg);
+    return ok;
+  }
+  function updateStart() { $('start').disabled = !(envReady && inputPath && !busy && validateTiming(false)); }
   function setBusy(b) {
     busy = b;
-    $('fetch').disabled = b; $('browse').disabled = b;
+    $('fetch').disabled = b; $('browse').disabled = b; $('queue-add').disabled = b; $('preview').disabled = b;
+    $('queue-clear').disabled = b; $('queue-undo').disabled = b;
     $('cancel').hidden = !b; updateStart();
   }
-  function setInput(p) { inputPath = p; $('input-path').value = p; updateStart(); renderQueue(); }
+  function stopPreview() {
+    if (previewTimer) { clearInterval(previewTimer); previewTimer = null; }
+    try { $('preview-audio').pause(); } catch (_) {}
+  }
+  function setInput(p) {
+    stopPreview();
+    activeState = 'ready';
+    inputPath = p; $('input-path').value = p;
+    if (p && F.fileUrl) $('preview-audio').src = F.fileUrl(p);
+    else { $('preview-audio').removeAttribute('src'); $('preview-audio').load(); }
+    loadWaveform(p);
+    syncTimingControls();
+    updateStart(); renderQueue();
+  }
 
   // ---- env status (probed only on load / re-check / provision-done) ----
   function setEnv(state, text) { $('env-dot').className = 'dot ' + (state || ''); $('env-text').textContent = text; }
@@ -114,7 +450,8 @@
   });
 
   // ---- input: browse + drop (no env re-probe on change) ----
-  $('browse').addEventListener('click', async () => { const r = await F.pickInput(); addInputs(Array.isArray(r) ? r : [r]); });
+  $('browse').addEventListener('click', async () => { const r = await F.pickInput(); addInputs(Array.isArray(r) ? r : [r], 'replace'); });
+  $('queue-add').addEventListener('click', async () => { const r = await F.pickInput(); addInputs(Array.isArray(r) ? r : [r], 'queue'); });
 
   function acceptDrop(files) {
     const ok = [];
@@ -138,6 +475,7 @@
     hideResults(); logLine('▶ Fetching ' + url);
     $('job-prog').hidden = false; $('job-stage').textContent = 'Download'; $('job-bar').className = 'bar-fill indet'; $('job-pct').textContent = '';
     setBusy(true); currentJob = null; pendingCancel = false;
+    activeState = 'running'; skipRequested = false;
     F.yt({ url, outDir: outputDir }).then((id) => { currentJob = id; if (pendingCancel) F.cancel(id); });
   }
   $('fetch').addEventListener('click', doFetch);
@@ -151,7 +489,113 @@
 
   // ---- pipeline + advanced ----
   $('pipeline').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; pipeline = b.dataset.v; document.querySelectorAll('#pipeline button').forEach((x) => x.classList.toggle('is-active', x === b)); syncPipelineUI(); });
-  $('adv-toggle').addEventListener('click', () => { const a = $('adv'); a.hidden = !a.hidden; $('adv-toggle').textContent = a.hidden ? 'Advanced ▾' : 'Advanced ▴'; });
+  $('adv-toggle').addEventListener('click', () => {
+    const a = $('adv'); a.hidden = !a.hidden;
+    $('adv-toggle').textContent = a.hidden ? 'Advanced ▾' : 'Advanced ▴';
+    $('adv-toggle').setAttribute('aria-expanded', String(!a.hidden));
+  });
+  $('adv-reset').addEventListener('click', () => {
+    for (const [key, value] of Object.entries(ADV_DEFAULTS)) {
+      const el = $(key);
+      if (el.type === 'checkbox') el.checked = value;
+      else el.value = value;
+    }
+    F.setSettings({ advanced: collectAdvanced() });
+    const button = $('adv-reset');
+    button.textContent = 'Reset done';
+    setTimeout(() => { button.textContent = 'Reset tuning'; }, 1200);
+  });
+  function onTimingChanged() { syncTimingControls(); updateStart(); drawWaveform(); }
+  ['time-enabled', 'time-start', 'time-end'].forEach((id) => $(id).addEventListener('input', onTimingChanged));
+  $('time-enabled').addEventListener('change', onTimingChanged);
+  $('time-from-playhead').addEventListener('click', () => {
+    const now = clamp($('preview-audio').currentTime || 0, 0, waveDuration || Number.MAX_SAFE_INTEGER);
+    const range = waveRange();
+    setTimingRange(now, Math.max(now + 0.01, range.enabled ? range.end : (waveDuration || now + 30)));
+    syncTimingControls();
+  });
+  $('time-to-playhead').addEventListener('click', () => {
+    const now = clamp($('preview-audio').currentTime || 0, 0, waveDuration || Number.MAX_SAFE_INTEGER);
+    const range = waveRange();
+    setTimingRange(Math.min(range.enabled ? range.start : 0, Math.max(0, now - 0.01)), now);
+    syncTimingControls();
+  });
+  $('time-reset').addEventListener('click', () => {
+    $('time-enabled').checked = false;
+    $('time-start').value = '0:00';
+    $('time-end').value = '';
+    onTimingChanged();
+  });
+  $('preview').addEventListener('click', async () => {
+    if (!inputPath || !validateTiming(true)) return;
+    const a = $('preview-audio');
+    if (!a.src && F.fileUrl) a.src = F.fileUrl(inputPath);
+    const t = collectTiming();
+    const start = t.enabled ? (t.start || 0) : 0;
+    const end = t.enabled ? t.end : null;
+    stopPreview();
+    try {
+      a.currentTime = start;
+      await a.play();
+      if (end != null) previewTimer = setInterval(() => { if (a.currentTime >= end) stopPreview(); }, 80);
+    } catch (_) {
+      logLine('Preview could not play this file.');
+    }
+  });
+  $('preview-stop').addEventListener('click', stopPreview);
+  $('preview-audio').addEventListener('loadedmetadata', () => {
+    const d = $('preview-audio').duration;
+    if (!waveDuration && Number.isFinite(d)) waveDuration = d;
+    drawWaveform();
+  });
+  $('preview-audio').addEventListener('timeupdate', drawWaveform);
+  $('preview-audio').addEventListener('pause', drawWaveform);
+  $('waveform').addEventListener('pointerdown', (e) => {
+    if (!waveDuration || busy) return;
+    const canvas = $('waveform');
+    const rect = canvas.getBoundingClientRect();
+    const sec = waveSecondsFromEvent(e);
+    const range = waveRange();
+    const sx = (range.start / waveDuration) * rect.width;
+    const ex = (range.end / waveDuration) * rect.width;
+    const x = e.clientX - rect.left;
+    const nearStart = range.enabled && Math.abs(x - sx) <= 10;
+    const nearEnd = range.enabled && Math.abs(x - ex) <= 10;
+    waveDrag = { mode: nearStart ? 'start' : nearEnd ? 'end' : 'select', anchor: sec, moved: false, x };
+    canvas.setPointerCapture(e.pointerId);
+  });
+  $('waveform').addEventListener('pointermove', (e) => {
+    if (!waveDrag || !waveDuration) return;
+    const sec = waveSecondsFromEvent(e);
+    if (Math.abs(e.clientX - waveDrag.x) > 3) waveDrag.moved = true;
+    const range = waveRange();
+    if (waveDrag.mode === 'start') setTimingRange(clamp(sec, 0, Math.max(0, range.end - 0.01)), range.end);
+    else if (waveDrag.mode === 'end') setTimingRange(range.start, clamp(sec, Math.min(waveDuration, range.start + 0.01), waveDuration));
+    else if (waveDrag.moved) setTimingRange(Math.min(waveDrag.anchor, sec), Math.max(waveDrag.anchor, sec));
+  });
+  $('waveform').addEventListener('pointerup', (e) => {
+    if (!waveDrag || !waveDuration) return;
+    const sec = waveSecondsFromEvent(e);
+    if (!waveDrag.moved && waveDrag.mode === 'select') {
+      $('preview-audio').currentTime = sec;
+      drawWaveform();
+    }
+    waveDrag = null;
+  });
+  $('waveform').addEventListener('pointercancel', () => { waveDrag = null; });
+  $('waveform').addEventListener('keydown', (e) => {
+    if (!waveDuration || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    const audio = $('preview-audio');
+    let next = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    if (e.key === 'ArrowLeft') next -= e.shiftKey ? 10 : 1;
+    else if (e.key === 'ArrowRight') next += e.shiftKey ? 10 : 1;
+    else if (e.key === 'Home') next = 0;
+    else next = waveDuration;
+    audio.currentTime = clamp(next, 0, waveDuration);
+    drawWaveform();
+  });
+  window.addEventListener('resize', drawWaveform);
 
   function collectAdvanced() {
     const a = {};
@@ -163,6 +607,12 @@
     if (!s) return;
     if (s.pipeline) { pipeline = s.pipeline; document.querySelectorAll('#pipeline button').forEach((x) => x.classList.toggle('is-active', x.dataset.v === pipeline)); }
     if (s.skipSeparation) $('skipsep').checked = true;
+    if (s.timing) {
+      $('time-enabled').checked = !!s.timing.enabled;
+      $('time-start').value = s.timing.start || '';
+      $('time-end').value = s.timing.end || '';
+      validateTiming(false);
+    }
     if (s.outputDir) { outputDir = s.outputDir; $('out-dir').textContent = s.outputDir; $('clear-out').hidden = false; }
     else showDefaultOut();
     if (s.advanced) for (const [k, v] of Object.entries(s.advanced)) { const el = $(k); if (!el) continue; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; }
@@ -174,14 +624,17 @@
   function hideResults() { $('output').hidden = true; $('errcard').hidden = true; }
   function startJob() {
     if (!inputPath || busy) return;
+    if (!validateTiming(true)) return;
     const advanced = collectAdvanced();
-    F.setSettings({ pipeline, skipSeparation: $('skipsep').checked, advanced });
+    const timingRaw = { enabled: $('time-enabled').checked, start: $('time-start').value.trim(), end: $('time-end').value.trim() };
+    const timing = collectTiming();
+    F.setSettings({ pipeline, skipSeparation: $('skipsep').checked, advanced, timing: timingRaw });
     hideResults(); $('job-prog').hidden = false; $('job-stage').textContent = 'Queued'; $('job-bar').className = 'bar-fill indet'; $('job-pct').textContent = '';
     setBusy(true); currentJob = null; pendingCancel = false;
     const n = queue.length ? ` — ${queue.length} more queued` : '';
     logLine('▶ Start ' + inputPath.split(/[\/]/).pop() + ' (' + pipeline + ($('skipsep').checked ? ', skip-sep' : '') + ')' + n);
     renderQueue();
-    F.run({ inputPath, pipeline, skipSeparation: $('skipsep').checked, advanced }).then((id) => { currentJob = id; if (pendingCancel) F.cancel(id); });
+    F.run({ inputPath, pipeline, skipSeparation: $('skipsep').checked, advanced, timing }).then((id) => { currentJob = id; if (pendingCancel) F.cancel(id); });
   }
   $('start').addEventListener('click', () => { runningQueue = queue.length > 0; startJob(); });
   $('cancel').addEventListener('click', () => {
@@ -189,6 +642,7 @@
     // that keeps going after you hit Cancel is never what anyone means.
     if (queue.length) { queue = []; logLine('Queue cleared.'); }
     runningQueue = false; renderQueue();
+    skipRequested = false;
     if (currentJob) F.cancel(currentJob); else pendingCancel = true;
     $('cancel').textContent = 'Cancelling…';
   });
@@ -242,20 +696,31 @@
         $('job-pct').textContent = indet ? '' : (s.percent + '%'); break;
       }
       case 'forge.log': logLine(s.line); break;
-      case 'forge.done':
+      case 'forge.done': {
+        const wasSkipped = skipRequested;
+        skipRequested = false;
         setBusy(false); $('cancel').textContent = 'Cancel'; currentJob = null; pendingCancel = false; $('job-prog').hidden = true;
-        if (s.ok) {
+        if (wasSkipped) {
+          logLine('Skipped.');
+        } else if (s.ok) {
           const out = (s.result && (s.result.midiPath || s.result.downloadedPath)) || '';
-          if (s.result && s.result.downloadedPath) { addInputs([out]); logLine('✓ Downloaded: ' + out); }
-          else { $('output').hidden = false; $('output-path').textContent = out; logLine('✓ Done: ' + out); }
-        } else { showError(s.error || 'Job failed.'); logLine('✖ ' + (s.error || 'failed')); }
+          if (s.result && s.result.downloadedPath) { addInputs([out], 'replace'); logLine('✓ Downloaded: ' + out); }
+          else { activeState = 'done'; $('output').hidden = false; $('output-path').textContent = out; logLine('✓ Done: ' + out); }
+        } else {
+          activeState = /cancel/i.test(s.error || '') ? 'cancelled' : 'failed';
+          showError(s.error || 'Job failed.'); logLine('✖ ' + (s.error || 'failed'));
+        }
         // Keep draining the batch: one failure shouldn't strand the rest.
-        if (runningQueue && queue.length) { setInput(queue.shift()); startJob(); }
-        else { runningQueue = false; renderQueue(); }
+        if ((runningQueue || wasSkipped) && queue.length) { setInput(queue.shift()); startJob(); }
+        else { runningQueue = false; if (wasSkipped) setInput(''); renderQueue(); }
         break;
+      }
     }
   });
 
+  restoreQueue();
   renderQueue();
+  syncTimingControls();
+  drawWaveform();
   refreshEnv();
 })();

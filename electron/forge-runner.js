@@ -4,6 +4,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const os = require('os');
 const path = require('path');
 const paths = require('./paths');
 
@@ -27,6 +28,22 @@ function selectScript(pipeline, skipSeparation) {
   // 'piano' and 'general' both separate + Transkun; GENERAL_MODE (set in run())
   // makes 'general' mix every pitched stem instead of only the piano stem.
   return ['song_to_midi.py', STAGES_3];
+}
+
+function parseTimeSeconds(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function outputMidiPath(inputPath, timing) {
+  const extless = inputPath.replace(/\.[^./\\]+$/, '');
+  const start = timing && parseTimeSeconds(timing.start);
+  const end = timing && parseTimeSeconds(timing.end);
+  if (start == null && end == null) return extless + '.mid';
+  const fmt = (n) => String(Math.round(n * 1000) / 1000).replace(/\./g, 'p');
+  const suffix = `_range_${fmt(start || 0)}_${end != null ? fmt(end) : 'end'}`;
+  return extless + suffix + '.mid';
 }
 
 class ForgeRunner {
@@ -78,6 +95,9 @@ class ForgeRunner {
     try { child = spawn(args[0], args.slice(1), { cwd: paths.pythonEngineDir(), env, windowsHide: NO_WINDOW }); }
     catch (e) { this._emit({ event: 'forge.done', jobId, ok: false, error: `spawn failed: ${e.message}` }); return; }
     this._jobs.set(jobId, child);
+    // Forge can saturate a GPU and several CPU cores. Keep the realtime player
+    // and Electron renderer responsive while a transcription runs.
+    try { os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
     let buf = '';
     const onLine = (line) => {
       if (line.startsWith('DONE')) {
@@ -108,19 +128,31 @@ class ForgeRunner {
     });
   }
 
-  run({ inputPath, pipeline, skipSeparation, advanced }) {
+  run({ inputPath, pipeline, skipSeparation, advanced, timing }) {
     const jobId = `job-${++this._seq}`;
     const py = this._forgePython();
     if (!py) { setTimeout(() => this._emit({ event: 'forge.done', jobId, ok: false, error: 'Midi-Forge isn\'t set up yet. Click "Set up Midi-Forge".' }), 0); return jobId; }
     if (!inputPath) { setTimeout(() => this._emit({ event: 'forge.done', jobId, ok: false, error: 'No input file.' }), 0); return jobId; }
     const [script, stageTable] = selectScript(pipeline, skipSeparation);
     const env = Object.assign({}, paths.forgeChildEnv(this._settings()));
+    env.SEPARATION_BATCH = env.SEPARATION_BATCH || '2';
+    env.TRANSCRIBE_BATCH = env.TRANSCRIBE_BATCH || '2';
+    env.OMP_NUM_THREADS = env.OMP_NUM_THREADS || '4';
+    env.MKL_NUM_THREADS = env.MKL_NUM_THREADS || '4';
     for (const [k, v] of Object.entries(advanced || {})) { if (v !== null && v !== undefined && v !== '') env[k] = (v === true ? '1' : v === false ? '0' : String(v)); }
+    const start = timing && parseTimeSeconds(timing.start);
+    const end = timing && parseTimeSeconds(timing.end);
+    if (start != null) env.FORGE_START_SEC = String(start);
+    if (end != null) env.FORGE_END_SEC = String(end);
+    if (start != null && end != null && end <= start) {
+      setTimeout(() => this._emit({ event: 'forge.done', jobId, ok: false, error: 'Stop time must be after start time.' }), 0);
+      return jobId;
+    }
     if (pipeline === 'general') env.GENERAL_MODE = '1';  // mix all pitched stems for Transkun
     if (pipeline === 'drums' && skipSeparation) env.SKIP_SEPARATION = '1';
-    const audioOut = inputPath.replace(/\.[^./\\]+$/, '') + '.mid';
+    const audioOut = outputMidiPath(inputPath, { start, end });
     this._emit({ event: 'forge.progress', jobId, stage: 'Queued', percent: -1, message: `Starting ${script}` });
-    this._spawnJob(jobId, [py, path.join(paths.pythonEngineDir(), script), inputPath], env, stageTable, audioOut);
+    this._spawnJob(jobId, [py, path.join(paths.pythonEngineDir(), script), inputPath, audioOut], env, stageTable, audioOut);
     return jobId;
   }
 

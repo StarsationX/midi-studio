@@ -6,6 +6,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const paths = require('./paths');
 
 function pythonCandidates() {
@@ -88,6 +89,7 @@ class PlayerSidecar {
         windowsHide: true,
       });
     } catch (e) { this._fail(`Failed to spawn player engine: ${e.message}`); return; }
+    try { os.setPriority(child.pid, os.constants.priority.PRIORITY_ABOVE_NORMAL); } catch {}
     this._bind(child, [exe, ...prefix].join(' '));
   }
 

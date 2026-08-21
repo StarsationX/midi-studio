@@ -31,7 +31,7 @@ if Path(FFMPEG_SHARED_BIN).exists():
 import pretty_midi
 import torch
 
-from audio_utils import expand_velocities, find_python, normalize_wav_in_place
+from audio_utils import audio_window_from_env, expand_velocities, find_python, normalize_wav_in_place
 
 # sys.executable in dev = venv\Scripts\python.exe; in portable bundle = python\python.exe.
 PY = find_python()
@@ -303,6 +303,48 @@ def clean_midi(midi_path: Path) -> tuple[int, int]:
     return before, after
 
 
+def recover_sparse_piano(stem_wav: Path, out_midi: Path, note_count: int,
+                         work_dir: Path) -> int:
+    """Use the broad recognizer only when Transkun clearly under-reads a stem."""
+    try:
+        import soundfile as sf
+        duration = float(sf.info(str(stem_wav)).duration)
+    except Exception:
+        duration = 0.0
+
+    sparse_limit = max(24, int(duration * 0.8))
+    if note_count >= sparse_limit:
+        return note_count
+
+    print(f"  Transkun result is sparse ({note_count} notes / {duration:.1f}s); "
+          "checking the broad recognizer...")
+    fallback = work_dir / "fallback_basic_pitch.mid"
+    try:
+        rc = subprocess.run(
+            [str(PY), str(ROOT / "stem_to_midi.py"), str(stem_wav), str(fallback)],
+            check=False, env=os.environ).returncode
+        if rc != 0 or not fallback.exists():
+            print("  [warn] broad-recognizer check failed; keeping Transkun output")
+            return note_count
+        candidate = pretty_midi.PrettyMIDI(str(fallback))
+        candidate_count = sum(len(inst.notes) for inst in candidate.instruments)
+        richer_limit = max(note_count * 2, int(duration * 1.2))
+        if candidate_count >= richer_limit:
+            shutil.copy2(fallback, out_midi)
+            print(f"  Recovery selected: {candidate_count} notes instead of {note_count}")
+            return candidate_count
+        print(f"  Broad recognizer found {candidate_count} notes; keeping cleaner Transkun output")
+        return note_count
+    except Exception as exc:
+        print(f"  [warn] broad-recognizer check failed ({exc}); keeping Transkun output")
+        return note_count
+    finally:
+        try:
+            fallback.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def _resolve_backend() -> str:
     if SEPARATION_BACKEND in ("msst", "onnx_dml"):
         return SEPARATION_BACKEND
@@ -369,32 +411,36 @@ def main() -> int:
     # brackets/parens in it would be read as glob character classes.
     work_dir = src.parent / "stems" / safe_name(src.stem)
     work_dir.mkdir(parents=True, exist_ok=True)
+    process_src = audio_window_from_env(src, work_dir)
 
     backend = _resolve_backend()
     if backend == "onnx_dml":
         print("Separator: MDX-Net (ONNX + DirectML) — GPU path for non-CUDA cards")
         if GENERAL_MODE:
             print("Mode: General (vocals + drums removed, all pitched stems kept)")
-            stem_wav = separate_onnx_general(src, work_dir)
+            stem_wav = separate_onnx_general(process_src, work_dir)
         else:
-            stem_wav = separate_onnx(src, work_dir)
+            stem_wav = separate_onnx(process_src, work_dir)
     elif GENERAL_MODE:
         print("Mode: General (mixing all pitched stems, not just piano)")
-        stem_wav = mix_pitched_stems(src, work_dir)
+        stem_wav = mix_pitched_stems(process_src, work_dir)
     else:
-        stem_wav = separate_piano(src, work_dir)
+        stem_wav = separate_piano(process_src, work_dir)
 
     if LOUDNESS_NORM:
         print(f"    Normalizing stem to {TARGET_RMS_DB} dB RMS (peak ceiling {PEAK_CEILING_DB} dB)")
         normalize_wav_in_place(stem_wav, target_rms_db=TARGET_RMS_DB, peak_ceiling_db=PEAK_CEILING_DB)
 
-    out_midi = src.with_suffix(".mid")
+    out_midi = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else src.with_suffix(".mid")
     transcribe_to_midi(stem_wav, out_midi)
 
     print(f"\n[3/3] Cleaning MIDI (drop notes < {MIN_NOTE_SEC}s or velocity < {MIN_VELOCITY}"
           + (f", cap {MAX_POLYPHONY} simultaneous" if MAX_POLYPHONY else "") + f"); velocity gamma {VELOCITY_GAMMA}")
     before, after = clean_midi(out_midi)
     print(f"  {before} -> {after} notes (dropped {before - after})")
+
+    if not GENERAL_MODE:
+        after = recover_sparse_piano(stem_wav, out_midi, after, work_dir)
 
     print(f"\nDONE.\n  Stem: {stem_wav}\n  MIDI:       {out_midi}")
     return 0

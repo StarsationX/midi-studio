@@ -89,6 +89,26 @@ function userMappingsDir() {
   return path.join(app.getPath('userData'), 'mappings');
 }
 
+function readJson(p) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return null; }
+}
+
+function shouldRefreshPreset(src, dst) {
+  if (!exists(dst)) return true;
+  const s = readJson(src);
+  const d = readJson(dst);
+  if (!s || !d) return false;
+  const sv = Number(s.x_app_preset_version || 0);
+  const dv = Number(d.x_app_preset_version || 0);
+  if (sv && sv > dv) return true;
+  if (path.basename(dst).toLowerCase() === 'drums.json'
+      && !dv
+      && /^drums/i.test(String(d.name || ''))
+      && d.note_to_key
+      && d.note_to_key['36'] === 'c') return true;
+  return false;
+}
+
 // Ensure the folder exists and seed it (first run only) with the bundled presets
 // so it's discoverable and editable. Never overwrites existing files — user
 // edits and custom mappings are preserved. Returns the directory path.
@@ -101,7 +121,8 @@ function ensureUserMappings() {
       for (const f of fs.readdirSync(src)) {
         if (!/\.json$/i.test(f)) continue;
         const dst = path.join(dir, f);
-        if (!exists(dst)) { try { fs.copyFileSync(path.join(src, f), dst); } catch (_) {} }
+        const sp = path.join(src, f);
+        if (shouldRefreshPreset(sp, dst)) { try { fs.copyFileSync(sp, dst); } catch (_) {} }
       }
     }
   } catch (_) {}

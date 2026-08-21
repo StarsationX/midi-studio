@@ -17,9 +17,18 @@
       <span class="brand-name">MIDI Player</span>
       <button class="version-badge" id="version-badge" title="Check for updates">v—</button>
     </div>
-    <div class="header-status" id="header-status">
-      <span class="status-dot"></span>
-      <span class="status-text" id="status-text">Idle</span>
+    <div class="header-actions">
+      <div class="forge-activity" id="forge-activity" hidden title="Midi-Forge is running with reduced resource priority">
+        <span class="forge-activity-dot"></span>
+        <span>Forging</span>
+      </div>
+      <button class="refocus-target" id="refocus-target" type="button" hidden title="Switch back to the selected target window">
+        Focus target
+      </button>
+      <div class="header-status" id="header-status">
+        <span class="status-dot"></span>
+        <span class="status-text" id="status-text">Idle</span>
+      </div>
     </div>
   </header>
 
@@ -55,7 +64,9 @@
             <div class="queue-head">
               <span class="queue-title">Queue <span id="queue-count" class="queue-count"></span></span>
               <label class="queue-loop"><input type="checkbox" id="queue-loop"/> loop</label>
-              <button id="queue-clear" class="btn btn-icon" title="Clear queue">✕</button>
+              <button id="queue-add" class="btn btn-icon" title="Add MIDI files to queue">+</button>
+              <button id="queue-undo" class="btn btn-icon" title="Undo last queue change" hidden>↶</button>
+              <button id="queue-clear" class="btn btn-icon" title="Clear queued songs">✕</button>
             </div>
             <ol class="queue-list" id="queue-list"></ol>
           </div>
@@ -87,7 +98,7 @@
                 <option value="roblox88ctrl">roblox88ctrl — 88 keys + Ctrl</option>
                 <option value="virtualpiano">virtualpiano — 88 keys</option>
                 <option value="virtualpiano66">virtualpiano66 — 66 keys</option>
-                <option value="drums">drums — Roblox kit (8 pads)</option>
+                <option value="drums">drums - Roblox pictured 8-pad kit</option>
               </select>
               <button id="mapping-browse" class="btn btn-icon" title="Custom mapping">+</button>
             </div>
@@ -201,6 +212,20 @@
         <div class="track-strip is-empty" id="track-strip">
           <span class="track-name" id="track-name">No file loaded</span>
           <span class="track-meta" id="track-meta"></span>
+        </div>
+
+        <div class="range-editor" id="range-editor">
+          <div class="range-overview" id="range-overview" tabindex="0" role="slider" aria-label="Playback range" aria-valuemin="0" aria-valuemax="100">
+            <canvas id="range-canvas"></canvas>
+            <div class="range-empty" id="range-empty">Load a MIDI to see the full song</div>
+          </div>
+          <div class="range-controls">
+            <label class="range-toggle"><input type="checkbox" id="range-enabled"/> Play selection only</label>
+            <label>Start <input id="range-start" type="text" value="0:00" inputmode="decimal"/></label>
+            <label>Stop <input id="range-end" type="text" placeholder="end" inputmode="decimal"/></label>
+            <button id="range-full" class="btn btn-ghost" type="button">Full song</button>
+            <span id="range-summary" class="range-summary">Full song</span>
+          </div>
         </div>
 
         <div class="transport-row">

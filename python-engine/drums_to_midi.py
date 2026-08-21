@@ -2,8 +2,7 @@
 
 Stage [1/3] separation reuses song_to_midi.run_separation (BS-Roformer 6-stem),
 stage [2/3] onset-detects the drum stem and classifies each hit by band energy
-(kick / snare / closed & open hat / toms / crash / ride), stage [3/3] writes a
-General-MIDI drum track (channel 10 notes: 36/38/42/46/41/45/48/49/51).
+for the pictured Roblox 8-pad kit, stage [3/3] writes a General-MIDI drum track.
 
 Env knobs:
   SKIP_SEPARATION=1   input is already a drum stem
@@ -20,12 +19,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import numpy as np
+from audio_utils import audio_window_from_env
 
 ONSET_DELTA = float(os.environ.get("ONSET_DELTA", "0.07"))
 MIN_GAP_MS = int(os.environ.get("DRUM_MIN_GAP_MS", "50"))
 SKIP_SEP = os.environ.get("SKIP_SEPARATION", "0") in ("1", "true", "True", "yes")
 
-# GM drum notes
+# GM drum notes. The drums.json preset maps these to the pictured kit:
+#   C kick, A snare, W/S hats, H/J/D toms, K cymbals.
 KICK, SNARE, CHAT, OHAT = 36, 38, 42, 46
 TOM_LO, TOM_MID, TOM_HI = 41, 45, 48
 CRASH, RIDE = 49, 51
@@ -36,6 +37,19 @@ def band_energy(S, freqs, lo, hi):
     return S[m].sum(axis=0) if m.any() else np.zeros(S.shape[1])
 
 
+def _norm(v):
+    p = np.percentile(v, 95) + 1e-9
+    return v / p
+
+
+def _frame_peak_freq(S, freqs, a, b, lo, hi):
+    m = (freqs >= lo) & (freqs < hi)
+    if not m.any() or b <= a:
+        return 0.0
+    band = S[m, a:b].mean(axis=1)
+    return float(freqs[m][int(np.argmax(band))])
+
+
 def classify_hits(wav: Path):
     import librosa
     y, sr = librosa.load(str(wav), sr=22050, mono=True)
@@ -43,46 +57,62 @@ def classify_hits(wav: Path):
     S = np.abs(librosa.stft(y, n_fft=2048, hop_length=hop)) ** 2
     freqs = librosa.fft_frequencies(sr=sr, n_fft=2048)
 
-    sub = band_energy(S, freqs, 20, 110)       # kick body
-    low = band_energy(S, freqs, 110, 300)      # snare/tom body
-    mid = band_energy(S, freqs, 300, 1200)     # tom/snare crack
-    hi  = band_energy(S, freqs, 3500, 10500)   # hats/cymbals
+    sub = _norm(band_energy(S, freqs, 25, 115))          # kick body
+    low = _norm(band_energy(S, freqs, 115, 260))         # tom/snare body
+    body = _norm(band_energy(S, freqs, 260, 900))        # tom tone / snare meat
+    crack = _norm(band_energy(S, freqs, 900, 3500))      # snare crack
+    metal = _norm(band_energy(S, freqs, 3500, 11500))    # hats/cymbals
 
     env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
     onsets = librosa.onset.onset_detect(onset_envelope=env, sr=sr, hop_length=hop,
-                                        delta=ONSET_DELTA, backtrack=False, units="frames")
+                                        delta=ONSET_DELTA, wait=1, pre_max=3,
+                                        post_max=3, pre_avg=8, post_avg=8,
+                                        backtrack=True, units="frames")
     times = librosa.frames_to_time(onsets, sr=sr, hop_length=hop)
     n_frames = S.shape[1]
-    p95 = {k: np.percentile(v, 95) + 1e-9 for k, v in
-           {"sub": sub, "low": low, "mid": mid, "hi": hi}.items()}
 
     hits = []  # (t, note, velocity 0-1)
     for f, t in zip(onsets, times):
-        a, b = f, min(f + 6, n_frames)          # ~70 ms analysis window
-        e_sub = sub[a:b].max() / p95["sub"]
-        e_low = low[a:b].max() / p95["low"]
-        e_mid = mid[a:b].max() / p95["mid"]
-        e_hi  = hi[a:b].max()  / p95["hi"]
-        # cymbal decay: high band still ringing ~180 ms later?
-        c = min(f + 16, n_frames - 1)
-        ring = (hi[c] / (hi[a:b].max() + 1e-9)) if b > a else 0.0
+        a, b = f, min(f + 7, n_frames)          # ~80 ms attack window
+        e_sub = float(sub[a:b].max())
+        e_low = float(low[a:b].max())
+        e_body = float(body[a:b].max())
+        e_crack = float(crack[a:b].max())
+        e_metal = float(metal[a:b].max())
+        c = min(f + 18, n_frames - 1)
+        ring = float(metal[c] / (metal[a:b].max() + 1e-9)) if b > a else 0.0
         strength = float(np.clip(env[f] / (np.percentile(env, 95) + 1e-9), 0.15, 1.0))
 
         labels = []
-        if e_sub > 0.5 and e_sub >= e_low:
+        if e_sub > 0.48 and e_sub > e_low * 0.95 and e_sub > e_metal * 0.55:
             labels.append(KICK)
-        if e_low > 0.45 and e_mid > 0.35 and e_hi > 0.2:
+
+        snare_score = e_low * 0.55 + e_body * 0.45 + e_crack * 0.65
+        tom_score = e_low * 0.65 + e_body * 0.75
+        if snare_score > 0.58 and e_crack > 0.32 and e_metal < max(1.15, e_crack * 2.2):
             labels.append(SNARE)
-        elif e_low > 0.55 and e_mid > 0.3 and e_hi <= 0.2:   # pitched body, no crack = tom
-            labels.append(TOM_MID if e_mid >= e_low * 0.6 else TOM_LO)
-        if e_hi > 0.4:
-            if ring > 0.5 and e_hi > 0.7:
-                labels.append(CRASH if e_mid > 0.25 else RIDE)
+        elif tom_score > 0.62 and e_metal < 0.62 and e_sub < 1.2:
+            peak = _frame_peak_freq(S, freqs, a, b, 90, 900)
+            if peak and peak < 190:
+                labels.append(TOM_LO)       # H
+            elif peak and peak < 340:
+                labels.append(TOM_MID)      # J
             else:
-                labels.append(OHAT if ring > 0.3 else CHAT)
-        if not labels:                                        # quiet/ambiguous -> hat tick
+                labels.append(TOM_HI)       # D
+
+        if e_metal > 0.38 and e_metal > max(e_low, e_body) * 0.9:
+            if ring > 0.48 or e_metal > 1.2:
+                labels.append(CRASH if e_crack > 0.22 or e_body > 0.25 else RIDE)
+            else:
+                labels.append(OHAT if ring > 0.24 else CHAT)
+
+        # Quiet/ambiguous transients are usually hat ticks in separated drum stems.
+        if not labels and e_metal > 0.18:
             labels.append(CHAT)
-        for note in labels[:2]:                               # cap 2 voices per onset
+
+        # Keep the physically plausible layers: kick + snare/hat, or snare + hat.
+        labels = labels[:2]
+        for note in labels:
             hits.append((float(t), note, strength))
 
     # per-class retrigger gap
@@ -117,15 +147,17 @@ def main() -> int:
         print(f"File not found: {src}")
         return 1
     print(f"Input: {src.name}")
+    work_dir = src.parent / "stems" / src.stem
+    process_src = audio_window_from_env(src, work_dir)
 
     if SKIP_SEP:
         print("\n[1/3] Separation skipped (input is already a drum stem)")
-        drum_wav = src
+        drum_wav = process_src
     else:
         from song_to_midi import run_separation, safe_name
         work_dir = src.parent / "stems" / safe_name(src.stem)
         work_dir.mkdir(parents=True, exist_ok=True)
-        out_dir = run_separation(src, work_dir)
+        out_dir = run_separation(process_src, work_dir)
         cands = [p for p in out_dir.rglob("*drum*.wav") if p.is_file()]
         if not cands:
             listing = "\n  ".join(str(p) for p in out_dir.rglob("*.wav"))
@@ -144,7 +176,7 @@ def main() -> int:
     print(f"  {len(hits)} hits in {time.time()-t0:.1f}s — " +
           ", ".join(f"{names.get(k, k)}:{v}" for k, v in sorted(by.items())))
 
-    out_midi = src.with_suffix(".mid")
+    out_midi = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else src.with_suffix(".mid")
     print(f"\n[3/3] Cleaning MIDI (writing drum track)")
     write_midi(hits, out_midi)
     print(f"\nDONE.\n  Stem: {drum_wav}\n  MIDI:       {out_midi}")

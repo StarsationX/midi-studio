@@ -14,6 +14,7 @@ const DEFAULTS = {
     skipSeparation: false,
     advanced: {},             // USE_TTA, BIGSHIFTS, VELOCITY_GAMMA, ...
     outputDir: '',
+    timing: { enabled: false, start: '', end: '' },
   },
   paths: { forgeEnvDir: '', forgePythonPath: '', modelsDir: '' },
   ui: { lastTab: 'forge', autoCheckUpdates: true },

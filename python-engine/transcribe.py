@@ -26,7 +26,7 @@ if Path(FFMPEG_SHARED_BIN).exists():
 import pretty_midi
 import torch
 
-from audio_utils import expand_velocities, find_python, load_normalize_save
+from audio_utils import audio_window_from_env, expand_velocities, find_python, load_normalize_save
 
 PY = find_python()
 
@@ -117,6 +117,7 @@ def main() -> int:
         return 1
 
     out_midi = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else src.with_suffix(".mid")
+    process_src = audio_window_from_env(src, src.parent / "stems" / src.stem)
     backend = resolve_transcribe_backend()
     print(f"Backend: {backend}"
           + (f" ({torch.cuda.get_device_name(0)})" if backend == "cuda" else "")
@@ -126,10 +127,10 @@ def main() -> int:
     try:
         if LOUDNESS_NORM:
             print(f"Normalizing to {TARGET_RMS_DB} dB RMS -> {norm_wav.name}")
-            load_normalize_save(src, norm_wav, target_rms_db=TARGET_RMS_DB, peak_ceiling_db=PEAK_CEILING_DB)
+            load_normalize_save(process_src, norm_wav, target_rms_db=TARGET_RMS_DB, peak_ceiling_db=PEAK_CEILING_DB)
             transcribe_src = norm_wav
         else:
-            transcribe_src = src
+            transcribe_src = process_src
 
         print(f"Transcribing with Transkun V2: {src.name}")
         t0 = time.time()

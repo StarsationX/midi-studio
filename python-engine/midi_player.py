@@ -38,6 +38,7 @@ if PLATFORM == "win32":
     import psutil
     _winmm = ctypes.WinDLL("winmm")
     _kernel32 = ctypes.WinDLL("kernel32")
+    _user32 = ctypes.WinDLL("user32")
     THREAD_PRIORITY_HIGHEST = 2
 elif PLATFORM == "darwin":
     try:
@@ -133,8 +134,22 @@ def focus_window(win):
         hwnd = win["hwnd"]
         if win32gui.IsIconic(hwnd):
             win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        attached = []
         try:
+            current_tid = _kernel32.GetCurrentThreadId()
+            foreground = win32gui.GetForegroundWindow()
+            foreground_tid = (win32process.GetWindowThreadProcessId(foreground)[0]
+                              if foreground else 0)
+            target_tid = win32process.GetWindowThreadProcessId(hwnd)[0]
+            for tid in {foreground_tid, target_tid}:
+                if tid and tid != current_tid and _user32.AttachThreadInput(current_tid, tid, True):
+                    attached.append(tid)
+            win32gui.BringWindowToTop(hwnd)
             win32gui.SetForegroundWindow(hwnd)
+            try:
+                win32gui.SetFocus(hwnd)
+            except Exception:
+                pass
         except Exception:
             # Windows blocks SetForegroundWindow unless caller owns the
             # foreground. The classic workaround: tap Alt to release the
@@ -146,10 +161,19 @@ def focus_window(win):
                 win32gui.SetForegroundWindow(hwnd)
             except Exception:
                 pass
+        finally:
+            for tid in attached:
+                try:
+                    _user32.AttachThreadInput(_kernel32.GetCurrentThreadId(), tid, False)
+                except Exception:
+                    pass
+        return focused_id() == hwnd
     elif PLATFORM == "darwin":
         nsapp = win.get("_nsapp")
         if nsapp is not None:
             nsapp.activateWithOptions_(1 << 1)  # NSApplicationActivateIgnoringOtherApps
+            return True
+    return False
 
 
 def focused_id():
@@ -444,7 +468,7 @@ def _hybrid_sleep(target):
 
 
 def playback_loop(events, state, kb, latency_offset, q, collect_stats,
-                  sustain=False):
+                  sustain=False, end_at=None):
     """ZERO allocation in the inner body. Every variable is local.
 
     Wrapped in hi_res_timer() so time.sleep() honours millisecond targets
@@ -529,6 +553,9 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
                     break
 
             t_sec, key, duration, note, channel = events[i]
+            range_finished = end_at is not None and t_sec >= end_at
+            if range_finished:
+                t_sec = end_at
 
             while True:
                 if stop_event.is_set():
@@ -591,6 +618,12 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
             # without firing this event.
             if state.seek_request is not None:
                 continue
+
+            if range_finished:
+                state.elapsed = end_at
+                release_all()
+                stop_event.set()
+                return
 
             actual = perf()
             if sustain:

@@ -29,7 +29,7 @@ import pretty_midi
 from basic_pitch import ICASSP_2022_MODEL_PATH
 from basic_pitch.inference import predict
 
-from audio_utils import expand_velocities, load_normalize_save
+from audio_utils import audio_window_from_env, expand_velocities, load_normalize_save
 
 MIN_NOTE_SEC = float(os.environ.get("MIN_NOTE_SEC", "0.05"))
 MIN_VELOCITY = int(os.environ.get("MIN_VELOCITY", "20"))
@@ -128,6 +128,7 @@ def main() -> int:
         print(f"File not found: {src}")
         return 1
     out_midi = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else src.with_suffix(".mid")
+    process_src = audio_window_from_env(src, src.parent / "stems" / src.stem)
 
     print(f"Input:  {src.name}")
     print(f"Output: {out_midi.name}")
@@ -139,10 +140,10 @@ def main() -> int:
     try:
         if LOUDNESS_NORM:
             print(f"Normalizing to {TARGET_RMS_DB} dB RMS -> {norm_wav.name}")
-            load_normalize_save(src, norm_wav, target_rms_db=TARGET_RMS_DB, peak_ceiling_db=PEAK_CEILING_DB)
+            load_normalize_save(process_src, norm_wav, target_rms_db=TARGET_RMS_DB, peak_ceiling_db=PEAK_CEILING_DB)
             predict_src = norm_wav
         else:
-            predict_src = src
+            predict_src = process_src
 
         t0 = time.time()
         _, midi_data, _ = predict(

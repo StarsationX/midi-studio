@@ -77,6 +77,38 @@ def load_normalize_save(
     return out_wav
 
 
+def audio_window_from_env(src: Path, work_dir: Path | None = None) -> Path:
+    """Return a WAV clipped to FORGE_START_SEC/FORGE_END_SEC, or src unchanged."""
+    start_raw = os.environ.get("FORGE_START_SEC", "").strip()
+    end_raw = os.environ.get("FORGE_END_SEC", "").strip()
+    if not start_raw and not end_raw:
+        return src
+
+    start = float(start_raw) if start_raw else 0.0
+    end = float(end_raw) if end_raw else 0.0
+    if start < 0:
+        start = 0.0
+    duration = (end - start) if end > start else None
+    if start <= 0 and duration is None:
+        return src
+
+    import librosa
+    import soundfile as sf
+
+    out_dir = work_dir or src.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stop_label = f"{end:.3f}" if end > start else "end"
+    tag = f"_range_{start:.3f}_{stop_label}".replace(".", "p")
+    out_wav = out_dir / f"{src.stem}{tag}.wav"
+    audio, sr = librosa.load(str(src), sr=None, mono=False, offset=start, duration=duration)
+    if audio.size == 0:
+        raise RuntimeError("Selected time range contains no audio.")
+    out = audio.T if audio.ndim > 1 else audio
+    sf.write(str(out_wav), out, sr)
+    print(f"Time range: {start:.3f}s -> " + (f"{end:.3f}s" if end > start else "end"))
+    return out_wav
+
+
 def expand_velocities(notes, gamma: float = 0.85, floor: int = 10) -> None:
     # gamma<1 expands (soft softer, loud louder); gamma>1 compresses;
     # pivot is the median so the curve adapts to whatever range Transkun emitted.

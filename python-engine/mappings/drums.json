@@ -1,13 +1,28 @@
 {
-  "name": "drums — Roblox kit (8 pads: C kick, A snare, W/S hats, D/J/H toms, K cymbals)",
+  "name": "drums - Roblox kit from pictured 8-pad layout",
+  "description": "Layout from the reference image: H top-left tom, W upper-left hat, S upper-right open hat, K right cymbal, J left low tom, A snare, C center kick, D right tom. Generated drum MIDI uses GM notes mapped onto these keys.",
+  "x_app_preset_version": 2,
   "note_to_key": {
-    "35": "c", "36": "c",
-    "37": "a", "38": "a", "40": "a",
-    "42": "w", "44": "w",
+    "35": "c",
+    "36": "c",
+    "37": "a",
+    "38": "a",
+    "40": "a",
+    "42": "w",
+    "44": "w",
     "46": "s",
-    "48": "d", "50": "d",
-    "45": "j", "47": "j",
-    "41": "h", "43": "h",
-    "49": "k", "52": "k", "55": "k", "57": "k", "51": "k", "53": "k", "59": "k"
+    "48": "d",
+    "50": "d",
+    "45": "j",
+    "47": "j",
+    "41": "h",
+    "43": "h",
+    "49": "k",
+    "51": "k",
+    "52": "k",
+    "53": "k",
+    "55": "k",
+    "57": "k",
+    "59": "k"
   }
 }

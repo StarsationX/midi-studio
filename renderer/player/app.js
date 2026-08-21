@@ -11,6 +11,8 @@ const els = {
   queueList: $('queue-list'),
   queueCount: $('queue-count'),
   queueClear: $('queue-clear'),
+  queueAdd: $('queue-add'),
+  queueUndo: $('queue-undo'),
   queueLoop: $('queue-loop'),
   recentField: $('recent-field'),
   recentSelect: $('recent-select'),
@@ -47,6 +49,8 @@ const els = {
   // header
   headerStatus: $('header-status'),
   statusText: $('status-text'),
+  refocusTarget: $('refocus-target'),
+  forgeActivity: $('forge-activity'),
   // transport — buttons
   play: $('play'),
   pause: $('pause'),
@@ -58,6 +62,14 @@ const els = {
   trackStrip: $('track-strip'),
   trackName: $('track-name'),
   trackMeta: $('track-meta'),
+  rangeOverview: $('range-overview'),
+  rangeCanvas: $('range-canvas'),
+  rangeEmpty: $('range-empty'),
+  rangeEnabled: $('range-enabled'),
+  rangeStart: $('range-start'),
+  rangeEnd: $('range-end'),
+  rangeFull: $('range-full'),
+  rangeSummary: $('range-summary'),
   // scrubber
   scrubber: $('scrubber'),
   scrubFill: $('scrubber-fill'),
@@ -109,6 +121,9 @@ const settings = Object.assign({
   logCollapsed: true,
   recentFiles: [],          // most-recent-first list of MIDI paths
   autoPickTarget: true,     // auto-select the remembered target on launch
+  playlist: [],
+  playlistCurrent: '',
+  queueLoop: false,
 }, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'));
 
 const MAX_RECENTS = 8;
@@ -130,6 +145,7 @@ let isPaused = false;
 let isFocusLost = false;
 let pendingRestartAt = null;   // seconds; set by a live tempo change
 let pendingSeekAfterLoad = null; // seconds; pre-seek viz after next midi_loaded
+let overviewEvents = [];
 const viz = new Visualizer(els.vizCanvas);
 
 // --------------------------------------------------------------------------
@@ -179,6 +195,7 @@ function applySettingsToUI() {
   els.tempoPreset.value = settings.tempoPreset;
   els.seekStep.value = settings.seekStep;
   els.autoPickTarget.checked = settings.autoPickTarget !== false;
+  els.queueLoop.checked = !!settings.queueLoop;
 
   // Open the persisted section
   document.querySelectorAll('.section').forEach((sec) => {
@@ -190,17 +207,24 @@ function applySettingsToUI() {
   // Log collapse state
   els.logPanel.classList.toggle('is-collapsed', !!settings.logCollapsed);
 
-  // Recent files dropdown
+  // Recent files and the last playlist survive app restarts.
   renderRecents();
-  renderQueue();
-
-  // If a previous MIDI was loaded, restore the track-strip placeholder.
-  if (settings.midiPath) {
-    lastMidiPath = settings.midiPath;
-    tracks = [settings.midiPath];
-    curIdx = 0;
-    els.midiPath.value = settings.midiPath;
+  const savedTracks = Array.isArray(settings.playlist)
+    ? settings.playlist.filter((p) => typeof p === 'string' && /\.midi?$/i.test(p))
+    : [];
+  tracks = [...new Map(savedTracks.map((p) => [p.toLowerCase(), p])).values()];
+  if (settings.midiPath && !tracks.some((p) => p.toLowerCase() === settings.midiPath.toLowerCase())) {
+    tracks.unshift(settings.midiPath);
   }
+  const currentPath = settings.playlistCurrent || settings.midiPath || '';
+  curIdx = tracks.findIndex((p) => p.toLowerCase() === currentPath.toLowerCase());
+  if (curIdx < 0 && tracks.length) curIdx = 0;
+  if (curIdx >= 0) {
+    lastMidiPath = tracks[curIdx];
+    settings.midiPath = lastMidiPath;
+    els.midiPath.value = lastMidiPath;
+  }
+  renderQueue();
   updateTrackStrip();
 }
 
@@ -253,12 +277,14 @@ window.api.onEngineEvent((evt) => {
       break;
 
     case 'windows':
+      const previousTarget = selectedTarget();
       windows = evt.windows;
-      populateWindows();
+      populateWindows(previousTarget ? previousTarget.hwnd : null);
       break;
 
     case 'midi_loaded':
       viz.load(evt.events, evt.note_to_key);
+      overviewEvents = evt.events || [];
       totalDuration = evt.duration;
       totalNotes = evt.events.length;
       bpm = evt.bpm;
@@ -276,6 +302,9 @@ window.api.onEngineEvent((evt) => {
       els.timeElapsed.textContent = fmtClock(0);
       els.scrubFill.style.width = '0%';
       els.scrubThumb.style.left = '0%';
+      els.rangeEmpty.hidden = overviewEvents.length > 0;
+      normalizePlaybackRange();
+      drawRangeOverview();
       if (pendingSeekAfterLoad !== null) {
         viz.seek(Math.min(pendingSeekAfterLoad, totalDuration));
         pendingSeekAfterLoad = null;
@@ -301,6 +330,7 @@ window.api.onEngineEvent((evt) => {
       bpm = evt.bpm;
       viz.startClock(evt.duration, evt.start_elapsed || 0);
       setStatus('playing', 'Playing');
+      els.refocusTarget.hidden = true;
       renderQueue();
       updateTrackStrip();
       break;
@@ -322,6 +352,7 @@ window.api.onEngineEvent((evt) => {
       setPauseButton(false);
       viz.stopClock();
       setStatus('idle', 'Idle');
+      els.refocusTarget.hidden = true;
       if (evt.stats) {
         const s = evt.stats;
         log('info',
@@ -366,6 +397,29 @@ window.api.onEngineEvent((evt) => {
   }
 });
 
+const activeForgeJobs = new Set();
+if (window.forge?.onStatus) {
+  window.forge.onStatus((evt) => {
+    if (!evt || !evt.event) return;
+    if (evt.event === 'forge.progress' && evt.jobId) {
+      activeForgeJobs.add(evt.jobId);
+      els.forgeActivity.hidden = false;
+      els.forgeActivity.title = evt.stage
+        ? `Midi-Forge: ${evt.stage}. Playback remains available.`
+        : 'Midi-Forge is running. Playback remains available.';
+    } else if (evt.event === 'forge.done' && evt.jobId) {
+      activeForgeJobs.delete(evt.jobId);
+      els.forgeActivity.hidden = activeForgeJobs.size === 0;
+      const midiPath = evt.ok && evt.result && evt.result.midiPath;
+      if (midiPath) {
+        const existed = tracks.some((p) => p.toLowerCase() === midiPath.toLowerCase());
+        addToQueue([midiPath]);
+        if (!existed) log('info', `Forge finished - added "${midiPath.split(/[\\/]/).pop()}" to the queue.`);
+      }
+    }
+  });
+}
+
 function fmtMs(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + 'ms'; }
 
 function onProgress(evt) {
@@ -374,11 +428,12 @@ function onProgress(evt) {
     setPauseButton(isPaused);
   }
   isFocusLost = !!evt.focus_lost;
+  els.refocusTarget.hidden = !isFocusLost;
 
   if (!isPlaying) {
     setStatus('idle', 'Idle');
   } else if (isFocusLost) {
-    setStatus('blocked', 'Paused · focus lost');
+    setStatus('blocked', 'Waiting for target');
   } else if (isPaused) {
     setStatus('paused', 'Paused');
   } else {
@@ -438,10 +493,181 @@ function updateTrackStrip() {
   `;
 }
 
+// Full-song overview and playback range. The overview is a compact piano roll:
+// time runs left-to-right and pitch runs bottom-to-top.
+function parseRangeTime(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const parts = text.split(':');
+  if (parts.length > 3 || parts.some((p) => p.trim() === '' || !isFinite(Number(p)))) return NaN;
+  let seconds = 0;
+  for (const part of parts) seconds = seconds * 60 + Number(part);
+  return seconds >= 0 ? seconds : NaN;
+}
+
+function formatRangeTime(seconds) {
+  seconds = Math.max(0, Number(seconds) || 0);
+  const whole = Math.floor(seconds);
+  const fraction = seconds - whole;
+  const minutes = Math.floor(whole / 60);
+  const secs = whole % 60;
+  const tail = fraction >= 0.005 ? (Math.round(fraction * 100) / 100).toString().slice(1) : '';
+  return `${minutes}:${String(secs).padStart(2, '0')}${tail}`;
+}
+
+function playbackRange() {
+  if (!els.rangeEnabled.checked || totalDuration <= 0) return { enabled: false, start: 0, end: totalDuration };
+  const rawStart = parseRangeTime(els.rangeStart.value);
+  const rawEnd = parseRangeTime(els.rangeEnd.value);
+  if (Number.isNaN(rawStart) || Number.isNaN(rawEnd)) return { enabled: true, valid: false, start: 0, end: totalDuration };
+  const start = Math.max(0, Math.min(totalDuration, rawStart || 0));
+  const end = Math.max(0, Math.min(totalDuration, rawEnd == null ? totalDuration : rawEnd));
+  return { enabled: true, valid: end > start, start, end };
+}
+
+function normalizePlaybackRange() {
+  const range = playbackRange();
+  const valid = !range.enabled || range.valid !== false;
+  els.rangeStart.disabled = !els.rangeEnabled.checked || totalDuration <= 0;
+  els.rangeEnd.disabled = !els.rangeEnabled.checked || totalDuration <= 0;
+  els.rangeFull.disabled = totalDuration <= 0 || !els.rangeEnabled.checked;
+  els.rangeEnabled.disabled = totalDuration <= 0;
+  els.rangeSummary.classList.toggle('is-error', !valid);
+  els.rangeSummary.textContent = !valid ? 'Stop must be after start'
+    : range.enabled ? `${formatRangeTime(range.start)} to ${formatRangeTime(range.end)} · ${formatRangeTime(range.end - range.start)}`
+      : 'Full song';
+  return valid;
+}
+
+function setPlaybackRange(start, end) {
+  if (totalDuration <= 0) return;
+  start = Math.max(0, Math.min(totalDuration, start));
+  end = Math.max(start + 0.01, Math.min(totalDuration, end));
+  els.rangeEnabled.checked = true;
+  els.rangeStart.value = formatRangeTime(start);
+  els.rangeEnd.value = formatRangeTime(end);
+  normalizePlaybackRange();
+  drawRangeOverview();
+}
+
+function resetPlaybackRange() {
+  els.rangeEnabled.checked = false;
+  els.rangeStart.value = '0:00';
+  els.rangeEnd.value = '';
+  normalizePlaybackRange();
+  drawRangeOverview();
+}
+
+function drawRangeOverview() {
+  const canvas = els.rangeCanvas;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const width = Math.round(rect.width * dpr), height = Math.round(rect.height * dpr);
+  if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = rect.width, h = rect.height;
+  ctx.fillStyle = '#101115'; ctx.fillRect(0, 0, w, h);
+  if (totalDuration <= 0) return;
+
+  ctx.strokeStyle = '#25272d'; ctx.lineWidth = 1;
+  const divisions = Math.max(4, Math.min(12, Math.floor(w / 100)));
+  for (let i = 1; i < divisions; i++) {
+    const x = (i / divisions) * w;
+    ctx.beginPath(); ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, h); ctx.stroke();
+  }
+  const step = Math.max(1, Math.ceil(overviewEvents.length / 6000));
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e';
+  ctx.globalAlpha = .68;
+  for (let i = 0; i < overviewEvents.length; i += step) {
+    const event = overviewEvents[i];
+    const x = (event[0] / totalDuration) * w;
+    const y = h - 5 - ((event[3] - 21) / 87) * (h - 10);
+    const noteW = Math.max(1, (Math.max(.03, event[2]) / totalDuration) * w);
+    ctx.fillRect(x, y, Math.min(12, noteW), 1.5);
+  }
+  ctx.globalAlpha = 1;
+
+  const range = playbackRange();
+  if (range.enabled && range.valid !== false) {
+    const sx = (range.start / totalDuration) * w, ex = (range.end / totalDuration) * w;
+    ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(0, 0, sx, h); ctx.fillRect(ex, 0, w - ex, h);
+    ctx.fillStyle = 'rgba(184,230,46,.09)'; ctx.fillRect(sx, 0, Math.max(1, ex - sx), h);
+    ctx.strokeStyle = '#b8e62e'; ctx.lineWidth = 2;
+    for (const x of [sx, ex]) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); ctx.fillRect(x - 4, 0, 8, 9); ctx.fillRect(x - 4, h - 9, 8, 9); }
+  }
+  const playhead = Math.max(0, Math.min(totalDuration, viz.elapsed()));
+  const px = (playhead / totalDuration) * w;
+  ctx.strokeStyle = '#fff'; ctx.globalAlpha = .75; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(px + .5, 0); ctx.lineTo(px + .5, h); ctx.stroke(); ctx.globalAlpha = 1;
+}
+
+let rangeDrag = null;
+function overviewTime(clientX) {
+  const rect = els.rangeOverview.getBoundingClientRect();
+  return Math.max(0, Math.min(totalDuration, ((clientX - rect.left) / rect.width) * totalDuration));
+}
+els.rangeOverview.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || totalDuration <= 0) return;
+  const rect = els.rangeOverview.getBoundingClientRect();
+  const range = playbackRange();
+  const x = e.clientX - rect.left;
+  const sx = range.enabled ? (range.start / totalDuration) * rect.width : -100;
+  const ex = range.enabled ? (range.end / totalDuration) * rect.width : -100;
+  rangeDrag = { mode: Math.abs(x - sx) < 10 ? 'start' : Math.abs(x - ex) < 10 ? 'end' : 'select', anchor: overviewTime(e.clientX), x: e.clientX, moved: false };
+  els.rangeOverview.setPointerCapture(e.pointerId);
+});
+els.rangeOverview.addEventListener('pointermove', (e) => {
+  if (!rangeDrag) return;
+  const t = overviewTime(e.clientX);
+  if (Math.abs(e.clientX - rangeDrag.x) > 3) rangeDrag.moved = true;
+  const range = playbackRange();
+  if (rangeDrag.mode === 'start') setPlaybackRange(Math.min(t, range.end - .01), range.end);
+  else if (rangeDrag.mode === 'end') setPlaybackRange(range.start, Math.max(t, range.start + .01));
+  else if (rangeDrag.moved) setPlaybackRange(Math.min(rangeDrag.anchor, t), Math.max(rangeDrag.anchor, t));
+});
+els.rangeOverview.addEventListener('pointerup', (e) => {
+  if (!rangeDrag) return;
+  if (!rangeDrag.moved && rangeDrag.mode === 'select') {
+    const t = overviewTime(e.clientX);
+    viz.seek(t); if (isPlaying) requestSeek(t);
+  }
+  rangeDrag = null;
+  drawRangeOverview();
+});
+els.rangeOverview.addEventListener('pointercancel', () => { rangeDrag = null; });
+els.rangeOverview.addEventListener('keydown', (e) => {
+  if (totalDuration <= 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+  e.preventDefault();
+  let next = viz.elapsed();
+  if (e.key === 'ArrowLeft') next -= e.shiftKey ? 10 : 1;
+  else if (e.key === 'ArrowRight') next += e.shiftKey ? 10 : 1;
+  else if (e.key === 'Home') next = 0;
+  else next = totalDuration;
+  next = Math.max(0, Math.min(totalDuration, next));
+  viz.seek(next); if (isPlaying) requestSeek(next);
+  drawRangeOverview();
+});
+els.rangeEnabled.addEventListener('change', () => {
+  if (els.rangeEnabled.checked && !els.rangeEnd.value) els.rangeEnd.value = formatRangeTime(totalDuration);
+  normalizePlaybackRange(); drawRangeOverview();
+});
+[els.rangeStart, els.rangeEnd].forEach((input) => input.addEventListener('input', () => { normalizePlaybackRange(); drawRangeOverview(); }));
+els.rangeFull.addEventListener('click', resetPlaybackRange);
+new ResizeObserver(drawRangeOverview).observe(els.rangeOverview);
+
 // --------------------------------------------------------------------------
 // UI actions
 // --------------------------------------------------------------------------
 els.midiBrowse.addEventListener('click', async () => {
+  const r = await window.api.pickMidi();
+  const paths = (Array.isArray(r) ? r : [r]).filter(Boolean);
+  if (!paths.length) return;
+  setMidiFile(paths[0]);
+  addToQueue(paths.slice(1));
+});
+els.queueAdd.addEventListener('click', async () => {
   const r = await window.api.pickMidi();
   addToQueue(Array.isArray(r) ? r : [r]);
 });
@@ -461,6 +687,22 @@ els.autoPickTarget.addEventListener('change', () => {
 });
 
 els.targetRefresh.addEventListener('click', () => requestWindows());
+els.refocusTarget.addEventListener('click', () => {
+  window.api.send({ cmd: 'refocus' });
+});
+els.queueLoop.addEventListener('change', () => {
+  settings.queueLoop = els.queueLoop.checked;
+  saveSettings();
+});
+
+let lastWindowRefresh = 0;
+els.targetSelect.addEventListener('focus', () => {
+  const now = Date.now();
+  if (!isPlaying && now - lastWindowRefresh > 2000) {
+    lastWindowRefresh = now;
+    requestWindows();
+  }
+});
 
 els.mappingSelect.addEventListener('change', () => {
   if (els.mappingSelect.value === '__custom__') return;
@@ -771,9 +1013,11 @@ function loadMidi() {
 // Put a path in the box and hand it to the engine. Playlist bookkeeping lives
 // in selectTrack() -- call that (or setMidiFile) rather than this directly.
 function loadPath(p) {
+  const changedTrack = p !== lastMidiPath;
   els.midiPath.value = p;
   settings.midiPath = p;
   saveSettings();
+  if (changedTrack) resetPlaybackRange();
   loadMidi();
 }
 
@@ -826,10 +1070,22 @@ els.fallSpeed.addEventListener('input', () => {
 
 // ---- play queue -----------------------------------------------------------
 // A playlist, not a consume-queue: tracks stay in the list once played, one row
-// is the current track, and any row can be clicked to jump to it. Session-only.
-let tracks = [], curIdx = -1, userStopped = false, autoPlayNext = false;
+// is the current track, and any row can be clicked to jump to it.
+let tracks = [], curIdx = -1, userStopped = false, autoPlayNext = false, queueUndo = null;
+
+function persistPlaylist() {
+  settings.playlist = tracks.slice(0, 200);
+  settings.playlistCurrent = tracks[curIdx] || '';
+  saveSettings();
+}
+
+function rememberPlaylist() {
+  queueUndo = { tracks: tracks.slice(), curPath: tracks[curIdx] || null };
+  els.queueUndo.hidden = false;
+}
 
 function renderQueue() {
+  persistPlaylist();
   els.queueCount.textContent = tracks.length ? `(${tracks.length})` : '';
   els.queueList.innerHTML = '';
   if (!tracks.length) {
@@ -846,7 +1102,7 @@ function queueRow(path, i) {
   const li = document.createElement('li');
   const isCurrent = i === curIdx;
   if (isCurrent) li.className = 'is-current';
-  li.title = isCurrent ? path : path + '\n(click to play)';
+  li.title = isCurrent ? path : path + '\nClick to load. Use the play button to start.';
 
   const num = document.createElement('span');
   num.className = 'q-num';
@@ -855,13 +1111,36 @@ function queueRow(path, i) {
   const n = document.createElement('span');
   n.className = 'qn'; n.textContent = path.split(/[\\/]/).pop();
 
+  const play = document.createElement('button');
+  play.className = 'q-action q-play'; play.type = 'button'; play.title = 'Play this song'; play.textContent = '▶';
+  play.addEventListener('click', (e) => { e.stopPropagation(); playTrack(i, true); });
+
+  const up = document.createElement('button');
+  up.className = 'q-action'; up.type = 'button'; up.title = 'Move up'; up.textContent = '↑'; up.disabled = i === 0;
+  up.addEventListener('click', (e) => { e.stopPropagation(); moveTrack(i, i - 1); });
+  const down = document.createElement('button');
+  down.className = 'q-action'; down.type = 'button'; down.title = 'Move down'; down.textContent = '↓'; down.disabled = i === tracks.length - 1;
+  down.addEventListener('click', (e) => { e.stopPropagation(); moveTrack(i, i + 1); });
+
   const x = document.createElement('button');
-  x.className = 'qx'; x.type = 'button'; x.title = 'Remove'; x.textContent = '\u2715';
+  x.className = 'q-action qx'; x.type = 'button'; x.title = 'Remove'; x.textContent = '\u2715';
+  x.disabled = isCurrent && isPlaying;
+  if (x.disabled) x.title = 'Stop playback before removing the current song';
   x.addEventListener('click', (e) => { e.stopPropagation(); removeTrack(i); });
 
-  li.append(num, n, x);
-  li.addEventListener('click', () => playTrack(i));
+  li.append(num, n, play, up, down, x);
+  li.addEventListener('click', () => { if (!isPlaying && i !== curIdx) selectTrack(i, false); });
   return li;
+}
+
+function moveTrack(from, to) {
+  if (to < 0 || to >= tracks.length || from === to) return;
+  rememberPlaylist();
+  const currentPath = tracks[curIdx];
+  const [item] = tracks.splice(from, 1);
+  tracks.splice(to, 0, item);
+  curIdx = currentPath ? tracks.indexOf(currentPath) : -1;
+  renderQueue();
 }
 
 // Load a track. Plays it too when `andPlay`, once 'midi_loaded' comes back.
@@ -874,24 +1153,44 @@ function selectTrack(i, andPlay) {
 }
 
 // Clicking a row: jump to it, and keep playing if we already were.
-function playTrack(i) {
+function playTrack(i, forcePlay = false) {
   if (i === curIdx && !isPlaying && totalDuration > 0) { doPlay(); return; }
   const keepGoing = isPlaying;
   if (isPlaying) { userStopped = true; window.api.send({ cmd: 'stop' }); }
-  selectTrack(i, keepGoing);
+  selectTrack(i, forcePlay || keepGoing);
 }
 
 function removeTrack(i) {
+  rememberPlaylist();
+  const removingCurrent = i === curIdx;
   tracks.splice(i, 1);
-  if (i === curIdx) curIdx = -1;          // loaded file is no longer in the list
-  else if (i < curIdx) curIdx--;
+  if (removingCurrent) {
+    if (tracks.length) {
+      selectTrack(Math.min(i, tracks.length - 1), false);
+      return;
+    }
+    curIdx = -1;
+    lastMidiPath = null;
+    totalDuration = 0;
+    totalNotes = 0;
+    overviewEvents = [];
+    settings.midiPath = '';
+    els.midiPath.value = '';
+    els.vizEmpty.classList.remove('is-hidden');
+    els.timeElapsed.textContent = fmtClock(0);
+    els.timeTotal.textContent = fmtClock(0);
+    resetPlaybackRange();
+    updateTrackStrip();
+  } else if (i < curIdx) curIdx--;
   renderQueue();
 }
 
 // Append files; load the first new one if nothing is loaded / playing.
 function addToQueue(paths) {
-  const ps = (paths || []).filter(p => p && /\.midi?$/i.test(p));
+  const known = new Set(tracks.map((p) => p.toLowerCase()));
+  const ps = (paths || []).filter(p => p && /\.midi?$/i.test(p) && !known.has(p.toLowerCase()) && known.add(p.toLowerCase()));
   if (!ps.length) return;
+  rememberPlaylist();
   const first = tracks.length;
   tracks.push(...ps);
   renderQueue();
@@ -921,7 +1220,23 @@ function advanceQueue() {
   return true;
 }
 
-els.queueClear.addEventListener('click', () => { tracks = []; curIdx = -1; renderQueue(); });
+els.queueClear.addEventListener('click', () => {
+  if (!tracks.length) return;
+  rememberPlaylist();
+  const current = tracks[curIdx];
+  tracks = current ? [current] : [];
+  curIdx = current ? 0 : -1;
+  renderQueue();
+});
+els.queueUndo.addEventListener('click', () => {
+  if (!queueUndo) return;
+  const now = { tracks: tracks.slice(), curPath: tracks[curIdx] || null };
+  tracks = queueUndo.tracks.slice();
+  curIdx = queueUndo.curPath ? tracks.indexOf(queueUndo.curPath) : -1;
+  queueUndo = now;
+  if (curIdx >= 0 && tracks[curIdx] !== lastMidiPath) selectTrack(curIdx, false);
+  else renderQueue();
+});
 
 function selectedTarget() {
   const idx = parseInt(els.targetSelect.value, 10);
@@ -933,6 +1248,9 @@ function sendPlay(startAt, countdown) {
   const target = selectedTarget();
   if (!path) { log('error', 'Pick a MIDI file first.'); return; }
   if (!target) { log('error', 'Pick a target window first (Refresh).'); return; }
+  const range = playbackRange();
+  if (range.enabled && range.valid === false) { log('error', 'Playback range: stop must be after start.'); return; }
+  if (range.enabled && (startAt < range.start || startAt >= range.end)) startAt = range.start;
   window.api.send({
     cmd: 'play',
     midi_path: path,
@@ -943,6 +1261,7 @@ function sendPlay(startAt, countdown) {
     stats: !!els.stats.checked,
     sustain: !!els.sustain.checked,
     start_at: startAt,
+    end_at: range.enabled ? range.end : null,
   });
 }
 
@@ -951,7 +1270,9 @@ function doPlay() {
   userStopped = false;
   // If the user pre-seeked via the scrubber before pressing Play, start
   // playback from that position instead of t=0.
-  const preSeek = viz.elapsed();
+  const range = playbackRange();
+  let preSeek = viz.elapsed();
+  if (range.enabled && range.valid !== false && (preSeek < range.start || preSeek >= range.end)) preSeek = range.start;
   sendPlay(preSeek > 0.25 ? preSeek : 0, parseInt(els.countdown.value, 10) || 0);
 }
 
@@ -1005,7 +1326,7 @@ function flushSeek() {
 // --------------------------------------------------------------------------
 // Target windows dropdown
 // --------------------------------------------------------------------------
-function populateWindows() {
+function populateWindows(previousHwnd = null) {
   els.targetSelect.innerHTML = '';
   if (!windows.length) {
     const o = document.createElement('option');
@@ -1013,19 +1334,25 @@ function populateWindows() {
     els.targetSelect.appendChild(o);
     return;
   }
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Choose a target window...';
+  els.targetSelect.appendChild(placeholder);
   let preselect = -1;
+  let bestScore = 0;
   windows.forEach((w, i) => {
     const o = document.createElement('option');
     o.value = String(i);
     const proc = (w.process || '?').padEnd(28).slice(0, 28);
     o.textContent = `${proc} | ${w.title}`;
     els.targetSelect.appendChild(o);
-    if (settings.autoPickTarget !== false && settings.targetHint &&
-        ((w.process || '') + ' ' + (w.title || ''))
-        .toLowerCase()
-        .includes(settings.targetHint.toLowerCase())) {
-      if (preselect === -1) preselect = i;
-    }
+    const haystack = `${w.process || ''} ${w.title || ''}`.toLowerCase();
+    let score = 0;
+    if (previousHwnd && Number(previousHwnd) === Number(w.hwnd)) score = 200;
+    else if (settings.autoPickTarget !== false && settings.targetHint && haystack.includes(settings.targetHint.toLowerCase())) score = 100;
+    else if (settings.autoPickTarget !== false && /robloxplayerbeta|virtual.?piano/.test(haystack)) score = 50;
+    else if (settings.autoPickTarget !== false && /\broblox\b|\bpiano\b/.test(haystack)) score = 25;
+    if (score > bestScore) { bestScore = score; preselect = i; }
   });
   if (preselect >= 0) els.targetSelect.value = String(preselect);
 }
@@ -1167,7 +1494,8 @@ window.addEventListener('drop',     (e) => e.preventDefault());
 // --------------------------------------------------------------------------
 // Render loop
 // --------------------------------------------------------------------------
-function frame() {
+let lastOverviewFrame = 0;
+function frame(now) {
   viz.render();
   const elapsed = viz.elapsed();
 
@@ -1181,6 +1509,11 @@ function frame() {
     els.scrubThumb.style.left = '0%';
   }
   els.timeElapsed.textContent = fmtClock(elapsed);
+
+  if (now - lastOverviewFrame >= 80) {
+    lastOverviewFrame = now;
+    drawRangeOverview();
+  }
 
   requestAnimationFrame(frame);
 }

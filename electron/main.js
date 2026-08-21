@@ -186,7 +186,7 @@ function createServices() {
 
 // ---- IPC --------------------------------------------------------------------
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
-const FORGE_SETTINGS_KEYS = ['pipeline', 'skipSeparation', 'advanced', 'outputDir'];
+const FORGE_SETTINGS_KEYS = ['pipeline', 'skipSeparation', 'advanced', 'outputDir', 'timing'];
 
 function wireIpc() {
   ipcMain.handle('engine:send', (_e, msg) => (isObj(msg) ? sidecar.send(msg) : false));
@@ -280,11 +280,12 @@ function wireIpc() {
       pipeline: String(opts.pipeline || 'piano'),
       skipSeparation: !!opts.skipSeparation,
       advanced: isObj(opts.advanced) ? opts.advanced : {},
+      timing: isObj(opts.timing) ? opts.timing : {},
     });
   });
   ipcMain.handle('forge:yt', (_e, opts) => {
     opts = isObj(opts) ? opts : {};
-    return forge.ytDownload({ url: String(opts.url || ''), outDir: String(opts.outDir || '') });
+    return forge.ytDownload({ url: String(opts.url || ''), outDir: String(opts.outDir || programOutputDir()) });
   });
   ipcMain.handle('forge:cancel', (_e, jobId) => forge.cancel(String(jobId || '')));
   ipcMain.handle('forge:getSettings', () => settings.get('forge'));

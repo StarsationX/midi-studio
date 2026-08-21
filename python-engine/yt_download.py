@@ -25,8 +25,16 @@ if FFMPEG_BIN.exists():
 
 import yt_dlp
 
-# Where finished MP3s land by default. Override with arg 2.
-DEFAULT_OUT = Path(os.environ.get("YT_OUTPUT_DIR", str(ROOT / "downloads")))
+def _default_out() -> Path:
+    override = os.environ.get("YT_OUTPUT_DIR", "").strip()
+    if override:
+        return Path(override)
+    home = Path(os.environ.get("USERPROFILE", str(Path.home())))
+    return home / "Documents" / "MIDI Studio"
+
+
+# Where finished MP3s land by default. Override with arg 2 or YT_OUTPUT_DIR.
+DEFAULT_OUT = _default_out()
 
 
 def _sanitize(name: str) -> str:
