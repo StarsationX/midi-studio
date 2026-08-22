@@ -32,6 +32,14 @@ const assets = [
 ];
 ok(u.pickSetupAsset(assets).name === 'MIDI-Studio-2.1.0-Setup.exe', 'picks Setup not portable');
 
+// A portable build cannot replace itself with an installer, so it must show the
+// wizard instead of installing a silent second copy.
+delete process.env.PORTABLE_EXECUTABLE_FILE;
+ok(u.installerArgs().join() === '/S', 'installed build updates silently');
+process.env.PORTABLE_EXECUTABLE_FILE = '/tmp/MIDI-Studio-portable.exe';
+ok(u.installerArgs().length === 0, 'portable build runs the installer visibly');
+delete process.env.PORTABLE_EXECUTABLE_FILE;
+
 // verifyDigest — verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
   const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
@@ -75,7 +83,9 @@ ok(u.pickSetupAsset(assets).name === 'MIDI-Studio-2.1.0-Setup.exe', 'picks Setup
 
   const installer = fs.readFileSync(path.join(root, 'build', 'installer.nsh'), 'utf-8');
   const pkg = require(path.join(root, 'package.json'));
-  ok(pkg.version === '2.8.0', 'release version is 2.8.0');
+  const lock = require(path.join(root, 'package-lock.json'));
+  ok(/^\d+\.\d+\.\d+$/.test(pkg.version), 'package version is semver');
+  ok(lock.version === pkg.version && lock.packages[''].version === pkg.version, 'package-lock version matches package.json');
   ok(pkg.build.nsis.include === 'build/installer.nsh', 'NSIS includes custom Forge storage page');
   ok(installer.includes('--configure-forge-storage'), 'installer applies Forge storage choice');
   try { fs.rmSync(base, { recursive: true, force: true }); } catch {}

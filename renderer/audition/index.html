@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MIDI Audition</title>
+  <title>Self Midi</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="./audition.css" />
 </head>
@@ -18,12 +18,12 @@
       <span class="spacer"></span>
       <label class="check"><input id="autoplay" type="checkbox" /> Autoplay</label>
       <button class="btn" id="show-file" type="button" disabled>Open folder</button>
-      <button class="btn" id="to-player" type="button" disabled>Send to Player</button>
+      <button class="btn" id="to-player" type="button" disabled>Send to Midi Player</button>
     </header>
 
     <section class="file-strip">
       <div class="file-copy">
-        <strong id="file-name">MIDI Audition</strong>
+        <strong id="file-name">Self Midi</strong>
         <span class="mono" id="file-path">No MIDI loaded</span>
       </div>
       <label class="candidate-field" id="candidate-field" hidden>Version
@@ -93,7 +93,7 @@
     </section>
   </main>
 
-  <div class="drop-overlay" id="drop-overlay" aria-hidden="true"><div>Drop MIDI to audition</div></div>
+  <div class="drop-overlay" id="drop-overlay" aria-hidden="true"><div>Drop MIDI to play</div></div>
   <script src="../soundfonts/player.js"></script>
   <script src="./audition.js"></script>
 </body>

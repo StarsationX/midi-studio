@@ -68,14 +68,14 @@
   function updateSongUI() {
     const doc = currentDocument();
     const path = currentPath();
-    $('file-name').textContent = (doc && doc.name) || (player.project && player.project.name) || 'MIDI Audition';
+    $('file-name').textContent = (doc && doc.name) || (player.project && player.project.name) || 'Self Midi';
     $('file-path').textContent = path || 'No MIDI loaded';
     $('stat-notes').textContent = doc ? String(doc.notes.length) : '0';
     $('stat-bpm').textContent = doc ? String(Math.round(Number(doc.bpm) || 120)) : '0';
     $('stat-length').textContent = formatTime(player.duration);
     $('seek').value = player.duration ? String(Math.round(player.position / player.duration * 1000)) : '0';
     $('time').textContent = `${formatTime(player.position)} / ${formatTime(player.duration)}`;
-    document.title = doc ? `${doc.name} · MIDI Audition` : 'MIDI Audition';
+    document.title = doc ? `${doc.name} · Self Midi` : 'Self Midi';
     drawRoll();
   }
 
@@ -331,7 +331,10 @@
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(rect.width * dpr); canvas.height = Math.round(rect.height * dpr);
+    // Only resize when it actually changed - reassigning width/height every
+    // animation frame reallocates the backing store and stalls playback.
+    const wantW = Math.round(rect.width * dpr), wantH = Math.round(rect.height * dpr);
+    if (canvas.width !== wantW || canvas.height !== wantH) { canvas.width = wantW; canvas.height = wantH; }
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#0f1013'; ctx.fillRect(0, 0, rect.width, rect.height);

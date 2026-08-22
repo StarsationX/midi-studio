@@ -42,19 +42,19 @@
       t.setAttribute('aria-selected', on ? 'true' : 'false');
     });
     frames.forEach((f) => f.classList.toggle('is-active', f.dataset.tab === name));
-    const titles = { forge: 'MIDI Studio — Forge', review: 'MIDI Studio — Review',
-      audition: 'MIDI Studio — Audition', player: 'MIDI Studio — Player' };
+    const titles = { forge: 'MIDI Studio — Midi Forge', player: 'MIDI Studio — Midi Player',
+      review: 'MIDI Studio — Midi Editor', audition: 'MIDI Studio — Self Midi' };
     document.title = titles[name] || 'MIDI Studio';
     if (persist && studio && studio.setUi) studio.setUi({ lastTab: name });
   }
   tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) activate(b.dataset.tab); });
-  // Ctrl+1 through Ctrl+4 switch tabs.
+  // Ctrl+1..Ctrl+4 switch tabs, in the order they appear.
   window.addEventListener('keydown', (e) => {
     if (!e.ctrlKey) return;
     if (e.key === '1') { activate('forge'); e.preventDefault(); }
-    if (e.key === '2') { activate('review'); e.preventDefault(); }
-    if (e.key === '3') { activate('audition'); e.preventDefault(); }
-    if (e.key === '4') { activate('player'); e.preventDefault(); }
+    if (e.key === '2') { activate('player'); e.preventDefault(); }
+    if (e.key === '3') { activate('review'); e.preventDefault(); }
+    if (e.key === '4') { activate('audition'); e.preventDefault(); }
   });
   function openAudition(payload) {
     const frame = document.getElementById('frame-audition');
@@ -202,7 +202,7 @@
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { if (!modal.hidden) closeSettings(); else if (!el.hidden) el.hidden = true; }
     if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && document.activeElement && document.activeElement.classList.contains('tab')) {
-      const order = ['forge', 'review', 'audition', 'player'];
+      const order = ['forge', 'player', 'review', 'audition'];
       const cur = order.indexOf(document.querySelector('.tab.is-active').dataset.tab);
       const next = order[(cur + (e.key === 'ArrowRight' ? 1 : order.length - 1)) % order.length];
       activate(next); document.querySelector(`.tab[data-tab="${next}"]`).focus(); e.preventDefault();

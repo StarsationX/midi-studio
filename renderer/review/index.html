@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self' file: blob:;" />
-  <title>MIDI Review</title>
+  <title>Midi Editor</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="./review.css" />
 </head>
@@ -31,7 +31,7 @@
         <button class="btn compact" id="apply-quantize" disabled>Quantize</button>
       </div>
       <div class="spacer"></div>
-      <button class="btn" id="to-player" disabled>Send to Player</button>
+      <button class="btn" id="to-player" disabled>Send to Midi Player</button>
     </header>
 
     <section class="project-strip">
@@ -70,11 +70,13 @@
       <div class="time mono" id="time">00:00.000 / 00:00.000</div>
       <label class="switch"><input type="checkbox" id="audio-on" checked disabled /> Original audio</label>
       <label class="switch"><input type="checkbox" id="midi-on" checked disabled /> MIDI preview</label>
+      <label class="switch"><input type="checkbox" id="follow-on" checked /> Follow</label>
       <label class="switch"><input type="checkbox" id="loop-on" disabled /> Loop selection</label>
       <div class="transport-note" id="transport-note"></div>
     </footer>
     <audio id="audio" preload="metadata"></audio>
   </main>
+  <script src="../soundfonts/player.js"></script>
   <script src="./review.js"></script>
 </body>
 </html>

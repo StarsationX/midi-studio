@@ -2,10 +2,15 @@
 
 One Windows app combining two tools:
 
-- **Midi-Forge** — turn a song (file or YouTube/URL) into a MIDI, using AI source separation
+Four tabs:
+
+- **Midi Forge** — turn a song (file or YouTube/URL) into a MIDI, using AI source separation
   (BS-Rofo-SW-Fixed) + transcription (Transkun for piano, basic-pitch for general).
-- **Midi-Player** — play a MIDI into any Windows app (Roblox piano games, [virtualpiano.net](https://virtualpiano.net),
+- **Midi Player** — play a MIDI into any Windows app (Roblox piano games, [virtualpiano.net](https://virtualpiano.net),
   …) by simulating keypresses, with a real-time piano-roll, global hotkeys, and focus-aware pause.
+- **Midi Editor** — piano-roll editing of a Forge result against the original waveform: drag, box-select,
+  quantize, transpose, undo/redo, and export.
+- **Self Midi** — listen to a MIDI inside the app with bundled General MIDI instruments, no game needed.
 
 Built as one Electron app with a bundled Python engine, an **in-app dependency downloader**, and a
 **built-in auto-updater**.
@@ -13,10 +18,10 @@ Built as one Electron app with a bundled Python engine, an **in-app dependency d
 ## Download & run
 
 Grab **`MIDI-Studio-<version>-Setup.exe`** from the [Releases](https://github.com/StarsationX/midi-studio/releases)
-page and run the installer. **No separate Python install is required** — the Midi-Player tab works immediately.
+page and run the installer. **No separate Python install is required** — the Midi Player tab works immediately.
 
-Setup asks where to keep the **Midi-Forge** engine and models, then remembers that location for
-upgrades. The first time you use Forge, click **"Set up Midi-Forge"** to download PyTorch and the
+Setup asks where to keep the **Midi Forge** engine and models, then remembers that location for
+upgrades. The first time you use Forge, click **"Set up Midi Forge"** to download PyTorch and the
 models there (~3 GB, NVIDIA GPU recommended). This is a one-time download.
 
 > Windows SmartScreen may warn "unknown publisher" because the build isn't code-signed yet —
@@ -48,7 +53,7 @@ npm test                   # unit tests
 
 ```
 electron/        main process, Python sidecar manager, forge runner/provisioner, updater
-renderer/        shell + Forge, Review, and Player tab renderers
+renderer/        shell + Forge, Player, Editor, and Self Midi tab renderers
 python-engine/   ipc_main.py + midi_player.py (player engine, verbatim);
                  song_to_midi/transcribe/stem_to_midi/yt_download/... (forge pipeline);
                  provision_forge.py (the dependency downloader)

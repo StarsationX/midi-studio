@@ -4,14 +4,14 @@
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' file:; connect-src 'self' file:;" />
-  <title>Midi-Forge</title>
+  <title>Midi Forge</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="./forge.css" />
 </head>
 <body>
   <div class="envbar" id="envbar">
     <span class="dot" id="env-dot"></span>
-    <span id="env-text">Checking Midi-Forge…</span>
+    <span id="env-text">Checking Midi Forge…</span>
     <span class="spacer"></span>
     <button class="link" id="env-recheck">Re-check</button>
   </div>
@@ -19,11 +19,11 @@
   <div class="wrap">
     <!-- SETUP panel (shown when forge isn't provisioned) -->
     <section class="card setup" id="setup" hidden>
-      <h2>Set up Midi-Forge</h2>
+      <h2>Set up Midi Forge</h2>
       <p class="muted">One-time download of the model + dependencies (~3 GB). GPU-accelerated on NVIDIA (CUDA) and AMD/Intel (DirectML).
-        The Midi-Player tab works without this.</p>
+        The Midi Player tab works without this.</p>
       <div class="setup-actions">
-        <button class="btn btn-primary" id="setup-start">Set up Midi-Forge</button>
+        <button class="btn btn-primary" id="setup-start">Set up Midi Forge</button>
         <button class="btn btn-ghost" id="setup-cancel" hidden>Cancel</button>
       </div>
       <div class="prog" id="setup-prog" hidden>
@@ -186,8 +186,8 @@
             <span class="mono" id="output-path"></span>
             <button class="link" id="output-open">Open folder</button>
             <button class="link" id="output-listen">Listen</button>
-            <button class="link" id="output-review" hidden>Review candidates</button>
-            <button class="link" id="output-toplayer">Send to Midi-Player ⤷</button>
+            <button class="link" id="output-review" hidden>Open in Midi Editor</button>
+            <button class="link" id="output-toplayer">Send to Midi Player ⤷</button>
           </div>
         </div>
         <div class="errcard" id="errcard" hidden>

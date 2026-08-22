@@ -151,6 +151,9 @@ function createWindow() {
       preload: paths.preloadScript(),
       contextIsolation: true, nodeIntegration: false, sandbox: false,
       nodeIntegrationInSubFrames: true,
+      // Review/Audition preview runs on requestAnimationFrame; Chromium throttles
+      // that in a background window, which freezes playback the moment you alt-tab.
+      backgroundThrottling: false,
     },
   });
   win.setMenuBarVisibility(false);

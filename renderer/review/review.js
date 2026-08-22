@@ -37,6 +37,12 @@
   let animation = 0;
   let audioOffset = 0;
   let synthContext = null;
+  let marquee = null;
+  let noteSeq = 0;
+  const soundfonts = window.MidiStudioSoundfonts;
+  const INSTRUMENT = 'grand_piano';
+  let sampledReady = false;
+  let samplePrepare = null;
 
   const doc = () => documents[candidate] || null;
   const cloneNotes = (notes) => notes.map((note) => ({ ...note }));
@@ -190,6 +196,12 @@
       ctx.strokeStyle = on ? '#e9ff9d' : '#72c1d4'; ctx.strokeRect(x + 1.5, y + .5, Math.max(1, widthNote - 3), ROW_H - 3);
       if (widthNote > 10) { ctx.fillStyle = on ? '#202500' : '#10242a'; ctx.fillRect(x + widthNote - 4, y + 2, 2, ROW_H - 6); }
     }
+    if (marquee && marquee.moved) {
+      const mx = Math.min(marquee.x0, marquee.x1), my = Math.min(marquee.y0, marquee.y1);
+      const mw = Math.abs(marquee.x1 - marquee.x0), mh = Math.abs(marquee.y1 - marquee.y0);
+      ctx.fillStyle = 'rgba(184,230,46,.12)'; ctx.fillRect(mx, my, mw, mh);
+      ctx.strokeStyle = 'rgba(184,230,46,.65)'; ctx.strokeRect(mx + .5, my + .5, mw, mh);
+    }
     const playX = xForTime(playhead);
     ctx.strokeStyle = '#f0d34e'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(playX, 0); ctx.lineTo(playX, height); ctx.stroke(); ctx.lineWidth = 1;
   }
@@ -306,6 +318,7 @@
     $('project-name').textContent = project.name || doc().name || 'Untitled';
     $('empty').hidden = true; scroll.hidden = false;
     $('zoom').value = zoom;
+    sampledReady = false; ensureSamples();
     renderCandidates(); setDirty(false); refresh(); await loadAudioWave();
   }
 
@@ -348,12 +361,20 @@
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left, y = event.clientY - rect.top;
     const hit = hitNote(x, y);
-    if (!hit) { if (!event.shiftKey) selected.clear(); playhead = timeForX(x); refresh(); return; }
+    if (!hit) {
+      // Drag on empty space = box select; a plain click = seek.
+      if (!event.shiftKey) selected.clear();
+      marquee = { x0: x, y0: y, x1: x, y1: y, moved: false, base: new Set(selected) };
+      canvas.setPointerCapture(event.pointerId);
+      refresh(); return;
+    }
     if (event.shiftKey) {
-      if (selected.has(hit.note.id)) selected.delete(hit.note.id); else selected.add(hit.note.id);
+      if (selected.has(hit.note.id)) selected.delete(hit.note.id);
+      else { selected.add(hit.note.id); playSynthNote(hit.note, true); }
       refresh(); return;
     }
     if (!selected.has(hit.note.id)) { selected.clear(); selected.add(hit.note.id); }
+    if (!hit.edge) playSynthNote(hit.note, true);
     checkpoint();
     const originals = doc().notes.filter((note) => selected.has(note.id)).map((note) => ({ note, start: note.start, end: note.end, pitch: note.pitch }));
     drag = { x, y, edge: hit.edge, originals };
@@ -361,6 +382,21 @@
   });
 
   canvas.addEventListener('pointermove', (event) => {
+    if (marquee) {
+      const rect = canvas.getBoundingClientRect();
+      marquee.x1 = event.clientX - rect.left; marquee.y1 = event.clientY - rect.top;
+      if (Math.abs(marquee.x1 - marquee.x0) > 4 || Math.abs(marquee.y1 - marquee.y0) > 4) marquee.moved = true;
+      if (marquee.moved) {
+        const t0 = timeForX(Math.min(marquee.x0, marquee.x1)), t1 = timeForX(Math.max(marquee.x0, marquee.x1));
+        const p0 = pitchForY(Math.max(marquee.y0, marquee.y1)), p1 = pitchForY(Math.min(marquee.y0, marquee.y1));
+        selected = new Set(marquee.base);
+        for (const note of doc().notes) {
+          if (note.end >= t0 && note.start <= t1 && note.pitch >= p0 && note.pitch <= p1) selected.add(note.id);
+        }
+        updateControls();
+      }
+      drawRoll(); return;
+    }
     if (!drag) return;
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left, y = event.clientY - rect.top;
@@ -378,8 +414,19 @@
     drawRoll();
   });
 
-  canvas.addEventListener('pointerup', () => { if (drag) { drag = null; setDirty(); refresh(); } });
-  canvas.addEventListener('pointercancel', () => { if (drag) { drag = null; setDirty(); refresh(); } });
+  function endPointer() {
+    if (marquee) {
+      if (!marquee.moved) seek(timeForX(marquee.x1));
+      marquee = null; refresh(); return;
+    }
+    if (drag) {
+      const first = drag.originals[0];
+      if (first && !drag.edge && first.note.pitch !== first.pitch) playSynthNote(first.note, true);
+      drag = null; setDirty(); refresh();
+    }
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
   canvas.addEventListener('dblclick', (event) => {
     if (!doc()) return;
     const rect = canvas.getBoundingClientRect();
@@ -388,8 +435,9 @@
     const division = Number($('quantize').value) || 16;
     const length = (60 / (Number(doc().bpm) || 120)) * (4 / division);
     checkpoint();
-    const note = { id: `n${Date.now()}`, pitch, start, end: Math.min(duration, start + length), velocity: 96, channel: 0 };
-    doc().notes.push(note); selected = new Set([note.id]); setDirty(); renderCandidates(); refresh();
+    const note = { id: `add${++noteSeq}`, pitch, start, end: Math.min(duration, start + length), velocity: 96, channel: 0 };
+    doc().notes.push(note); selected = new Set([note.id]); playSynthNote(note, true);
+    setDirty(); renderCandidates(); refresh();
   });
 
   function deleteSelected() {
@@ -401,6 +449,8 @@
     if (!doc() || !selected.size) return;
     checkpoint();
     doc().notes.forEach((note) => { if (selected.has(note.id)) note.pitch = clamp(note.pitch + amount, 0, 127); });
+    const first = doc().notes.find((note) => selected.has(note.id));
+    if (first) playSynthNote(first, true);
     setDirty(); refresh();
   }
 
@@ -420,17 +470,49 @@
     $('range-readout').textContent = `${fmt(loopStart)} — ${fmt(loopEnd)}`;
   }
 
+  // Keep the playhead on screen; the roll is duration*zoom pixels wide, so
+  // without this it walks off the viewport a second into playback.
+  function followPlayhead(force) {
+    if (scroll.hidden || (!force && !$('follow-on').checked)) return;
+    const x = xForTime(playhead);
+    const view = scroll.clientWidth;
+    if (x < scroll.scrollLeft + KEY_W + 24 || x > scroll.scrollLeft + view - 60) {
+      scroll.scrollLeft = clamp(x - view * .35, 0, Math.max(0, canvas.clientWidth - view));
+    }
+  }
+
   function seek(time) {
     playhead = clamp(time, 0, duration);
     startedAt = performance.now() - playhead * 1000;
     previousMidiTime = playhead - .01;
     if ($('audio-on').checked && audio.src) audio.currentTime = audioOffset + playhead;
-    updateTime(); drawWave(); drawRoll();
+    followPlayhead(); updateTime(); drawWave(); drawRoll();
   }
 
-  function playSynthNote(note) {
-    if (!$('midi-on').checked) return;
+  // Load the bundled piano samples once, in the background. Until they land,
+  // previews fall back to the oscillator below so the editor is never silent.
+  function ensureSamples() {
+    if (!soundfonts || sampledReady) return samplePrepare || Promise.resolve(sampledReady);
+    if (samplePrepare) return samplePrepare;
+    const current = doc();
+    if (!current) return Promise.resolve(false);
     synthContext = synthContext || new AudioContext();
+    const pitches = current.notes.length ? current.notes.map((note) => note.pitch) : [60];
+    samplePrepare = soundfonts.prepare(synthContext, INSTRUMENT, pitches)
+      .then(() => { sampledReady = true; return true; })
+      .catch(() => false)
+      .finally(() => { samplePrepare = null; });
+    return samplePrepare;
+  }
+
+  function playSynthNote(note, force) {
+    if (!force && !$('midi-on').checked) return;
+    synthContext = synthContext || new AudioContext();
+    if (sampledReady) {
+      const source = soundfonts.play(synthContext, INSTRUMENT, note.pitch, synthContext.currentTime,
+        clamp(note.end - note.start, .05, 4), note.velocity);
+      if (source) return;
+    } else ensureSamples();
     const oscillator = synthContext.createOscillator();
     const gain = synthContext.createGain();
     const now = synthContext.currentTime;
@@ -463,7 +545,7 @@
       triggerNotes(previousMidiTime, next);
       previousMidiTime = next; playhead = next;
     }
-    updateTime(); drawWave(); drawRoll();
+    followPlayhead(); updateTime(); drawWave(); drawRoll();
     animation = requestAnimationFrame(tick);
   }
 
@@ -473,6 +555,7 @@
     if (playhead >= duration - .01) seek($('loop-on').checked ? loopStart : 0);
     playing = true; $('play').textContent = 'Ⅱ'; $('play').setAttribute('aria-label', 'Pause');
     startedAt = performance.now() - playhead * 1000; previousMidiTime = playhead - .01;
+    ensureSamples();
     if (synthContext) await synthContext.resume();
     if ($('audio-on').checked && audio.src) { audio.currentTime = audioOffset + playhead; audio.play().catch(() => {}); }
     tick();

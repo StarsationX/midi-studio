@@ -35,9 +35,9 @@ body { display: flex; flex-direction: column; }
   border-radius: 3px; background: var(--bg-2);
 }
 .tab[data-tab="forge"]::after  { content: "^1"; }
-.tab[data-tab="review"]::after { content: "^2"; }
-.tab[data-tab="audition"]::after { content: "^3"; }
-.tab[data-tab="player"]::after { content: "^4"; }
+.tab[data-tab="player"]::after { content: "^2"; }
+.tab[data-tab="review"]::after { content: "^3"; }
+.tab[data-tab="audition"]::after { content: "^4"; }
 .tab:hover { color: var(--text-2); background: #1f2126; }
 .tab.is-active {
   color: var(--text); background: var(--bg);

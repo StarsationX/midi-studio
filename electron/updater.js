@@ -79,6 +79,10 @@ function sha256File(p) {
 }
 
 const pickSetup = (a) => (a || []).find((x) => /setup.*\.exe$/i.test(x.name)) || (a || []).find((x) => /\.exe$/i.test(x.name) && !/portable/i.test(x.name));
+// Installed builds update silently in place. A leftover portable .exe from 2.7.0
+// or earlier cannot replace itself with an installer, so show the wizard —
+// otherwise it silently installs a second copy and keeps nagging forever.
+const installerArgs = () => (process.env.PORTABLE_EXECUTABLE_FILE ? [] : ['/S']);
 let cached = null;
 function stagingDir() { const d = path.join(app.getPath('userData'), 'updates'); try { fs.mkdirSync(d, { recursive: true }); } catch {} return d; }
 
@@ -130,9 +134,9 @@ async function applyUpdate(send) {
       return;
     }
     send({ state: 'ready' });
-    spawn(installer, ['/S'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    spawn(installer, installerArgs(), { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     setTimeout(() => app.quit(), 400);
   } catch (e) { send({ state: 'error', message: String((e && e.message) || e) }); }
 }
 
-module.exports = { checkForUpdates, applyUpdate, cmpVer, parseVer, verifyDigest, pickSetupAsset: pickSetup };
+module.exports = { checkForUpdates, applyUpdate, cmpVer, parseVer, verifyDigest, pickSetupAsset: pickSetup, installerArgs };

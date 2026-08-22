@@ -1,4 +1,4 @@
-// forge.js — Midi-Forge tab controller. Drives window.forge.
+// forge.js — Midi Forge tab controller. Drives window.forge.
 (() => {
   const F = window.forge;
   const Review = window.review;
@@ -438,7 +438,7 @@
   // ---- env status (probed only on load / re-check / provision-done) ----
   function setEnv(state, text) { $('env-dot').className = 'dot ' + (state || ''); $('env-text').textContent = text; }
   async function refreshEnv() {
-    setEnv('warn', 'Checking Midi-Forge…');
+    setEnv('warn', 'Checking Midi Forge…');
     let s; try { s = await F.check(); } catch { s = { forgeReady: false }; }
     envReady = !!s.forgeReady;
     if (envReady) {
@@ -458,7 +458,7 @@
   // ---- setup / provisioning ----
   $('setup-start').addEventListener('click', () => { $('setup-start').disabled = true; $('setup-cancel').hidden = false; $('setup-prog').hidden = false; F.provision(); });
   $('setup-cancel').addEventListener('click', () => {
-    if (!window.confirm('Cancel Midi-Forge setup? The partial download is discarded; you can restart it later.')) return;
+    if (!window.confirm('Cancel Midi Forge setup? The partial download is discarded; you can restart it later.')) return;
     $('setup-cancel').textContent = 'Cancelling…'; F.cancelProvision();
   });
 
@@ -690,10 +690,10 @@
     try {
       parent.document.querySelector('.tab[data-tab="player"]').click();
       const w = (parent.document.getElementById('frame-player') || {}).contentWindow;
-      if (w && typeof w.setMidiFile === 'function') { w.setMidiFile(p); logLine('→ Loaded into Midi-Player'); }
-      else if (w && w.api) { w.api.send({ cmd: 'load_midi', path: p, mapping: 'roblox88', tempo: 1.0 }); logLine('→ Sent to Midi-Player'); }
-      else logLine('Open the Midi-Player tab, then pick it from Recent.');
-    } catch (_) { logLine('Couldn\'t hand off — open Midi-Player and pick it from Recent.'); }
+      if (w && typeof w.setMidiFile === 'function') { w.setMidiFile(p); logLine('→ Loaded into Midi Player'); }
+      else if (w && w.api) { w.api.send({ cmd: 'load_midi', path: p, mapping: 'roblox88', tempo: 1.0 }); logLine('→ Sent to Midi Player'); }
+      else logLine('Open the Midi Player tab, then pick it from Recent.');
+    } catch (_) { logLine('Couldn\'t hand off — open Midi Player and pick it from Recent.'); }
   }
   $('output-toplayer').addEventListener('click', sendOutputToPlayer);
   $('log-clear').addEventListener('click', () => { $('log').textContent = ''; });
@@ -712,11 +712,11 @@
         $('setup-pct').textContent = indet ? '' : (s.percent + '%'); $('setup-msg').textContent = s.message || ''; break;
       }
       case 'forge.provision.log': logLine(s.line); break;
-      case 'forge.provision.done': $('setup-msg').textContent = 'Done!'; $('setup-cancel').hidden = true; $('setup-cancel').textContent = 'Cancel'; $('setup-start').disabled = false; $('setup-start').textContent = 'Set up Midi-Forge'; refreshEnv(); break;
+      case 'forge.provision.done': $('setup-msg').textContent = 'Done!'; $('setup-cancel').hidden = true; $('setup-cancel').textContent = 'Cancel'; $('setup-start').disabled = false; $('setup-start').textContent = 'Set up Midi Forge'; refreshEnv(); break;
       case 'forge.provision.error': {
         $('setup-msg').textContent = '✖ ' + (s.message || 'Setup failed.');
         $('setup-cancel').hidden = true; $('setup-cancel').textContent = 'Cancel';
-        $('setup-start').disabled = false; $('setup-start').textContent = /cancel/i.test(s.message || '') ? 'Set up Midi-Forge' : 'Retry setup';
+        $('setup-start').disabled = false; $('setup-start').textContent = /cancel/i.test(s.message || '') ? 'Set up Midi Forge' : 'Retry setup';
         // Offer the full log so it can be shared (the panel above is ephemeral).
         if (!/cancel/i.test(s.message || '') && window.studio && window.studio.openSetupLog) {
           let b = $('setup-log-btn');
