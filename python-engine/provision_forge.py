@@ -38,11 +38,18 @@ PYVER = "3.13.5"
 PYEMBED_URL = f"https://www.python.org/ftp/python/{PYVER}/python-{PYVER}-embed-amd64.zip"
 GETPIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
+TORCH_INDEX_CPU = "https://download.pytorch.org/whl/cpu"
+# cuda | cpu | auto — auto installs the CUDA build only when an NVIDIA GPU is
+# actually present.
+TORCH_BUILD = os.environ.get("FORGE_TORCH", "auto").lower()
 MSST_REF = os.environ.get("MSST_REF", "main")  # TODO: pin to a commit (supply chain)
 MSST_ZIP_URL = ("https://github.com/ZFTurbo/Music-Source-Separation-Training/archive/"
                 f"{MSST_REF}.zip")
 
 MIN_FREE_GB_START, MIN_FREE_GB_TORCH, MIN_FREE_GB_MODEL = 15, 8, 2
+# The CUDA wheel is 2.75 GB on its own and unpacks to several more; the CPU
+# wheel is around a tenth of that.
+MIN_FREE_GB_START_CPU, MIN_FREE_GB_TORCH_CPU = 6, 2
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 
@@ -68,6 +75,26 @@ class Provisioner:
         # space mid-download. Keep every big write on the drive they chose.
         self.pip_cache = env_dir / "pip-cache"
         self.tmp_dir = env_dir / "tmp"
+
+    def _nvidia_present(self):
+        """Is there an NVIDIA GPU the CUDA build could actually use?
+
+        A machine with no NVIDIA card was still downloading 2.75 GB of CUDA
+        wheels it can never run — the slowest, most painful part of setup, for
+        nothing. AMD/Intel keep GPU acceleration through onnxruntime-directml,
+        which is installed either way.
+        """
+        if TORCH_BUILD in ("cuda", "cpu"):
+            return TORCH_BUILD == "cuda"
+        smi = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe"
+        if not smi.exists():
+            return False
+        try:
+            out = subprocess.run([str(smi), "-L"], capture_output=True, text=True,
+                                 timeout=15, creationflags=_NO_WINDOW)
+            return out.returncode == 0 and "GPU 0" in (out.stdout or "")
+        except Exception:
+            return False
 
     def _drive(self):
         return str(Path(self.env_dir).anchor) or str(self.env_dir)
@@ -175,10 +202,18 @@ class Provisioner:
                 shutil.rmtree(site / d, ignore_errors=True)
         elif self._torch_installed():
             log("torch present"); return
-        self._require_disk(MIN_FREE_GB_TORCH, "PyTorch + CUDA")
-        step(-1, "PyTorch", "Installing PyTorch + CUDA (~3 GB, 5–12 min — don't close)…")
+        cuda = self._nvidia_present()
+        if cuda:
+            self._require_disk(MIN_FREE_GB_TORCH, "PyTorch + CUDA")
+            step(-1, "PyTorch", "Installing PyTorch + CUDA (~3 GB, 5–12 min — don't close)…")
+        else:
+            self._require_disk(MIN_FREE_GB_TORCH_CPU, "PyTorch")
+            log("no NVIDIA GPU found — installing the CPU build of PyTorch "
+                "(about 2.5 GB less to download; AMD/Intel GPUs still accelerate "
+                "through DirectML)")
+            step(-1, "PyTorch", "Installing PyTorch (CPU build, ~300 MB)…")
         partial.write_text("1")
-        self._pip("--index-url", TORCH_INDEX,
+        self._pip("--index-url", TORCH_INDEX if cuda else TORCH_INDEX_CPU,
                   "torch==2.11.0", "torchaudio==2.11.0", "torchvision==0.26.0")
         self._pip("torchcodec==0.11.1")
         partial.unlink(missing_ok=True)
@@ -255,7 +290,8 @@ class Provisioner:
 
     def run(self):
         self.env_dir.mkdir(parents=True, exist_ok=True)
-        self._require_disk(MIN_FREE_GB_START, "first-time setup")
+        self._require_disk(MIN_FREE_GB_START if self._nvidia_present() else MIN_FREE_GB_START_CPU,
+                           "first-time setup")
         step(5, "Start", "Preparing…")
         self.ensure_python()
         self.install_torch()
@@ -270,9 +306,12 @@ class Provisioner:
     def plan(self):
         log(f"env_dir    = {self.env_dir}")
         log(f"engine_dir = {self.engine_dir}")
-        log(f"free_disk  = {self._free_gb():.1f} GB on {self._drive()} (need >= {MIN_FREE_GB_START})")
+        cuda = self._nvidia_present()
+        need = MIN_FREE_GB_START if cuda else MIN_FREE_GB_START_CPU
+        log(f"torch      = {'CUDA build (NVIDIA GPU found)' if cuda else 'CPU build (no NVIDIA GPU)'}")
+        log(f"free_disk  = {self._free_gb():.1f} GB on {self._drive()} (need >= {need})")
         log(f"python     = {'present' if self.py.exists() else 'MISSING -> download'}")
-        log(f"torch      = {'present' if self._torch_installed() else 'MISSING -> pip cu128'}")
+        log(f"torch      = {'present' if self._torch_installed() else ('MISSING -> pip ' + ('cu128' if cuda else 'cpu'))}")
         log(f"msst       = {'present' if (self.env_dir / 'msst' / 'inference.py').exists() else 'MISSING'}")
         log(f"models     = {self.models_dir} ({'present' if self.models_dir.is_dir() and any(self.models_dir.iterdir()) else 'missing'})")
         emit("MDONE|ok")

@@ -42,7 +42,7 @@
   const AUDIO_EXT = /\.(mp3|wav|flac|m4a|ogg|opus|aac|wma)$/i;
   const MIDI_EXT = /\.midi?$/i;
 
-  let envReady = false, busy = false, inputPath = '', pipeline = 'melody';
+  let envReady = false, busy = false, inputPath = '', pipeline = 'melody', cpuNoticeShown = false;
   let currentJob = null, pendingCancel = false, outputDir = '', currentProject = '';
   let activeState = 'ready', skipRequested = false;
   let previewTimer = null;
@@ -490,6 +490,12 @@
     envReady = !!s.forgeReady;
     if (envReady) {
       setEnv('ok', s.gpu ? `Ready · GPU: ${s.gpu}` : 'Ready (CPU mode — slow)');
+      // A CPU-only machine spends 20-40 minutes on a Piano/General run. Say so
+      // once, and point at the pipeline that finishes in a couple of minutes.
+      if (!s.gpu && !cpuNoticeShown) {
+        cpuNoticeShown = true;
+        logLine('No GPU detected — Piano/General take 20-40 min per song here. "Fast" finishes in a couple of minutes at lower quality.');
+      }
       $('setup').hidden = true; $('work').style.opacity = '1'; $('work').style.pointerEvents = '';
     } else {
       const why = (s.missing && s.missing.length) ? ` (missing: ${s.missing.join(', ')})` : '';
@@ -525,9 +531,12 @@
         }
       } catch (_) { /* the check is advisory */ }
     }
-    $('setup-start').disabled = true; $('setup-cancel').hidden = false; $('setup-prog').hidden = false; F.provision(); });
+    $('setup-start').disabled = true; $('setup-cancel').hidden = false; $('setup-prog').hidden = false;
+    startSetupTimer();
+    F.provision();
+  });
   $('setup-cancel').addEventListener('click', () => {
-    if (!window.confirm('Cancel Midi Forge setup? The partial download is discarded; you can restart it later.')) return;
+    if (!window.confirm('Cancel Midi Forge setup? Setup resumes where it stopped when you start it again.')) return;
     $('setup-cancel').textContent = 'Cancelling…'; F.cancelProvision();
   });
 
