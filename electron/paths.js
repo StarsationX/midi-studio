@@ -35,10 +35,29 @@ function bundledPlayerPython() {
 
 // ---- forge heavy env --------------------------------------------------------
 
+// Default home for the ~10 GB Forge engine.
+//
+// %LOCALAPPDATA% is always on C:. Someone who installs MIDI Studio on D:
+// because C: is full then watches setup fill C: anyway. When the app lives on
+// another drive, default to that drive instead; an explicit choice (installer
+// page or Settings) still wins over both.
+function defaultForgeEnvDir() {
+  const local = path.join(localAppData(), 'midi-studio', 'forge-env');
+  try {
+    if (process.platform !== 'win32' || !isPackaged()) return local;
+    const appDrive = path.parse(path.resolve(app.getAppPath())).root;
+    const localDrive = path.parse(path.resolve(local)).root;
+    if (appDrive && localDrive && appDrive.toLowerCase() !== localDrive.toLowerCase()) {
+      return path.join(appDrive, 'MIDI Studio Forge');
+    }
+  } catch (_) { /* fall through to the profile default */ }
+  return local;
+}
+
 function forgeEnvDir(settings) {
   const override = settings && settings.forgeEnvDir;
   if (override) return override;
-  return path.join(localAppData(), 'midi-studio', 'forge-env');
+  return defaultForgeEnvDir();
 }
 function legacyForgeEnvDir() { return path.join(localAppData(), 'midi-forge'); }
 
@@ -173,7 +192,7 @@ function forgeChildEnv(settings) {
 module.exports = {
   isPackaged, exists, localAppData,
   pythonEngineDir, bundledPlayerPython,
-  forgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
+  forgeEnvDir, defaultForgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
   modelsDir, rendererIndexHtml, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,
   userMappingsDir, ensureUserMappings, forgeSetupLog, forgeJobsFile,
 };

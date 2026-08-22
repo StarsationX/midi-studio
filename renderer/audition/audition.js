@@ -65,6 +65,7 @@
     for (const id of ['play', 'stop', 'back', 'forward', 'seek']) $(id).disabled = !enabled;
     $('show-file').disabled = !enabled;
     $('to-player').disabled = !enabled;
+    $('to-editor').disabled = !enabled;
   }
 
   function updateInstrumentStatus(message = '') {
@@ -551,6 +552,10 @@
   $('autoplay').addEventListener('change', (event) => { prefs.autoplay = event.target.checked; savePrefs(); });
   $('show-file').addEventListener('click', () => { if (currentPath() && review && review.showItem) review.showItem(currentPath()); });
   $('to-player').addEventListener('click', sendToPlayer);
+  $('to-editor').addEventListener('click', () => {
+    const target = player.projectPath || currentPath();
+    if (target) parent.postMessage({ type: 'studio:open-review', projectPath: target }, '*');
+  });
   $('library-search').addEventListener('input', renderLibrary);
   $('library-sort').addEventListener('change', renderLibrary);
   $('library-refresh').addEventListener('click', refreshLibrary);

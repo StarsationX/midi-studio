@@ -45,6 +45,8 @@ const els = {
   hkTempoDown: $('hotkey-tempo-down'),
   hkTempoSet: $('hotkey-tempo-set'),
   hkSeekFwd: $('hotkey-seek-fwd'),
+  hkNext: $('hotkey-next'),
+  hkPrev: $('hotkey-prev'),
   hkSeekBack: $('hotkey-seek-back'),
   tempoStep: $('tempo-step'),
   tempoPreset: $('tempo-preset'),
@@ -115,6 +117,8 @@ const settings = Object.assign({
   tempoDownHotkey: '',
   tempoSetHotkey: '',
   seekFwdHotkey: '',
+  nextHotkey: '',
+  prevHotkey: '',
   seekBackHotkey: '',
   transpose: 0,
   tempoStep: 0.1,
@@ -208,6 +212,8 @@ function applySettingsToUI() {
   setHotkeyInput(els.hkTempoDown, settings.tempoDownHotkey || '');
   setHotkeyInput(els.hkTempoSet, settings.tempoSetHotkey || '');
   setHotkeyInput(els.hkSeekFwd, settings.seekFwdHotkey || '');
+  setHotkeyInput(els.hkNext, settings.nextHotkey || '');
+  setHotkeyInput(els.hkPrev, settings.prevHotkey || '');
   setHotkeyInput(els.hkSeekBack, settings.seekBackHotkey || '');
   els.tempoStep.value = settings.tempoStep;
   els.tempoPreset.value = settings.tempoPreset;
@@ -423,6 +429,8 @@ window.api.onEngineEvent((evt) => {
       else if (evt.name === 'tempo_up') nudgeTempo(+(settings.tempoStep || 0.1));
       else if (evt.name === 'tempo_down') nudgeTempo(-(settings.tempoStep || 0.1));
       else if (evt.name === 'tempo_set') setTempo(settings.tempoPreset || 1.0);
+      else if (evt.name === 'next_track') skipTrack(1);
+      else if (evt.name === 'prev_track') skipTrack(-1);
       else if (evt.name === 'seek_fwd') seekRelative(+(settings.seekStep || 5));
       else if (evt.name === 'seek_back') seekRelative(-(settings.seekStep || 5));
       break;
@@ -819,6 +827,8 @@ els.hkApply.addEventListener('click', () => {
   settings.tempoDownHotkey = hk(els.hkTempoDown);
   settings.tempoSetHotkey = hk(els.hkTempoSet);
   settings.seekFwdHotkey = hk(els.hkSeekFwd);
+  settings.nextHotkey = hk(els.hkNext);
+  settings.prevHotkey = hk(els.hkPrev);
   settings.seekBackHotkey = hk(els.hkSeekBack);
   saveSettings();
   sendHotkeys();
@@ -1030,6 +1040,8 @@ function sendHotkeys() {
     tempo_down: settings.tempoDownHotkey || '',
     tempo_set: settings.tempoSetHotkey || '',
     seek_fwd: settings.seekFwdHotkey || '',
+    next_track: settings.nextHotkey || '',
+    prev_track: settings.prevHotkey || '',
     seek_back: settings.seekBackHotkey || '',
   });
   const parts = [
@@ -1213,6 +1225,15 @@ function moveTrack(from, to) {
 }
 
 // Load a track. Plays it too when `andPlay`, once 'midi_loaded' comes back.
+// Move through the playlist without touching the mouse — the whole point is
+// not having to leave the game window.
+function skipTrack(direction) {
+  const list = settings.playlist || [];
+  if (!list.length) return;
+  const from = curIdx >= 0 ? curIdx : 0;
+  playTrack((from + direction + list.length) % list.length, isPlaying);
+}
+
 function selectTrack(i, andPlay) {
   if (i < 0 || i >= tracks.length) return;
   curIdx = i;

@@ -32,17 +32,19 @@
   const applySkin = () => { skin(document.documentElement); frames.forEach((f) => skin(f.contentDocument && f.contentDocument.documentElement)); };
   function applyTheme(t) { curTheme = t || ''; applySkin(); }
   function applyAccent(hex) { curVars = hex ? deriveAccent(hex) : null; applySkin(); }
-  frames.forEach((f) => f.addEventListener('load', () => { skin(f.contentDocument && f.contentDocument.documentElement); applyPerf(perfMode); }));
+  frames.forEach((f) => f.addEventListener('load', () => { skin(f.contentDocument && f.contentDocument.documentElement); applyPerf(); }));
 
   // Resource limit: pushed onto every frame's <html> so the animation loops can
-  // read it without another IPC round trip.
-  let perfMode = false;
-  function applyPerf(on) {
-    perfMode = !!on;
-    document.documentElement.dataset.perf = perfMode ? '1' : '';
+  // read it without another IPC round trip. The user's preference and "a game is
+  // running" are kept apart — folding them into one flag latched the limit on
+  // permanently the first time Roblox was seen.
+  let userPerf = false, gameActive = '';
+  function applyPerf() {
+    const on = userPerf || !!gameActive;
+    document.documentElement.dataset.perf = on ? '1' : '';
     frames.forEach((f) => {
       const el = f.contentDocument && f.contentDocument.documentElement;
-      if (el) el.dataset.perf = perfMode ? '1' : '';
+      if (el) el.dataset.perf = on ? '1' : '';
     });
   }
   function activate(name, persist = true) {
@@ -84,7 +86,7 @@
     const frame = document.getElementById('frame-review');
     const deliver = () => {
       const target = frame && frame.contentWindow;
-      if (target && typeof target.openReviewProject === 'function') target.openReviewProject(payload.projectPath || '');
+      if (target && typeof target.openReviewProject === 'function') target.openReviewProject(payload.projectPath || payload.midiPath || '');
     };
     if (frame && frame.contentWindow && typeof frame.contentWindow.openReviewProject === 'function') deliver();
     else if (frame) frame.addEventListener('load', deliver, { once: true });
@@ -99,16 +101,16 @@
   if (studio && studio.onShortcut) studio.onShortcut((p) => { if (p && p.tab) activate(p.tab); });
 
   // A running game forces the limited draw rate regardless of the setting.
-  let gameActive = '';
   if (studio && studio.onGameActive) studio.onGameActive((p) => {
     const was = gameActive;
     gameActive = (p && p.game) || '';
-    applyPerf(perfMode || !!gameActive);
-    if (gameActive && !was) toast(`${gameActive.replace(/\.exe$/i, '')} detected — MIDI Studio is going easy on the GPU`, 'ok');
+    applyPerf();
+    if (gameActive && !was) toast(`${gameActive.replace(/\.exe$/i, '')} detected — going easy on the GPU`, 'ok');
+    if (!gameActive && was) toast('Game closed — full speed again', 'ok');
   });
 
   // Restore last tab.
-  if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui) { if (ui.lastTab) activate(ui.lastTab, false); applyTheme(ui.theme); if (ui.accent) applyAccent(ui.accent); applyPerf(ui.perfMode); } }).catch(() => {});
+  if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui) { if (ui.lastTab) activate(ui.lastTab, false); applyTheme(ui.theme); if (ui.accent) applyAccent(ui.accent); userPerf = !!ui.perfMode; applyPerf(); } }).catch(() => {});
 
   // ---- version badge ----
   const badge = document.getElementById('version-badge');
@@ -192,7 +194,7 @@
   $('s-theme').addEventListener('change', (e) => { applyAccent(''); applyTheme(e.target.value); studio.setUi && studio.setUi({ theme: e.target.value, accent: '' });
     $('s-accent').value = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'; });
   $('s-accent').addEventListener('input', (e) => { applyAccent(e.target.value); studio.setUi && studio.setUi({ accent: e.target.value }); });
-  $('s-perf').addEventListener('click', (e) => { applyPerf(e.target.checked); studio.setUi && studio.setUi({ perfMode: e.target.checked }); });
+  $('s-perf').addEventListener('click', (e) => { userPerf = e.target.checked; applyPerf(); studio.setUi && studio.setUi({ perfMode: userPerf }); });
   $('s-openforge').addEventListener('click', () => studio.openForgeFolder && studio.openForgeFolder());
   async function relocateForge(method, button) {
     if (!studio[method]) return;

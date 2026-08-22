@@ -512,7 +512,20 @@
   });
 
   // ---- setup / provisioning ----
-  $('setup-start').addEventListener('click', () => { $('setup-start').disabled = true; $('setup-cancel').hidden = false; $('setup-prog').hidden = false; F.provision(); });
+  $('setup-start').addEventListener('click', async () => {
+    // 15 GB is what provision_forge.py hard-gates on; finding that out four
+    // gigabytes into the download is not a plan.
+    if (window.studio && studio.forgeInfo) {
+      try {
+        const info = await studio.forgeInfo();
+        if (info && info.forgeFreeGb != null && info.forgeFreeGb < 15) {
+          logLine(`Only ${info.forgeFreeGb} GB free on ${info.forgeEnvDir} — setup needs about 15 GB.`);
+          if (!window.confirm(`That drive has ${info.forgeFreeGb} GB free and setup needs about 15 GB.\n\n`
+            + 'Use "Change folder…" to install the engine on another drive.\n\nStart anyway?')) return;
+        }
+      } catch (_) { /* the check is advisory */ }
+    }
+    $('setup-start').disabled = true; $('setup-cancel').hidden = false; $('setup-prog').hidden = false; F.provision(); });
   $('setup-cancel').addEventListener('click', () => {
     if (!window.confirm('Cancel Midi Forge setup? The partial download is discarded; you can restart it later.')) return;
     $('setup-cancel').textContent = 'Cancelling…'; F.cancelProvision();
@@ -758,7 +771,10 @@
   });
   $('output-review').addEventListener('click', () => {
     if (!currentProject) return;
-    parent.postMessage({ type: 'studio:open-review', projectPath: currentProject }, '*');
+    // Only the melody pipeline writes a project file; the others still have a
+    // .mid the Editor can open directly.
+    parent.postMessage({ type: 'studio:open-review',
+      projectPath: currentProject || ($('output-path').textContent || '').trim() }, '*');
   });
   function sendOutputToPlayer() {
     const p = $('output-path').textContent; if (!p) return;
@@ -820,7 +836,7 @@
           else {
             activeState = 'done'; $('output').hidden = false; $('output-summary').hidden = false; $('output').classList.add('has-result'); $('output-path').textContent = out;
             currentProject = (s.result && s.result.projectPath) || '';
-            $('output-review').hidden = !currentProject;
+            $('output-review').hidden = false;   // any result can be opened in the Editor
             logLine('✓ Done: ' + out);
           }
         } else {

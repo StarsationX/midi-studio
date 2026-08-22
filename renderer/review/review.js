@@ -66,7 +66,7 @@
 
   function updateControls() {
     const loaded = !!doc();
-    ['save', 'export', 'to-player', 'play', 'stop', 'quantize', 'apply-quantize', 'zoom',
+    ['save', 'export', 'to-player', 'to-audition', 'play', 'stop', 'quantize', 'apply-quantize', 'zoom',
       'midi-on', 'loop-on'].forEach((id) => { $(id).disabled = !loaded; });
     $('audio-on').disabled = !loaded || !(project && (project.sourceAudio || project.previewAudio));
     const hasSelection = selected.size > 0;
@@ -96,7 +96,7 @@
     futures[candidate] = futures[candidate] || [];
     futures[candidate].push(cloneNotes(current.notes));
     current.notes = stack.pop();
-    selected.clear(); setDirty(); refresh();
+    selected.clear(); setDirty(); renderCandidates(); refresh();
   }
 
   function redo() {
@@ -106,7 +106,7 @@
     histories[candidate] = histories[candidate] || [];
     histories[candidate].push(cloneNotes(current.notes));
     current.notes = stack.pop();
-    selected.clear(); setDirty(); refresh();
+    selected.clear(); setDirty(); renderCandidates(); refresh();
   }
 
   function calculateBounds() {
@@ -362,7 +362,12 @@
     for (let index = current.notes.length - 1; index >= 0; index -= 1) {
       const note = current.notes[index];
       const left = xForTime(note.start), right = xForTime(note.end), top = yForPitch(note.pitch);
-      if (x >= left && x <= Math.max(left + 5, right) && y >= top && y <= top + ROW_H) return { note, edge: right - x < 8 };
+      if (x >= left && x <= Math.max(left + 5, right) && y >= top && y <= top + ROW_H) {
+        // A 1/16 note at the default zoom is ~10px wide; a fixed 8px edge zone
+        // made almost every short note resize instead of move.
+        const width = right - left;
+        return { note, edge: width > 14 && right - x < Math.min(8, width * 0.3) };
+      }
     }
     return null;
   }
@@ -386,9 +391,11 @@
     }
     if (!selected.has(hit.note.id)) { selected.clear(); selected.add(hit.note.id); }
     if (!hit.edge) playSynthNote(hit.note, true);
-    checkpoint();
+    // The undo snapshot is taken on the first move that actually changes
+    // something — a plain click is how you select and audition a note, and it
+    // used to mark the project unsaved and push a no-op onto the undo stack.
     const originals = doc().notes.filter((note) => selected.has(note.id)).map((note) => ({ note, start: note.start, end: note.end, pitch: note.pitch }));
-    drag = { x, y, edge: hit.edge, originals };
+    drag = { x, y, edge: hit.edge, originals, dirtied: false };
     canvas.setPointerCapture(event.pointerId); updateControls(); drawRoll();
   });
 
@@ -411,6 +418,11 @@
     if (!drag) return;
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    if (!drag.dirtied) {
+      if (Math.abs(x - drag.x) < 2 && Math.abs(y - drag.y) < 2) return;
+      checkpoint();
+      drag.dirtied = true;
+    }
     const deltaTime = (x - drag.x) / zoom;
     const deltaPitch = pitchForY(y) - pitchForY(drag.y);
     for (const original of drag.originals) {
@@ -432,8 +444,11 @@
     }
     if (drag) {
       const first = drag.originals[0];
-      if (first && !drag.edge && first.note.pitch !== first.pitch) playSynthNote(first.note, true);
-      drag = null; setDirty(); refresh();
+      const changed = drag.dirtied && drag.originals.some((o) =>
+        o.note.pitch !== o.pitch || o.note.start !== o.start || o.note.end !== o.end);
+      if (changed && first && !drag.edge && first.note.pitch !== first.pitch) playSynthNote(first.note, true);
+      drag = null;
+      if (changed) { setDirty(); refresh(); } else { updateControls(); drawRoll(); }
     }
   }
   canvas.addEventListener('pointerup', endPointer);
@@ -450,6 +465,61 @@
     doc().notes.push(note); selected = new Set([note.id]); playSynthNote(note, true);
     setDirty(); renderCandidates(); refresh();
   });
+
+  let clipboard = [];
+
+  function copySelected(cut) {
+    const current = doc();
+    if (!current || !selected.size) return;
+    const picked = current.notes.filter((note) => selected.has(note.id));
+    const origin = Math.min(...picked.map((note) => note.start));
+    clipboard = picked.map((note) => ({ pitch: note.pitch, velocity: note.velocity,
+      channel: note.channel || 0, start: note.start - origin, length: note.end - note.start }));
+    $('transport-note').textContent = `${clipboard.length} note${clipboard.length === 1 ? '' : 's'} copied`;
+    if (cut) deleteSelected();
+  }
+
+  function pasteClipboard(at) {
+    const current = doc();
+    if (!current || !clipboard.length) return;
+    checkpoint();
+    const start = snapSeconds(at == null ? playhead : at);
+    const added = clipboard.map((item) => ({
+      id: `add${++noteSeq}`, pitch: item.pitch, velocity: item.velocity, channel: item.channel,
+      start: start + item.start, end: start + item.start + item.length,
+    }));
+    current.notes.push(...added);
+    selected = new Set(added.map((note) => note.id));
+    duration = Math.max(duration, ...added.map((note) => note.end));
+    setDirty(); renderCandidates(); refresh();
+  }
+
+  function duplicateSelection() {
+    const current = doc();
+    if (!current || !selected.size) return;
+    const picked = current.notes.filter((note) => selected.has(note.id));
+    const span = Math.max(...picked.map((n) => n.end)) - Math.min(...picked.map((n) => n.start));
+    copySelected(false);
+    pasteClipboard(Math.min(...picked.map((n) => n.start)) + Math.max(span, 0.05));
+  }
+
+  // Move the selection in time. Step is one grid unit, or a millisecond with
+  // Shift for the last bit of alignment.
+  function nudgeTime(direction, fine) {
+    const current = doc();
+    if (!current || !selected.size) return;
+    const division = Number($('quantize').value);
+    const grid = division ? (60 / (Number(current.bpm) || 120)) * (4 / division) : 0.01;
+    const step = (fine ? 0.001 : grid) * direction;
+    checkpoint();
+    for (const note of current.notes) {
+      if (!selected.has(note.id)) continue;
+      const length = note.end - note.start;
+      note.start = clamp(note.start + step, 0, Math.max(0, duration - 0.02));
+      note.end = note.start + length;
+    }
+    setDirty(); refresh();
+  }
 
   function deleteSelected() {
     if (!doc() || !selected.size) return;
@@ -646,6 +716,12 @@
   });
   $('play').addEventListener('click', playPause); $('stop').addEventListener('click', stop);
   $('audio-on').addEventListener('change', () => { if (playing) { audio.pause(); if ($('audio-on').checked && audio.src) { audio.currentTime = audioOffset + playhead; audio.play().catch(() => {}); } } });
+  $('to-audition').addEventListener('click', async () => {
+    const saved = dirty ? await saveAll() : { ok: true };
+    if (!saved) return;
+    const midiPath = (project && project.candidates && project.candidates[candidate]) || '';
+    if (midiPath) parent.postMessage({ type: 'studio:open-audition', midiPath, projectPath, play: true }, '*');
+  });
   $('to-player').addEventListener('click', async () => {
     const saved = dirty || !projectPath ? await saveAll() : { ok: true, project };
     if (!saved) return;
@@ -667,6 +743,14 @@
     else if (event.ctrlKey && event.key.toLowerCase() === 'y') { redo(); event.preventDefault(); }
     else if (event.ctrlKey && event.key.toLowerCase() === 'a' && doc()) { selected = new Set(doc().notes.map((note) => note.id)); refresh(); event.preventDefault(); }
     else if (event.ctrlKey && event.key.toLowerCase() === 's') { saveAll(); event.preventDefault(); }
+    else if (event.ctrlKey && event.key.toLowerCase() === 'c') { copySelected(false); event.preventDefault(); }
+    else if (event.ctrlKey && event.key.toLowerCase() === 'x') { copySelected(true); event.preventDefault(); }
+    else if (event.ctrlKey && event.key.toLowerCase() === 'v') { pasteClipboard(); event.preventDefault(); }
+    else if (event.ctrlKey && event.key.toLowerCase() === 'd') { duplicateSelection(); event.preventDefault(); }
+    else if (event.key === 'ArrowUp') { transpose(event.shiftKey ? 12 : 1); event.preventDefault(); }
+    else if (event.key === 'ArrowDown') { transpose(event.shiftKey ? -12 : -1); event.preventDefault(); }
+    else if (event.key === 'ArrowLeft') { nudgeTime(-1, event.shiftKey); event.preventDefault(); }
+    else if (event.key === 'ArrowRight') { nudgeTime(1, event.shiftKey); event.preventDefault(); }
   });
 
   const dropZone = $('drop-zone');

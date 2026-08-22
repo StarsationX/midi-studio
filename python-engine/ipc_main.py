@@ -127,6 +127,8 @@ class Bridge:
         self.tempo_down_hotkey = ""
         self.tempo_set_hotkey = ""
         self.seek_fwd_hotkey = ""
+        self.next_hotkey = ""
+        self.prev_hotkey = ""
         self.seek_back_hotkey = ""
         self.last_play_args = None         # so a hotkey "play" can re-fire
         self._stop_requested = False
@@ -266,6 +268,8 @@ class Bridge:
         self.tempo_down_hotkey = msg.get("tempo_down", "") or ""
         self.tempo_set_hotkey = msg.get("tempo_set", "") or ""
         self.seek_fwd_hotkey = msg.get("seek_fwd", "") or ""
+        self.next_hotkey = msg.get("next_track", "") or ""
+        self.prev_hotkey = msg.get("prev_track", "") or ""
         self.seek_back_hotkey = msg.get("seek_back", "") or ""
         self._restart_hotkeys()
 
@@ -314,6 +318,12 @@ class Bridge:
         if self.seek_fwd_hotkey:
             bindings[self.seek_fwd_hotkey] = lambda: emit(
                 {"event": "hotkey", "name": "seek_fwd"})
+        if self.next_hotkey:
+            bindings[self.next_hotkey] = lambda: emit(
+                {"event": "hotkey", "name": "next_track"})
+        if self.prev_hotkey:
+            bindings[self.prev_hotkey] = lambda: emit(
+                {"event": "hotkey", "name": "prev_track"})
         if self.seek_back_hotkey:
             bindings[self.seek_back_hotkey] = lambda: emit(
                 {"event": "hotkey", "name": "seek_back"})
