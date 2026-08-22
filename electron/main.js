@@ -263,7 +263,12 @@ function createServices() {
     },
     onError: (msg) => broadcast('engine-error', msg),
   });
-  Promise.resolve(sidecar.start()).catch((e) => broadcast('engine-error', `Player engine failed to start: ${e && e.message || e}`));
+  // Starting python while the window is still painting makes first launch feel
+  // broken on a slow machine (and it is the moment Defender is scanning the
+  // freshly installed files). The Player tab needs it, not the splash.
+  setTimeout(() => {
+    Promise.resolve(sidecar.start()).catch((e) => broadcast('engine-error', `Player engine failed to start: ${e && e.message || e}`));
+  }, 1200);
 
   const forgeEmit = (payload) => {
     // Move each finished transcription into the program's output folder so they
@@ -325,7 +330,8 @@ function createServices() {
     if (forge) forge.setBackground(!!game);
     broadcast('game-active', { game: game || '' });
   });
-  gameWatch.start();
+  // Nothing needs to know about a running game in the first seconds.
+  setTimeout(() => gameWatch.start(), 8000);
   // A previous run that was force-killed can leave a Forge job pinning the GPU.
   try {
     const reaped = reapOrphanJobs();

@@ -501,13 +501,7 @@
   function sendToPlayer() {
     const path = currentPath();
     if (!path) return;
-    try {
-      parent.document.querySelector('.tab[data-tab="player"]').click();
-      const frame = parent.document.getElementById('frame-player');
-      const target = frame && frame.contentWindow;
-      if (target && typeof target.setMidiFile === 'function') target.setMidiFile(path);
-      else if (target && target.api) target.api.send({ cmd: 'load_midi', path, mapping: 'roblox88', tempo: 1.0 });
-    } catch (_) {}
+    parent.postMessage({ type: 'studio:open-player', midiPath: path }, '*');
   }
 
   $('volume').value = String(clamp(Number(prefs.volume) || 0, 0, 100));

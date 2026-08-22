@@ -92,7 +92,22 @@
     else if (frame) frame.addEventListener('load', deliver, { once: true });
     activate('review');
   }
+  // The Player frame is loaded on demand now, so a hand-off has to wait for it
+  // instead of reaching into a contentWindow that has nothing in it yet.
+  function openPlayer(payload) {
+    const frame = document.getElementById('frame-player');
+    const deliver = () => {
+      const target = frame && frame.contentWindow;
+      if (target && typeof target.setMidiFile === 'function') target.setMidiFile(payload.midiPath || '');
+      else if (target && target.api) target.api.send({ cmd: 'load_midi', path: payload.midiPath || '', mapping: 'roblox88', tempo: 1.0 });
+    };
+    if (frame && frame.contentWindow && typeof frame.contentWindow.setMidiFile === 'function') deliver();
+    else if (frame) frame.addEventListener('load', () => setTimeout(deliver, 120), { once: true });
+    activate('player');
+  }
+
   window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'studio:open-player') openPlayer(event.data);
     if (event.data && event.data.type === 'studio:open-audition') openAudition(event.data);
     if (event.data && event.data.type === 'studio:open-review') openReview(event.data);
   });

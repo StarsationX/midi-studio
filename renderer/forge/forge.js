@@ -483,11 +483,25 @@
     $('setup-free').classList.toggle('is-low', free != null && free < 15);
   }
 
+  const ENV_CACHE_KEY = 'midi-forge.env.v1';
+
   async function refreshEnv() {
-    setEnv('warn', 'Checking Midi Forge…');
+    // Probing the environment imports torch, which takes tens of seconds on a
+    // slow machine. Show what it said last time straight away, then confirm.
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(ENV_CACHE_KEY) || 'null'); } catch (_) {}
+    if (cached && cached.forgeReady) {
+      envReady = true;
+      setEnv('ok', cached.gpu ? `Ready · GPU: ${cached.gpu}` : 'Ready (CPU mode — slow)');
+      $('setup').hidden = true;
+      updateStart();
+    } else {
+      setEnv('warn', 'Checking Midi Forge…');
+    }
     refreshStorage();
     let s; try { s = await F.check(); } catch { s = { forgeReady: false }; }
     envReady = !!s.forgeReady;
+    try { localStorage.setItem(ENV_CACHE_KEY, JSON.stringify({ forgeReady: envReady, gpu: s.gpu || '' })); } catch (_) {}
     if (envReady) {
       setEnv('ok', s.gpu ? `Ready · GPU: ${s.gpu}` : 'Ready (CPU mode — slow)');
       // A CPU-only machine spends 20-40 minutes on a Piano/General run. Say so
@@ -787,13 +801,8 @@
   });
   function sendOutputToPlayer() {
     const p = $('output-path').textContent; if (!p) return;
-    try {
-      parent.document.querySelector('.tab[data-tab="player"]').click();
-      const w = (parent.document.getElementById('frame-player') || {}).contentWindow;
-      if (w && typeof w.setMidiFile === 'function') { w.setMidiFile(p); logLine('→ Loaded into Midi Player'); }
-      else if (w && w.api) { w.api.send({ cmd: 'load_midi', path: p, mapping: 'roblox88', tempo: 1.0 }); logLine('→ Sent to Midi Player'); }
-      else logLine('Open the Midi Player tab, then pick it from Recent.');
-    } catch (_) { logLine('Couldn\'t hand off — open Midi Player and pick it from Recent.'); }
+    parent.postMessage({ type: 'studio:open-player', midiPath: p }, '*');
+    logLine('→ Sent to Midi Player');
   }
   $('output-toplayer').addEventListener('click', sendOutputToPlayer);
   $('log-clear').addEventListener('click', () => { $('log').textContent = ''; });
@@ -865,5 +874,5 @@
   syncTimingControls();
   drawWaveform();
   window.refreshForgeEnvironment = refreshEnv;
-  refreshEnv();
+  setTimeout(refreshEnv, 250);
 })();

@@ -727,11 +727,7 @@
     if (!saved) return;
     const midiPath = project.candidates && project.candidates[candidate];
     if (!midiPath) return;
-    try {
-      parent.document.querySelector('.tab[data-tab="player"]').click();
-      const player = parent.document.getElementById('frame-player').contentWindow;
-      if (player && typeof player.setMidiFile === 'function') player.setMidiFile(midiPath);
-    } catch (_) { $('transport-note').textContent = 'Could not hand off to Player.'; }
+    parent.postMessage({ type: 'studio:open-player', midiPath }, '*');
   });
 
   window.addEventListener('keydown', (event) => {
