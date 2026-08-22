@@ -1,11 +1,12 @@
 // main.js — Electron main process for MIDI Studio.
-// One window, two tab iframes (Midi-Forge + Midi-Player). Owns the player
+// One window with Forge, Review, and Player tab iframes. Owns the player
 // sidecar, the forge runner/provisioner, the updater, and all IPC.
 'use strict';
 
 const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { spawn, spawnSync } = require('child_process');
 
 const os = require('os');
 const paths = require('./paths');
@@ -13,6 +14,7 @@ const { Settings } = require('./settings');
 const { PlayerSidecar } = require('./sidecar');
 const { ForgeRunner } = require('./forge-runner');
 const { ForgeProvisioner } = require('./forge-provisioner');
+const forgeStorage = require('./forge-storage');
 const updater = require('./updater');
 
 // Boot diagnostics — a packaged GUI app has no console; this captures startup
@@ -23,6 +25,10 @@ blog(`--- boot --- packaged=${app.isPackaged} resources=${process.resourcesPath}
 
 const OPEN_DEVTOOLS = process.argv.includes('--dev');
 const POST_UPDATE = process.argv.includes('--post-update');
+const CONFIGURE_FORGE_INDEX = process.argv.indexOf('--configure-forge-storage');
+const CONFIGURE_FORGE_STORAGE = CONFIGURE_FORGE_INDEX >= 0
+  ? String(process.argv[CONFIGURE_FORGE_INDEX + 1] || '').trim()
+  : '';
 
 let win = null;
 let settings = null;
@@ -31,7 +37,7 @@ let forge = null;
 let provisioner = null;
 let lastReady = null; // cached engine 'ready' so a late-loading tab iframe still syncs
 
-const gotLock = app.requestSingleInstanceLock();
+const gotLock = CONFIGURE_FORGE_INDEX >= 0 || app.requestSingleInstanceLock();
 blog(`gotLock=${gotLock}`);
 
 // ---- frame-aware messaging --------------------------------------------------
@@ -44,7 +50,7 @@ function sendToRenderer(channel, payload) {
     }
   } catch (_) { /* frame disposing during shutdown */ }
 }
-// Push to the shell frame AND both tab iframes. webContents.send only reaches
+// Push to the shell frame AND all tab iframes. webContents.send only reaches
 // the main frame, so engine/forge events must be fanned out to subframes or the
 // player + forge tabs never receive anything.
 function broadcast(channel, payload) {
@@ -86,6 +92,51 @@ function programOutputDir() {
   const set = settings.get('forge.outputDir');
   if (set && String(set).trim()) return String(set);
   return path.join(os.homedir(), 'Documents', 'MIDI Studio');
+}
+
+function runMidiDocument(action, midiPath, document) {
+  return new Promise((resolve, reject) => {
+    const py = paths.bundledPlayerPython() || paths.forgeEnvPython(settings.forgePaths()) || 'python';
+    const script = path.join(paths.pythonEngineDir(), 'midi_document.py');
+    let stdout = '', stderr = '';
+    let child;
+    try {
+      child = spawn(py, [script, action, midiPath], {
+        cwd: paths.pythonEngineDir(), windowsHide: process.platform === 'win32',
+        env: Object.assign({}, process.env, { PYTHONIOENCODING: 'utf-8' }),
+      });
+    } catch (error) { reject(error); return; }
+    child.stdout.setEncoding('utf-8'); child.stdout.on('data', (data) => { stdout += data; });
+    child.stderr.setEncoding('utf-8'); child.stderr.on('data', (data) => { stderr += data; });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code !== 0) { reject(new Error(stderr.trim() || `MIDI helper exited with code ${code}`)); return; }
+      try { resolve(JSON.parse(stdout.trim())); } catch { reject(new Error('MIDI helper returned invalid data.')); }
+    });
+    if (action === 'save') child.stdin.end(JSON.stringify(document || {}));
+  });
+}
+
+async function loadReviewFile(filePath) {
+  filePath = String(filePath || '');
+  if (!filePath || !paths.exists(filePath)) throw new Error('Project or MIDI file was not found.');
+  if (/\.midi?$/i.test(filePath)) {
+    const document = await runMidiDocument('load', filePath);
+    return {
+      projectPath: '',
+      project: { format: 'midi-studio-project', version: 1, name: path.basename(filePath, path.extname(filePath)),
+        sourceAudio: '', selectedCandidate: 'clean', candidates: { clean: filePath } },
+      documents: { clean: document },
+    };
+  }
+  const project = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  if (project.format !== 'midi-studio-project' || !isObj(project.candidates)) throw new Error('This is not a MIDI Studio project.');
+  const documents = {};
+  for (const [name, midiPath] of Object.entries(project.candidates)) {
+    if (paths.exists(midiPath)) documents[name] = await runMidiDocument('load', midiPath);
+  }
+  if (!Object.keys(documents).length) throw new Error('The project MIDI files could not be found.');
+  return { projectPath: filePath, project, documents };
 }
 
 function createWindow() {
@@ -169,10 +220,42 @@ function createServices() {
       try {
         const outDir = programOutputDir();
         fs.mkdirSync(outDir, { recursive: true });
-        if (paths.exists(mp) && path.resolve(path.dirname(mp)).toLowerCase() !== path.resolve(outDir).toLowerCase()) {
-          const dest = path.join(outDir, path.basename(mp));
-          try { fs.renameSync(mp, dest); } catch { fs.copyFileSync(mp, dest); try { fs.unlinkSync(mp); } catch {} }
-          mp = dest;
+        const moved = new Map();
+        const moveOutput = (source) => {
+          source = String(source || '');
+          if (!source || !paths.exists(source)) return source;
+          const key = path.resolve(source).toLowerCase();
+          if (moved.has(key)) return moved.get(key);
+          let dest = source;
+          if (path.resolve(path.dirname(source)).toLowerCase() !== path.resolve(outDir).toLowerCase()) {
+            dest = path.join(outDir, path.basename(source));
+            try { fs.renameSync(source, dest); }
+            catch { fs.copyFileSync(source, dest); try { fs.unlinkSync(source); } catch {} }
+          }
+          moved.set(key, dest);
+          return dest;
+        };
+        mp = moveOutput(mp);
+        if (payload.result.candidates && isObj(payload.result.candidates)) {
+          const candidates = {};
+          for (const [name, file] of Object.entries(payload.result.candidates)) {
+            candidates[name] = moveOutput(file);
+          }
+          payload.result.candidates = candidates;
+          const projectPath = path.join(outDir, path.basename(mp, path.extname(mp)) + '.midstudio.json');
+          const project = {
+            format: 'midi-studio-project', version: 1,
+            name: path.basename(mp, path.extname(mp)),
+            sourceAudio: payload.result.sourceAudio || '',
+            previewAudio: payload.result.previewAudio || payload.result.sourceAudio || '',
+            selectedCandidate: 'clean', candidates,
+            candidateCounts: payload.result.candidateCounts || {},
+            pipeline: payload.result.pipeline || 'melody',
+            timing: payload.result.timing || {},
+            createdAt: new Date().toISOString(),
+          };
+          fs.writeFileSync(projectPath, JSON.stringify(project, null, 2), 'utf-8');
+          payload.result.projectPath = projectPath;
         }
       } catch (_) {}
       payload.result.midiPath = mp;
@@ -188,6 +271,82 @@ function createServices() {
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const FORGE_SETTINGS_KEYS = ['pipeline', 'skipSeparation', 'advanced', 'outputDir', 'timing'];
 
+function forgeInfo() {
+  const s = settings.forgePaths();
+  const dir = paths.forgeEnvDir(s);
+  return { version: app.getVersion(), forgeReady: paths.forgeEnvReady(s),
+    forgePython: paths.forgeEnvPython(s), forgeEnvDir: dir,
+    forgeDefaultDir: paths.forgeEnvDir({}), forgeCustom: !!s.forgeEnvDir };
+}
+
+function syncInstallerForgePath(dir) {
+  if (process.platform !== 'win32' || !dir) return;
+  try {
+    spawnSync('reg.exe', ['add', 'HKCU\\Software\\StarsationX\\MIDI Studio', '/v', 'ForgeStorageDir',
+      '/t', 'REG_SZ', '/d', dir, '/f'], { windowsHide: true, stdio: 'ignore' });
+  } catch (_) { /* Settings remain the source of truth if registry sync fails. */ }
+}
+
+async function changeForgeStorage(fixedTarget = '') {
+  if ((forge && forge.isRunning()) || (provisioner && provisioner.isRunning())) {
+    return { ok: false, error: 'Wait for the current Forge job or setup to finish.' };
+  }
+  const current = paths.forgeEnvDir(settings.forgePaths());
+  const defaultDir = paths.forgeEnvDir({});
+  let target = fixedTarget;
+  if (!target) {
+    const picked = await dialog.showOpenDialog(win, {
+      title: 'Choose where to store the Forge engine',
+      defaultPath: path.dirname(current),
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Use this folder',
+    });
+    if (picked.canceled || !picked.filePaths[0]) return { ok: false, canceled: true };
+    target = forgeStorage.targetForSelection(picked.filePaths[0]);
+  }
+  target = path.resolve(target);
+  if (forgeStorage.samePath(current, target)) {
+    syncInstallerForgePath(target);
+    return { ok: true, unchanged: true, ...forgeInfo() };
+  }
+
+  try { forgeStorage.assertWritable(path.dirname(target)); }
+  catch (error) { return { ok: false, error: `That location is not writable. Choose another folder. (${error.message})` }; }
+
+  const sourceExists = paths.exists(current);
+  const targetExists = paths.exists(target) && !forgeStorage.isEmpty(target);
+  let moved = false;
+  if (targetExists) {
+    if (!forgeStorage.isManaged(target, defaultDir)) {
+      return { ok: false, error: 'The destination is not empty. Choose another folder.' };
+    }
+    const use = await dialog.showMessageBox(win, {
+      type: 'question', title: 'Use existing Forge storage?',
+      message: 'MIDI Studio files already exist in that location.',
+      detail: 'Use them instead of moving the current Forge files?',
+      buttons: ['Use existing', 'Cancel'], defaultId: 0, cancelId: 1,
+    });
+    if (use.response !== 0) return { ok: false, canceled: true };
+  } else if (sourceExists) {
+    const choice = await dialog.showMessageBox(win, {
+      type: 'question', title: 'Move Forge storage?',
+      message: 'Move the existing Forge engine to the new location?',
+      detail: 'Moving keeps the current setup ready. Starting fresh requires downloading the Forge engine again.',
+      buttons: ['Move existing files', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2,
+    });
+    if (choice.response === 2) return { ok: false, canceled: true };
+    if (choice.response === 0) { await forgeStorage.moveManaged(current, target, defaultDir); moved = true; }
+    else forgeStorage.markManaged(target);
+  } else {
+    forgeStorage.markManaged(target);
+  }
+
+  settings.merge({ paths: { forgeEnvDir: forgeStorage.samePath(target, defaultDir) ? '' : target,
+    forgePythonPath: '', modelsDir: '' } });
+  syncInstallerForgePath(target);
+  return { ok: true, moved, ...forgeInfo() };
+}
+
 function wireIpc() {
   ipcMain.handle('engine:send', (_e, msg) => (isObj(msg) ? sidecar.send(msg) : false));
 
@@ -201,6 +360,55 @@ function wireIpc() {
       defaultPath: paths.userMappingsDir(), properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }, { name: 'All files', extensions: ['*'] }] });
     return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle('review:pick', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Open MIDI Studio project or MIDI', properties: ['openFile'],
+      filters: [{ name: 'MIDI Studio', extensions: ['json', 'mid', 'midi'] }, { name: 'All files', extensions: ['*'] }] });
+    return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle('review:load', async (_e, filePath) => {
+    try { return { ok: true, data: await loadReviewFile(filePath) }; }
+    catch (error) { return { ok: false, error: String(error.message || error) }; }
+  });
+  ipcMain.handle('review:saveProject', async (_e, payload) => {
+    try {
+      payload = isObj(payload) ? payload : {};
+      const project = isObj(payload.project) ? payload.project : {};
+      const documents = isObj(payload.documents) ? payload.documents : {};
+      let projectPath = String(payload.projectPath || '');
+      if (!projectPath) {
+        const r = await dialog.showSaveDialog(win, { title: 'Save MIDI Studio project',
+          defaultPath: path.join(programOutputDir(), `${project.name || 'melody'}.midstudio.json`),
+          filters: [{ name: 'MIDI Studio project', extensions: ['json'] }] });
+        if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+        projectPath = r.filePath;
+      }
+      const projectDir = path.dirname(projectPath);
+      const candidates = {};
+      for (const [name, document] of Object.entries(documents)) {
+        const existing = project.candidates && project.candidates[name];
+        const midiPath = existing || path.join(projectDir, `${project.name || 'melody'}_${name}.mid`);
+        await runMidiDocument('save', midiPath, document);
+        candidates[name] = midiPath;
+      }
+      const saved = Object.assign({}, project, { format: 'midi-studio-project', version: 1, candidates,
+        selectedCandidate: payload.selectedCandidate || project.selectedCandidate || 'clean', updatedAt: new Date().toISOString() });
+      fs.mkdirSync(projectDir, { recursive: true });
+      fs.writeFileSync(projectPath, JSON.stringify(saved, null, 2), 'utf-8');
+      return { ok: true, projectPath, project: saved };
+    } catch (error) { return { ok: false, error: String(error.message || error) }; }
+  });
+  ipcMain.handle('review:exportMidi', async (_e, payload) => {
+    try {
+      payload = isObj(payload) ? payload : {};
+      const r = await dialog.showSaveDialog(win, { title: 'Export edited MIDI',
+        defaultPath: path.join(programOutputDir(), `${payload.name || 'melody'}_edited.mid`),
+        filters: [{ name: 'MIDI', extensions: ['mid'] }] });
+      if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+      await runMidiDocument('save', r.filePath, payload.document || {});
+      broadcast('library-changed', path.dirname(r.filePath));
+      return { ok: true, path: r.filePath };
+    } catch (error) { return { ok: false, error: String(error.message || error) }; }
   });
   ipcMain.handle('app:openMappingsDir', () => {
     const d = paths.ensureUserMappings();
@@ -234,11 +442,9 @@ function wireIpc() {
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle('app:setUi', (_e, patch) => settings.merge({ ui: isObj(patch) ? patch : {} }).ui);
-  ipcMain.handle('app:forgeInfo', () => {
-    const s = settings.forgePaths();
-    return { version: app.getVersion(), forgeReady: paths.forgeEnvReady(s),
-      forgePython: paths.forgeEnvPython(s), forgeEnvDir: paths.forgeEnvDir(s) };
-  });
+  ipcMain.handle('app:forgeInfo', forgeInfo);
+  ipcMain.handle('app:changeForgeFolder', () => changeForgeStorage());
+  ipcMain.handle('app:resetForgeFolder', () => changeForgeStorage(paths.forgeEnvDir({})));
   ipcMain.handle('app:openSetupLog', () => {
     const p = paths.forgeSetupLog();
     if (!paths.exists(p)) return { ok: false, error: 'no setup log yet' };
@@ -252,8 +458,7 @@ function wireIpc() {
   ipcMain.handle('app:cleanReinstall', () => {
     // Only ever delete OUR managed env — never a user's adopted legacy midi-forge.
     const dir = paths.forgeEnvDir(settings.forgePaths());
-    const lad = paths.localAppData().toLowerCase();
-    if (!dir.toLowerCase().startsWith(lad) || !/midi-studio/i.test(dir)) return { ok: false, error: 'refused (unsafe path)' };
+    if (!forgeStorage.isManaged(dir, paths.forgeEnvDir({}))) return { ok: false, error: 'refused (unsafe path)' };
     try { if (paths.exists(dir)) fs.rmSync(dir, { recursive: true, force: true }); return { ok: true, dir }; }
     catch (e) { return { ok: false, error: String(e.message || e) }; }
   });
@@ -277,7 +482,7 @@ function wireIpc() {
     opts = isObj(opts) ? opts : {};
     return forge.run({
       inputPath: String(opts.inputPath || ''),
-      pipeline: String(opts.pipeline || 'piano'),
+      pipeline: String(opts.pipeline || 'melody'),
       skipSeparation: !!opts.skipSeparation,
       advanced: isObj(opts.advanced) ? opts.advanced : {},
       timing: isObj(opts.timing) ? opts.timing : {},
@@ -297,7 +502,23 @@ function wireIpc() {
 }
 
 // ---- lifecycle --------------------------------------------------------------
-if (!gotLock) {
+if (CONFIGURE_FORGE_INDEX >= 0) {
+  app.whenReady().then(async () => {
+    try {
+      if (!CONFIGURE_FORGE_STORAGE) throw new Error('Forge storage path is missing.');
+      settings = new Settings();
+      const current = paths.forgeEnvDir(settings.forgePaths());
+      const defaultDir = paths.forgeEnvDir({});
+      await forgeStorage.configure(settings, CONFIGURE_FORGE_STORAGE, current, defaultDir);
+      syncInstallerForgePath(path.resolve(CONFIGURE_FORGE_STORAGE));
+      blog(`installer configured Forge storage: ${CONFIGURE_FORGE_STORAGE}`);
+      app.exit(0);
+    } catch (error) {
+      blog(`installer Forge storage error: ${error && error.stack || error}`);
+      app.exit(2);
+    }
+  });
+} else if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });

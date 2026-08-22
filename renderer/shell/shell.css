@@ -35,7 +35,9 @@ body { display: flex; flex-direction: column; }
   border-radius: 3px; background: var(--bg-2);
 }
 .tab[data-tab="forge"]::after  { content: "^1"; }
-.tab[data-tab="player"]::after { content: "^2"; }
+.tab[data-tab="review"]::after { content: "^2"; }
+.tab[data-tab="audition"]::after { content: "^3"; }
+.tab[data-tab="player"]::after { content: "^4"; }
 .tab:hover { color: var(--text-2); background: #1f2126; }
 .tab.is-active {
   color: var(--text); background: var(--bg);
@@ -66,7 +68,7 @@ body { display: flex; flex-direction: column; }
   background: rgba(8, 9, 11, .7); animation: ub-in var(--dur-2) var(--ease); }
 .modal-scrim[hidden] { display: none; }
 .modal {
-  width: min(560px, calc(100% - 48px));
+  width: min(680px, calc(100% - 48px));
   background: var(--surface); border: 1px solid var(--line-2);
   border-radius: var(--r-lg); box-shadow: var(--sh-pop); overflow: hidden;
 }
@@ -87,6 +89,11 @@ body { display: flex; flex-direction: column; }
   letter-spacing: 1.2px; text-transform: uppercase;
 }
 .sval { color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; }
+.storage-row { align-items: flex-start; }
+.storage-control { flex: 1; min-width: 0; display: grid; gap: var(--s2); }
+.storage-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 10.5px; }
+.storage-actions { display: flex; align-items: center; gap: var(--s2); }
+.storage-actions .btn { height: 28px; padding: 0 10px; }
 .modal-actions { display: flex; gap: var(--s2); flex-wrap: wrap; padding-top: var(--s1); }
 
 /* ---- tab surfaces ------------------------------------------------------- */

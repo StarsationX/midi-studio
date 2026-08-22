@@ -1,4 +1,4 @@
-// preload.js — runs in every frame (top shell + both tab iframes).
+// preload.js — runs in every frame (top shell + tab iframes).
 //   window.api    : the ORIGINAL midi-player bridge (unchanged surface) — the
 //                   verbatim player renderer uses this.
 //   window.forge  : Midi-Forge tab (provisioning + pipeline jobs).
@@ -49,6 +49,17 @@ contextBridge.exposeInMainWorld('forge', {
   onStatus: onChannel('forge:status'),
 });
 
+// ---- Review workspace ------------------------------------------------------
+contextBridge.exposeInMainWorld('review', {
+  pick: () => ipcRenderer.invoke('review:pick'),
+  load: (p) => ipcRenderer.invoke('review:load', p),
+  saveProject: (payload) => ipcRenderer.invoke('review:saveProject', payload),
+  exportMidi: (payload) => ipcRenderer.invoke('review:exportMidi', payload),
+  fileUrl: (p) => pathToFileURL(String(p || '')).href,
+  showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
+  getDroppedFilePath: (file) => webUtils.getPathForFile(file),
+});
+
 // ---- Shell -----------------------------------------------------------------
 contextBridge.exposeInMainWorld('studio', {
   getVersion: () => ipcRenderer.invoke('app:version'),
@@ -60,6 +71,8 @@ contextBridge.exposeInMainWorld('studio', {
   setUi: (patch) => ipcRenderer.invoke('app:setUi', patch),
   forgeInfo: () => ipcRenderer.invoke('app:forgeInfo'),
   openForgeFolder: () => ipcRenderer.invoke('app:openForgeFolder'),
+  changeForgeFolder: () => ipcRenderer.invoke('app:changeForgeFolder'),
+  resetForgeFolder: () => ipcRenderer.invoke('app:resetForgeFolder'),
   openSetupLog: () => ipcRenderer.invoke('app:openSetupLog'),
   cleanReinstall: () => ipcRenderer.invoke('app:cleanReinstall'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),

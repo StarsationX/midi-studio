@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const paths = require('./paths');
 const { bundledPlayerPython } = require('./paths');
+const forgeStorage = require('./forge-storage');
 
 function lightPython() {
   // Prefer a bundled python; else PATH python (dev). The provisioner only needs
@@ -26,6 +27,11 @@ class ForgeProvisioner {
 
   start() {
     if (this.isRunning()) return;
+    try { forgeStorage.markManaged(paths.forgeEnvDir(this._getSettings())); }
+    catch (error) {
+      this._emit({ event: 'forge.provision.error', message: `Forge storage is not writable: ${error.message}` });
+      return;
+    }
     const py = lightPython();
     const env = paths.forgeChildEnv(this._getSettings());
     // Tee the full run to a persistent file so a user can share it after a

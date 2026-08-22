@@ -1,0 +1,9 @@
+{
+  "tracks": [
+    {
+      "name": "dense electronic lead excerpt",
+      "generated": "generated/example_clean.mid",
+      "reference": "references/example.mid"
+    }
+  ]
+}

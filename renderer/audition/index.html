@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MIDI Audition</title>
+  <link rel="stylesheet" href="../shared/tokens.css" />
+  <link rel="stylesheet" href="./audition.css" />
+</head>
+<body>
+  <main class="audition" id="audition">
+    <header class="toolbar">
+      <button class="btn btn-primary" id="open-midi" type="button">Open MIDI</button>
+      <label class="recent-field">Recent
+        <select id="recent"><option value="">No recent MIDI</option></select>
+      </label>
+      <button class="icon-btn" id="clear-recent" type="button" title="Clear recent MIDI" aria-label="Clear recent MIDI">×</button>
+      <span class="spacer"></span>
+      <label class="check"><input id="autoplay" type="checkbox" /> Autoplay</label>
+      <button class="btn" id="show-file" type="button" disabled>Open folder</button>
+      <button class="btn" id="to-player" type="button" disabled>Send to Player</button>
+    </header>
+
+    <section class="file-strip">
+      <div class="file-copy">
+        <strong id="file-name">MIDI Audition</strong>
+        <span class="mono" id="file-path">No MIDI loaded</span>
+      </div>
+      <label class="candidate-field" id="candidate-field" hidden>Version
+        <select id="candidate"></select>
+      </label>
+      <div class="song-stats" id="song-stats">
+        <span><b id="stat-notes">0</b> notes</span>
+        <span><b id="stat-bpm">0</b> BPM</span>
+        <span><b id="stat-length">00:00</b></span>
+      </div>
+    </section>
+
+    <section class="roll-section" id="roll-section">
+      <canvas id="note-roll" tabindex="0" aria-label="MIDI note timeline"></canvas>
+      <div class="empty" id="empty">
+        <strong>Open or drop a MIDI file</strong>
+        <button class="btn" id="empty-open" type="button">Choose MIDI</button>
+      </div>
+      <div class="loading" id="loading" hidden>
+        <span class="loading-bar"></span>
+        <strong id="loading-text">Loading MIDI...</strong>
+      </div>
+    </section>
+
+    <section class="transport-panel">
+      <div class="transport-row">
+        <button class="transport-btn primary" id="play" type="button" title="Play or pause" aria-label="Play" disabled>▶</button>
+        <button class="transport-btn" id="stop" type="button" title="Stop" aria-label="Stop" disabled>■</button>
+        <button class="transport-btn" id="back" type="button" title="Back 5 seconds" aria-label="Back 5 seconds" disabled>−5</button>
+        <button class="transport-btn" id="forward" type="button" title="Forward 5 seconds" aria-label="Forward 5 seconds" disabled>+5</button>
+        <input id="seek" class="seek" type="range" min="0" max="1000" value="0" aria-label="Playback position" disabled />
+        <span class="time mono" id="time">00:00 / 00:00</span>
+      </div>
+      <div class="settings-row">
+        <label>Instrument
+          <select id="instrument">
+            <option value="grand_piano">Grand Piano</option>
+            <option value="bright_piano">Bright Piano</option>
+            <option value="electric_piano">Electric Piano</option>
+            <option value="music_box">Music Box</option>
+            <option value="vibraphone">Vibraphone</option>
+            <option value="strings">String Ensemble</option>
+            <option value="synth_lead">Synth Lead</option>
+            <option value="synth_drum">Synth Drum</option>
+          </select>
+        </label>
+        <label>Speed
+          <select id="speed">
+            <option value="0.5">0.5x</option><option value="0.75">0.75x</option>
+            <option value="1">1x</option><option value="1.25">1.25x</option>
+            <option value="1.5">1.5x</option><option value="2">2x</option>
+          </select>
+        </label>
+        <label>Pitch
+          <select id="pitch">
+            <option value="-12">−1 octave</option><option value="0">Original</option><option value="12">+1 octave</option>
+          </select>
+        </label>
+        <label class="volume-field">Volume
+          <input id="volume" type="range" min="0" max="100" value="65" />
+          <output id="volume-value">65%</output>
+        </label>
+        <label class="check"><input id="sustain" type="checkbox" checked /> Sustain</label>
+        <label class="check"><input id="loop" type="checkbox" /> Loop</label>
+        <span class="instrument-status mono" id="instrument-status">Grand Piano</span>
+      </div>
+    </section>
+  </main>
+
+  <div class="drop-overlay" id="drop-overlay" aria-hidden="true"><div>Drop MIDI to audition</div></div>
+  <script src="../soundfonts/player.js"></script>
+  <script src="./audition.js"></script>
+</body>
+</html>

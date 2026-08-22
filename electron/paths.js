@@ -26,7 +26,7 @@ function pythonEngineDir() {
     : path.join(DEV_ROOT, 'python-engine');
 }
 
-// A light Python bundled next to the engine (built by build-portable.bat).
+// A light Python bundled next to the engine by the player-engine build script.
 // Returns null in dev when not built — sidecar.js then probes PATH.
 function bundledPlayerPython() {
   const p = path.join(pythonEngineDir(), 'python', 'python.exe');
@@ -55,6 +55,7 @@ function _pyInDir(dir) {
 function forgeEnvPython(settings) {
   const override = settings && settings.forgePythonPath;
   if (override && exists(override)) return override;
+  if (settings && settings.forgeEnvDir) return _pyInDir(forgeEnvDir(settings));
   return _pyInDir(forgeEnvDir(settings)) || _pyInDir(legacyForgeEnvDir()) || null;
 }
 
@@ -82,9 +83,7 @@ function modelsDir(settings) {
   return path.join(pythonEngineDir(), 'models');
 }
 
-// A persistent, user-writable home for mappings. The portable .exe re-extracts
-// to a fresh temp dir each launch, so mappings kept beside the bundled ones get
-// wiped; this folder lives in %APPDATA%\midi-studio and survives relaunch/update.
+// A persistent, user-writable home for mappings that survives reinstall/update.
 function userMappingsDir() {
   return path.join(app.getPath('userData'), 'mappings');
 }

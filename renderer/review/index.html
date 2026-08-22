@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self' file: blob:;" />
+  <title>MIDI Review</title>
+  <link rel="stylesheet" href="../shared/tokens.css" />
+  <link rel="stylesheet" href="./review.css" />
+</head>
+<body>
+  <main class="review" id="drop-zone">
+    <header class="toolbar">
+      <div class="file-group">
+        <button class="btn btn-primary" id="open">Open</button>
+        <button class="btn" id="save" disabled>Save project</button>
+        <button class="btn" id="export" disabled>Export MIDI</button>
+      </div>
+      <div class="edit-group">
+        <button class="toolbtn" id="undo" title="Undo (Ctrl+Z)" disabled aria-label="Undo">↶</button>
+        <button class="toolbtn" id="redo" title="Redo (Ctrl+Y)" disabled aria-label="Redo">↷</button>
+        <button class="toolbtn" id="delete" title="Delete selected notes" disabled aria-label="Delete selected notes">⌫</button>
+        <button class="btn compact" id="oct-down" title="Move selected notes down one octave" disabled>−12</button>
+        <button class="btn compact" id="oct-up" title="Move selected notes up one octave" disabled>+12</button>
+        <label class="compact-field">Snap
+          <select id="quantize" disabled>
+            <option value="0">Off</option><option value="4">1/4</option><option value="8">1/8</option>
+            <option value="16" selected>1/16</option><option value="32">1/32</option>
+          </select>
+        </label>
+        <button class="btn compact" id="apply-quantize" disabled>Quantize</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn" id="to-player" disabled>Send to Player</button>
+    </header>
+
+    <section class="project-strip">
+      <div class="project-name" id="project-name">No project loaded</div>
+      <div class="candidate-tabs" id="candidate-tabs"></div>
+      <div class="status mono" id="status">READY</div>
+    </section>
+
+    <section class="wave-section">
+      <div class="section-head">
+        <span>WAVEFORM</span>
+        <span class="mono" id="range-readout">00:00.000 — 00:00.000</span>
+      </div>
+      <canvas id="waveform" aria-label="Audio waveform and playback range"></canvas>
+    </section>
+
+    <section class="roll-section">
+      <div class="section-head roll-head">
+        <span>PIANO ROLL</span>
+        <span id="selection-readout">0 notes selected</span>
+        <label>Velocity <input id="velocity" type="range" min="1" max="127" value="96" disabled /></label>
+        <label>Zoom <input id="zoom" type="range" min="35" max="220" value="85" disabled /></label>
+      </div>
+      <div class="empty" id="empty">
+        <strong>Open a Forge project or MIDI file</strong>
+        <button class="btn btn-primary" id="empty-open">Open file</button>
+      </div>
+      <div class="roll-scroll" id="roll-scroll" hidden>
+        <canvas id="piano-roll" tabindex="0" aria-label="Editable piano roll"></canvas>
+      </div>
+    </section>
+
+    <footer class="transport">
+      <button class="transport-btn" id="play" title="Play or pause (Space)" disabled aria-label="Play">▶</button>
+      <button class="transport-btn" id="stop" title="Stop" disabled aria-label="Stop">■</button>
+      <div class="time mono" id="time">00:00.000 / 00:00.000</div>
+      <label class="switch"><input type="checkbox" id="audio-on" checked disabled /> Original audio</label>
+      <label class="switch"><input type="checkbox" id="midi-on" checked disabled /> MIDI preview</label>
+      <label class="switch"><input type="checkbox" id="loop-on" disabled /> Loop selection</label>
+      <div class="transport-note" id="transport-note"></div>
+    </footer>
+    <audio id="audio" preload="metadata"></audio>
+  </main>
+  <script src="./review.js"></script>
+</body>
+</html>

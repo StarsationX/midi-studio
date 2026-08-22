@@ -1,23 +1,27 @@
 // forge.js — Midi-Forge tab controller. Drives window.forge.
 (() => {
   const F = window.forge;
+  const Review = window.review;
   // self-apply saved theme on load (shell also pushes it live on change)
   if (window.studio && studio.getUi) studio.getUi().then((u) => { if (u && u.theme) document.documentElement.dataset.theme = u.theme; }).catch(() => {});
   const $ = (id) => document.getElementById(id);
   const ADV_KEYS = ['USE_TTA', 'LOUDNESS_NORM', 'BIGSHIFTS', 'SEGMENT_HOP', 'VELOCITY_GAMMA',
     'MIN_NOTE_SEC', 'MIN_VELOCITY', 'PIANO_MIN_PITCH', 'PIANO_MAX_PITCH',
     'BP_ONSET_THRESHOLD', 'BP_FRAME_THRESHOLD', 'BP_MIN_NOTE_MS',
-    'MAX_POLYPHONY', 'OCTAVE_FOLD', 'EXCLUDE_VOCALS', 'ONSET_DELTA', 'DRUM_MIN_GAP_MS'];
+    'MAX_POLYPHONY', 'OCTAVE_FOLD', 'EXCLUDE_VOCALS', 'ONSET_DELTA', 'DRUM_MIN_GAP_MS',
+    'MELODY_MIN_PITCH', 'MELODY_MAX_PITCH', 'MELODY_ONSET_THRESHOLD', 'MELODY_MIN_NOTE_MS'];
   const ADV_DEFAULTS = {
     USE_TTA: false, LOUDNESS_NORM: true, BIGSHIFTS: 1, SEGMENT_HOP: '',
     VELOCITY_GAMMA: 0.85, MIN_NOTE_SEC: 0.05, MIN_VELOCITY: 20,
     PIANO_MIN_PITCH: 21, PIANO_MAX_PITCH: 108, BP_ONSET_THRESHOLD: 0.5,
     BP_FRAME_THRESHOLD: 0.3, BP_MIN_NOTE_MS: 120, MAX_POLYPHONY: 0,
     OCTAVE_FOLD: true, EXCLUDE_VOCALS: false, ONSET_DELTA: 0.07,
-    DRUM_MIN_GAP_MS: 50,
+    DRUM_MIN_GAP_MS: 50, MELODY_MIN_PITCH: 48, MELODY_MAX_PITCH: 96,
+    MELODY_ONSET_THRESHOLD: 0.42, MELODY_MIN_NOTE_MS: 45,
   };
 
   const PIPELINE_HINT = {
+    melody: 'Isolate synth leads, then build Clean, Balanced, and Detailed melody candidates.',
     piano: 'Separate + Transkun on the piano stem — best for piano performances.',
     general: 'Separate, mix every pitched stem, then Transkun — best for full songs (any genre).',
     fast: 'basic-pitch straight on the audio — quick and rough, lower quality.',
@@ -34,12 +38,16 @@
     if (ro) ro.textContent = ($('out-dir').textContent || '').split(/[\\/]/).slice(-2).join('\\') || '—';
   }
   const AUDIO_EXT = /\.(mp3|wav|flac|m4a|ogg|opus|aac|wma)$/i;
+  const MIDI_EXT = /\.midi?$/i;
 
-  let envReady = false, busy = false, inputPath = '', pipeline = 'piano';
-  let currentJob = null, pendingCancel = false, outputDir = '';
+  let envReady = false, busy = false, inputPath = '', pipeline = 'melody';
+  let currentJob = null, pendingCancel = false, outputDir = '', currentProject = '';
   let activeState = 'ready', skipRequested = false;
   let previewTimer = null;
   let wavePeaks = [], waveDuration = 0, waveToken = 0, waveDrag = null, audioCtx = null;
+  const PREVIEW_PREFS_KEY = 'midi-forge.preview-prefs.v1';
+  let previewPrefs = { audioVolume: 80 };
+  try { previewPrefs = { ...previewPrefs, ...JSON.parse(localStorage.getItem(PREVIEW_PREFS_KEY) || '{}') }; } catch (_) {}
 
   // ---- queue ----------------------------------------------------------------
   // Extra inputs to convert after the current one, run strictly one at a time
@@ -191,6 +199,9 @@
     const s = Math.floor(sec % 60);
     const ms = Math.floor((sec - Math.floor(sec)) * 1000);
     return `${h ? `${String(h).padStart(2, '0')}:` : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+  }
+  function savePreviewPrefs() {
+    try { localStorage.setItem(PREVIEW_PREFS_KEY, JSON.stringify(previewPrefs)); } catch (_) {}
   }
   function buildPeaks(buffer, buckets) {
     const data = buffer.getChannelData(0);
@@ -436,8 +447,10 @@
     } else {
       const why = (s.missing && s.missing.length) ? ` (missing: ${s.missing.join(', ')})` : '';
       setEnv('err', 'Not set up' + why);
-      $('setup').hidden = false; $('work').style.opacity = '.5'; $('work').style.pointerEvents = 'none';
+      $('setup').hidden = false;
     }
+    // MIDI preview is lightweight and must remain usable before Forge setup.
+    $('work').style.opacity = '1'; $('work').style.pointerEvents = '';
     updateStart();
   }
   $('env-recheck').addEventListener('click', refreshEnv);
@@ -454,12 +467,14 @@
   $('queue-add').addEventListener('click', async () => { const r = await F.pickInput(); addInputs(Array.isArray(r) ? r : [r], 'queue'); });
 
   function acceptDrop(files) {
-    const ok = [];
+    const ok = [], midis = [];
     for (const f of files || []) {
       const p = F.getDroppedFilePath(f);
-      if (p && (AUDIO_EXT.test(p) || !/\.[a-z0-9]+$/i.test(p))) ok.push(p);
-      else logLine('Ignored (not an audio file): ' + (p || f.name));
+      if (p && MIDI_EXT.test(p)) midis.push(p);
+      else if (p && (AUDIO_EXT.test(p) || !/\.[a-z0-9]+$/i.test(p))) ok.push(p);
+      else logLine('Ignored (not audio or MIDI): ' + (p || f.name));
     }
+    if (midis.length) parent.postMessage({ type: 'studio:open-audition', midiPath: midis[0], projectPath: '', play: false }, '*');
     addInputs(ok);
   }
   const ov = $('drop-overlay');
@@ -525,6 +540,15 @@
     $('time-start').value = '0:00';
     $('time-end').value = '';
     onTimingChanged();
+  });
+  $('preview-volume').value = String(clamp(Number(previewPrefs.audioVolume) || 0, 0, 100));
+  $('preview-volume-value').textContent = `${$('preview-volume').value}%`;
+  $('preview-audio').volume = Number($('preview-volume').value) / 100;
+  $('preview-volume').addEventListener('input', (event) => {
+    previewPrefs.audioVolume = Number(event.target.value);
+    $('preview-volume-value').textContent = `${event.target.value}%`;
+    $('preview-audio').volume = previewPrefs.audioVolume / 100;
+    savePreviewPrefs();
   });
   $('preview').addEventListener('click', async () => {
     if (!inputPath || !validateTiming(true)) return;
@@ -621,7 +645,11 @@
   syncPipelineUI();
 
   // ---- run / cancel ----
-  function hideResults() { $('output').hidden = true; $('errcard').hidden = true; }
+  function hideResults() {
+    $('output').hidden = true; $('output-summary').hidden = true; $('output').classList.remove('has-result');
+    $('errcard').hidden = true; $('output-review').hidden = true;
+    currentProject = '';
+  }
   function startJob() {
     if (!inputPath || busy) return;
     if (!validateTiming(true)) return;
@@ -649,7 +677,15 @@
 
   // ---- output actions ----
   $('output-open').addEventListener('click', async () => { const p = $('output-path').textContent; if (p) { const r = await F.showItem(p); if (r && !r.ok) showError('File not found — it may have moved.'); } });
-  $('output-toplayer').addEventListener('click', () => {
+  $('output-listen').addEventListener('click', () => {
+    const midiPath = $('output-path').textContent;
+    if (midiPath) parent.postMessage({ type: 'studio:open-audition', midiPath, projectPath: currentProject, play: undefined }, '*');
+  });
+  $('output-review').addEventListener('click', () => {
+    if (!currentProject) return;
+    parent.postMessage({ type: 'studio:open-review', projectPath: currentProject }, '*');
+  });
+  function sendOutputToPlayer() {
     const p = $('output-path').textContent; if (!p) return;
     try {
       parent.document.querySelector('.tab[data-tab="player"]').click();
@@ -658,7 +694,8 @@
       else if (w && w.api) { w.api.send({ cmd: 'load_midi', path: p, mapping: 'roblox88', tempo: 1.0 }); logLine('→ Sent to Midi-Player'); }
       else logLine('Open the Midi-Player tab, then pick it from Recent.');
     } catch (_) { logLine('Couldn\'t hand off — open Midi-Player and pick it from Recent.'); }
-  });
+  }
+  $('output-toplayer').addEventListener('click', sendOutputToPlayer);
   $('log-clear').addEventListener('click', () => { $('log').textContent = ''; });
   $('err-dismiss').addEventListener('click', () => { $('errcard').hidden = true; });
 
@@ -705,7 +742,12 @@
         } else if (s.ok) {
           const out = (s.result && (s.result.midiPath || s.result.downloadedPath)) || '';
           if (s.result && s.result.downloadedPath) { addInputs([out], 'replace'); logLine('✓ Downloaded: ' + out); }
-          else { activeState = 'done'; $('output').hidden = false; $('output-path').textContent = out; logLine('✓ Done: ' + out); }
+          else {
+            activeState = 'done'; $('output').hidden = false; $('output-summary').hidden = false; $('output').classList.add('has-result'); $('output-path').textContent = out;
+            currentProject = (s.result && s.result.projectPath) || '';
+            $('output-review').hidden = !currentProject;
+            logLine('✓ Done: ' + out);
+          }
         } else {
           activeState = /cancel/i.test(s.error || '') ? 'cancelled' : 'failed';
           showError(s.error || 'Job failed.'); logLine('✖ ' + (s.error || 'failed'));
@@ -722,5 +764,6 @@
   renderQueue();
   syncTimingControls();
   drawWaveform();
+  window.refreshForgeEnvironment = refreshEnv;
   refreshEnv();
 })();

@@ -15,6 +15,8 @@
     </div>
     <nav class="tabs" id="tabs">
       <button class="tab is-active" data-tab="forge">Midi-Forge</button>
+      <button class="tab" data-tab="review">Review</button>
+      <button class="tab" data-tab="audition">Audition</button>
       <button class="tab" data-tab="player">Midi-Player</button>
     </nav>
     <div class="topbar-right">
@@ -32,7 +34,17 @@
       <div class="modal-body">
         <div class="srow"><span class="skey">Version</span><span class="sval mono" id="s-version">—</span></div>
         <div class="srow"><span class="skey">Midi-Forge</span><span class="sval" id="s-forge">checking…</span></div>
-        <div class="srow"><span class="skey">Forge env</span><span class="sval mono small" id="s-forgedir">—</span></div>
+        <div class="srow storage-row">
+          <span class="skey">Forge storage</span>
+          <div class="storage-control">
+            <span class="storage-path mono" id="s-forgedir">—</span>
+            <div class="storage-actions">
+              <button class="btn" id="s-changeforge">Change</button>
+              <button class="btn btn-ghost" id="s-resetforge" hidden>Default</button>
+              <button class="btn btn-ghost" id="s-openforge">Open folder</button>
+            </div>
+          </div>
+        </div>
         <div class="srow">
           <span class="skey">Theme</span>
           <select class="sval" id="s-theme">
@@ -52,7 +64,6 @@
           <label class="check"><input type="checkbox" id="s-autoupdate" checked /> Check for updates automatically</label>
         </div>
         <div class="modal-actions">
-          <button class="btn" id="s-openforge">Open forge folder</button>
           <button class="btn" id="s-recheck">Re-check updates</button>
           <button class="btn btn-ghost" id="s-clean">Clean reinstall…</button>
         </div>
@@ -74,6 +85,8 @@
 
   <main class="stage">
     <iframe class="tabframe is-active" id="frame-forge"  data-tab="forge"  src="./forge/index.html"  title="Midi-Forge"></iframe>
+    <iframe class="tabframe"           id="frame-review" data-tab="review" data-src="./review/index.html" title="MIDI Review"></iframe>
+    <iframe class="tabframe"           id="frame-audition" data-tab="audition" data-src="./audition/index.html" title="MIDI Audition"></iframe>
     <iframe class="tabframe"           id="frame-player" data-tab="player" src="./player/index.html" title="Midi-Player"></iframe>
   </main>
 

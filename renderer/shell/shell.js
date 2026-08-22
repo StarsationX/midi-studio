@@ -5,6 +5,11 @@
   // ---- tabs (with persistence + keyboard) ----
   const tabs = document.getElementById('tabs');
   const frames = [...document.querySelectorAll('.tabframe')];
+  function ensureFrame(name) {
+    const frame = frames.find((f) => f.dataset.tab === name);
+    if (frame && !frame.getAttribute('src') && frame.dataset.src) frame.setAttribute('src', frame.dataset.src);
+    return frame;
+  }
 
   // ---- theme + custom accent (applied to shell html + both iframe docs) ----
   let curTheme = '', curVars = null;
@@ -30,21 +35,52 @@
   frames.forEach((f) => f.addEventListener('load', () => skin(f.contentDocument && f.contentDocument.documentElement)));
   function activate(name, persist = true) {
     if (!frames.some((f) => f.dataset.tab === name)) return;
+    ensureFrame(name);
     document.querySelectorAll('.tab').forEach((t) => {
       const on = t.dataset.tab === name;
       t.classList.toggle('is-active', on);
       t.setAttribute('aria-selected', on ? 'true' : 'false');
     });
     frames.forEach((f) => f.classList.toggle('is-active', f.dataset.tab === name));
-    document.title = name === 'forge' ? 'MIDI Studio — Forge' : 'MIDI Studio — Player';
+    const titles = { forge: 'MIDI Studio — Forge', review: 'MIDI Studio — Review',
+      audition: 'MIDI Studio — Audition', player: 'MIDI Studio — Player' };
+    document.title = titles[name] || 'MIDI Studio';
     if (persist && studio && studio.setUi) studio.setUi({ lastTab: name });
   }
   tabs.addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) activate(b.dataset.tab); });
-  // Ctrl+1 / Ctrl+2 switch tabs.
+  // Ctrl+1 through Ctrl+4 switch tabs.
   window.addEventListener('keydown', (e) => {
     if (!e.ctrlKey) return;
     if (e.key === '1') { activate('forge'); e.preventDefault(); }
-    if (e.key === '2') { activate('player'); e.preventDefault(); }
+    if (e.key === '2') { activate('review'); e.preventDefault(); }
+    if (e.key === '3') { activate('audition'); e.preventDefault(); }
+    if (e.key === '4') { activate('player'); e.preventDefault(); }
+  });
+  function openAudition(payload) {
+    const frame = document.getElementById('frame-audition');
+    const deliver = () => {
+      const target = frame && frame.contentWindow;
+      if (target && typeof target.loadAudition === 'function') {
+        target.loadAudition(payload.midiPath || '', payload.projectPath || '', { play: payload.play });
+      }
+    };
+    if (frame && frame.contentWindow && typeof frame.contentWindow.loadAudition === 'function') deliver();
+    else if (frame) frame.addEventListener('load', deliver, { once: true });
+    activate('audition');
+  }
+  function openReview(payload) {
+    const frame = document.getElementById('frame-review');
+    const deliver = () => {
+      const target = frame && frame.contentWindow;
+      if (target && typeof target.openReviewProject === 'function') target.openReviewProject(payload.projectPath || '');
+    };
+    if (frame && frame.contentWindow && typeof frame.contentWindow.openReviewProject === 'function') deliver();
+    else if (frame) frame.addEventListener('load', deliver, { once: true });
+    activate('review');
+  }
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'studio:open-audition') openAudition(event.data);
+    if (event.data && event.data.type === 'studio:open-review') openReview(event.data);
   });
   // Restore last tab.
   if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui) { if (ui.lastTab) activate(ui.lastTab, false); applyTheme(ui.theme); if (ui.accent) applyAccent(ui.accent); } }).catch(() => {});
@@ -106,15 +142,21 @@
 
   // ---- settings / about modal ----
   const modal = document.getElementById('settings-modal');
+  function showForgeInfo(info) {
+    if (!info) return;
+    $('s-version').textContent = 'v' + info.version;
+    $('s-forge').textContent = info.forgeReady ? 'Ready' : 'Not set up';
+    $('s-forgedir').textContent = info.forgeEnvDir || '—';
+    $('s-forgedir').title = info.forgeEnvDir || '';
+    $('s-resetforge').hidden = !info.forgeCustom;
+  }
+  function refreshForgeInfo() {
+    return studio.forgeInfo ? studio.forgeInfo().then(showForgeInfo).catch(() => {}) : Promise.resolve();
+  }
   function openSettings() {
     modal.hidden = false;
     document.body.classList.add('modal-open');
-    if (studio.forgeInfo) studio.forgeInfo().then((i) => {
-      if (!i) return;
-      $('s-version').textContent = 'v' + i.version;
-      $('s-forge').textContent = i.forgeReady ? 'Ready' : 'Not set up';
-      $('s-forgedir').textContent = i.forgeEnvDir || '—';
-    }).catch(() => {});
+    refreshForgeInfo();
     if (studio.getUi) studio.getUi().then((ui) => { $('s-autoupdate').checked = !ui || ui.autoCheckUpdates !== false; $('s-theme').value = (ui && ui.theme) || 'lime'; $('s-accent').value = (ui && ui.accent) || (getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'); }).catch(() => {});
   }
   function closeSettings() { modal.hidden = true; document.body.classList.remove('modal-open'); }
@@ -126,18 +168,41 @@
     $('s-accent').value = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'; });
   $('s-accent').addEventListener('input', (e) => { applyAccent(e.target.value); studio.setUi && studio.setUi({ accent: e.target.value }); });
   $('s-openforge').addEventListener('click', () => studio.openForgeFolder && studio.openForgeFolder());
+  async function relocateForge(method, button) {
+    if (!studio[method]) return;
+    const buttons = [$('s-changeforge'), $('s-resetforge')];
+    buttons.forEach((item) => { item.disabled = true; });
+    const oldText = button.textContent; button.textContent = 'Moving…';
+    try {
+      const result = await studio[method]();
+      if (result && result.ok) {
+        showForgeInfo(result);
+        toast(result.moved ? 'Forge storage moved' : 'Forge storage location updated', 'ok');
+        const frame = document.getElementById('frame-forge');
+        if (frame && frame.contentWindow && typeof frame.contentWindow.refreshForgeEnvironment === 'function') frame.contentWindow.refreshForgeEnvironment();
+      } else if (result && !result.canceled) toast(result.error || 'Could not change Forge storage', 'err');
+    } catch (error) { toast(error.message || 'Could not change Forge storage', 'err'); }
+    finally { button.textContent = oldText; buttons.forEach((item) => { item.disabled = false; }); }
+  }
+  $('s-changeforge').addEventListener('click', () => relocateForge('changeForgeFolder', $('s-changeforge')));
+  $('s-resetforge').addEventListener('click', () => relocateForge('resetForgeFolder', $('s-resetforge')));
   $('s-recheck').addEventListener('click', () => { studio.checkForUpdates({ manual: true }); closeSettings(); });
   $('s-repo').addEventListener('click', (e) => { e.preventDefault(); studio.openExternal && studio.openExternal('https://github.com/StarsationX/midi-studio'); });
   $('s-clean').addEventListener('click', () => {
     if (!window.confirm('Clean reinstall? This deletes MIDI Studio\'s managed Forge environment so it re-downloads next time. (It never touches a separate Midi-Forge install.)')) return;
-    studio.cleanReinstall().then((r) => { toast(r && r.ok ? 'Forge env cleared — reopen the Forge tab to reinstall' : 'Nothing to clean', r && r.ok ? 'ok' : undefined); closeSettings(); });
+    studio.cleanReinstall().then((r) => {
+      toast(r && r.ok ? 'Forge storage cleared' : ((r && r.error) || 'Nothing to clean'), r && r.ok ? 'ok' : 'err');
+      const frame = document.getElementById('frame-forge');
+      if (frame && frame.contentWindow && typeof frame.contentWindow.refreshForgeEnvironment === 'function') frame.contentWindow.refreshForgeEnvironment();
+      refreshForgeInfo();
+    });
   });
 
   // ---- keyboard / a11y ----
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { if (!modal.hidden) closeSettings(); else if (!el.hidden) el.hidden = true; }
     if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && document.activeElement && document.activeElement.classList.contains('tab')) {
-      const order = ['forge', 'player'];
+      const order = ['forge', 'review', 'audition', 'player'];
       const cur = order.indexOf(document.querySelector('.tab.is-active').dataset.tab);
       const next = order[(cur + (e.key === 'ArrowRight' ? 1 : order.length - 1)) % order.length];
       activate(next); document.querySelector(`.tab[data-tab="${next}"]`).focus(); e.preventDefault();

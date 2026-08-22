@@ -1,7 +1,7 @@
 name: Release
 
-# Build the Windows portable + NSIS installer and publish them (with checksums)
-# to a GitHub Release whenever a v* tag is pushed.
+# Build the Windows NSIS installer and publish it to a GitHub Release whenever a
+# v* tag is pushed.
 on:
   push:
     tags: ['v*']
@@ -30,12 +30,8 @@ jobs:
       - name: Run unit tests
         run: npm test
 
-      # Builds the light bundled Python (build-portable.bat) then the portable
-      # exe + NSIS installer, and writes dist/SHA256SUMS.txt.
-      - name: Build portable + installer
-        run: |
-          npm run build:portable
-          npm run build:nsis
+      - name: Build installer
+        run: npm run build:nsis
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

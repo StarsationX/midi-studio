@@ -1,8 +1,6 @@
-// updater.js — hardened built-in self-updater for the portable build.
-// GitHub Releases -> SemVer compare -> download portable .exe -> SHA-256 verify
-// against GitHub's per-asset `digest` -> atomic swap (move + .bak backup +
-// bounded wait + restore on failure). The forge env in %LOCALAPPDATA% is never
-// touched by an app update.
+// updater.js — full-installer updater for MIDI Studio.
+// GitHub Releases -> SemVer compare -> download Setup.exe -> SHA-256 verify
+// against GitHub's per-asset digest -> run the NSIS installer silently.
 'use strict';
 
 const { app, shell } = require('electron');
@@ -80,7 +78,6 @@ function sha256File(p) {
   });
 }
 
-const pickPortable = (a) => (a || []).find((x) => /-portable\.exe$/i.test(x.name)) || (a || []).find((x) => /portable.*\.exe$/i.test(x.name));
 const pickSetup = (a) => (a || []).find((x) => /setup.*\.exe$/i.test(x.name)) || (a || []).find((x) => /\.exe$/i.test(x.name) && !/portable/i.test(x.name));
 let cached = null;
 function stagingDir() { const d = path.join(app.getPath('userData'), 'updates'); try { fs.mkdirSync(d, { recursive: true }); } catch {} return d; }
@@ -91,22 +88,19 @@ async function checkForUpdates(send, { manual } = {}) {
     const rel = await getJson(LATEST_API);
     const latest = rel.tag_name || rel.name || '';
     const current = app.getVersion();
-    const portable = pickPortable(rel.assets), setup = pickSetup(rel.assets);
-    if (cmpVer(latest, current) > 0 && (portable || setup)) {
+    const setup = pickSetup(rel.assets);
+    if (cmpVer(latest, current) > 0 && setup) {
       cached = {
         version: String(latest).replace(/^v/i, ''), current,
         // GitHub serves a per-asset `digest` ("sha256:…") in the release API,
         // so we verify against that — no SHA256SUMS.txt sidecar needed.
-        portable: portable ? { url: portable.browser_download_url, name: portable.name, size: portable.size, digest: portable.digest } : null,
-        setup: setup ? { url: setup.browser_download_url, name: setup.name, size: setup.size, digest: setup.digest } : null,
+        setup: { url: setup.browser_download_url, name: setup.name, size: setup.size, digest: setup.digest },
         notes: rel.body || '', htmlUrl: rel.html_url,
       };
-      const isPortable = !!process.env.PORTABLE_EXECUTABLE_FILE;
       send({ state: 'available', version: cached.version, current,
-        size: (isPortable ? cached.portable : cached.setup || cached.portable)?.size || 0,
+        size: cached.setup.size || 0,
         notes: cached.notes.slice(0, 4000),
-        // portable swaps its own exe; installed (NSIS) silently runs the new Setup — both self-update
-        canSelfUpdate: isPortable ? !!cached.portable : !!cached.setup, htmlUrl: cached.htmlUrl });
+        canSelfUpdate: true, htmlUrl: cached.htmlUrl });
     } else { cached = null; if (manual) send({ state: 'none', current, manual: true }); }
   } catch (e) { if (manual) send({ state: 'error', message: String((e && e.message) || e), manual: true }); }
 }
@@ -124,71 +118,21 @@ async function verifyDigest(file, digest) {
 
 async function applyUpdate(send) {
   if (!cached) { send({ state: 'error', message: 'No update staged.' }); return; }
-  const target = process.env.PORTABLE_EXECUTABLE_FILE;
-
-  if (!target) { // dev / NSIS
-    if (cached.setup) {
-      try {
-        send({ state: 'downloading', percent: 0 });
-        const dst = path.join(stagingDir(), cached.setup.name);
-        await download(cached.setup.url, dst, (p) => send({ state: 'downloading', percent: Math.round(p * 100) }));
-        send({ state: 'verifying' });
-        if (!(await verifyDigest(dst, cached.setup.digest))) { try { fs.unlinkSync(dst); } catch {} shell.openExternal(cached.htmlUrl); send({ state: 'manual', htmlUrl: cached.htmlUrl }); return; }
-        send({ state: 'ready' });
-        spawn(dst, ['/S'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-        setTimeout(() => app.quit(), 400);
-      } catch (e) { send({ state: 'error', message: String((e && e.message) || e) }); }
-    } else { shell.openExternal(cached.htmlUrl); send({ state: 'manual', htmlUrl: cached.htmlUrl }); }
-    return;
-  }
-
-  if (!cached.portable) { shell.openExternal(cached.htmlUrl); send({ state: 'manual', htmlUrl: cached.htmlUrl }); return; }
   try {
     send({ state: 'downloading', percent: 0 });
-    const newExe = path.join(stagingDir(), `MIDI-Studio-${cached.version}-portable.exe`);
-    await download(cached.portable.url, newExe, (p) => send({ state: 'downloading', percent: Math.round(p * 100) }));
+    const installer = path.join(stagingDir(), cached.setup.name);
+    await download(cached.setup.url, installer, (p) => send({ state: 'downloading', percent: Math.round(p * 100) }));
     send({ state: 'verifying' });
-    let verified = false;
-    try { verified = await verifyDigest(newExe, cached.portable.digest); }
-    catch (mm) { try { fs.unlinkSync(newExe); } catch {} send({ state: 'error', message: String(mm.message || mm) }); return; }
-    if (!verified) { try { fs.unlinkSync(newExe); } catch {} shell.openExternal(cached.htmlUrl); send({ state: 'manual', htmlUrl: cached.htmlUrl, reason: 'no-digest' }); return; }
-
-    send({ state: 'ready' });
-    const bak = `${target}.bak`, pid = process.pid;
-    const batPath = path.join(stagingDir(), `apply-update-${cached.version}.bat`);
-    const vbsPath = path.join(stagingDir(), `apply-update-${cached.version}.vbs`);
-    const bat = [
-      '@echo off', 'setlocal enableextensions',
-      `set "SRC=${newExe}"`, `set "DST=${target}"`, `set "BAK=${bak}"`, `set "PID=${pid}"`, `set "VBS=${vbsPath}"`,
-      // 1) wait for THIS app process to exit (bounded ~120s)
-      'set /a t=0',
-      ':wpid', 'tasklist /fi "PID eq %PID%" 2>nul | find "%PID%" >nul || goto unlocked',
-      'set /a t+=1', 'if %t% GEQ 60 goto unlocked', 'ping 127.0.0.1 -n 2 >nul', 'goto wpid',
-      // 2) take the exe — RETRY until the portable launcher releases the file lock (~3 min).
-      //    A single failed move was the old bug: it relaunched and looped forever.
-      ':unlocked', 'if exist "%BAK%" del "%BAK%" >nul 2>nul', 'set /a t=0',
-      ':take', 'if not exist "%DST%" goto place',
-      'move /y "%DST%" "%BAK%" >nul 2>nul', 'if not exist "%DST%" goto place',
-      'set /a t+=1', 'if %t% GEQ 90 goto giveup', 'ping 127.0.0.1 -n 2 >nul', 'goto take',
-      // 3) drop the new exe in place and relaunch
-      ':place', 'move /y "%SRC%" "%DST%" >nul 2>nul', 'if not exist "%DST%" goto restore',
-      'start "" "%DST%" --post-update', 'del "%BAK%" >nul 2>nul', 'goto cleanup',
-      // recover the original if anything failed, so the user is never left without an app
-      ':restore', 'if exist "%BAK%" move /y "%BAK%" "%DST%" >nul 2>nul', 'start "" "%DST%"', 'goto cleanup',
-      ':giveup', 'if exist "%BAK%" move /y "%BAK%" "%DST%" >nul 2>nul', 'start "" "%DST%"',
-      ':cleanup', 'del "%SRC%" >nul 2>nul', 'del "%VBS%" >nul 2>nul', '(goto) 2>nul & del "%~f0"', '',
-    ].join('\r\n');
-    fs.writeFileSync(batPath, bat, 'utf8');
-    // Run the batch fully HIDDEN (no flashing cmd window) via a tiny VBS shim;
-    // fall back to a hidden cmd spawn if Windows Script Host is unavailable.
-    try {
-      fs.writeFileSync(vbsPath, 'CreateObject("WScript.Shell").Run "cmd /c ""' + batPath + '""", 0, False', 'utf8');
-      spawn('wscript.exe', [vbsPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-    } catch (_) {
-      spawn('cmd.exe', ['/c', batPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    if (!(await verifyDigest(installer, cached.setup.digest))) {
+      try { fs.unlinkSync(installer); } catch {}
+      shell.openExternal(cached.htmlUrl);
+      send({ state: 'manual', htmlUrl: cached.htmlUrl, reason: 'no-digest' });
+      return;
     }
+    send({ state: 'ready' });
+    spawn(installer, ['/S'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     setTimeout(() => app.quit(), 400);
   } catch (e) { send({ state: 'error', message: String((e && e.message) || e) }); }
 }
 
-module.exports = { checkForUpdates, applyUpdate, cmpVer, parseVer, verifyDigest, pickPortableAsset: pickPortable };
+module.exports = { checkForUpdates, applyUpdate, cmpVer, parseVer, verifyDigest, pickSetupAsset: pickSetup };

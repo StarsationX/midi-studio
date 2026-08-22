@@ -1,6 +1,6 @@
 {
   "name": "midi-studio",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "Audio/YouTube â†’ MIDI (Midi-Forge) + MIDI â†’ keypress player (Midi-Player) in one Windows app.",
   "author": "StarsationX",
   "license": "MIT",
@@ -11,7 +11,6 @@
     "test": "node tools/run-tests.js",
     "build:engine": "cmd /c build-portable.bat",
     "build:dir": "npm run build:engine && electron-builder --win --x64 -c.win.target=dir -p never",
-    "build:portable": "npm run build:dir && electron-builder --prepackaged dist/win-unpacked --win --x64 -c.win.target=portable -p never",
     "build:nsis": "npm run build:engine && electron-builder --win nsis --x64 -p never"
   },
   "devDependencies": {
@@ -39,7 +38,11 @@
         "filter": [
           "**/*",
           "!**/__pycache__/**",
-          "!**/*.pyc"
+          "!**/*.pyc",
+          "!**/*.log",
+          "!**/*.tmp",
+          "!downloads/**",
+          "!onnx_out/**"
         ]
       }
     ],
@@ -51,12 +54,6 @@
           "arch": [
             "x64"
           ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
         }
       ],
       "artifactName": "MIDI-Studio-${version}-${target}.${ext}"
@@ -64,13 +61,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "artifactName": "MIDI-Studio-${version}-Setup.${ext}"
-    },
-    "portable": {
-      "artifactName": "MIDI-Studio-${version}-portable.${ext}",
-      "splashImage": "build/splash.bmp"
     }
   }
 }

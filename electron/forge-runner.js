@@ -10,6 +10,7 @@ const paths = require('./paths');
 
 const NO_WINDOW = process.platform === 'win32';
 const STAGES_3 = [['[1/3]', 'Separate', 15], ['[2/3]', 'Transcribe', 55], ['[3/3]', 'Clean', 90]];
+const STAGES_4 = [['[1/4]', 'Isolate lead', 12], ['[2/4]', 'Detect melody', 48], ['[3/4]', 'Build candidates', 78], ['[4/4]', 'Prepare review', 94]];
 const STAGES_2 = [['[1/2]', 'Transcribe', 40], ['[2/2]', 'Clean', 90]];
 // Keyword fallback: transcribe.py / stem_to_midi.py emit prose ("Normalizing…",
 // "Transcribing…", "MIDI cleanup…") not [N/M] markers, so progress would freeze.
@@ -22,6 +23,7 @@ const STAGE_KEYWORDS = [
 ];
 
 function selectScript(pipeline, skipSeparation) {
+  if (pipeline === 'melody') return ['melody_to_midi.py', STAGES_4];
   if (pipeline === 'drums') return ['drums_to_midi.py', STAGES_3];  // handles its own skip-sep
   if (skipSeparation) return ['transcribe.py', STAGES_2];   // input is already a stem
   if (pipeline === 'fast') return ['stem_to_midi.py', STAGES_2];  // basic-pitch, quick/rough
@@ -53,6 +55,8 @@ class ForgeRunner {
     this._jobs = new Map();
     this._seq = 0;
   }
+
+  isRunning() { return this._jobs.size > 0; }
 
   _settings() { try { return this._getSettings() || {}; } catch { return {}; } }
   _forgePython() { return paths.forgeEnvPython(this._settings()); }
@@ -90,7 +94,7 @@ class ForgeRunner {
     });
   }
 
-  _spawnJob(jobId, args, env, stageTable, audioOut) {
+  _spawnJob(jobId, args, env, stageTable, audioOut, meta = {}) {
     let child;
     try { child = spawn(args[0], args.slice(1), { cwd: paths.pythonEngineDir(), env, windowsHide: NO_WINDOW }); }
     catch (e) { this._emit({ event: 'forge.done', jobId, ok: false, error: `spawn failed: ${e.message}` }); return; }
@@ -100,12 +104,18 @@ class ForgeRunner {
     try { os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
     let buf = '';
     const onLine = (line) => {
+      if (line.startsWith('RESULT|')) {
+        try { child.__result = JSON.parse(line.slice(7)); }
+        catch { this._emit({ event: 'forge.log', jobId, line: 'Could not read pipeline result metadata.', level: 'error' }); }
+        return;
+      }
       if (line.startsWith('DONE')) {
         // Scripts write {input}.mid (no custom output name is passed), so the
         // derived audioOut is authoritative — don't parse the noisy DONE text.
         child.__finalized = true;
         this._emit({ event: 'forge.progress', jobId, stage: 'Done', percent: 100, message: 'Extraction complete' });
-        this._emit({ event: 'forge.done', jobId, ok: true, result: { midiPath: audioOut } });
+        this._emit({ event: 'forge.done', jobId, ok: true,
+          result: Object.assign({ midiPath: audioOut }, child.__result || {}, meta) });
         return;
       }
       for (const [marker, stage, pct] of stageTable) {
@@ -149,10 +159,11 @@ class ForgeRunner {
       return jobId;
     }
     if (pipeline === 'general') env.GENERAL_MODE = '1';  // mix all pitched stems for Transkun
-    if (pipeline === 'drums' && skipSeparation) env.SKIP_SEPARATION = '1';
+    if ((pipeline === 'drums' || pipeline === 'melody') && skipSeparation) env.SKIP_SEPARATION = '1';
     const audioOut = outputMidiPath(inputPath, { start, end });
     this._emit({ event: 'forge.progress', jobId, stage: 'Queued', percent: -1, message: `Starting ${script}` });
-    this._spawnJob(jobId, [py, path.join(paths.pythonEngineDir(), script), inputPath, audioOut], env, stageTable, audioOut);
+    this._spawnJob(jobId, [py, path.join(paths.pythonEngineDir(), script), inputPath, audioOut], env, stageTable, audioOut,
+      { pipeline, timing: { start, end } });
     return jobId;
   }
 

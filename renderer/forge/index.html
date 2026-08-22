@@ -71,12 +71,13 @@
       <label class="lbl">Pipeline</label>
       <div class="card">
         <div class="seg" id="pipeline">
-          <button data-v="piano" class="is-active"><b>Piano</b><i>piano covers — highest accuracy</i></button>
+          <button data-v="melody" class="is-active"><b>Main Melody</b><i>synth leads - clean hooks</i></button>
+          <button data-v="piano"><b>Piano</b><i>piano covers — highest accuracy</i></button>
           <button data-v="general"><b>General</b><i>any song — full-mix transcription</i></button>
           <button data-v="fast"><b>Fast</b><i>basic-pitch — quick &amp; rough</i></button>
           <button data-v="drums"><b>Drums</b><i>drum kit — kick/snare/hats</i></button>
         </div>
-        <div class="muted small" id="pipeline-hint" style="margin:4px 0 2px">Separate + Transkun on the piano stem — best for piano performances.</div>
+        <div class="muted small" id="pipeline-hint" style="margin:4px 0 2px">Isolate synth leads, then build Clean, Balanced, and Detailed melody candidates.</div>
         <label class="check"><input type="checkbox" id="skipsep" /> Skip separation (input is already an isolated stem)</label>
         <div class="time-panel">
           <div class="time-head">
@@ -97,7 +98,13 @@
             <button class="btn" id="preview" type="button">Preview</button>
             <button class="btn btn-ghost" id="preview-stop" type="button">Stop</button>
           </div>
-          <div class="time-readout mono" id="time-readout">00:00.000 / 00:00.000</div>
+          <div class="preview-footer">
+            <label class="range-field">Audio volume
+              <input type="range" id="preview-volume" min="0" max="100" value="80" />
+              <output id="preview-volume-value">80%</output>
+            </label>
+            <div class="time-readout mono" id="time-readout">00:00.000 / 00:00.000</div>
+          </div>
           <div class="muted small" id="time-hint">Drag across the waveform to select. Click to move the preview playhead.</div>
           <audio id="preview-audio"></audio>
         </div>
@@ -131,6 +138,15 @@
               <label class="check" title="Ignores the vocal stem and transcribes instruments only"><input type="checkbox" id="EXCLUDE_VOCALS" /> Ignore vocals</label>
             </div>
           </div>
+          <div class="adv-group" data-group="melody" hidden>
+            <div class="adv-sub muted small">Lead melody recognition</div>
+            <div class="adv-grid">
+              <label title="Lowest lead note to consider. MIDI 48 is C3.">Lowest lead note <span class="adv-value"><input type="number" id="MELODY_MIN_PITCH" min="24" max="96" value="48" /></span></label>
+              <label title="Highest lead note to consider. MIDI 96 is C7.">Highest lead note <span class="adv-value"><input type="number" id="MELODY_MAX_PITCH" min="48" max="120" value="96" /></span></label>
+              <label title="Lower values detect softer attacks; higher values reject noise.">Lead sensitivity <span class="adv-value"><input type="number" id="MELODY_ONSET_THRESHOLD" step="0.02" min="0.1" max="0.9" value="0.42" /><i>lower = more</i></span></label>
+              <label title="Detected lead notes shorter than this are ignored.">Shortest lead note <span class="adv-value"><input type="number" id="MELODY_MIN_NOTE_MS" step="5" min="20" max="300" value="45" /><i>ms</i></span></label>
+            </div>
+          </div>
           <div class="adv-group" data-group="drums" hidden>
             <div class="adv-sub muted small">Drum detection</div>
             <div class="adv-grid">
@@ -155,7 +171,7 @@
         <div class="run-row">
           <button class="btn btn-primary big" id="start" disabled>▶ Start</button>
           <div class="run-info" aria-hidden="true">
-            <div><span>PIPELINE</span><span id="run-info-pipeline" class="mono">piano</span></div>
+            <div><span>PIPELINE</span><span id="run-info-pipeline" class="mono">melody</span></div>
             <div><span>OUTPUT</span><span id="run-info-out" class="mono">Documents\MIDI Studio</span></div>
           </div>
         </div>
@@ -165,10 +181,14 @@
           <div class="bar"><div class="bar-fill" id="job-bar"></div></div>
         </div>
         <div class="output" id="output" hidden>
-          <span>✓ Output:</span>
-          <span class="mono" id="output-path"></span>
-          <button class="link" id="output-open">Open folder</button>
-          <button class="link" id="output-toplayer">Send to Midi-Player ⤷</button>
+          <div class="output-summary" id="output-summary" hidden>
+            <span>✓ Output:</span>
+            <span class="mono" id="output-path"></span>
+            <button class="link" id="output-open">Open folder</button>
+            <button class="link" id="output-listen">Listen</button>
+            <button class="link" id="output-review" hidden>Review candidates</button>
+            <button class="link" id="output-toplayer">Send to Midi-Player ⤷</button>
+          </div>
         </div>
         <div class="errcard" id="errcard" hidden>
           <span class="err-x">✖</span>
@@ -185,7 +205,7 @@
     </section>
   </div>
   <div class="drop-overlay" id="drop-overlay" aria-hidden="true">
-    <div class="drop-card">⬇ Drop audio to load</div>
+    <div class="drop-card">⬇ Drop audio or MIDI to load</div>
   </div>
   <script src="./forge.js"></script>
 </body>

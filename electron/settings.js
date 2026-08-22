@@ -10,7 +10,7 @@ const { app } = require('electron');
 const DEFAULTS = {
   window: { width: 1240, height: 880, x: null, y: null, maximized: false },
   forge: {
-    pipeline: 'piano',        // piano | general
+    pipeline: 'melody',       // melody | piano | general | fast | drums
     skipSeparation: false,
     advanced: {},             // USE_TTA, BIGSHIFTS, VELOCITY_GAMMA, ...
     outputDir: '',

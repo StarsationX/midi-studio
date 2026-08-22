@@ -10,6 +10,7 @@ Module._load = function (req, parent, isMain) {
 const root = path.join(__dirname, '..');
 const u = require(path.join(root, 'electron', 'updater.js'));
 const p = require(path.join(root, 'electron', 'paths.js'));
+const storage = require(path.join(root, 'electron', 'forge-storage.js'));
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  FAIL:', m); } };
@@ -24,12 +25,12 @@ sgn(u.cmpVer('2.0.0', '2.0.0-rc1'), 1, 'release > prerelease');
 sgn(u.cmpVer('2.0.0-rc2', '2.0.0-rc1'), 1, 'rc2 > rc1');
 sgn(u.cmpVer('2.1.0', '2.10.0'), -1, 'numeric not lexical');
 
-// asset selection: never grab Setup.exe for portable
+// asset selection: updates always use the full NSIS installer
 const assets = [
   { name: 'MIDI-Studio-2.1.0-Setup.exe', browser_download_url: 'https://x/s', size: 1 },
   { name: 'MIDI-Studio-2.1.0-portable.exe', browser_download_url: 'https://x/p', size: 1 },
 ];
-ok(u.pickPortableAsset(assets).name === 'MIDI-Studio-2.1.0-portable.exe', 'picks portable not Setup');
+ok(u.pickSetupAsset(assets).name === 'MIDI-Studio-2.1.0-Setup.exe', 'picks Setup not portable');
 
 // verifyDigest — verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
@@ -42,6 +43,43 @@ ok(u.pickPortableAsset(assets).name === 'MIDI-Studio-2.1.0-portable.exe', 'picks
   let threw = false; try { await u.verifyDigest(f, 'sha256:' + 'ab'.repeat(32)); } catch { threw = true; }
   ok(threw, 'verifyDigest throws on mismatch');
   try { fs.unlinkSync(f); } catch {}
+
+  // Forge storage can move to another user-selected location without touching
+  // folders that are not explicitly managed by MIDI Studio.
+  const base = path.join(os.tmpdir(), `ms-forge-storage-test-${process.pid}`);
+  const source = path.join(base, 'default-forge-env');
+  const destinationParent = path.join(base, 'another-drive');
+  const destination = storage.targetForSelection(destinationParent);
+  storage.markManaged(source);
+  fs.mkdirSync(path.join(source, 'models'), { recursive: true });
+  fs.writeFileSync(path.join(source, 'models', 'model.bin'), 'model');
+  ok(storage.isManaged(source), 'managed Forge marker recognized');
+  ok(path.basename(destination) === storage.FOLDER_NAME, 'storage selection gets dedicated subfolder');
+  await storage.moveManaged(source, destination, source);
+  ok(!fs.existsSync(source) && fs.existsSync(path.join(destination, 'models', 'model.bin')), 'managed Forge storage moves intact');
+  const unrelated = path.join(base, 'unrelated');
+  fs.mkdirSync(unrelated, { recursive: true });
+  let refused = false;
+  try { await storage.moveManaged(unrelated, path.join(base, 'refused')); } catch { refused = true; }
+  ok(refused && fs.existsSync(unrelated), 'unmanaged folder move refused');
+
+  const configuredSource = path.join(base, 'configured-source');
+  const configuredTarget = path.join(base, 'configured-target');
+  storage.markManaged(configuredSource);
+  fs.writeFileSync(path.join(configuredSource, '.ready'), 'ready');
+  let saved = null;
+  const fakeSettings = { merge: (patch) => { saved = patch; } };
+  const configured = await storage.configure(fakeSettings, configuredTarget, configuredSource, configuredSource);
+  ok(configured.moved && fs.existsSync(path.join(configuredTarget, '.ready')), 'installer storage choice migrates managed files');
+  ok(saved && saved.paths.forgeEnvDir === configuredTarget, 'installer storage choice is persisted');
+
+  const installer = fs.readFileSync(path.join(root, 'build', 'installer.nsh'), 'utf-8');
+  const pkg = require(path.join(root, 'package.json'));
+  ok(pkg.version === '2.8.0', 'release version is 2.8.0');
+  ok(pkg.build.nsis.include === 'build/installer.nsh', 'NSIS includes custom Forge storage page');
+  ok(installer.includes('--configure-forge-storage'), 'installer applies Forge storage choice');
+  try { fs.rmSync(base, { recursive: true, force: true }); } catch {}
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
