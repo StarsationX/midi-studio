@@ -34,9 +34,10 @@ if not out["cuda"]:
                     capture_output=True, text=True, timeout=15)
                 names = [l.strip() for l in r.stdout.splitlines() if l.strip()
                          and "virtual" not in l.lower()]
-                out["gpu"] = f"{names[0]} (DirectML)" if names else "DirectX 12 GPU (DirectML)"
+                out["gpu"] = (f"{names[0]} (ONNX + DirectML)" if names
+                              else "DirectX 12 GPU (ONNX + DirectML)")
             except Exception:
-                out["gpu"] = "DirectX 12 GPU (DirectML)"
+                out["gpu"] = "DirectX 12 GPU (ONNX + DirectML)"
     except Exception:
         pass
 for _m in ("transkun", "basic_pitch", "yt_dlp"):
