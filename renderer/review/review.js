@@ -206,6 +206,14 @@
     ctx.strokeStyle = '#f0d34e'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(playX, 0); ctx.lineTo(playX, height); ctx.stroke(); ctx.lineWidth = 1;
   }
 
+  const waveZoom = window.TimelineZoom
+    ? window.TimelineZoom(wave, () => duration, () => drawWave())
+    : null;
+  const waveStart = () => (waveZoom ? waveZoom.start() : 0);
+  const waveSpan = () => (waveZoom ? waveZoom.span() : (duration || 1));
+  const waveX = (t, w) => (waveZoom ? waveZoom.xFor(t, w) : (t / (duration || 1)) * w);
+  const waveT = (x, w) => (waveZoom ? waveZoom.timeAt(x, w) : (x / w) * (duration || 0));
+
   function drawWave() {
     const width = wave.clientWidth;
     const height = wave.clientHeight;
@@ -213,13 +221,15 @@
     waveCtx.fillStyle = '#0f1013'; waveCtx.fillRect(0, 0, width, height);
     if (duration > 0 && loopEnd > loopStart && ($('loop-on').checked || loopStart > 0 || loopEnd < duration)) {
       waveCtx.fillStyle = 'rgba(184,230,46,.10)';
-      waveCtx.fillRect(loopStart / duration * width, 0, (loopEnd - loopStart) / duration * width, height);
+      waveCtx.fillRect(waveX(loopStart, width), 0, waveX(loopEnd, width) - waveX(loopStart, width), height);
     }
     waveCtx.strokeStyle = '#3a3d45'; waveCtx.beginPath(); waveCtx.moveTo(0, height / 2); waveCtx.lineTo(width, height / 2); waveCtx.stroke();
     if (wavePeaks.length) {
       waveCtx.strokeStyle = '#82a9b3'; waveCtx.beginPath();
+      const from = duration ? waveStart() / duration : 0;
+      const visible = duration ? waveSpan() / duration : 1;
       for (let x = 0; x < width; x += 1) {
-        const peak = wavePeaks[Math.floor(x / width * wavePeaks.length)] || 0;
+        const peak = wavePeaks[Math.floor((from + (x / width) * visible) * wavePeaks.length)] || 0;
         waveCtx.moveTo(x + .5, height / 2 - peak * (height * .43));
         waveCtx.lineTo(x + .5, height / 2 + peak * (height * .43));
       }
@@ -227,9 +237,9 @@
     }
     if (doc()) {
       waveCtx.fillStyle = 'rgba(184,230,46,.42)';
-      for (const note of doc().notes) waveCtx.fillRect(note.start / duration * width, height - 8, 1, 6);
+      for (const note of doc().notes) waveCtx.fillRect(waveX(note.start, width), height - 8, 1, 6);
     }
-    const x = duration ? playhead / duration * width : 0;
+    const x = duration ? waveX(playhead, width) : 0;
     waveCtx.strokeStyle = '#f0d34e'; waveCtx.lineWidth = 1.5; waveCtx.beginPath(); waveCtx.moveTo(x, 0); waveCtx.lineTo(x, height); waveCtx.stroke(); waveCtx.lineWidth = 1;
   }
 
@@ -315,7 +325,8 @@
     projectDuration = duration;
     audioOffset = Math.max(0, Number(project.timing && project.timing.start) || 0);
     loopStart = 0; loopEnd = duration;
-    $('project-name').textContent = project.name || doc().name || 'Untitled';
+    $('project-name').value = project.name || doc().name || 'Untitled';
+    $('project-name').disabled = false;
     $('empty').hidden = true; scroll.hidden = false;
     $('zoom').value = zoom;
     sampledReady = false; ensureSamples();
@@ -589,14 +600,14 @@
   wave.addEventListener('pointerdown', (event) => {
     if (!doc() || !duration) return;
     const rect = wave.getBoundingClientRect();
-    const time = clamp((event.clientX - rect.left) / rect.width * duration, 0, duration);
+    const time = clamp(waveT(event.clientX - rect.left, rect.width), 0, duration);
     waveDrag = { startX: event.clientX, start: time };
     wave.setPointerCapture(event.pointerId);
   });
   wave.addEventListener('pointermove', (event) => {
     if (!waveDrag) return;
     const rect = wave.getBoundingClientRect();
-    const time = clamp((event.clientX - rect.left) / rect.width * duration, 0, duration);
+    const time = clamp(waveT(event.clientX - rect.left, rect.width), 0, duration);
     if (Math.abs(event.clientX - waveDrag.startX) > 4) {
       loopStart = Math.min(waveDrag.start, time); loopEnd = Math.max(waveDrag.start, time);
       $('loop-on').checked = true; updateTime(); drawWave();
@@ -607,8 +618,21 @@
     if (Math.abs(event.clientX - waveDrag.startX) <= 4) seek(waveDrag.start);
     waveDrag = null;
   });
-  wave.addEventListener('dblclick', () => { loopStart = 0; loopEnd = duration; $('loop-on').checked = false; refresh(); });
+  // dblclick resets the zoom (TimelineZoom) — clear the loop with the toggle.
 
+  // Renaming decides the filenames the next Save/Export writes.
+  $('project-name').addEventListener('change', (event) => {
+    if (!project) return;
+    const name = event.target.value.trim().replace(/[<>:"/\|?* -]/g, '').slice(0, 120);
+    event.target.value = name || project.name || 'Untitled';
+    if (!name || name === project.name) return;
+    project.name = name;
+    // Write the renamed take to new files rather than silently overwriting the
+    // ones the old name pointed at.
+    project.candidates = {};
+    setDirty();
+    $('transport-note').textContent = 'Renamed — Save project or Export MIDI writes it under the new name.';
+  });
   $('open').addEventListener('click', chooseFile); $('empty-open').addEventListener('click', chooseFile);
   $('save').addEventListener('click', saveAll); $('export').addEventListener('click', exportMidi);
   $('undo').addEventListener('click', undo); $('redo').addEventListener('click', redo);

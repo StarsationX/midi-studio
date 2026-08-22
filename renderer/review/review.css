@@ -51,3 +51,9 @@ select { height: 30px; padding: 0 8px; color: var(--text); background: var(--bg-
   #waveform { height: 111px; }
   .candidate { min-width: 94px; padding: 0 9px; }
 }
+
+/* the project name is editable */
+input.project-name { padding: 4px 8px; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: var(--r-sm); }
+input.project-name:hover:not(:disabled) { border-color: var(--line-2); }
+input.project-name:focus { outline: none; border-color: var(--accent); background: var(--bg-2); }
+input.project-name:disabled { color: var(--text-3); }

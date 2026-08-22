@@ -96,6 +96,20 @@ delete process.env.PORTABLE_EXECUTABLE_FILE;
   ok(storage.uniquePath(path.join('C:', 'out', 'free.mid'), fakeExists) === path.join('C:', 'out', 'free.mid'),
     'a free name is left alone');
 
+  // The melody shaper has its own assert-based self-check; run it if a python
+  // with pretty_midi is around (the Forge env). Skipped, not failed, otherwise.
+  const { execFileSync } = require('child_process');
+  const shaper = path.join(root, 'python-engine', 'melody_shape.py');
+  const pys = [path.join(process.env.LOCALAPPDATA || '', 'midi-studio', 'forge-env', 'python', 'python.exe')];
+  const py = pys.find((p) => { try { return fs.existsSync(p); } catch { return false; } });
+  if (py) {
+    let out = '';
+    try { out = execFileSync(py, [shaper], { encoding: 'utf-8', timeout: 60000 }); } catch (e) { out = String((e && e.stdout) || '') + String((e && e.stderr) || ''); }
+    ok(/melody_shape demo: OK/.test(out), 'melody shaper self-check: ' + out.trim().slice(-120));
+  } else {
+    console.log('  (skipped melody shaper self-check: no forge python)');
+  }
+
   const installer = fs.readFileSync(path.join(root, 'build', 'installer.nsh'), 'utf-8');
   const pkg = require(path.join(root, 'package.json'));
   const lock = require(path.join(root, 'package-lock.json'));

@@ -594,6 +594,12 @@ function resetPlaybackRange() {
   drawRangeOverview();
 }
 
+// Wheel-zoom the song overview so a playback range can be set to the beat.
+const overviewZoom = window.TimelineZoom
+  ? window.TimelineZoom(els.rangeOverview, () => totalDuration, () => drawRangeOverview())
+  : { start: () => 0, span: () => totalDuration || 1, zoomed: () => false, follow() {},
+      xFor: (t, w) => (t / (totalDuration || 1)) * w, timeAt: (x, w) => (x / w) * (totalDuration || 0) };
+
 function drawRangeOverview() {
   const canvas = els.rangeCanvas;
   const rect = canvas.getBoundingClientRect();
@@ -618,23 +624,23 @@ function drawRangeOverview() {
   ctx.globalAlpha = .68;
   for (let i = 0; i < overviewEvents.length; i += step) {
     const event = overviewEvents[i];
-    const x = (event[0] / totalDuration) * w;
+    const x = overviewZoom.xFor(event[0], w);
     const y = h - 5 - ((event[3] - 21) / 87) * (h - 10);
-    const noteW = Math.max(1, (Math.max(.03, event[2]) / totalDuration) * w);
+    const noteW = Math.max(1, (Math.max(.03, event[2]) / overviewZoom.span()) * w);
     ctx.fillRect(x, y, Math.min(12, noteW), 1.5);
   }
   ctx.globalAlpha = 1;
 
   const range = playbackRange();
   if (range.enabled && range.valid !== false) {
-    const sx = (range.start / totalDuration) * w, ex = (range.end / totalDuration) * w;
+    const sx = overviewZoom.xFor(range.start, w), ex = overviewZoom.xFor(range.end, w);
     ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(0, 0, sx, h); ctx.fillRect(ex, 0, w - ex, h);
     ctx.fillStyle = 'rgba(184,230,46,.09)'; ctx.fillRect(sx, 0, Math.max(1, ex - sx), h);
     ctx.strokeStyle = '#b8e62e'; ctx.lineWidth = 2;
     for (const x of [sx, ex]) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); ctx.fillRect(x - 4, 0, 8, 9); ctx.fillRect(x - 4, h - 9, 8, 9); }
   }
   const playhead = Math.max(0, Math.min(totalDuration, viz.elapsed()));
-  const px = (playhead / totalDuration) * w;
+  const px = overviewZoom.xFor(playhead, w);
   ctx.strokeStyle = '#fff'; ctx.globalAlpha = .75; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(px + .5, 0); ctx.lineTo(px + .5, h); ctx.stroke(); ctx.globalAlpha = 1;
 }
@@ -642,15 +648,15 @@ function drawRangeOverview() {
 let rangeDrag = null;
 function overviewTime(clientX) {
   const rect = els.rangeOverview.getBoundingClientRect();
-  return Math.max(0, Math.min(totalDuration, ((clientX - rect.left) / rect.width) * totalDuration));
+  return Math.max(0, Math.min(totalDuration, overviewZoom.timeAt(clientX - rect.left, rect.width)));
 }
 els.rangeOverview.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || totalDuration <= 0) return;
   const rect = els.rangeOverview.getBoundingClientRect();
   const range = playbackRange();
   const x = e.clientX - rect.left;
-  const sx = range.enabled ? (range.start / totalDuration) * rect.width : -100;
-  const ex = range.enabled ? (range.end / totalDuration) * rect.width : -100;
+  const sx = range.enabled ? overviewZoom.xFor(range.start, rect.width) : -100;
+  const ex = range.enabled ? overviewZoom.xFor(range.end, rect.width) : -100;
   rangeDrag = { mode: Math.abs(x - sx) < 10 ? 'start' : Math.abs(x - ex) < 10 ? 'end' : 'select', anchor: overviewTime(e.clientX), x: e.clientX, moved: false };
   els.rangeOverview.setPointerCapture(e.pointerId);
 });

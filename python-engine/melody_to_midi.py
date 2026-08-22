@@ -22,11 +22,19 @@ from basic_pitch.inference import predict
 from scipy.signal import butter, sosfiltfilt
 
 from audio_utils import audio_window_from_env, load_normalize_save
+import melody_shape as shaper
 import song_to_midi as song
 
 
-MIN_PITCH = int(os.environ.get("MELODY_MIN_PITCH", "48"))
-MAX_PITCH = int(os.environ.get("MELODY_MAX_PITCH", "96"))
+# Range widened from C3-C7: artcore leads run above C7 and drop to a low
+# octave between sections, and MELODY_FOLD brings anything outside back in
+# rather than deleting the hook.
+MIN_PITCH = int(os.environ.get("MELODY_MIN_PITCH", "45"))
+MAX_PITCH = int(os.environ.get("MELODY_MAX_PITCH", "100"))
+FOLD_OCTAVES = os.environ.get("MELODY_FOLD", "1") in ("1", "true", "True", "yes")
+# Notes per second the "clean" candidate is allowed to reach. Dense fills go
+# past 30; nobody can play that, and it reads as noise on a piano-roll anyway.
+DENSITY = float(os.environ.get("MELODY_DENSITY", "13"))
 BP_ONSET = float(os.environ.get("MELODY_ONSET_THRESHOLD", "0.42"))
 BP_FRAME = float(os.environ.get("MELODY_FRAME_THRESHOLD", "0.28"))
 BP_MIN_NOTE_MS = int(os.environ.get("MELODY_MIN_NOTE_MS", "45"))
@@ -89,73 +97,7 @@ def _mix_lead_stems(src: Path, work_dir: Path) -> Path:
     return out
 
 
-def _clone_note(note: pretty_midi.Note) -> pretty_midi.Note:
-    return pretty_midi.Note(
-        velocity=int(note.velocity), pitch=int(note.pitch),
-        start=float(note.start), end=float(note.end))
-
-
-def _group_onsets(notes, window=0.055):
-    groups, current, start = [], [], None
-    for note in sorted(notes, key=lambda n: (n.start, -n.velocity, -n.pitch)):
-        if start is None or note.start - start <= window:
-            if start is None:
-                start = note.start
-            current.append(note)
-        else:
-            groups.append(current)
-            current, start = [note], note.start
-    if current:
-        groups.append(current)
-    return groups
-
-
-def _lead_score(note, previous_pitch):
-    velocity = note.velocity / 127.0
-    duration = min(1.0, max(0.0, note.end - note.start) / 0.45)
-    register = (note.pitch - MIN_PITCH) / max(1, MAX_PITCH - MIN_PITCH)
-    continuity = 0.5 if previous_pitch is None else max(0.0, 1.0 - abs(note.pitch - previous_pitch) / 18.0)
-    return velocity * 0.42 + duration * 0.18 + register * 0.15 + continuity * 0.25
-
-
-def _merge_repeats(notes, max_gap):
-    out = []
-    for note in sorted(notes, key=lambda n: (n.start, n.pitch)):
-        if out and out[-1].pitch == note.pitch and note.start - out[-1].end <= max_gap:
-            out[-1].end = max(out[-1].end, note.end)
-            out[-1].velocity = max(out[-1].velocity, note.velocity)
-        else:
-            out.append(_clone_note(note))
-    return out
-
-
-def _candidate_notes(raw_notes, polyphony, min_duration, merge_gap):
-    notes = [n for n in raw_notes
-             if MIN_PITCH <= n.pitch <= MAX_PITCH and n.end - n.start >= min_duration]
-    selected, previous_pitch = [], None
-    for group in _group_onsets(notes):
-        ranked = sorted(group, key=lambda n: _lead_score(n, previous_pitch), reverse=True)
-        chosen = ranked[:polyphony]
-        if chosen:
-            previous_pitch = chosen[0].pitch
-            selected.extend(_clone_note(n) for n in chosen)
-    merged = _merge_repeats(selected, merge_gap)
-    if polyphony == 1:
-        for previous, current in zip(merged, merged[1:]):
-            if previous.end > current.start:
-                previous.end = max(previous.start + 0.02, current.start)
-    return [note for note in merged if note.end - note.start >= 0.02]
-
-
-def _write_candidate(template, notes, path: Path, name: str):
-    tempo = 120.0
-    if template.get_onsets().size > 1:
-        try:
-            estimate = float(template.estimate_tempo())
-            if np.isfinite(estimate) and estimate > 0:
-                tempo = estimate
-        except (ValueError, ZeroDivisionError):
-            pass
+def _write_candidate(tempo, notes, path: Path, name: str):
     pm = pretty_midi.PrettyMIDI(initial_tempo=tempo)
     inst = pretty_midi.Instrument(program=81, name=name)
     inst.notes = sorted(notes, key=lambda n: (n.start, n.pitch))
@@ -175,15 +117,22 @@ def build_candidates(raw_midi: Path, primary: Path):
         "balanced": primary.with_name(primary.stem + "_balanced.mid"),
         "detailed": primary.with_name(primary.stem + "_detailed.mid"),
     }
+    # Timing everywhere below is derived from this, so a 200 BPM track stops
+    # having its 32nds merged into chords by a fixed window.
+    bpm = shaper.estimate_bpm(raw_notes)
+    print(f"  detected tempo: {bpm:.0f} BPM")
     specs = {
-        "clean": (1, 0.085, 0.075),
-        "balanced": (2, 0.060, 0.055),
-        "detailed": (3, 0.040, 0.035),
+        # polyphony, shortest note, notes/second cap
+        "clean": (1, 0.070, DENSITY),
+        "balanced": (2, 0.055, DENSITY * 1.6),
+        "detailed": (3, 0.040, 0.0),
     }
     counts = {}
-    for name, spec in specs.items():
-        notes = _candidate_notes(raw_notes, *spec)
-        _write_candidate(pm, notes, paths[name], f"Main Melody - {name.title()}")
+    for name, (polyphony, min_duration, density) in specs.items():
+        notes = shaper.shape(raw_notes, polyphony=polyphony, min_duration=min_duration,
+                             bpm=bpm, low=MIN_PITCH, high=MAX_PITCH,
+                             fold=FOLD_OCTAVES, density=density)
+        _write_candidate(bpm, notes, paths[name], f"Main Melody - {name.title()}")
         counts[name] = len(notes)
         print(f"  {name}: {len(notes)} notes")
     return paths, counts

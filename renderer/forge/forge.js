@@ -9,19 +9,21 @@
     'MIN_NOTE_SEC', 'MIN_VELOCITY', 'PIANO_MIN_PITCH', 'PIANO_MAX_PITCH',
     'BP_ONSET_THRESHOLD', 'BP_FRAME_THRESHOLD', 'BP_MIN_NOTE_MS',
     'MAX_POLYPHONY', 'OCTAVE_FOLD', 'EXCLUDE_VOCALS', 'ONSET_DELTA', 'DRUM_MIN_GAP_MS',
-    'MELODY_MIN_PITCH', 'MELODY_MAX_PITCH', 'MELODY_ONSET_THRESHOLD', 'MELODY_MIN_NOTE_MS'];
+    'MELODY_MIN_PITCH', 'MELODY_MAX_PITCH', 'MELODY_ONSET_THRESHOLD', 'MELODY_MIN_NOTE_MS',
+    'MELODY_DENSITY', 'MELODY_FOLD'];
   const ADV_DEFAULTS = {
     USE_TTA: false, LOUDNESS_NORM: true, BIGSHIFTS: 1, SEGMENT_HOP: '',
     VELOCITY_GAMMA: 0.85, MIN_NOTE_SEC: 0.05, MIN_VELOCITY: 20,
     PIANO_MIN_PITCH: 21, PIANO_MAX_PITCH: 108, BP_ONSET_THRESHOLD: 0.5,
     BP_FRAME_THRESHOLD: 0.3, BP_MIN_NOTE_MS: 120, MAX_POLYPHONY: 0,
     OCTAVE_FOLD: true, EXCLUDE_VOCALS: false, ONSET_DELTA: 0.07,
-    DRUM_MIN_GAP_MS: 50, MELODY_MIN_PITCH: 48, MELODY_MAX_PITCH: 96,
+    DRUM_MIN_GAP_MS: 50, MELODY_MIN_PITCH: 45, MELODY_MAX_PITCH: 100,
     MELODY_ONSET_THRESHOLD: 0.42, MELODY_MIN_NOTE_MS: 45,
+    MELODY_DENSITY: 13, MELODY_FOLD: true,
   };
 
   const PIPELINE_HINT = {
-    melody: '⚠ Prototype — results vary a lot. Isolates synth leads, then builds Clean, Balanced and Detailed candidates. Use Piano or General if the output disappoints.',
+    melody: '⚠ Prototype — tuned for dense, fast electronic music (artcore/Camellia-style layering). Tracks the lead line across layers, removes octave doubles, and caps how many notes a second it hands you. Use Piano or General if the output disappoints.',
     piano: 'Separate + Transkun on the piano stem — best for piano performances.',
     general: 'Separate, mix every pitched stem, then Transkun — best for full songs (any genre).',
     fast: 'basic-pitch straight on the audio — quick and rough, lower quality.',
@@ -271,6 +273,13 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     return { canvas, ctx, w: rect.width, h: rect.height };
   }
+  // Wheel-zoom the waveform: picking a 4-second range inside a 5-minute song
+  // with the whole song squeezed into 900px is guesswork otherwise.
+  const waveZoom = window.TimelineZoom
+    ? window.TimelineZoom($('wave-shell'), () => waveDuration, () => drawWaveform())
+    : { start: () => 0, span: () => waveDuration || 1, zoomed: () => false,
+        xFor: (t, w) => (t / (waveDuration || 1)) * w, timeAt: (x, w) => (x / w) * (waveDuration || 0), follow() {} };
+
   function drawWaveform() {
     const { ctx, w, h } = setupWaveCanvas();
     ctx.clearRect(0, 0, w, h);
@@ -295,15 +304,17 @@
       ctx.moveTo(x + 0.5, 0);
       ctx.lineTo(x + 0.5, h);
       ctx.stroke();
-      if (waveDuration > 0 && i < gridCount) ctx.fillText(formatClock((i / gridCount) * waveDuration).replace(/\.000$/, ''), x + 6, 14);
+      if (waveDuration > 0 && i < gridCount) ctx.fillText(formatClock(waveZoom.start() + (i / gridCount) * waveZoom.span()).replace(/\.000$/, ''), x + 6, 14);
     }
 
     if (wavePeaks.length) {
       ctx.strokeStyle = css('--text-2') || '#9b9ea6';
       ctx.lineWidth = 1;
       ctx.beginPath();
+      const from = waveDuration ? waveZoom.start() / waveDuration : 0;
+      const width = waveDuration ? waveZoom.span() / waveDuration : 1;
       for (let x = 0; x < w; x++) {
-        const p = wavePeaks[Math.min(wavePeaks.length - 1, Math.floor((x / w) * wavePeaks.length))];
+        const p = wavePeaks[Math.min(wavePeaks.length - 1, Math.floor((from + (x / w) * width) * wavePeaks.length))];
         const y1 = mid + p[0] * (h * 0.42);
         const y2 = mid + p[1] * (h * 0.42);
         ctx.moveTo(x + 0.5, y1);
@@ -314,8 +325,8 @@
 
     const range = waveRange();
     if (waveDuration > 0 && range.enabled) {
-      const sx = (range.start / waveDuration) * w;
-      const ex = (range.end / waveDuration) * w;
+      const sx = waveZoom.xFor(range.start, w);
+      const ex = waveZoom.xFor(range.end, w);
       ctx.fillStyle = 'rgba(0, 0, 0, .34)';
       ctx.fillRect(0, 0, sx, h);
       ctx.fillRect(ex, 0, w - ex, h);
@@ -338,7 +349,7 @@
 
     const a = $('preview-audio');
     if (waveDuration > 0 && Number.isFinite(a.currentTime)) {
-      const px = clamp(a.currentTime / waveDuration, 0, 1) * w;
+      const px = waveZoom.xFor(clamp(a.currentTime, 0, waveDuration), w);
       $('waveform').setAttribute('aria-valuenow', String(Math.round(clamp(a.currentTime / waveDuration, 0, 1) * 100)));
       ctx.strokeStyle = '#ffffff';
       ctx.globalAlpha = 0.65;
@@ -393,7 +404,8 @@
   }
   function waveSecondsFromEvent(e) {
     const rect = $('waveform').getBoundingClientRect();
-    return clamp(((e.clientX - rect.left) / rect.width) * waveDuration, 0, waveDuration);
+    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    return clamp(waveZoom.timeAt(x, rect.width), 0, waveDuration || 0);
   }
 
   // ---- enable/disable state ----
@@ -627,8 +639,8 @@
     const rect = canvas.getBoundingClientRect();
     const sec = waveSecondsFromEvent(e);
     const range = waveRange();
-    const sx = (range.start / waveDuration) * rect.width;
-    const ex = (range.end / waveDuration) * rect.width;
+    const sx = waveZoom.xFor(range.start, rect.width);
+    const ex = waveZoom.xFor(range.end, rect.width);
     const x = e.clientX - rect.left;
     const nearStart = range.enabled && Math.abs(x - sx) <= 10;
     const nearEnd = range.enabled && Math.abs(x - ex) <= 10;

@@ -35,7 +35,8 @@
     </header>
 
     <section class="project-strip">
-      <div class="project-name" id="project-name">No project loaded</div>
+      <input class="project-name" id="project-name" value="No project loaded" spellcheck="false"
+             title="Rename — the next Save/Export uses this name" aria-label="Project name" disabled />
       <div class="candidate-tabs" id="candidate-tabs"></div>
       <div class="status mono" id="status">READY</div>
     </section>
@@ -76,6 +77,7 @@
     </footer>
     <audio id="audio" preload="metadata"></audio>
   </main>
+  <script src="../shared/timeline-zoom.js"></script>
   <script src="../soundfonts/player.js"></script>
   <script src="./review.js"></script>
 </body>
