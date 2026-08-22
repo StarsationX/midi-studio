@@ -335,12 +335,24 @@
     }
   }
 
+  // Audio runs off the scheduler, so drawing is free to be lazy. Background
+  // throttling is disabled app-wide to keep playback alive behind the game
+  // window — without a cap here that would mean a full-rate repaint forever.
+  let lastDraw = 0;
+  const limited = () => document.documentElement.dataset.perf === '1';
+  function drawBudgetMs() {
+    if (document.hidden) return Infinity;          // minimized: don't draw at all
+    if (limited()) return document.hasFocus() ? 100 : 1000;
+    return document.hasFocus() ? 33 : 250;         // covered/unfocused: 4 fps
+  }
   function tick() {
     if (!player.playing) return;
     player.position = songTime();
-    updateSongUI();
+    const now = performance.now();
+    if (now - lastDraw >= drawBudgetMs()) { lastDraw = now; updateSongUI(); }
     player.frame = requestAnimationFrame(tick);
   }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastDraw = 0; updateSongUI(); } });
 
   async function togglePlay() {
     if (!currentDocument() || !player.duration) return;
@@ -370,6 +382,7 @@
     player.duration = Number(doc.duration) || Math.max(0, ...doc.notes.map((note) => note.end));
     player.position = 0;
     player.cursor = 0;
+    view.span = 0; view.start = 0;
     invalidateInstrument();
     updateSongUI();
   }
@@ -426,6 +439,16 @@
     return true;
   }
 
+  // Visible slice of the song, in seconds. Full song until the user zooms.
+  const view = { start: 0, span: 0 };
+  function viewSpan() {
+    const span = view.span > 0 ? Math.min(view.span, player.duration) : player.duration;
+    return Math.max(0.5, span || 0.5);
+  }
+  function viewStart() {
+    return clamp(view.start, 0, Math.max(0, (player.duration || 0) - viewSpan()));
+  }
+
   function drawRoll() {
     const canvas = $('note-roll');
     const rect = canvas.getBoundingClientRect();
@@ -450,23 +473,26 @@
       ctx.strokeStyle = pitch % 12 === 0 ? '#3a3d45' : '#22242a';
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(rect.width, y); ctx.stroke();
     }
-    const gridSeconds = player.duration > 240 ? 30 : player.duration > 90 ? 10 : player.duration > 30 ? 5 : 1;
+    const span = viewSpan(), from = viewStart();
+    const xFor = (t) => (t - from) / span * rect.width;
+    const gridSeconds = span > 240 ? 30 : span > 90 ? 10 : span > 30 ? 5 : span > 10 ? 1 : 0.5;
     ctx.font = '9px "JetBrains Mono", monospace'; ctx.fillStyle = '#62656d';
-    for (let at = 0; at <= player.duration; at += gridSeconds) {
-      const x = at / player.duration * rect.width;
+    for (let at = Math.floor(from / gridSeconds) * gridSeconds; at <= from + span; at += gridSeconds) {
+      const x = xFor(at);
       ctx.strokeStyle = '#2b2e36'; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, rect.height); ctx.stroke();
       if (x + 30 < rect.width) ctx.fillText(formatTime(at), x + 4, 12);
     }
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e';
     ctx.fillStyle = accent; ctx.globalAlpha = 0.82;
     for (const note of doc.notes) {
-      const x = Number(note.start) / player.duration * rect.width;
-      const width = Math.max(2, (Number(note.end) - Number(note.start)) / player.duration * rect.width);
+      if (Number(note.end) < from || Number(note.start) > from + span) continue;
+      const x = xFor(Number(note.start));
+      const width = Math.max(2, (Number(note.end) - Number(note.start)) / span * rect.width);
       const y = rect.height - (Number(note.pitch) - bottom + 1) / range * rect.height;
       ctx.fillRect(x, y, width, Math.max(3, rect.height / range - 2));
     }
     ctx.globalAlpha = 1;
-    const playX = player.position / player.duration * rect.width;
+    const playX = xFor(player.position);
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(playX, 0); ctx.lineTo(playX, rect.height); ctx.stroke();
   }
@@ -537,8 +563,23 @@
   $('note-roll').addEventListener('pointerdown', (event) => {
     if (!player.duration) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    seek((event.clientX - rect.left) / rect.width * player.duration);
+    seek(viewStart() + (event.clientX - rect.left) / rect.width * viewSpan());
   });
+  // Wheel zooms the timeline around the pointer; shift-wheel pans.
+  $('note-roll').addEventListener('wheel', (event) => {
+    if (!player.duration) return;
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    const span = viewSpan(), from = viewStart();
+    if (event.shiftKey) { view.start = clamp(from + event.deltaY / rect.width * span, 0, player.duration); drawRoll(); return; }
+    const anchor = from + ratio * span;
+    const next = clamp(span * Math.exp(event.deltaY * 0.0016), 1, player.duration);
+    view.span = next >= player.duration ? 0 : next;
+    view.start = anchor - ratio * viewSpan();
+    drawRoll();
+  }, { passive: false });
+  $('note-roll').addEventListener('dblclick', () => { view.span = 0; view.start = 0; drawRoll(); });
   window.addEventListener('resize', drawRoll);
   window.addEventListener('keydown', (event) => {
     if (isFormControl(event.target) || event.ctrlKey || event.altKey || event.metaKey) return;

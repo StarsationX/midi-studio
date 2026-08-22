@@ -531,6 +531,23 @@
     current.notes.forEach((note) => { if (note.start > from && note.start <= to + .006) playSynthNote(note); });
   }
 
+  // The roll canvas is duration*zoom pixels wide - tens of thousands for a
+  // normal song - so repainting it every frame pins the GPU. Repaint only when
+  // the playhead actually moved a pixel, and back off hard when the window is
+  // not the one being looked at.
+  let lastDraw = 0, lastPlayX = -1;
+  function shouldDraw() {
+    if (document.hidden) return false;
+    const now = performance.now();
+    const limit = document.documentElement.dataset.perf === '1';
+    const budget = limit ? (document.hasFocus() ? 100 : 1000) : (document.hasFocus() ? 33 : 250);
+    if (now - lastDraw < budget) return false;
+    const x = Math.round(xForTime(playhead));
+    if (x === lastPlayX) return false;
+    lastDraw = now; lastPlayX = x;
+    return true;
+  }
+
   function tick() {
     if (!playing) return;
     let next = (performance.now() - startedAt) / 1000;
@@ -545,7 +562,7 @@
       triggerNotes(previousMidiTime, next);
       previousMidiTime = next; playhead = next;
     }
-    followPlayhead(); updateTime(); drawWave(); drawRoll();
+    if (shouldDraw()) { followPlayhead(); updateTime(); drawWave(); drawRoll(); }
     animation = requestAnimationFrame(tick);
   }
 
@@ -636,6 +653,28 @@
     const file = event.dataTransfer.files && event.dataTransfer.files[0];
     if (file) openPath(R.getDroppedFilePath(file));
   });
+  // Wheel over the roll zooms around the pointer (DAW-style); shift-wheel and a
+  // plain wheel keep scrolling, so the surface still behaves like a document.
+  scroll.addEventListener('wheel', (event) => {
+    if (!doc()) return;
+    if (!event.ctrlKey && !event.altKey && !(event.deltaY && event.shiftKey)) {
+      if (event.shiftKey) { scroll.scrollLeft += event.deltaY; event.preventDefault(); }
+      return;
+    }
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const anchorTime = timeForX(event.clientX - rect.left);
+    const factor = Math.exp(-event.deltaY * 0.0016);
+    const next = clamp(zoom * factor, Number($('zoom').min), Number($('zoom').max));
+    if (next === zoom) return;
+    zoom = next;
+    $('zoom').value = String(zoom);
+    resizeRoll();
+    // Keep the pointer over the same musical position.
+    scroll.scrollLeft = clamp(xForTime(anchorTime) - (event.clientX - scroll.getBoundingClientRect().left),
+      0, Math.max(0, canvas.clientWidth - scroll.clientWidth));
+  }, { passive: false });
+
   window.addEventListener('resize', () => { resizeWave(); resizeRoll(); });
   window.addEventListener('beforeunload', (event) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
   window.openReviewProject = openPath;

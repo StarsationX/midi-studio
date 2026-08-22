@@ -12,10 +12,11 @@ const os = require('os');
 const paths = require('./paths');
 const { Settings } = require('./settings');
 const { PlayerSidecar } = require('./sidecar');
-const { ForgeRunner } = require('./forge-runner');
+const { ForgeRunner, reapOrphanJobs } = require('./forge-runner');
 const { ForgeProvisioner } = require('./forge-provisioner');
 const forgeStorage = require('./forge-storage');
 const library = require('./library');
+const { GameWatch } = require('./gamewatch');
 const updater = require('./updater');
 
 // Boot diagnostics — a packaged GUI app has no console; this captures startup
@@ -42,6 +43,7 @@ let settings = null;
 let sidecar = null;
 let forge = null;
 let provisioner = null;
+let gameWatch = null;
 let lastReady = null; // cached engine 'ready' so a late-loading tab iframe still syncs
 
 const gotLock = CONFIGURE_FORGE_INDEX >= 0 || app.requestSingleInstanceLock();
@@ -315,7 +317,21 @@ function createServices() {
     }
     broadcast('forge:status', payload);
   };
-  forge = new ForgeRunner({ emit: forgeEmit, getSettings: () => settings.forgePaths() });
+  forge = new ForgeRunner({ emit: forgeEmit,
+    getSettings: () => Object.assign({}, settings.forgePaths(), { perfMode: !!(settings.get('ui') || {}).perfMode }) });
+  // While a game is up, this app is the guest: idle priority, smaller batches,
+  // and the renderer drops to its limited draw rate.
+  gameWatch = new GameWatch((game) => {
+    if (forge) forge.setBackground(!!game);
+    broadcast('game-active', { game: game || '' });
+  });
+  gameWatch.start();
+  // A previous run that was force-killed can leave a Forge job pinning the GPU.
+  try {
+    const reaped = reapOrphanJobs();
+    if (reaped) { blog(`reaped ${reaped} orphaned forge job(s)`); setTimeout(() =>
+      broadcast('forge:status', { event: 'forge.log', line: `Stopped ${reaped} leftover Forge job${reaped === 1 ? '' : 's'} from a previous session.`, level: 'info' }), 1500); }
+  } catch (e) { blog(`reap failed: ${e.message}`); }
   provisioner = new ForgeProvisioner({ emit: forgeEmit, getSettings: () => settings.forgePaths() });
 }
 
@@ -505,6 +521,7 @@ function wireIpc() {
   });
   ipcMain.handle('library:reveal', (_e, p) => shell.showItemInFolder(String(p || '')));
 
+  ipcMain.handle('forge:pause', (_e, paused) => forge.setPaused(!!paused));
   ipcMain.handle('app:openMappingsDir', () => {
     const d = paths.ensureUserMappings();
     return shell.openPath(d);
@@ -582,6 +599,7 @@ function wireIpc() {
       inputPath: String(opts.inputPath || ''),
       pipeline: String(opts.pipeline || 'melody'),
       skipSeparation: !!opts.skipSeparation,
+      outputName: String(opts.outputName || ''),
       advanced: isObj(opts.advanced) ? opts.advanced : {},
       timing: isObj(opts.timing) ? opts.timing : {},
     });

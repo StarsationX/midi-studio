@@ -84,6 +84,12 @@ function modelsDir(settings) {
 }
 
 // A persistent, user-writable home for mappings that survives reinstall/update.
+// PIDs of Forge jobs currently running, so a crash or a force-kill of the app
+// can't leave a CUDA process holding the GPU forever.
+function forgeJobsFile() {
+  return path.join(app.getPath('userData'), 'forge-jobs.json');
+}
+
 function userMappingsDir() {
   return path.join(app.getPath('userData'), 'mappings');
 }
@@ -169,5 +175,5 @@ module.exports = {
   pythonEngineDir, bundledPlayerPython,
   forgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
   modelsDir, rendererIndexHtml, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,
-  userMappingsDir, ensureUserMappings, forgeSetupLog,
+  userMappingsDir, ensureUserMappings, forgeSetupLog, forgeJobsFile,
 };

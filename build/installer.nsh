@@ -6,6 +6,7 @@
 
   Var ForgeStorageDir
   Var ForgeStorageInput
+  Var ForgeStorageFree
 
   !macro customInit
     ReadRegStr $ForgeStorageDir HKCU "Software\StarsationX\MIDI Studio" "ForgeStorageDir"
@@ -35,9 +36,22 @@
     ${NSD_CreateBrowseButton} 80% 51u 20% 15u "Browse..."
     Pop $0
     ${NSD_OnClick} $0 ForgeStorageBrowse
-    ${NSD_CreateLabel} 0 76u 100% 24u "Your MIDI files remain in Documents\MIDI Studio. This setting only controls the Forge engine, dependencies, and models."
+    ${NSD_CreateLabel} 0 70u 100% 10u ""
+    Pop $ForgeStorageFree
+    Call ForgeStorageShowFree
+    ${NSD_CreateLabel} 0 82u 100% 20u "Setup downloads ~4 GB and needs about 15 GB free on this drive. Your MIDI files stay in Documents\MIDI Studio."
     Pop $0
     nsDialogs::Show
+  FunctionEnd
+
+  Function ForgeStorageShowFree
+    StrCpy $2 $ForgeStorageDir 3
+    ${DriveSpace} "$2" "/D=F /S=G" $3
+    ${If} $3 == ""
+      ${NSD_SetText} $ForgeStorageFree ""
+    ${Else}
+      ${NSD_SetText} $ForgeStorageFree "$3 GB free on $2"
+    ${EndIf}
   FunctionEnd
 
   Function ForgeStorageBrowse
@@ -53,18 +67,26 @@
         StrCpy $ForgeStorageDir "$0\MIDI Studio Forge"
       ${EndIf}
       ${NSD_SetText} $ForgeStorageInput "$ForgeStorageDir"
+      Call ForgeStorageShowFree
     ${EndIf}
   FunctionEnd
 
   Function ForgeStoragePageLeave
     ${NSD_GetText} $ForgeStorageInput $ForgeStorageDir
     ${If} $ForgeStorageDir == ""
-      MessageBox MB_ICONEXCLAMATION|MB_OK "Choose a Forge storage folder."
+      MessageBox MB_ICONEXCLAMATION|MB_OK "Choose a Forge storage folder." /SD IDOK
       Abort
     ${EndIf}
-    GetFullPathName $ForgeStorageDir "$ForgeStorageDir"
+    ; Create BEFORE resolving: GetFullPathName blanks the variable when the path
+    ; does not exist yet, which is always true on a first install — that is why
+    ; choosing a custom folder silently fell back to the default.
     ClearErrors
     CreateDirectory "$ForgeStorageDir"
+    GetFullPathName $1 "$ForgeStorageDir"
+    ${If} $1 != ""
+      StrCpy $ForgeStorageDir $1
+    ${EndIf}
+    ClearErrors
     FileOpen $0 "$ForgeStorageDir\.midi-studio-write-test" w
     IfErrors ForgeStorageNotWritable
     FileWrite $0 "ok"
@@ -73,7 +95,7 @@
     Return
 
     ForgeStorageNotWritable:
-      MessageBox MB_ICONEXCLAMATION|MB_OK "That folder is not writable. Choose another location."
+      MessageBox MB_ICONEXCLAMATION|MB_OK "That folder is not writable. Choose another location." /SD IDOK
       Abort
   FunctionEnd
 
@@ -82,7 +104,7 @@
     DetailPrint "Configuring Forge storage..."
     ExecWait '\"$appExe\" --configure-forge-storage \"$ForgeStorageDir\"' $0
     ${If} $0 != 0
-      MessageBox MB_ICONEXCLAMATION|MB_OK "MIDI Studio was installed, but Forge storage could not be configured. You can choose it later in Settings."
+      MessageBox MB_ICONEXCLAMATION|MB_OK "MIDI Studio was installed, but Forge storage could not be configured. You can choose it later in Settings." /SD IDOK
     ${EndIf}
   !macroend
 !endif

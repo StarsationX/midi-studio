@@ -21,7 +21,7 @@
   };
 
   const PIPELINE_HINT = {
-    melody: 'Isolate synth leads, then build Clean, Balanced, and Detailed melody candidates.',
+    melody: '⚠ Prototype — results vary a lot. Isolates synth leads, then builds Clean, Balanced and Detailed candidates. Use Piano or General if the output disappoints.',
     piano: 'Separate + Transkun on the piano stem — best for piano performances.',
     general: 'Separate, mix every pitched stem, then Transkun — best for full songs (any genre).',
     fast: 'basic-pitch straight on the audio — quick and rough, lower quality.',
@@ -95,10 +95,17 @@
     $('queue-undo').hidden = false;
   }
 
+  function openQueue() {
+    $('queue-wrap').classList.remove('is-collapsed');
+    $('queue-toggle').setAttribute('aria-expanded', 'true');
+  }
+
   function renderQueue() {
-    // Always shown -- an empty queue with a hint is how anyone finds out it exists.
     const list = $('queue-list');
-    $('queue-count').textContent = queue.length ? `· ${queue.length} waiting` : '';
+    const waiting = queue.length;
+    $('queue-count').textContent = String(waiting + (inputPath ? 1 : 0));
+    $('queue-toggle').classList.toggle('has-items', waiting > 0);
+    $('queue-toggle').title = waiting ? `${waiting} song${waiting === 1 ? '' : 's'} waiting` : 'Nothing queued';
     list.innerHTML = '';
     if (inputPath) list.appendChild(queueItem(inputPath, -1));
     queue.forEach((p, i) => list.appendChild(queueItem(p, i)));
@@ -134,8 +141,17 @@
       const down = document.createElement('button');
       down.className = 'qi-move'; down.type = 'button'; down.title = 'Move down'; down.textContent = '↓'; down.disabled = i === queue.length - 1;
       down.addEventListener('click', () => { if (i >= queue.length - 1) return; rememberQueue(); [queue[i], queue[i + 1]] = [queue[i + 1], queue[i]]; renderQueue(); });
+      name.classList.add('is-clickable');
+      name.title = busy ? path : `${path}\n(click to make this the current song)`;
+      name.addEventListener('click', () => {
+        if (busy) return;
+        rememberQueue();
+        const picked = queue.splice(i, 1)[0];
+        if (inputPath) queue.unshift(inputPath);
+        setInput(picked); renderQueue(); updateStart();
+      });
       const x = document.createElement('button');
-      x.className = 'qi-x'; x.type = 'button'; x.title = 'Remove'; x.textContent = '✕';
+      x.className = 'qi-x'; x.type = 'button'; x.title = 'Remove from queue'; x.textContent = '✕';
       x.addEventListener('click', () => { rememberQueue(); queue.splice(i, 1); renderQueue(); updateStart(); });
       li.append(up, down, x);
     }
@@ -154,9 +170,14 @@
     const ps = raw.filter((p) => !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
     if (mode === 'smart' && !busy && !inputPath && ps.length) setInput(ps.shift());
     queue.push(...ps);
-    if (busy && queue.length) runningQueue = true;
+    if (ps.length) openQueue();      // show what was just added, so a mistake is visible
     renderQueue(); updateStart();
   }
+  $('queue-toggle').addEventListener('click', () => {
+    const wrap = $('queue-wrap');
+    const collapsed = wrap.classList.toggle('is-collapsed');
+    $('queue-toggle').setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  });
   $('queue-clear').addEventListener('click', () => { if (!queue.length) return; rememberQueue(); queue = []; renderQueue(); updateStart(); });
   $('queue-undo').addEventListener('click', () => {
     if (!queueUndo || busy) return;
@@ -416,9 +437,9 @@
   function updateStart() { $('start').disabled = !(envReady && inputPath && !busy && validateTiming(false)); }
   function setBusy(b) {
     busy = b;
-    $('fetch').disabled = b; $('browse').disabled = b; $('queue-add').disabled = b; $('preview').disabled = b;
-    $('queue-clear').disabled = b; $('queue-undo').disabled = b;
-    $('cancel').hidden = !b; updateStart();
+    $('fetch').disabled = b; $('preview').disabled = b;
+    $('cancel').hidden = !b; $('pause').hidden = !b; if (!b) { $('pause').textContent = 'Pause'; jobPaused = false; }
+    updateStart();
   }
   function stopPreview() {
     if (previewTimer) { clearInterval(previewTimer); previewTimer = null; }
@@ -502,10 +523,10 @@
   }
   const ov = $('drop-overlay');
   let dragDepth = 0;
-  window.addEventListener('dragenter', (e) => { e.preventDefault(); if (busy) return; dragDepth++; ov.classList.add('show'); });
+  window.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; ov.classList.add('show'); });
   window.addEventListener('dragover', (e) => { e.preventDefault(); });
   window.addEventListener('dragleave', (e) => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; ov.classList.remove('show'); } });
-  window.addEventListener('drop', (e) => { e.preventDefault(); dragDepth = 0; ov.classList.remove('show'); if (busy) return; acceptDrop(e.dataTransfer && e.dataTransfer.files); });
+  window.addEventListener('drop', (e) => { e.preventDefault(); dragDepth = 0; ov.classList.remove('show'); acceptDrop(e.dataTransfer && e.dataTransfer.files); });
 
   // ---- URL fetch ----
   function doFetch() {
@@ -521,6 +542,9 @@
 
   // ---- output folder ----
   // Show the effective program output folder when the user hasn't overridden it.
+  // Windows-illegal characters would fail the write deep inside Python.
+  const outputName = () => $('out-name').value.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '').slice(0, 120);
+
   function showDefaultOut() { if (F.getOutputDir) F.getOutputDir().then((d) => { if (!outputDir && d) $('out-dir').textContent = d; syncPipelineUI(); }).catch(() => {}); }
   $('pick-out').addEventListener('click', async () => { const d = await F.pickOutDir(); if (d) { outputDir = d; $('out-dir').textContent = d; $('clear-out').hidden = false; F.setSettings({ outputDir: d }); syncPipelineUI(); } });
   $('clear-out').addEventListener('click', () => { outputDir = ''; $('clear-out').hidden = true; F.setSettings({ outputDir: '' }); showDefaultOut(); });
@@ -685,13 +709,29 @@
     const n = queue.length ? ` — ${queue.length} more queued` : '';
     logLine('▶ Start ' + inputPath.split(/[\/]/).pop() + ' (' + pipeline + ($('skipsep').checked ? ', skip-sep' : '') + ')' + n);
     renderQueue();
-    F.run({ inputPath, pipeline, skipSeparation: $('skipsep').checked, advanced, timing }).then((id) => { currentJob = id; if (pendingCancel) F.cancel(id); });
+    F.run({ inputPath, pipeline, skipSeparation: $('skipsep').checked, advanced, timing, outputName: outputName() })
+      .then((id) => { currentJob = id; if (pendingCancel) F.cancel(id); });
+    $('out-name').value = '';   // a name belongs to one song, not to the queue
   }
   $('start').addEventListener('click', () => { runningQueue = queue.length > 0; startJob(); });
+  let jobPaused = false;
+  $('pause').addEventListener('click', async () => {
+    if (!F.pause) return;
+    const want = !jobPaused;
+    $('pause').disabled = true;
+    const r = await F.pause(want);
+    $('pause').disabled = false;
+    if (r && r.ok) {
+      jobPaused = r.paused;
+      $('pause').textContent = jobPaused ? 'Resume' : 'Pause';
+      $('job-stage').textContent = jobPaused ? 'Paused' : $('job-stage').textContent;
+      logLine(jobPaused ? '⏸ Paused — the GPU is free until you resume.' : '▶ Resumed.');
+    } else logLine((r && r.error) || 'Could not pause the job.');
+  });
   $('cancel').addEventListener('click', () => {
     // Cancelling the visible job abandons the whole batch — a half-run queue
     // that keeps going after you hit Cancel is never what anyone means.
-    if (queue.length) { queue = []; logLine('Queue cleared.'); }
+    if (queue.length) { rememberQueue(); queue = []; logLine('Queue cleared — press Undo to get the list back.'); }
     runningQueue = false; renderQueue();
     skipRequested = false;
     if (currentJob) F.cancel(currentJob); else pendingCancel = true;
@@ -776,7 +816,7 @@
           showError(s.error || 'Job failed.'); logLine('✖ ' + (s.error || 'failed'));
         }
         // Keep draining the batch: one failure shouldn't strand the rest.
-        if ((runningQueue || wasSkipped) && queue.length) { setInput(queue.shift()); startJob(); }
+        if ((runningQueue || wasSkipped) && queue.length && $('queue-auto').checked) { setInput(queue.shift()); startJob(); }
         else { runningQueue = false; if (wasSkipped) setInput(''); renderQueue(); }
         break;
       }

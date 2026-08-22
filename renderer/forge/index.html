@@ -59,14 +59,24 @@
           <input id="url" type="text" placeholder="…or paste any link — YouTube, SoundCloud, Bandcamp, direct MP3" />
           <button class="btn" id="fetch">Fetch</button>
         </div>
-        <div class="queue" id="queue-wrap">
+        <div class="queue is-collapsed" id="queue-wrap">
           <div class="row queue-head">
-            <span class="lbl-inline">Queue <span id="queue-count" class="muted"></span></span>
+            <button class="btn queue-toggle" id="queue-toggle" type="button" aria-expanded="false">
+              <span class="qt-caret" aria-hidden="true">▸</span>Queue<span id="queue-count" class="qt-count">0</span>
+            </button>
             <span class="spacer"></span>
+            <label class="check queue-auto" title="When one song finishes, start the next one by itself">
+              <input type="checkbox" id="queue-auto" checked /> Auto-continue
+            </label>
             <button class="link" id="queue-undo" hidden>Undo</button>
             <button class="link" id="queue-clear">Clear waiting</button>
           </div>
           <ol class="queue-list" id="queue-list"></ol>
+        </div>
+        <div class="row out-row">
+          <label class="out-label" for="out-name">Save as</label>
+          <input id="out-name" type="text" placeholder="same name as the song" spellcheck="false" />
+          <span class="mono muted">.mid</span>
         </div>
         <div class="row out-row">
           <span class="out-label">Output folder: <span id="out-dir" class="mono muted">next to the input file</span></span>
@@ -79,7 +89,7 @@
       <label class="lbl">Pipeline</label>
       <div class="card">
         <div class="seg" id="pipeline">
-          <button data-v="melody" class="is-active"><b>Main Melody</b><i>synth leads - clean hooks</i></button>
+          <button data-v="melody" class="is-active"><b>Main Melody <span class="badge-proto">PROTOTYPE</span></b><i>synth leads - clean hooks</i></button>
           <button data-v="piano"><b>Piano</b><i>piano covers — highest accuracy</i></button>
           <button data-v="general"><b>General</b><i>any song — full-mix transcription</i></button>
           <button data-v="fast"><b>Fast</b><i>basic-pitch — quick &amp; rough</i></button>
@@ -183,6 +193,7 @@
             <div><span>OUTPUT</span><span id="run-info-out" class="mono">Documents\MIDI Studio</span></div>
           </div>
         </div>
+        <button class="btn btn-ghost" id="pause" hidden title="Suspend the job — frees the GPU, keeps the progress">Pause</button>
         <button class="btn btn-ghost" id="cancel" hidden>Cancel</button>
         <div class="prog" id="job-prog" hidden>
           <div class="prog-row"><span id="job-stage">Queued</span><span id="job-pct" class="mono"></span></div>

@@ -3,7 +3,8 @@
 // honest progress to the renderer via the injected emit() callback.
 'use strict';
 
-const { spawn } = require('child_process');
+const { spawn, execFile, execFileSync } = require('child_process');
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const paths = require('./paths');
@@ -41,8 +42,13 @@ function parseTimeSeconds(v) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-function outputMidiPath(inputPath, timing) {
-  const extless = inputPath.replace(/\.[^./\\]+$/, '');
+function outputMidiPath(inputPath, timing, outputName) {
+  const named = String(outputName || '').trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '').slice(0, 120);
+  // A custom name replaces the song's filename but keeps the range suffix, so
+  // two ranges of the same song still land side by side instead of colliding.
+  const extless = named
+    ? path.join(path.dirname(inputPath), named.replace(/\.midi?$/i, ''))
+    : inputPath.replace(/\.[^./\\]+$/, '');
   const start = timing && parseTimeSeconds(timing.start);
   const end = timing && parseTimeSeconds(timing.end);
   if (start == null && end == null) return extless + '.mid';
@@ -66,6 +72,68 @@ function makePump(onLine) {
   };
 }
 
+// Windows has no SIGSTOP. NtSuspendProcess/NtResumeProcess do the same job and
+// are reachable from PowerShell, which is enough for a button the user presses
+// by hand. The job keeps its GPU memory but stops issuing work.
+function suspendProcess(pid, resume) {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32' || !pid) { resolve(false); return; }
+    const fn = resume ? 'NtResumeProcess' : 'NtSuspendProcess';
+    const script = [
+      '$sig = @"',
+      '[DllImport("ntdll.dll")] public static extern int NtSuspendProcess(IntPtr h);',
+      '[DllImport("ntdll.dll")] public static extern int NtResumeProcess(IntPtr h);',
+      '[DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(int a, bool i, int p);',
+      '[DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);',
+      '"@',
+      '$t = Add-Type -MemberDefinition $sig -Name MsProc -Namespace Ms -PassThru',
+      `$h = $t::OpenProcess(0x0800, $false, ${pid})`,
+      'if ($h -eq [IntPtr]::Zero) { exit 1 }',
+      `[void]$t::${fn}($h)`,
+      '[void]$t::CloseHandle($h)',
+    ].join('\n');
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
+      { windowsHide: true, timeout: 8000 }, (error) => resolve(!error));
+  });
+}
+
+// --- orphan protection ------------------------------------------------------
+// A Forge job is a separate python.exe holding the GPU. Killing MIDI Studio the
+// hard way (Task Manager, a crash) never runs our cleanup, and the job then
+// transcribes forever at 100% GPU with no window to stop it.
+function readPids() {
+  try { return JSON.parse(fs.readFileSync(paths.forgeJobsFile(), 'utf-8')) || []; }
+  catch { return []; }
+}
+function writePids(pids) {
+  try { fs.writeFileSync(paths.forgeJobsFile(), JSON.stringify(pids)); } catch (_) {}
+}
+function trackPid(pid) { const pids = readPids(); if (!pids.includes(pid)) { pids.push(pid); writePids(pids); } }
+function untrackPid(pid) { writePids(readPids().filter((p) => p !== pid)); }
+
+function isOurPython(pid) {
+  if (process.platform !== 'win32') return false;
+  try {
+    const out = execFileSync('tasklist.exe', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'],
+      { windowsHide: true, encoding: 'utf-8', timeout: 5000 });
+    return /^"python(w)?\.exe"/i.test(out.trim());
+  } catch { return false; }
+}
+
+// Called once at startup: anything still alive from a previous run is ours to kill.
+function reapOrphanJobs() {
+  const pids = readPids();
+  if (!pids.length) return 0;
+  let killed = 0;
+  for (const pid of pids) {
+    if (!isOurPython(pid)) continue;
+    try { execFileSync('taskkill.exe', ['/pid', String(pid), '/t', '/f'], { windowsHide: true, timeout: 5000 }); killed += 1; }
+    catch (_) { /* already gone */ }
+  }
+  writePids([]);
+  return killed;
+}
+
 class ForgeRunner {
   constructor({ emit, getSettings } = {}) {
     this._emit = emit || (() => {});
@@ -75,6 +143,31 @@ class ForgeRunner {
   }
 
   isRunning() { return this._jobs.size > 0; }
+  isPaused() { return !!this._paused; }
+
+  // Pause frees the GPU without losing the minutes already spent.
+  async setPaused(paused) {
+    const entries = [...this._jobs.values()];
+    if (!entries.length) return { ok: false, error: 'Nothing is running.' };
+    let done = false;
+    for (const child of entries) done = (await suspendProcess(child.pid, !paused)) || done;
+    if (!done) return { ok: false, error: 'Could not pause the job on this system.' };
+    this._paused = !!paused;
+    this._emit({ event: 'forge.paused', paused: this._paused });
+    return { ok: true, paused: this._paused };
+  }
+
+  // Drop to idle priority while a game is in the foreground, back to
+  // below-normal when it closes.
+  setBackground(background) {
+    this._background = !!background;
+    for (const child of this._jobs.values()) {
+      try {
+        os.setPriority(child.pid, background ? os.constants.priority.PRIORITY_LOW
+          : os.constants.priority.PRIORITY_BELOW_NORMAL);
+      } catch (_) { /* the job may have just exited */ }
+    }
+  }
 
   _settings() { try { return this._getSettings() || {}; } catch { return {}; } }
   _forgePython() { return paths.forgeEnvPython(this._settings()); }
@@ -117,9 +210,13 @@ class ForgeRunner {
     try { child = spawn(args[0], args.slice(1), { cwd: paths.pythonEngineDir(), env, windowsHide: NO_WINDOW }); }
     catch (e) { this._emit({ event: 'forge.done', jobId, ok: false, error: `spawn failed: ${e.message}` }); return; }
     this._jobs.set(jobId, child);
+    trackPid(child.pid);
     // Forge can saturate a GPU and several CPU cores. Keep the realtime player
     // and Electron renderer responsive while a transcription runs.
-    try { os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
+    try {
+      os.setPriority(child.pid, this._background ? os.constants.priority.PRIORITY_LOW
+        : os.constants.priority.PRIORITY_BELOW_NORMAL);
+    } catch {}
     // "exit code 1" tells a user nothing. Keep the tail of the output and any
     // line that looks like a cause, and report that instead.
     const recent = [];
@@ -170,6 +267,8 @@ class ForgeRunner {
     if (child.stderr) { child.stderr.setEncoding('utf-8'); child.stderr.on('data', pump); }
     child.on('exit', (code) => {
       this._jobs.delete(jobId);
+      untrackPid(child.pid);
+      if (!this._jobs.size) this._paused = false;
       if (child.__finalized) return;                       // DONE already finalized success
       if (child.__cancelled) this._emit({ event: 'forge.done', jobId, ok: false, error: 'cancelled' });
       else if (code !== 0) {
@@ -180,7 +279,7 @@ class ForgeRunner {
     });
   }
 
-  run({ inputPath, pipeline, skipSeparation, advanced, timing }) {
+  run({ inputPath, pipeline, skipSeparation, advanced, timing, outputName }) {
     const jobId = `job-${++this._seq}`;
     const py = this._forgePython();
     // forgeEnvReady, not just "python.exe exists": a cancelled or out-of-disk
@@ -193,10 +292,12 @@ class ForgeRunner {
     if (!inputPath) { setTimeout(() => this._emit({ event: 'forge.done', jobId, ok: false, error: 'No input file.' }), 0); return jobId; }
     const [script, stageTable] = selectScript(pipeline, skipSeparation);
     const env = Object.assign({}, paths.forgeChildEnv(this._settings()));
-    env.SEPARATION_BATCH = env.SEPARATION_BATCH || '2';
-    env.TRANSCRIBE_BATCH = env.TRANSCRIBE_BATCH || '2';
-    env.OMP_NUM_THREADS = env.OMP_NUM_THREADS || '4';
-    env.MKL_NUM_THREADS = env.MKL_NUM_THREADS || '4';
+    // "Easy on the GPU/CPU" trades throughput for a machine that stays usable.
+    const easy = !!(this._settings() && this._settings().perfMode) || this._background;
+    env.SEPARATION_BATCH = env.SEPARATION_BATCH || (easy ? '1' : '2');
+    env.TRANSCRIBE_BATCH = env.TRANSCRIBE_BATCH || (easy ? '1' : '2');
+    env.OMP_NUM_THREADS = env.OMP_NUM_THREADS || (easy ? '2' : '4');
+    env.MKL_NUM_THREADS = env.MKL_NUM_THREADS || (easy ? '2' : '4');
     for (const [k, v] of Object.entries(advanced || {})) { if (v !== null && v !== undefined && v !== '') env[k] = (v === true ? '1' : v === false ? '0' : String(v)); }
     const start = timing && parseTimeSeconds(timing.start);
     const end = timing && parseTimeSeconds(timing.end);
@@ -208,7 +309,7 @@ class ForgeRunner {
     }
     if (pipeline === 'general') env.GENERAL_MODE = '1';  // mix all pitched stems for Transkun
     if ((pipeline === 'drums' || pipeline === 'melody') && skipSeparation) env.SKIP_SEPARATION = '1';
-    const audioOut = outputMidiPath(inputPath, { start, end });
+    const audioOut = outputMidiPath(inputPath, { start, end }, outputName);
     this._emit({ event: 'forge.progress', jobId, stage: 'Queued', percent: -1, message: `Starting ${script}` });
     this._spawnJob(jobId, [py, path.join(paths.pythonEngineDir(), script), inputPath, audioOut], env, stageTable, audioOut,
       { pipeline, timing: { start, end } });
@@ -229,6 +330,7 @@ class ForgeRunner {
     try { child = spawn(args[0], args.slice(1), { cwd: paths.pythonEngineDir(), env, windowsHide: NO_WINDOW }); }
     catch (e) { this._emit({ event: 'forge.done', jobId, ok: false, error: `spawn failed: ${e.message}` }); return jobId; }
     this._jobs.set(jobId, child);
+    trackPid(child.pid);
     const onLine = (line) => {
       if (line.startsWith('DOWNLOADED:')) { const p = line.split('DOWNLOADED:', 2)[1].trim(); child.__finalized = true; this._emit({ event: 'forge.progress', jobId, stage: 'Done', percent: 100, message: 'Download complete' }); this._emit({ event: 'forge.done', jobId, ok: true, result: { downloadedPath: p } }); return; }
       const m = line.match(/(\d{1,3}(?:\.\d+)?)%/); if (m) { this._emit({ event: 'forge.progress', jobId, stage: 'Download', percent: Math.max(5, Math.min(99, Math.round(parseFloat(m[1])))), message: line }); return; }
@@ -237,7 +339,7 @@ class ForgeRunner {
     const pump = makePump(onLine);
     if (child.stdout) { child.stdout.setEncoding('utf-8'); child.stdout.on('data', pump); }
     if (child.stderr) { child.stderr.setEncoding('utf-8'); child.stderr.on('data', pump); }
-    child.on('exit', (code) => { this._jobs.delete(jobId); if (child.__finalized) return; if (child.__cancelled) this._emit({ event: 'forge.done', jobId, ok: false, error: 'cancelled' }); else if (code !== 0) this._emit({ event: 'forge.done', jobId, ok: false, error: `exit code ${code}` }); });
+    child.on('exit', (code) => { this._jobs.delete(jobId); untrackPid(child.pid); if (child.__finalized) return; if (child.__cancelled) this._emit({ event: 'forge.done', jobId, ok: false, error: 'cancelled' }); else if (code !== 0) this._emit({ event: 'forge.done', jobId, ok: false, error: `exit code ${code}` }); });
     return jobId;
   }
 
@@ -252,4 +354,4 @@ class ForgeRunner {
   cancelAll() { for (const id of [...this._jobs.keys()]) this.cancel(id); }
 }
 
-module.exports = { ForgeRunner };
+module.exports = { ForgeRunner, reapOrphanJobs };

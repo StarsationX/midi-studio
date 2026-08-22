@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('forge', {
   openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
   showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
   onStatus: onChannel('forge:status'),
+  pause: (paused) => ipcRenderer.invoke('forge:pause', paused),
 });
 
 // ---- Review workspace ------------------------------------------------------
@@ -80,6 +81,7 @@ contextBridge.exposeInMainWorld('studio', {
   setUi: (patch) => ipcRenderer.invoke('app:setUi', patch),
   forgeInfo: () => ipcRenderer.invoke('app:forgeInfo'),
   onShortcut: onChannel('shell-shortcut'),
+  onGameActive: onChannel('game-active'),
   openForgeFolder: () => ipcRenderer.invoke('app:openForgeFolder'),
   changeForgeFolder: () => ipcRenderer.invoke('app:changeForgeFolder'),
   resetForgeFolder: () => ipcRenderer.invoke('app:resetForgeFolder'),
