@@ -60,6 +60,15 @@ contextBridge.exposeInMainWorld('review', {
   getDroppedFilePath: (file) => webUtils.getPathForFile(file),
 });
 
+// ---- MIDI library (Self Midi) ----------------------------------------------
+contextBridge.exposeInMainWorld('library', {
+  list: () => ipcRenderer.invoke('library:list'),
+  addFolder: () => ipcRenderer.invoke('library:addFolder'),
+  removeFolder: (dir) => ipcRenderer.invoke('library:removeFolder', dir),
+  reveal: (p) => ipcRenderer.invoke('library:reveal', p),
+  onChanged: onChannel('library-changed'),
+});
+
 // ---- Shell -----------------------------------------------------------------
 contextBridge.exposeInMainWorld('studio', {
   getVersion: () => ipcRenderer.invoke('app:version'),
@@ -70,6 +79,7 @@ contextBridge.exposeInMainWorld('studio', {
   getUi: () => ipcRenderer.invoke('app:getUi'),
   setUi: (patch) => ipcRenderer.invoke('app:setUi', patch),
   forgeInfo: () => ipcRenderer.invoke('app:forgeInfo'),
+  onShortcut: onChannel('shell-shortcut'),
   openForgeFolder: () => ipcRenderer.invoke('app:openForgeFolder'),
   changeForgeFolder: () => ipcRenderer.invoke('app:changeForgeFolder'),
   resetForgeFolder: () => ipcRenderer.invoke('app:resetForgeFolder'),

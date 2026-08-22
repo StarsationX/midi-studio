@@ -153,8 +153,11 @@ class Bridge:
             mapping_data, note_to_key = engine.load_mapping(
                 _resolve_mapping(msg["mapping"]), SCRIPT_DIR)
             tempo = float(msg.get("tempo", 1.0))
+            transpose = int(msg.get("transpose", 0) or 0)
+            if msg.get("auto_transpose"):
+                transpose, _, _ = engine.best_transpose(msg["path"], note_to_key)
             events, unmapped, total, bpm = engine.parse_midi(
-                msg["path"], note_to_key, tempo)
+                msg["path"], note_to_key, tempo, transpose)
             # Compress event tuples for transport
             payload = [
                 [round(t, 6), k, round(d, 6), n, c]
@@ -168,6 +171,7 @@ class Bridge:
                 "note_to_key": {str(k): v for k, v in note_to_key.items()},
                 "mapping_name": mapping_data.get("name", msg["mapping"]),
                 "unmapped": unmapped,
+                "transpose": transpose,
             })
         except Exception as e:
             emit({"event": "error", "message": f"load_midi failed: {e}"})
@@ -359,7 +363,7 @@ class Bridge:
             mapping_data, note_to_key = engine.load_mapping(
                 _resolve_mapping(mapping_arg), SCRIPT_DIR)
             events, unmapped, total_dur, bpm = engine.parse_midi(
-                midi_path, note_to_key, tempo)
+                midi_path, note_to_key, tempo, int(msg.get("transpose", 0) or 0))
             if not events:
                 emit({"event": "error", "message": "MIDI has no playable events."})
                 return

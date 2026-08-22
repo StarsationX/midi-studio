@@ -437,8 +437,22 @@
 
   // ---- env status (probed only on load / re-check / provision-done) ----
   function setEnv(state, text) { $('env-dot').className = 'dot ' + (state || ''); $('env-text').textContent = text; }
+  // Where setup will install, shown in the setup panel with the free space on
+  // that drive — picking the drive is the one decision setup can't recover from.
+  async function refreshStorage() {
+    if (!window.studio || !studio.forgeInfo) return;
+    let info; try { info = await studio.forgeInfo(); } catch { return; }
+    if (!info) return;
+    $('setup-dir').textContent = info.forgeEnvDir || '—';
+    $('setup-dir').title = info.forgeEnvDir || '';
+    const free = info.forgeFreeGb;
+    $('setup-free').textContent = free == null ? '' : `${free} GB free`;
+    $('setup-free').classList.toggle('is-low', free != null && free < 15);
+  }
+
   async function refreshEnv() {
     setEnv('warn', 'Checking Midi Forge…');
+    refreshStorage();
     let s; try { s = await F.check(); } catch { s = { forgeReady: false }; }
     envReady = !!s.forgeReady;
     if (envReady) {
@@ -454,6 +468,15 @@
     updateStart();
   }
   $('env-recheck').addEventListener('click', refreshEnv);
+  $('setup-change').addEventListener('click', async () => {
+    if (!window.studio || !studio.changeForgeFolder) return;
+    const btn = $('setup-change'); btn.disabled = true; const label = btn.textContent; btn.textContent = 'Moving…';
+    try {
+      const r = await studio.changeForgeFolder();
+      if (r && r.ok) { logLine(`Forge storage: ${r.forgeEnvDir}`); refreshEnv(); }
+      else if (r && !r.canceled) logLine(r.error || 'Could not change the Forge folder.');
+    } finally { btn.disabled = false; btn.textContent = label; }
+  });
 
   // ---- setup / provisioning ----
   $('setup-start').addEventListener('click', () => { $('setup-start').disabled = true; $('setup-cancel').hidden = false; $('setup-prog').hidden = false; F.provision(); });

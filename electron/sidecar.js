@@ -120,12 +120,15 @@ class PlayerSidecar {
     child.on('exit', (code, signal) => {
       const m = this._stderrTail.match(/ModuleNotFoundError: No module named ['"]([^'"]+)['"]/);
       if (m) {
-        this._fail(`Player engine is missing the "${m[1]}" module. Run install.bat ` +
+        this._fail(`Player engine is missing the "${m[1]}" module. Reinstall MIDI Studio ` +
           `(or: pip install -r python-engine/requirements-player.txt), then restart.`);
       } else if (code !== 0 && !this._killing) {
         this._fail(`Player engine crashed (code=${code} signal=${signal}). ` +
           (this._stderrTail ? `Last: ${this._stderrTail.trim().split(/\r?\n/).slice(-2).join(' | ')}` : ''));
       }
+      // Without this the renderer never learns playback ended: Play stays
+      // disabled and the queue stays locked until the whole app is restarted.
+      this._onEvent({ event: 'playback_done', crashed: true });
       this._proc = null; this._killing = false;
     });
   }
@@ -137,7 +140,7 @@ class PlayerSidecar {
       this.start();
       this._onError(this._lastError
         ? `Can't reach player engine. ${this._lastError}`
-        : 'Player engine is not running. Check the log or run install.bat.');
+        : 'Player engine is not running. Check the log, or reinstall MIDI Studio.');
       return false;
     }
     try { this._proc.stdin.write(JSON.stringify(msg) + '\n'); return true; }

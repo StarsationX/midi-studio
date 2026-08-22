@@ -82,6 +82,10 @@
     if (event.data && event.data.type === 'studio:open-audition') openAudition(event.data);
     if (event.data && event.data.type === 'studio:open-review') openReview(event.data);
   });
+  // Ctrl+1..4 arrive from the main process (see before-input-event) because the
+  // tab iframe swallows key events aimed at the shell.
+  if (studio && studio.onShortcut) studio.onShortcut((p) => { if (p && p.tab) activate(p.tab); });
+
   // Restore last tab.
   if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui) { if (ui.lastTab) activate(ui.lastTab, false); applyTheme(ui.theme); if (ui.accent) applyAccent(ui.accent); } }).catch(() => {});
 

@@ -198,8 +198,7 @@ def main() -> int:
         print(f"File not found: {src}")
         return 1
     out_midi = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else src.with_name(src.stem + "_melody.mid")
-    work_dir = src.parent / "stems" / (song.safe_name(src.stem) + "_melody")
-    work_dir.mkdir(parents=True, exist_ok=True)
+    work_dir = song.work_root(src, "_melody")
     process_src = audio_window_from_env(src, work_dir)
 
     print(f"Input: {src.name}")
@@ -234,11 +233,7 @@ def main() -> int:
     }
     print("RESULT|" + json.dumps(result, ensure_ascii=False))
     print("DONE.")
-    try:
-        raw_midi.unlink(missing_ok=True)
-        norm_wav.unlink(missing_ok=True)
-    except OSError:
-        pass
+    song.cleanup_work(work_dir)
     return 0
 
 

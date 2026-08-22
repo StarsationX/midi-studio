@@ -81,6 +81,21 @@ delete process.env.PORTABLE_EXECUTABLE_FILE;
   ok(configured.moved && fs.existsSync(path.join(configuredTarget, '.ready')), 'installer storage choice migrates managed files');
   ok(saved && saved.paths.forgeEnvDir === configuredTarget, 'installer storage choice is persisted');
 
+  // Editing a plain .mid must never write back over the user's own file.
+  const taken = new Set([path.join('C:', 'out', 'song_clean.mid').toLowerCase()]);
+  const fakeExists = (p) => taken.has(String(p).toLowerCase());
+  ok(storage.candidateTarget({ existing: path.join('C:', 'songs', 'mine.mid'), projectDir: path.join('C:', 'out'),
+    fromProject: false, fallbackName: 'song_clean.mid' }, fakeExists) === path.join('C:', 'out', 'song_clean (2).mid'),
+    'a plain .mid is never overwritten, and the fallback name is de-duplicated');
+  ok(storage.candidateTarget({ existing: path.join('C:', 'songs', 'mine.mid'), projectDir: path.join('C:', 'out'),
+    fromProject: true, fallbackName: 'x.mid' }, fakeExists) === path.join('C:', 'songs', 'mine.mid'),
+    'a real project keeps writing to its own candidate files');
+  ok(storage.candidateTarget({ existing: path.join('C:', 'out', 'a_clean.mid'), projectDir: path.join('C:', 'out'),
+    fromProject: false, fallbackName: 'x.mid' }, fakeExists) === path.join('C:', 'out', 'a_clean.mid'),
+    'a candidate already inside the project folder is written in place');
+  ok(storage.uniquePath(path.join('C:', 'out', 'free.mid'), fakeExists) === path.join('C:', 'out', 'free.mid'),
+    'a free name is left alone');
+
   const installer = fs.readFileSync(path.join(root, 'build', 'installer.nsh'), 'utf-8');
   const pkg = require(path.join(root, 'package.json'));
   const lock = require(path.join(root, 'package-lock.json'));

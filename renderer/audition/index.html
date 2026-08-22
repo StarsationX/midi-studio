@@ -8,13 +8,29 @@
   <link rel="stylesheet" href="./audition.css" />
 </head>
 <body>
+  <div class="layout">
+  <aside class="library" id="library">
+    <div class="library-head">
+      <strong>Your MIDI</strong>
+      <span class="mono" id="library-count">—</span>
+    </div>
+    <div class="library-tools">
+      <input id="library-search" type="search" placeholder="Search…" aria-label="Search your MIDI files" />
+      <select id="library-sort" aria-label="Sort MIDI list">
+        <option value="recent">Newest</option>
+        <option value="name">Name</option>
+        <option value="folder">Folder</option>
+      </select>
+    </div>
+    <div class="library-list" id="library-list" role="listbox" aria-label="MIDI files"></div>
+    <div class="library-foot">
+      <button class="btn compact" id="library-add" type="button">Add folder…</button>
+      <button class="btn btn-ghost compact" id="library-refresh" type="button" title="Rescan folders">Rescan</button>
+    </div>
+  </aside>
   <main class="audition" id="audition">
     <header class="toolbar">
       <button class="btn btn-primary" id="open-midi" type="button">Open MIDI</button>
-      <label class="recent-field">Recent
-        <select id="recent"><option value="">No recent MIDI</option></select>
-      </label>
-      <button class="icon-btn" id="clear-recent" type="button" title="Clear recent MIDI" aria-label="Clear recent MIDI">×</button>
       <span class="spacer"></span>
       <label class="check"><input id="autoplay" type="checkbox" /> Autoplay</label>
       <button class="btn" id="show-file" type="button" disabled>Open folder</button>
@@ -92,6 +108,7 @@
       </div>
     </section>
   </main>
+  </div>
 
   <div class="drop-overlay" id="drop-overlay" aria-hidden="true"><div>Drop MIDI to play</div></div>
   <script src="../soundfonts/player.js"></script>

@@ -1,4 +1,5 @@
 import os
+import hashlib
 import re
 import shutil
 import subprocess
@@ -111,6 +112,30 @@ def _separation_batch() -> int:
     except Exception:
         pass
     return 1
+
+
+def work_root(src: Path, suffix: str = "") -> Path:
+    """Scratch folder for separated stems.
+
+    These are several GB per song. They used to land in <song folder>/stems and
+    stay there forever, quietly eating the user's disk (and failing outright on a
+    read-only or cloud-synced music folder). Keep them with the Forge engine,
+    keyed by a hash of the source path so two songs with the same name can't
+    collide, and delete them when the run ends unless FORGE_KEEP_STEMS=1.
+    """
+    base = os.environ.get("MIDI_STUDIO_FORGE_ENV_DIR", "")
+    root = Path(base) / "work" if base else src.parent / "stems"
+    tag = hashlib.sha1(str(src.resolve()).encode("utf-8", "replace")).hexdigest()[:8]
+    work = root / f"{safe_name(src.stem)}{suffix}-{tag}"
+    work.mkdir(parents=True, exist_ok=True)
+    return work
+
+
+def cleanup_work(work_dir: Path) -> None:
+    if os.environ.get("FORGE_KEEP_STEMS") == "1":
+        print(f"  (kept stems: {work_dir})")
+        return
+    shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def _patched_msst_config(work_dir: Path, batch: int) -> Path:
@@ -409,8 +434,7 @@ def main() -> int:
 
     # Sanitize the work-dir name too: MSST globs the input folder path, and
     # brackets/parens in it would be read as glob character classes.
-    work_dir = src.parent / "stems" / safe_name(src.stem)
-    work_dir.mkdir(parents=True, exist_ok=True)
+    work_dir = work_root(src)
     process_src = audio_window_from_env(src, work_dir)
 
     backend = _resolve_backend()
@@ -443,6 +467,7 @@ def main() -> int:
         after = recover_sparse_piano(stem_wav, out_midi, after, work_dir)
 
     print(f"\nDONE.\n  Stem: {stem_wav}\n  MIDI:       {out_midi}")
+    cleanup_work(work_dir)
     return 0
 
 

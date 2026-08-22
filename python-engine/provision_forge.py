@@ -62,6 +62,15 @@ class Provisioner:
         self.py = env_dir / "python" / "python.exe"
         self.models_dir = env_dir / "models"
         self.wheelhouse = engine_dir / "wheelhouse"
+        # pip unpacks a ~2.8 GB torch wheel through its cache and temp dir. Those
+        # default to %LOCALAPPDATA% and %TEMP% on C:, so a user who picked another
+        # drive for Forge storage precisely because C: is full still ran out of
+        # space mid-download. Keep every big write on the drive they chose.
+        self.pip_cache = env_dir / "pip-cache"
+        self.tmp_dir = env_dir / "tmp"
+
+    def _drive(self):
+        return str(Path(self.env_dir).anchor) or str(self.env_dir)
 
     def _free_gb(self):
         try:
@@ -74,16 +83,36 @@ class Provisioner:
         free = self._free_gb()
         if free < min_gb:
             raise ProvisionError(
-                f"Not enough free disk for {where}: need ~{min_gb} GB, {free:.1f} GB free.")
+                f"Not enough free disk on {self._drive()} for {where}: need ~{min_gb} GB, "
+                f"{free:.1f} GB free. Free up space, or pick another drive with "
+                f"Settings -> Forge storage -> Change.")
+
+    def _child_env(self, extra=None):
+        self.pip_cache.mkdir(parents=True, exist_ok=True)
+        self.tmp_dir.mkdir(parents=True, exist_ok=True)
+        env = dict(os.environ, PIP_CACHE_DIR=str(self.pip_cache),
+                   TMP=str(self.tmp_dir), TEMP=str(self.tmp_dir))
+        if extra:
+            env.update(extra)
+        return env
 
     def _run(self, args, env=None):
         log("$ " + " ".join(str(a) for a in args))
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding="utf-8", errors="replace",
                                 cwd=str(self.env_dir), env=env, creationflags=_NO_WINDOW)
+        out_of_space = False
         for line in proc.stdout:
-            log(line.rstrip())
+            line = line.rstrip()
+            if "No space left on device" in line or "Errno 28" in line:
+                out_of_space = True
+            log(line)
         if proc.wait() != 0:
+            if out_of_space:
+                raise ProvisionError(
+                    f"Ran out of disk space on {self._drive()} ({self._free_gb():.1f} GB free). "
+                    f"Free up space, or move Forge storage to a bigger drive with "
+                    f"Settings -> Forge storage -> Change, then run setup again.")
             raise ProvisionError(f"command failed: {args[0]}")
 
     def _pip(self, *args):
@@ -91,7 +120,7 @@ class Provisioner:
                 "--disable-pip-version-check", "--no-warn-script-location"]
         if self.wheelhouse.is_dir():
             base += ["--find-links", str(self.wheelhouse)]
-        self._run(base + list(args))
+        self._run(base + list(args), env=self._child_env())
 
     def _download(self, url, dest, label):
         log(f"download {url}")
@@ -195,7 +224,7 @@ class Provisioner:
         script = self.engine_dir / "download_assets.py"
         if not script.exists():
             raise ProvisionError(f"download_assets.py not found at {script}")
-        env = dict(os.environ, MIDI_STUDIO_MODELS_DIR=str(self.models_dir), PYTHONUNBUFFERED="1")
+        env = self._child_env({"MIDI_STUDIO_MODELS_DIR": str(self.models_dir), "PYTHONUNBUFFERED": "1"})
         self.models_dir.mkdir(parents=True, exist_ok=True)
         proc = subprocess.Popen([str(self.py), str(script)], stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, encoding="utf-8",
@@ -211,10 +240,14 @@ class Provisioner:
         script = self.engine_dir / "verify_install.py"
         if not script.exists():
             log("verify_install.py missing; skipping deep verify"); return
-        env = dict(os.environ, MIDI_STUDIO_MODELS_DIR=str(self.models_dir))
+        env = self._child_env({"MIDI_STUDIO_MODELS_DIR": str(self.models_dir)})
         self._run([str(self.py), str(script)], env=env)
 
     def finalize(self):
+        # The wheel cache is only useful while setup is retrying; several GB of it
+        # is not something to leave sitting on the drive the user picked.
+        shutil.rmtree(self.pip_cache, ignore_errors=True)
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
         (self.env_dir / "env.json").write_text(json.dumps(
             {"envVersion": ENV_VERSION, "ready": True, "python": str(self.py),
              "ts": int(time.time())}, indent=2))
@@ -237,7 +270,7 @@ class Provisioner:
     def plan(self):
         log(f"env_dir    = {self.env_dir}")
         log(f"engine_dir = {self.engine_dir}")
-        log(f"free_disk  = {self._free_gb():.1f} GB (need >= {MIN_FREE_GB_START})")
+        log(f"free_disk  = {self._free_gb():.1f} GB on {self._drive()} (need >= {MIN_FREE_GB_START})")
         log(f"python     = {'present' if self.py.exists() else 'MISSING -> download'}")
         log(f"torch      = {'present' if self._torch_installed() else 'MISSING -> pip cu128'}")
         log(f"msst       = {'present' if (self.env_dir / 'msst' / 'inference.py').exists() else 'MISSING'}")

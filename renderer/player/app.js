@@ -25,6 +25,11 @@ const els = {
   // sidebar — playback
   tempo: $('tempo'),
   tempoLabel: $('tempo-label'),
+  transpose: $('transpose'),
+  transposeLabel: $('transpose-label'),
+  transposeFit: $('transpose-fit'),
+  transposeReset: $('transpose-reset'),
+  rangeWarning: $('range-warning'),
   countdown: $('countdown'),
   stats: $('stats'),
   sustain: $('sustain'),
@@ -111,6 +116,7 @@ const settings = Object.assign({
   tempoSetHotkey: '',
   seekFwdHotkey: '',
   seekBackHotkey: '',
+  transpose: 0,
   tempoStep: 0.1,
   tempoPreset: 1.0,
   seekStep: 5,
@@ -152,6 +158,14 @@ const viz = new Visualizer(els.vizCanvas);
 // Logging
 // --------------------------------------------------------------------------
 function log(level, message) {
+  if (level === 'error' && els.logPanel && els.logPanel.classList.contains('is-collapsed')) {
+    els.logPanel.classList.remove('is-collapsed');
+    settings.logCollapsed = false; saveSettings();
+  }
+  if (level === 'error' && els.logPanel && els.logPanel.classList.contains('is-collapsed')) {
+    els.logPanel.classList.remove('is-collapsed');
+    settings.logCollapsed = false; saveSettings();
+  }
   const stamp = new Date().toLocaleTimeString([], { hour12: false });
   const span = document.createElement('span');
   span.className = `l-${level || 'info'}`;
@@ -177,6 +191,10 @@ function applySettingsToUI() {
       ? settings.mapping : 'roblox';
   els.tempo.value = settings.tempo;
   els.tempoLabel.textContent = `${Number(settings.tempo).toFixed(2)}×`;
+  els.transpose.value = String(settings.transpose | 0);
+  els.transposeLabel.textContent = (settings.transpose | 0) > 0 ? `+${settings.transpose | 0}` : String(settings.transpose | 0);
+  els.transpose.value = String(settings.transpose | 0);
+  els.transposeLabel.textContent = (settings.transpose | 0) > 0 ? `+${settings.transpose | 0}` : String(settings.transpose | 0);
   els.countdown.value = settings.countdown;
   els.stats.checked = !!settings.stats;
   els.sustain.checked = settings.sustain !== false;
@@ -292,6 +310,20 @@ window.api.onEngineEvent((evt) => {
       log('info', `Loaded "${lastMidiPath?.split(/[\\/]/).pop()}" — `
         + `${evt.events.length} events, ${evt.duration.toFixed(1)}s, `
         + `~${evt.bpm.toFixed(1)} BPM`);
+      if (typeof evt.transpose === 'number' && evt.transpose !== (settings.transpose | 0)) {
+        settings.transpose = evt.transpose; showTranspose(); saveSettings();
+        log('info', `Auto-transposed ${evt.transpose > 0 ? '+' : ''}${evt.transpose} semitones to fit the mapping.`);
+      }
+      els.rangeWarning.textContent = evt.unmapped && evt.unmapped.length
+        ? `· ${evt.unmapped.length} notes out of range` : '';
+      els.rangeWarning.classList.toggle('is-warn', !!(evt.unmapped && evt.unmapped.length));
+      if (typeof evt.transpose === 'number' && evt.transpose !== (settings.transpose | 0)) {
+        settings.transpose = evt.transpose; showTranspose(); saveSettings();
+        log('info', `Auto-transposed ${evt.transpose > 0 ? '+' : ''}${evt.transpose} semitones to fit the mapping.`);
+      }
+      els.rangeWarning.textContent = evt.unmapped && evt.unmapped.length
+        ? `· ${evt.unmapped.length} notes out of range` : '';
+      els.rangeWarning.classList.toggle('is-warn', !!(evt.unmapped && evt.unmapped.length));
       if (evt.unmapped && evt.unmapped.length) {
         log('warn',
           `Skipped ${evt.unmapped.length} notes outside the mapping range: `
@@ -351,6 +383,10 @@ window.api.onEngineEvent((evt) => {
       els.stop.disabled = true;
       setPauseButton(false);
       viz.stopClock();
+      // A natural end left the clock parked at the duration, so the next Play
+      // seeked to the end and instantly "finished" again. Rewind instead.
+      if (pendingRestartAt === null && !userStopped && !evt.crashed) viz.seek(0);
+      if (evt.crashed) log('error', 'Player engine stopped unexpectedly — playback reset.');
       setStatus('idle', 'Idle');
       els.refocusTarget.hidden = true;
       if (evt.stats) {
@@ -371,7 +407,7 @@ window.api.onEngineEvent((evt) => {
         pendingRestartAt = null;
         loadMidi();                 // reload events/visualizer at new tempo
         sendPlay(at, 0);            // no countdown on a tempo restart
-      } else if (!userStopped) {
+      } else if (!userStopped && !evt.crashed) {
         advanceQueue();             // natural end -> next row in the playlist
       }
       userStopped = false;
@@ -722,12 +758,36 @@ els.mappingBrowse.addEventListener('click', async () => {
   loadMidi();
 });
 
+let pendingAutoTranspose = false;
+
+function showTranspose() {
+  const t = settings.transpose | 0;
+  els.transposeLabel.textContent = t > 0 ? `+${t}` : String(t);
+  els.transpose.value = String(t);
+}
+
+function applyTranspose(value, auto) {
+  const t = Math.max(-24, Math.min(24, Math.round(Number(value) || 0)));
+  settings.transpose = t;
+  pendingAutoTranspose = !!auto;
+  showTranspose();
+  saveSettings();
+  if (els.midiPath.value) { if (isPlaying) setTempo(parseFloat(els.tempo.value)); else loadMidi(); }
+}
+
+els.transpose.addEventListener('input', (e) => { settings.transpose = Math.round(Number(e.target.value) || 0); showTranspose(); });
+els.transpose.addEventListener('change', (e) => applyTranspose(e.target.value, false));
+els.transposeFit.addEventListener('click', () => applyTranspose(0, true));
+els.transposeReset.addEventListener('click', () => applyTranspose(0, false));
+
 els.tempo.addEventListener('input', () => {
   settings.tempo = parseFloat(els.tempo.value);
   els.tempoLabel.textContent = `${settings.tempo.toFixed(2)}×`;
   saveSettings();
 });
-els.tempo.addEventListener('change', () => loadMidi());
+// The slider used to call loadMidi() directly, which re-scaled the visualizer
+// while the engine kept playing the old timeline. setTempo does the restart.
+els.tempo.addEventListener('change', () => setTempo(parseFloat(els.tempo.value)));
 
 els.countdown.addEventListener('change', () => {
   settings.countdown = parseInt(els.countdown.value, 10) || 0;
@@ -1007,7 +1067,10 @@ function loadMidi() {
     path: p,
     mapping: resolveMappingArg(),
     tempo: parseFloat(els.tempo.value),
+    transpose: settings.transpose | 0,
+    auto_transpose: !!pendingAutoTranspose,
   });
+  pendingAutoTranspose = false;
 }
 
 // Put a path in the box and hand it to the engine. Playlist bookkeeping lives
@@ -1257,6 +1320,7 @@ function sendPlay(startAt, countdown) {
     target_hwnd: target.hwnd,
     mapping: resolveMappingArg(),
     tempo: parseFloat(els.tempo.value),
+    transpose: settings.transpose | 0,
     countdown: countdown,
     stats: !!els.stats.checked,
     sustain: !!els.sustain.checked,

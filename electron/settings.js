@@ -9,6 +9,7 @@ const { app } = require('electron');
 
 const DEFAULTS = {
   window: { width: 1240, height: 880, x: null, y: null, maximized: false },
+  library: { dirs: [] },        // extra folders Self Midi scans for MIDI files
   forge: {
     pipeline: 'melody',       // melody | piano | general | fast | drums
     skipSeparation: false,

@@ -22,6 +22,14 @@
       <h2>Set up Midi Forge</h2>
       <p class="muted">One-time download of the model + dependencies (~3 GB). GPU-accelerated on NVIDIA (CUDA) and AMD/Intel (DirectML).
         The Midi Player tab works without this.</p>
+      <div class="storage-row">
+        <div class="storage-copy">
+          <span class="storage-label">Installs to</span>
+          <span class="mono storage-path" id="setup-dir">—</span>
+        </div>
+        <span class="storage-free mono" id="setup-free"></span>
+        <button class="btn btn-ghost compact" id="setup-change">Change folder…</button>
+      </div>
       <div class="setup-actions">
         <button class="btn btn-primary" id="setup-start">Set up Midi Forge</button>
         <button class="btn btn-ghost" id="setup-cancel" hidden>Cancel</button>

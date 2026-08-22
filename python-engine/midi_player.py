@@ -211,14 +211,42 @@ def load_mapping(arg, script_dir):
     return data, {int(k): v for k, v in data["note_to_key"].items()}
 
 
-def parse_midi(midi_path, note_to_key, tempo_scale):
+
+def best_transpose(midi_path, note_to_key, limit=12):
+    """Semitone shift (-limit..+limit) that maps the most notes.
+
+    Ties go to the smaller shift, and to 0 when it is already the best, so we
+    never move a song that is already in range.
+    """
+    try:
+        mid = mido.MidiFile(midi_path)
+    except Exception:
+        return 0, 0, 0
+    pitches = [m.note for m in mid if m.type == "note_on" and m.velocity > 0]
+    if not pitches:
+        return 0, 0, 0
+    mapped = set(note_to_key)
+    best, best_hits = 0, sum(1 for p in pitches if p in mapped)
+    for shift in sorted(range(-limit, limit + 1), key=lambda v: (abs(v), v)):
+        hits = sum(1 for p in pitches if p + shift in mapped)
+        if hits > best_hits:
+            best, best_hits = shift, hits
+    return best, best_hits, len(pitches)
+
+
+def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0):
     """
     Returns:
         events: sorted list of (t_sec, key_str, duration_sec, midi_note, channel)
         unmapped: sorted list of MIDI note numbers we had to skip
         total_duration: float seconds (after tempo scaling)
         bpm: estimated initial BPM (for the info bar)
+
+    `transpose` shifts every note by N semitones before the mapping lookup. A
+    Roblox keyboard covers MIDI 36-96; without a shift, everything outside that
+    is dropped, which is why some songs played back with half the melody gone.
     """
+    transpose = int(transpose or 0)
     mid = mido.MidiFile(midi_path)
 
     events = []
@@ -229,7 +257,7 @@ def parse_midi(midi_path, note_to_key, tempo_scale):
     for msg in mid:                       # mido yields msg.time in seconds
         abs_time += msg.time
         if msg.type == "note_on" and msg.velocity > 0:
-            key = note_to_key.get(msg.note)
+            key = note_to_key.get(msg.note + transpose)
             if key is None:
                 unmapped.add(msg.note)
                 continue

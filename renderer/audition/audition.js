@@ -24,9 +24,15 @@
   if (!soundfonts || !soundfonts.presets[prefs.instrument]) prefs.instrument = 'grand_piano';
   if (!Array.isArray(prefs.recent)) prefs.recent = [];
 
+  // Notes are queued onto the Web Audio clock ahead of time, so playback keeps
+  // going even when the window is in the background and frames/timers throttle.
+  const LOOKAHEAD = 1.5;
+  const SCHED_MS = 120;
+
   const player = {
     token: 0, documents: {}, candidate: '', project: null, midiPath: '', projectPath: '',
-    duration: 0, position: 0, previousTime: -0.01, startedAt: 0, playing: false, frame: 0,
+    duration: 0, position: 0, playing: false, frame: 0,
+    audioStart: 0, cursor: 0, timer: 0,
     context: null, master: null, voices: new Set(), instrumentToken: 0,
     instrumentReady: '', instrumentFailed: false,
   };
@@ -79,20 +85,85 @@
     drawRoll();
   }
 
-  function renderRecent() {
-    const select = $('recent');
-    select.textContent = '';
-    const placeholder = document.createElement('option');
-    placeholder.value = ''; placeholder.textContent = prefs.recent.length ? 'Choose recent MIDI' : 'No recent MIDI';
-    select.appendChild(placeholder);
-    prefs.recent.slice(0, 10).forEach((item, index) => {
-      const option = document.createElement('option');
-      option.value = String(index); option.textContent = item.label || item.midiPath || item.projectPath;
-      option.title = item.projectPath || item.midiPath || '';
-      select.appendChild(option);
-    });
-    $('clear-recent').disabled = !prefs.recent.length;
+  // ---- library ---------------------------------------------------------------
+  let libraryFiles = [];
+  let libraryTruncated = false;
+
+  const relativeDir = (dir) => String(dir || '').split(/[\\/]/).slice(-2).join('\\');
+
+  function libraryView() {
+    const query = $('library-search').value.trim().toLowerCase();
+    const sort = $('library-sort').value;
+    let files = libraryFiles;
+    if (query) {
+      const terms = query.split(/\s+/);
+      files = files.filter((file) => {
+        const hay = `${file.name} ${file.dir}`.toLowerCase();
+        return terms.every((term) => hay.includes(term));
+      });
+    }
+    files = files.slice();
+    if (sort === 'name') files.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sort === 'folder') files.sort((a, b) => a.dir.localeCompare(b.dir) || a.name.localeCompare(b.name));
+    else files.sort((a, b) => b.modified - a.modified);
+    return files;
   }
+
+  function renderLibrary() {
+    const host = $('library-list');
+    const files = libraryView();
+    const active = currentPath().toLowerCase();
+    host.textContent = '';
+    $('library-count').textContent = libraryFiles.length
+      ? `${files.length}${files.length === libraryFiles.length ? '' : `/${libraryFiles.length}`}${libraryTruncated ? '+' : ''}`
+      : '0';
+    if (!files.length) {
+      const empty = document.createElement('div');
+      empty.className = 'library-empty';
+      empty.textContent = libraryFiles.length
+        ? 'Nothing matches that search.'
+        : 'No MIDI files found yet. Forge results land here automatically — or add a folder you keep MIDI in.';
+      host.appendChild(empty);
+      return;
+    }
+    // Rows are cheap; a few thousand of them are not. Render what fits and grow
+    // on scroll instead of building the whole list up front.
+    let shown = 0;
+    const chunk = () => {
+      const slice = files.slice(shown, shown + 300);
+      for (const file of slice) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = `library-item${file.path.toLowerCase() === active ? ' is-active' : ''}`;
+        item.title = file.path;
+        item.innerHTML = '<b></b><small></small>';
+        item.querySelector('b').textContent = file.name;
+        item.querySelector('small').textContent = relativeDir(file.dir);
+        item.addEventListener('click', () => loadAudition(file.path, '', { play: true }));
+        item.addEventListener('contextmenu', (event) => {
+          event.preventDefault();
+          if (window.library && library.reveal) library.reveal(file.path);
+        });
+        host.appendChild(item);
+      }
+      shown += slice.length;
+    };
+    chunk();
+    host.onscroll = () => {
+      if (shown < files.length && host.scrollTop + host.clientHeight > host.scrollHeight - 200) chunk();
+    };
+  }
+
+  async function refreshLibrary() {
+    if (!window.library || !library.list) return;
+    let result;
+    try { result = await library.list(); } catch { return; }
+    libraryFiles = (result && result.files) || [];
+    libraryTruncated = !!(result && result.truncated);
+    renderLibrary();
+  }
+
+  function renderRecent() {}
 
   function addRecent(midiPath, projectPath, label) {
     const key = projectPath || midiPath;
@@ -114,17 +185,34 @@
 
   function pause() {
     if (!player.playing) return;
+    player.position = songTime();
     player.playing = false;
     cancelAnimationFrame(player.frame);
+    clearInterval(player.timer); player.timer = 0;
     clearVoices();
     $('play').textContent = '▶';
     $('play').setAttribute('aria-label', 'Play');
+    updateSongUI();
+  }
+
+  function songTime() {
+    if (!player.playing || !player.context) return player.position;
+    return clamp((player.context.currentTime - player.audioStart) * speed(), 0, player.duration);
+  }
+
+  // First note at or after `from` — the scheduler walks forward from here.
+  function cursorFor(from) {
+    const doc = currentDocument();
+    if (!doc) return 0;
+    let index = 0;
+    while (index < doc.notes.length && Number(doc.notes[index].start) < from) index += 1;
+    return index;
   }
 
   function seek(seconds) {
     player.position = clamp(Number(seconds) || 0, 0, player.duration || 0);
-    player.previousTime = player.position - 0.01;
-    player.startedAt = performance.now() - player.position / speed() * 1000;
+    player.cursor = cursorFor(player.position);
+    if (player.context) player.audioStart = player.context.currentTime - player.position / speed();
     clearVoices();
     updateSongUI();
   }
@@ -180,9 +268,9 @@
     }
   }
 
-  function playFallback(note, pitch, duration) {
+  function playFallback(note, pitch, duration, when) {
     const context = player.context;
-    const now = context.currentTime;
+    const now = Math.max(when || 0, context.currentTime);
     const oscillator = context.createOscillator();
     const envelope = context.createGain();
     const velocity = clamp(Number(note.velocity) || 80, 1, 127) / 127;
@@ -208,41 +296,49 @@
     oscillator.start(now); oscillator.stop(now + length + 0.02);
   }
 
-  function playNote(note) {
+  function playNote(note, when) {
     if (!player.context || Number($('volume').value) <= 0) return;
     const playbackSpeed = speed();
     let duration = clamp((Number(note.end) - Number(note.start)) / playbackSpeed, 0.04, 2.5);
     const pitch = Number(note.pitch) + Number($('pitch').value);
     const drum = Number(note.channel) === 9 || instrument() === 'synth_drum';
     if ($('sustain').checked && !drum) duration = clamp(duration + 1.25 / playbackSpeed, 0.2, 5);
+    const at = Math.max(when, player.context.currentTime);
     if (player.instrumentReady === instrument()) {
-      const source = soundfonts.play(player.context, instrument(), pitch, player.context.currentTime,
+      const source = soundfonts.play(player.context, instrument(), pitch, at,
         duration, note.velocity, player.master);
       if (source) { registerVoice(source); return; }
     }
-    playFallback(note, pitch, duration);
+    playFallback(note, pitch, duration, at);
   }
 
-  function triggerNotes(from, to) {
+  // Queue every note that starts inside the lookahead window. Called on a timer,
+  // but the notes themselves are pinned to absolute audio-clock times, so a late
+  // or throttled wake-up costs nothing as long as it lands inside LOOKAHEAD.
+  function scheduleAhead() {
     const doc = currentDocument();
-    if (!doc || to < from) return;
-    for (const note of doc.notes) if (note.start > from && note.start <= to + 0.006) playNote(note);
+    if (!player.playing || !doc || !player.context) return;
+    const notes = doc.notes;
+    const horizon = (player.context.currentTime + LOOKAHEAD - player.audioStart) * speed();
+    while (player.cursor < notes.length && Number(notes[player.cursor].start) <= horizon) {
+      const note = notes[player.cursor++];
+      playNote(note, player.audioStart + Number(note.start) / speed());
+    }
+    const end = player.audioStart + player.duration / speed();
+    if (player.context.currentTime >= end) {
+      if ($('loop').checked && player.duration > 0) {
+        // Roll the timeline forward instead of seeking, so the loop is seamless.
+        player.audioStart = end;
+        player.cursor = 0;
+        scheduleAhead();
+      } else { stop(); }
+    }
   }
 
   function tick() {
     if (!player.playing) return;
-    const next = (performance.now() - player.startedAt) / 1000 * speed();
-    if (next >= player.duration) {
-      triggerNotes(player.previousTime, player.duration);
-      if ($('loop').checked && player.duration > 0) {
-        seek(0); player.previousTime = -0.01;
-      } else { stop(); return; }
-    } else {
-      triggerNotes(player.previousTime, next);
-      player.previousTime = next;
-      player.position = next;
-      updateSongUI();
-    }
+    player.position = songTime();
+    updateSongUI();
     player.frame = requestAnimationFrame(tick);
   }
 
@@ -256,10 +352,13 @@
     await prepareInstrument();
     if (before !== player.instrumentToken && player.instrumentReady !== instrument() && !player.instrumentFailed) return;
     player.playing = true;
-    player.startedAt = performance.now() - player.position / speed() * 1000;
-    player.previousTime = player.position - 0.01;
+    player.audioStart = player.context.currentTime - player.position / speed();
+    player.cursor = cursorFor(player.position);
     $('play').textContent = 'Ⅱ';
     $('play').setAttribute('aria-label', 'Pause');
+    scheduleAhead();
+    clearInterval(player.timer);
+    player.timer = setInterval(scheduleAhead, SCHED_MS);
     tick();
   }
 
@@ -270,7 +369,7 @@
     const doc = currentDocument();
     player.duration = Number(doc.duration) || Math.max(0, ...doc.notes.map((note) => note.end));
     player.position = 0;
-    player.previousTime = -0.01;
+    player.cursor = 0;
     invalidateInstrument();
     updateSongUI();
   }
@@ -322,6 +421,7 @@
     addRecent(midiPath, projectPath, (player.project && player.project.name) || currentDocument().name);
     savePrefs();
     updateSongUI();
+    renderLibrary();
     if (options.play === true || (options.play !== false && prefs.autoplay)) await togglePlay();
     return true;
   }
@@ -392,7 +492,7 @@
   $('loop').checked = !!prefs.loop;
   $('autoplay').checked = !!prefs.autoplay;
   updateInstrumentStatus(`${instrumentLabel()} · Loads on play`);
-  renderRecent();
+  refreshLibrary();
 
   const openPicker = async () => {
     const files = api && api.pickMidi ? await api.pickMidi() : [];
@@ -425,12 +525,15 @@
   $('autoplay').addEventListener('change', (event) => { prefs.autoplay = event.target.checked; savePrefs(); });
   $('show-file').addEventListener('click', () => { if (currentPath() && review && review.showItem) review.showItem(currentPath()); });
   $('to-player').addEventListener('click', sendToPlayer);
-  $('recent').addEventListener('change', (event) => {
-    const item = prefs.recent[Number(event.target.value)];
-    event.target.value = '';
-    if (item) loadAudition(item.midiPath, item.projectPath, { play: prefs.autoplay });
+  $('library-search').addEventListener('input', renderLibrary);
+  $('library-sort').addEventListener('change', renderLibrary);
+  $('library-refresh').addEventListener('click', refreshLibrary);
+  $('library-add').addEventListener('click', async () => {
+    if (!window.library || !library.addFolder) return;
+    const r = await library.addFolder();
+    if (r && r.ok) refreshLibrary();
   });
-  $('clear-recent').addEventListener('click', () => { prefs.recent = []; savePrefs(); renderRecent(); });
+  if (window.library && library.onChanged) library.onChanged(() => refreshLibrary());
   $('note-roll').addEventListener('pointerdown', (event) => {
     if (!player.duration) return;
     const rect = event.currentTarget.getBoundingClientRect();

@@ -22,7 +22,8 @@ page and run the installer. **No separate Python install is required** — the M
 
 Setup asks where to keep the **Midi Forge** engine and models, then remembers that location for
 upgrades. The first time you use Forge, click **"Set up Midi Forge"** to download PyTorch and the
-models there (~3 GB, NVIDIA GPU recommended). This is a one-time download.
+models there (~4 GB downloaded, ~15 GB free space required on that drive; NVIDIA GPU recommended).
+This is a one-time download, and the folder can be changed later in Settings.
 
 > Windows SmartScreen may warn "unknown publisher" because the build isn't code-signed yet —
 > choose **More info → Run anyway**.

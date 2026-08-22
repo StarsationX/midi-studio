@@ -111,7 +111,29 @@ async function configure(settings, target, current, defaultDir) {
   return { moved, path: target };
 }
 
+// "song.mid" -> "song (2).mid" when taken. Re-forging a song, or two downloads
+// that share a title, used to silently overwrite the earlier result.
+function uniquePath(target, exists = fs.existsSync) {
+  if (!exists(target)) return target;
+  const dir = path.dirname(target), ext = path.extname(target), base = path.basename(target, ext);
+  for (let n = 2; n < 999; n += 1) {
+    const candidate = path.join(dir, `${base} (${n})${ext}`);
+    if (!exists(candidate)) return candidate;
+  }
+  return target;
+}
+
+// Where an edited candidate is written. Opening a plain .mid points the "clean"
+// candidate straight at the user's own file; writing back to it would destroy
+// the original, so only a real project (or a file already inside the project
+// folder) may be overwritten in place.
+function candidateTarget({ existing, projectDir, fromProject, fallbackName }, exists = fs.existsSync) {
+  if (existing && (fromProject || isInside(existing, projectDir))) return existing;
+  return uniquePath(path.join(projectDir, fallbackName), exists);
+}
+
 module.exports = {
   MARKER, FOLDER_NAME, samePath, targetForSelection, markManaged,
   isManaged, isEmpty, assertWritable, moveManaged, configure,
+  isInside, uniquePath, candidateTarget,
 };

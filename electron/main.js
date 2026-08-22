@@ -15,6 +15,7 @@ const { PlayerSidecar } = require('./sidecar');
 const { ForgeRunner } = require('./forge-runner');
 const { ForgeProvisioner } = require('./forge-provisioner');
 const forgeStorage = require('./forge-storage');
+const library = require('./library');
 const updater = require('./updater');
 
 // Boot diagnostics — a packaged GUI app has no console; this captures startup
@@ -22,6 +23,12 @@ const updater = require('./updater');
 const BOOT_LOG = path.join(os.tmpdir(), 'midi-studio-boot.log');
 function blog(m) { try { fs.appendFileSync(BOOT_LOG, `${Date.now()} ${m}\n`); } catch (_) {} }
 blog(`--- boot --- packaged=${app.isPackaged} resources=${process.resourcesPath} argv=${process.argv.slice(1).join(' ')}`);
+
+// Self Midi / Midi Editor keep playing while you are in the game window.
+// backgroundThrottling:false alone is not enough: Chromium also backgrounds
+// renderers whose window is occluded, which stalls timers and audio scheduling.
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 const OPEN_DEVTOOLS = process.argv.includes('--dev');
 const POST_UPDATE = process.argv.includes('--post-update');
@@ -93,6 +100,8 @@ function programOutputDir() {
   if (set && String(set).trim()) return String(set);
   return path.join(os.homedir(), 'Documents', 'MIDI Studio');
 }
+
+const { uniquePath, candidateTarget } = forgeStorage;
 
 function runMidiDocument(action, midiPath, document) {
   return new Promise((resolve, reject) => {
@@ -171,6 +180,45 @@ function createWindow() {
     setTimeout(() => broadcast('engine-event', lastReady), 60);
   });
 
+  // An iframe calling preventDefault in beforeunload (the Editor does, when it
+  // has unsaved notes) silently cancels the close unless we answer for it — the
+  // window just refused to close, with no dialog and no way out but Task Manager.
+  win.webContents.on('will-prevent-unload', (e) => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'question', title: 'Unsaved changes',
+      message: 'The Midi Editor has unsaved note edits.',
+      detail: 'Close anyway and lose them?',
+      buttons: ['Keep editing', 'Discard and close'], defaultId: 0, cancelId: 0,
+    });
+    if (choice === 1) e.preventDefault(); // proceed with the close
+  });
+
+  // Closing mid-transcription throws away 20+ minutes of GPU time, or a
+  // multi-GB setup download, without asking.
+  win.on('close', (e) => {
+    const job = forge && forge.isRunning();
+    const setup = provisioner && provisioner.isRunning();
+    if (!job && !setup) return;
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'question', title: 'Still working',
+      message: job ? 'A transcription is still running.' : 'Midi Forge setup is still downloading.',
+      detail: 'Quit anyway? The work in progress is lost.',
+      buttons: ['Keep running', 'Quit anyway'], defaultId: 0, cancelId: 0,
+    });
+    if (choice !== 1) e.preventDefault();
+  });
+
+  // Tab shortcuts have to be caught in the main process: the stage iframe covers
+  // almost the whole window, so a keydown listener in the shell frame never sees
+  // them once the user has clicked into a tab.
+  win.webContents.on('before-input-event', (e, input) => {
+    if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return;
+    const tab = { 1: 'forge', 2: 'player', 3: 'review', 4: 'audition' }[input.key];
+    if (!tab) return;
+    sendToRenderer('shell-shortcut', { tab });
+    e.preventDefault();
+  });
+
   // Blank-screen recovery: a missing/corrupt renderer should not fail silently.
   win.webContents.on('did-fail-load', (_e, code, desc, url) => {
     if (code === -3) return; // aborted (normal during reloads)
@@ -231,7 +279,7 @@ function createServices() {
           if (moved.has(key)) return moved.get(key);
           let dest = source;
           if (path.resolve(path.dirname(source)).toLowerCase() !== path.resolve(outDir).toLowerCase()) {
-            dest = path.join(outDir, path.basename(source));
+            dest = uniquePath(path.join(outDir, path.basename(source)));
             try { fs.renameSync(source, dest); }
             catch { fs.copyFileSync(source, dest); try { fs.unlinkSync(source); } catch {} }
           }
@@ -245,6 +293,7 @@ function createServices() {
             candidates[name] = moveOutput(file);
           }
           payload.result.candidates = candidates;
+          // Named off the FINAL midi basename so the pair never drifts apart.
           const projectPath = path.join(outDir, path.basename(mp, path.extname(mp)) + '.midstudio.json');
           const project = {
             format: 'midi-studio-project', version: 1,
@@ -274,11 +323,21 @@ function createServices() {
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const FORGE_SETTINGS_KEYS = ['pipeline', 'skipSeparation', 'advanced', 'outputDir', 'timing'];
 
+// Free space on the drive that holds the Forge env. Setup writes ~15 GB there
+// (pip cache and temp included), so the number belongs next to the path.
+function freeGb(dir) {
+  try {
+    const probe = fs.existsSync(dir) ? dir : path.parse(path.resolve(dir)).root;
+    const st = fs.statfsSync(probe);
+    return Math.round((st.bavail * st.bsize) / (1024 ** 3) * 10) / 10;
+  } catch (_) { return null; }
+}
+
 function forgeInfo() {
   const s = settings.forgePaths();
   const dir = paths.forgeEnvDir(s);
   return { version: app.getVersion(), forgeReady: paths.forgeEnvReady(s),
-    forgePython: paths.forgeEnvPython(s), forgeEnvDir: dir,
+    forgePython: paths.forgeEnvPython(s), forgeEnvDir: dir, forgeFreeGb: freeGb(dir),
     forgeDefaultDir: paths.forgeEnvDir({}), forgeCustom: !!s.forgeEnvDir };
 }
 
@@ -379,6 +438,10 @@ function wireIpc() {
       const project = isObj(payload.project) ? payload.project : {};
       const documents = isObj(payload.documents) ? payload.documents : {};
       let projectPath = String(payload.projectPath || '');
+      // Opening a plain .mid points candidates.clean at that file. Reusing it as
+      // the save target would overwrite the user's original; only a real project
+      // file (or a candidate already living beside it) may be written in place.
+      const fromProject = !!projectPath;
       if (!projectPath) {
         const r = await dialog.showSaveDialog(win, { title: 'Save MIDI Studio project',
           defaultPath: path.join(programOutputDir(), `${project.name || 'melody'}.midstudio.json`),
@@ -389,8 +452,10 @@ function wireIpc() {
       const projectDir = path.dirname(projectPath);
       const candidates = {};
       for (const [name, document] of Object.entries(documents)) {
-        const existing = project.candidates && project.candidates[name];
-        const midiPath = existing || path.join(projectDir, `${project.name || 'melody'}_${name}.mid`);
+        const midiPath = candidateTarget({
+          existing: project.candidates && project.candidates[name],
+          projectDir, fromProject, fallbackName: `${project.name || 'melody'}_${name}.mid`,
+        });
         await runMidiDocument('save', midiPath, document);
         candidates[name] = midiPath;
       }
@@ -413,6 +478,33 @@ function wireIpc() {
       return { ok: true, path: r.filePath };
     } catch (error) { return { ok: false, error: String(error.message || error) }; }
   });
+  // ---- Self Midi library ----------------------------------------------------
+  const libraryDirs = () => {
+    const extra = (settings.get('library.dirs') || []).filter((d) => typeof d === 'string' && d);
+    return [programOutputDir(), path.join(os.homedir(), 'Documents', 'MIDI Studio'), ...extra];
+  };
+  ipcMain.handle('library:list', () => {
+    const dirs = libraryDirs();
+    return Object.assign({ dirs, extra: settings.get('library.dirs') || [] }, library.list(dirs));
+  });
+  ipcMain.handle('library:addFolder', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Add a folder of MIDI files',
+      properties: ['openDirectory'], buttonLabel: 'Add folder' });
+    if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+    const extra = (settings.get('library.dirs') || []).filter(Boolean);
+    const picked = path.resolve(r.filePaths[0]);
+    if (!extra.some((d) => path.resolve(d).toLowerCase() === picked.toLowerCase())) extra.push(picked);
+    settings.merge({ library: { dirs: extra } });
+    return { ok: true, dir: picked };
+  });
+  ipcMain.handle('library:removeFolder', (_e, dir) => {
+    const target = path.resolve(String(dir || '')).toLowerCase();
+    const extra = (settings.get('library.dirs') || []).filter((d) => path.resolve(d).toLowerCase() !== target);
+    settings.merge({ library: { dirs: extra } });
+    return { ok: true };
+  });
+  ipcMain.handle('library:reveal', (_e, p) => shell.showItemInFolder(String(p || '')));
+
   ipcMain.handle('app:openMappingsDir', () => {
     const d = paths.ensureUserMappings();
     return shell.openPath(d);
@@ -459,6 +551,9 @@ function wireIpc() {
     return shell.openPath(target);
   });
   ipcMain.handle('app:cleanReinstall', () => {
+    if ((forge && forge.isRunning()) || (provisioner && provisioner.isRunning())) {
+      return { ok: false, error: 'Wait for the current Forge job or setup to finish.' };
+    }
     // Only ever delete OUR managed env — never a user's adopted legacy midi-forge.
     const dir = paths.forgeEnvDir(settings.forgePaths());
     if (!forgeStorage.isManaged(dir, paths.forgeEnvDir({}))) return { ok: false, error: 'refused (unsafe path)' };

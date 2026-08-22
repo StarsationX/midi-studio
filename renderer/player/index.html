@@ -118,6 +118,15 @@
             <label>Tempo <span class="muted" id="tempo-label">1.00×</span></label>
             <input id="tempo" type="range" min="0.25" max="3" step="0.05" value="1"/>
           </div>
+          <div class="field">
+            <label>Transpose <span class="muted" id="transpose-label">0</span>
+              <span class="muted" id="range-warning"></span></label>
+            <div class="field-row">
+              <input id="transpose" type="range" min="-24" max="24" step="1" value="0"/>
+              <button class="btn-mini" id="transpose-fit" type="button" title="Shift the song into the mapping's range">Fit range</button>
+              <button class="btn-mini" id="transpose-reset" type="button" title="Back to the original key">Reset</button>
+            </div>
+          </div>
           <div class="field-row">
             <div class="field" style="max-width:120px">
               <label>Countdown</label>
