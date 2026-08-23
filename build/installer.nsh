@@ -9,6 +9,15 @@
   Var ForgeStorageFree
 
   !macro customInit
+    ; The app bundles its own python.exe under $INSTDIR. If a previous run was
+    ; force-killed, that child is still alive and electron-builder's
+    ; "is the app running" check refuses to continue - with a dialog naming
+    ; MIDI Studio, which the user has already closed. Clear that child only -
+    ; a running app is still the installer's own prompt to handle.
+    nsExec::ExecToStack 'powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process | Where-Object { $$_.Name -eq \"python.exe\" -and $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith(\"$INSTDIR\") } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }"'
+    Pop $0
+    Pop $1
+
     ReadRegStr $ForgeStorageDir HKCU "Software\StarsationX\MIDI Studio" "ForgeStorageDir"
     ${If} $ForgeStorageDir == ""
       StrCpy $ForgeStorageDir "$LOCALAPPDATA\midi-studio\forge-env"

@@ -95,6 +95,9 @@ class PlayerSidecar {
 
   _bind(child, launchCmd) {
     this._proc = child; this._buf = ''; this._stderrTail = ''; this._lastError = '';
+    // Its executable lives inside the install folder, so a leftover copy makes
+    // the next installer refuse with "MIDI Studio cannot be closed".
+    try { require('./forge-runner').trackPid(child.pid); } catch (_) {}
     this._onEvent({ event: 'log', level: 'info', message: `Player engine via: ${launchCmd}` });
 
     child.stdout.setEncoding('utf-8');
@@ -129,6 +132,7 @@ class PlayerSidecar {
       // Without this the renderer never learns playback ended: Play stays
       // disabled and the queue stays locked until the whole app is restarted.
       this._onEvent({ event: 'playback_done', crashed: true });
+      try { require('./forge-runner').untrackPid(child.pid); } catch (_) {}
       this._proc = null; this._killing = false;
     });
   }

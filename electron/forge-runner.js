@@ -354,4 +354,4 @@ class ForgeRunner {
   cancelAll() { for (const id of [...this._jobs.keys()]) this.cancel(id); }
 }
 
-module.exports = { ForgeRunner, reapOrphanJobs };
+module.exports = { ForgeRunner, reapOrphanJobs, trackPid, untrackPid };
