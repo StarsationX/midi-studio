@@ -327,12 +327,18 @@ function createServices() {
     broadcast('forge:status', payload);
   };
   forge = new ForgeRunner({ emit: forgeEmit,
-    getSettings: () => Object.assign({}, settings.forgePaths(), { perfMode: !!(settings.get('ui') || {}).perfMode }) });
+    getSettings: () => Object.assign({}, settings.forgePaths(), { performance: performanceSettings() }) });
   // While a game is up, this app is the guest: idle priority, smaller batches,
   // and the renderer drops to its limited draw rate.
   gameWatch = new GameWatch((game) => {
-    if (forge) forge.setBackground(!!game);
-    broadcast('game-active', { game: game || '' });
+    const rule = performanceSettings().whenGaming;
+    if (forge && rule !== 'nothing') forge.setBackground(!!game);
+    // "Pause Forge jobs entirely" is the strongest setting: the GPU is handed
+    // back to the game, and the job continues when the game closes.
+    if (forge && rule === 'pause' && forge.isRunning()) {
+      forge.setPaused(!!game).catch(() => {});
+    }
+    broadcast('game-active', { game: game || '', rule });
   });
   // Nothing needs to know about a running game in the first seconds.
   setTimeout(() => gameWatch.start(), 8000);
@@ -358,6 +364,19 @@ function freeGb(dir) {
     const st = fs.statfsSync(probe);
     return Math.round((st.bavail * st.bsize) / (1024 ** 3) * 10) / 10;
   } catch (_) { return null; }
+}
+
+// One place decides what the limits are; the old ui.perfMode boolean still
+// counts as "easy" so nobody's existing choice is lost.
+function performanceSettings() {
+  const p = settings.get('performance') || {};
+  const legacyEasy = !!(settings.get('ui') || {}).perfMode;
+  return {
+    level: ['full', 'balanced', 'easy'].includes(p.level) ? p.level : (legacyEasy ? 'easy' : 'full'),
+    threads: Math.max(1, Math.min(32, Math.round(Number(p.threads) || 4))),
+    batch: Math.max(1, Math.min(8, Math.round(Number(p.batch) || 2))),
+    whenGaming: ['nothing', 'limit', 'pause'].includes(p.whenGaming) ? p.whenGaming : 'limit',
+  };
 }
 
 function forgeInfo() {
@@ -592,6 +611,18 @@ function wireIpc() {
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle('app:setUi', (_e, patch) => settings.merge({ ui: isObj(patch) ? patch : {} }).ui);
+  ipcMain.handle('app:performance', () => performanceSettings());
+  ipcMain.handle('app:setPerformance', (_e, patch) => {
+    const clean = {};
+    if (isObj(patch)) {
+      if (['full', 'balanced', 'easy'].includes(patch.level)) clean.level = patch.level;
+      if (['nothing', 'limit', 'pause'].includes(patch.whenGaming)) clean.whenGaming = patch.whenGaming;
+      if (Number.isFinite(Number(patch.threads))) clean.threads = Math.max(1, Math.min(32, Math.round(Number(patch.threads))));
+      if (Number.isFinite(Number(patch.batch))) clean.batch = Math.max(1, Math.min(8, Math.round(Number(patch.batch))));
+    }
+    settings.merge({ performance: clean });
+    return performanceSettings();
+  });
   ipcMain.handle('app:forgeInfo', forgeInfo);
   ipcMain.handle('app:changeForgeFolder', () => changeForgeStorage());
   ipcMain.handle('app:resetForgeFolder', () => changeForgeStorage(paths.forgeEnvDir({})));

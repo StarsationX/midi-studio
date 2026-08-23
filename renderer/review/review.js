@@ -650,8 +650,11 @@
   function shouldDraw() {
     if (document.hidden) return false;
     const now = performance.now();
-    const limit = document.documentElement.dataset.perf === '1';
-    const budget = limit ? (document.hasFocus() ? 100 : 1000) : (document.hasFocus() ? 33 : 250);
+    const level = document.documentElement.dataset.perf || 'full';
+    const focused = document.hasFocus();
+    const budget = level === 'easy' ? (focused ? 100 : 1000)
+      : level === 'balanced' ? (focused ? 66 : 500)
+      : (focused ? 33 : 250);
     if (now - lastDraw < budget) return false;
     const x = Math.round(xForTime(playhead));
     if (x === lastPlayX) return false;

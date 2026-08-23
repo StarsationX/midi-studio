@@ -38,13 +38,24 @@
   // read it without another IPC round trip. The user's preference and "a game is
   // running" are kept apart — folding them into one flag latched the limit on
   // permanently the first time Roblox was seen.
-  let userPerf = false, gameActive = '';
+  // '' = full speed, 'balanced' = half rate, 'easy' = smallest footprint. A
+  // running game can raise the level but never lowers the user's choice.
+  let userPerf = 'full', gameActive = '', gamingRule = 'limit';
+  function effectivePerf() {
+    const order = ['full', 'balanced', 'easy'];
+    let level = userPerf;
+    if (gameActive && gamingRule !== 'nothing') {
+      level = order[Math.max(order.indexOf(level), order.indexOf('easy'))];
+    }
+    return level;
+  }
   function applyPerf() {
-    const on = userPerf || !!gameActive;
-    document.documentElement.dataset.perf = on ? '1' : '';
+    const level = effectivePerf();
+    const value = level === 'full' ? '' : level;
+    document.documentElement.dataset.perf = value;
     frames.forEach((f) => {
       const el = f.contentDocument && f.contentDocument.documentElement;
-      if (el) el.dataset.perf = on ? '1' : '';
+      if (el) el.dataset.perf = value;
     });
   }
   function activate(name, persist = true) {
@@ -125,7 +136,14 @@
   });
 
   // Restore last tab.
-  if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui) { if (ui.lastTab) activate(ui.lastTab, false); applyTheme(ui.theme); if (ui.accent) applyAccent(ui.accent); userPerf = !!ui.perfMode; applyPerf(); } }).catch(() => {});
+  if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui) { if (ui.lastTab) activate(ui.lastTab, false); applyTheme(ui.theme); if (ui.accent) applyAccent(ui.accent); } }).catch(() => {});
+  if (studio && studio.getPerformance) studio.getPerformance().then((p) => {
+    if (!p) return;
+    // perfMode was the old on/off switch; honour it as "easy" on first run.
+    userPerf = p.level || 'full';
+    gamingRule = p.whenGaming || 'limit';
+    applyPerf();
+  }).catch(() => {});
 
   // ---- version badge ----
   const badge = document.getElementById('version-badge');
@@ -199,7 +217,14 @@
     modal.hidden = false;
     document.body.classList.add('modal-open');
     refreshForgeInfo();
-    if (studio.getUi) studio.getUi().then((ui) => { $('s-perf').checked = !!(ui && ui.perfMode); $('s-autoupdate').checked = !ui || ui.autoCheckUpdates !== false; $('s-theme').value = (ui && ui.theme) || 'lime'; $('s-accent').value = (ui && ui.accent) || (getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'); }).catch(() => {});
+    if (studio.getPerformance) studio.getPerformance().then((p) => {
+      if (!p) return;
+      $('s-perf-level').value = p.level || 'full';
+      $('s-perf-gaming').value = p.whenGaming || 'limit';
+      $('s-perf-threads').value = String(p.threads || 4);
+      $('s-perf-batch').value = String(p.batch || 2);
+    }).catch(() => {});
+    if (studio.getUi) studio.getUi().then((ui) => { $('s-autoupdate').checked = !ui || ui.autoCheckUpdates !== false; $('s-theme').value = (ui && ui.theme) || 'lime'; $('s-accent').value = (ui && ui.accent) || (getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'); }).catch(() => {});
   }
   function closeSettings() { modal.hidden = true; document.body.classList.remove('modal-open'); }
   document.getElementById('settings-btn').addEventListener('click', openSettings);
@@ -209,7 +234,23 @@
   $('s-theme').addEventListener('change', (e) => { applyAccent(''); applyTheme(e.target.value); studio.setUi && studio.setUi({ theme: e.target.value, accent: '' });
     $('s-accent').value = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'; });
   $('s-accent').addEventListener('input', (e) => { applyAccent(e.target.value); studio.setUi && studio.setUi({ accent: e.target.value }); });
-  $('s-perf').addEventListener('click', (e) => { userPerf = e.target.checked; applyPerf(); studio.setUi && studio.setUi({ perfMode: userPerf }); });
+  $('s-perf-level').addEventListener('change', (e) => {
+    userPerf = e.target.value; applyPerf();
+    studio.setPerformance && studio.setPerformance({ level: userPerf });
+  });
+  $('s-perf-gaming').addEventListener('change', (e) => {
+    gamingRule = e.target.value; applyPerf();
+    studio.setPerformance && studio.setPerformance({ whenGaming: gamingRule });
+  });
+  ['s-perf-threads', 's-perf-batch'].forEach((id) => {
+    $(id).addEventListener('change', (e) => {
+      const key = id === 's-perf-threads' ? 'threads' : 'batch';
+      const max = key === 'threads' ? 32 : 8;
+      const value = Math.max(1, Math.min(max, Math.round(Number(e.target.value) || 1)));
+      e.target.value = String(value);
+      studio.setPerformance && studio.setPerformance({ [key]: value });
+    });
+  });
   $('s-openforge').addEventListener('click', () => studio.openForgeFolder && studio.openForgeFolder());
   async function relocateForge(method, button) {
     if (!studio[method]) return;

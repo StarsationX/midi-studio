@@ -65,7 +65,26 @@
         </div>
         <div class="srow">
           <span class="skey">Resource limit</span>
-          <label class="check"><input type="checkbox" id="s-perf" /> Easy on the GPU/CPU (slower visuals, smaller Forge batches)</label>
+          <select class="sval" id="s-perf-level" title="How hard MIDI Studio may work">
+            <option value="full">Full speed</option>
+            <option value="balanced">Balanced — half rate visuals</option>
+            <option value="easy">Easy — smallest footprint</option>
+          </select>
+        </div>
+        <div class="srow">
+          <span class="skey">Forge limits</span>
+          <div class="limit-row">
+            <label>CPU threads <input type="number" id="s-perf-threads" min="1" max="32" step="1" /></label>
+            <label>GPU batch <input type="number" id="s-perf-batch" min="1" max="8" step="1" /></label>
+          </div>
+        </div>
+        <div class="srow">
+          <span class="skey">While gaming</span>
+          <select class="sval" id="s-perf-gaming" title="What to do when Roblox, Roblox Studio or Minecraft is running">
+            <option value="nothing">Carry on as normal</option>
+            <option value="limit">Go easy (idle priority, smaller batches)</option>
+            <option value="pause">Pause Forge jobs entirely</option>
+          </select>
         </div>
         <div class="modal-actions">
           <button class="btn" id="s-recheck">Re-check updates</button>

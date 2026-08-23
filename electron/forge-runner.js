@@ -292,12 +292,16 @@ class ForgeRunner {
     if (!inputPath) { setTimeout(() => this._emit({ event: 'forge.done', jobId, ok: false, error: 'No input file.' }), 0); return jobId; }
     const [script, stageTable] = selectScript(pipeline, skipSeparation);
     const env = Object.assign({}, paths.forgeChildEnv(this._settings()));
-    // "Easy on the GPU/CPU" trades throughput for a machine that stays usable.
-    const easy = !!(this._settings() && this._settings().perfMode) || this._background;
-    env.SEPARATION_BATCH = env.SEPARATION_BATCH || (easy ? '1' : '2');
-    env.TRANSCRIBE_BATCH = env.TRANSCRIBE_BATCH || (easy ? '1' : '2');
-    env.OMP_NUM_THREADS = env.OMP_NUM_THREADS || (easy ? '2' : '4');
-    env.MKL_NUM_THREADS = env.MKL_NUM_THREADS || (easy ? '2' : '4');
+    // The user's own numbers, halved while a game is in the foreground.
+    const perf = (this._settings() && this._settings().performance) || {};
+    const easy = perf.level === 'easy' || this._background;
+    const half = (n) => Math.max(1, Math.round(n / 2));
+    const batch = easy ? half(perf.batch || 2) : (perf.batch || 2);
+    const threads = easy ? half(perf.threads || 4) : (perf.threads || 4);
+    env.SEPARATION_BATCH = env.SEPARATION_BATCH || String(batch);
+    env.TRANSCRIBE_BATCH = env.TRANSCRIBE_BATCH || String(batch);
+    env.OMP_NUM_THREADS = env.OMP_NUM_THREADS || String(threads);
+    env.MKL_NUM_THREADS = env.MKL_NUM_THREADS || String(threads);
     for (const [k, v] of Object.entries(advanced || {})) { if (v !== null && v !== undefined && v !== '') env[k] = (v === true ? '1' : v === false ? '0' : String(v)); }
     const start = timing && parseTimeSeconds(timing.start);
     const end = timing && parseTimeSeconds(timing.end);

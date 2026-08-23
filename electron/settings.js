@@ -10,6 +10,12 @@ const { app } = require('electron');
 const DEFAULTS = {
   window: { width: 1240, height: 880, x: null, y: null, maximized: false },
   library: { dirs: [] },        // extra folders Self Midi scans for MIDI files
+  performance: {
+    level: 'full',              // full | balanced | easy — how hard the app may work
+    threads: 4,                 // CPU worker threads for Forge jobs
+    batch: 2,                   // GPU batch size for separation/transcription
+    whenGaming: 'limit',        // nothing | limit | pause — on seeing a game
+  },
   forge: {
     pipeline: 'melody',       // melody | piano | general | fast | drums
     skipSeparation: false,
