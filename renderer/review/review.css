@@ -57,3 +57,7 @@ input.project-name { padding: 4px 8px; color: var(--text); background: transpare
 input.project-name:hover:not(:disabled) { border-color: var(--line-2); }
 input.project-name:focus { outline: none; border-color: var(--accent); background: var(--bg-2); }
 input.project-name:disabled { color: var(--text-3); }
+
+/* The canvas is viewport-sized and pinned; the wrap supplies the scroll extent. */
+.roll-wrap { position: relative; }
+#piano-roll { position: sticky; left: 0; top: 0; }

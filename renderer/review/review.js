@@ -5,6 +5,7 @@
   const canvas = $('piano-roll');
   const wave = $('waveform');
   const scroll = $('roll-scroll');
+  const wrap = $('roll-wrap');
   const audio = $('audio');
   const ctx = canvas.getContext('2d');
   const waveCtx = wave.getContext('2d');
@@ -117,15 +118,25 @@
     pitchHigh = clamp(Math.max(...pitches) + 3, pitchLow + 35, 108);
   }
 
+  // A five-minute song at the default zoom is ~24,000px wide. A canvas that
+  // size is 60+ MB of pixels AND past Chromium's 16,384px limit, so the tail of
+  // a long song simply never drew. The canvas is now the size of the viewport
+  // and the wrapper provides the scroll extent; drawing offsets by scrollLeft.
+  function contentWidth() {
+    return Math.max(scroll.clientWidth, KEY_W + duration * zoom + 50);
+  }
+
   function resizeRoll() {
     if (!doc() || scroll.hidden) return;
     calculateBounds();
-    const cssWidth = Math.max(scroll.clientWidth, KEY_W + duration * zoom + 50);
     const cssHeight = TOP_H + (pitchHigh - pitchLow + 1) * ROW_H;
+    const viewWidth = Math.max(1, scroll.clientWidth);
+    wrap.style.width = `${contentWidth()}px`;
+    wrap.style.height = `${cssHeight}px`;
     const dpr = window.devicePixelRatio || 1;
-    canvas.style.width = `${cssWidth}px`;
+    canvas.style.width = `${viewWidth}px`;
     canvas.style.height = `${cssHeight}px`;
-    canvas.width = Math.round(cssWidth * dpr);
+    canvas.width = Math.round(viewWidth * dpr);
     canvas.height = Math.round(cssHeight * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawRoll();
@@ -157,9 +168,11 @@
     if (!current) return;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
+    const ox = scroll.scrollLeft;                 // content -> viewport offset
+    const vx = (time) => xForTime(time) - ox;
+    const fromTime = timeForX(ox + KEY_W), toTime = timeForX(ox + width);
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = '#101115'; ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = '#181a1f'; ctx.fillRect(0, 0, KEY_W, height);
     ctx.fillStyle = '#202228'; ctx.fillRect(KEY_W, 0, width - KEY_W, TOP_H);
 
     for (let pitch = pitchLow; pitch <= pitchHigh; pitch += 1) {
@@ -168,17 +181,16 @@
       ctx.fillStyle = black ? '#121318' : '#181a1e';
       ctx.fillRect(KEY_W, y, width - KEY_W, ROW_H);
       ctx.strokeStyle = '#272a31'; ctx.beginPath(); ctx.moveTo(0, y + ROW_H); ctx.lineTo(width, y + ROW_H); ctx.stroke();
-      ctx.fillStyle = black ? '#202228' : '#d9dadc'; ctx.fillRect(0, y, KEY_W - 1, ROW_H - 1);
-      if (pitch % 12 === 0) {
-        ctx.fillStyle = black ? '#afb1b6' : '#25272d'; ctx.font = '9px JetBrains Mono';
-        ctx.fillText(`C${Math.floor(pitch / 12) - 1}`, 6, y + 10);
-      }
     }
+
+    ctx.save();
+    ctx.beginPath(); ctx.rect(KEY_W, 0, width - KEY_W, height); ctx.clip();
 
     const beat = 60 / (Number(current.bpm) || 120);
     const sub = beat / 4;
-    for (let time = 0, index = 0; time <= duration + sub; time += sub, index += 1) {
-      const x = xForTime(time);
+    const firstIndex = Math.max(0, Math.floor(fromTime / sub) - 1);
+    for (let index = firstIndex; index * sub <= Math.min(duration + sub, toTime + sub); index += 1) {
+      const x = vx(index * sub);
       const strong = index % 16 === 0;
       const beatLine = index % 4 === 0;
       ctx.strokeStyle = strong ? '#4a4e58' : beatLine ? '#343740' : '#24272d';
@@ -187,7 +199,8 @@
     }
 
     for (const note of current.notes) {
-      const x = xForTime(note.start);
+      if (note.end < fromTime || note.start > toTime) continue;
+      const x = vx(note.start);
       const y = yForPitch(note.pitch) + 1;
       const widthNote = Math.max(4, (note.end - note.start) * zoom);
       const on = selected.has(note.id);
@@ -197,13 +210,26 @@
       if (widthNote > 10) { ctx.fillStyle = on ? '#202500' : '#10242a'; ctx.fillRect(x + widthNote - 4, y + 2, 2, ROW_H - 6); }
     }
     if (marquee && marquee.moved) {
-      const mx = Math.min(marquee.x0, marquee.x1), my = Math.min(marquee.y0, marquee.y1);
+      const mx = Math.min(marquee.x0, marquee.x1) - ox, my = Math.min(marquee.y0, marquee.y1);
       const mw = Math.abs(marquee.x1 - marquee.x0), mh = Math.abs(marquee.y1 - marquee.y0);
       ctx.fillStyle = 'rgba(184,230,46,.12)'; ctx.fillRect(mx, my, mw, mh);
       ctx.strokeStyle = 'rgba(184,230,46,.65)'; ctx.strokeRect(mx + .5, my + .5, mw, mh);
     }
-    const playX = xForTime(playhead);
+    const playX = vx(playhead);
     ctx.strokeStyle = '#f0d34e'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(playX, 0); ctx.lineTo(playX, height); ctx.stroke(); ctx.lineWidth = 1;
+    ctx.restore();
+
+    // The keyboard stays pinned at the left edge while the roll scrolls under it.
+    ctx.fillStyle = '#181a1f'; ctx.fillRect(0, 0, KEY_W, height);
+    for (let pitch = pitchLow; pitch <= pitchHigh; pitch += 1) {
+      const y = yForPitch(pitch);
+      const black = [1, 3, 6, 8, 10].includes(pitch % 12);
+      ctx.fillStyle = black ? '#202228' : '#d9dadc'; ctx.fillRect(0, y, KEY_W - 1, ROW_H - 1);
+      if (pitch % 12 === 0) {
+        ctx.fillStyle = black ? '#afb1b6' : '#25272d'; ctx.font = '9px JetBrains Mono';
+        ctx.fillText(`C${Math.floor(pitch / 12) - 1}`, 6, y + 10);
+      }
+    }
   }
 
   const waveZoom = window.TimelineZoom
@@ -372,10 +398,14 @@
     return null;
   }
 
+  // The canvas only covers the viewport, so pointer x has to be put back into
+  // song coordinates before anything uses it.
+  const contentX = (clientX) => clientX - canvas.getBoundingClientRect().left + scroll.scrollLeft;
+
   canvas.addEventListener('pointerdown', (event) => {
     if (!doc()) return;
     const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    const x = contentX(event.clientX), y = event.clientY - rect.top;
     const hit = hitNote(x, y);
     if (!hit) {
       // Drag on empty space = box select; a plain click = seek.
@@ -402,7 +432,7 @@
   canvas.addEventListener('pointermove', (event) => {
     if (marquee) {
       const rect = canvas.getBoundingClientRect();
-      marquee.x1 = event.clientX - rect.left; marquee.y1 = event.clientY - rect.top;
+      marquee.x1 = contentX(event.clientX); marquee.y1 = event.clientY - rect.top;
       if (Math.abs(marquee.x1 - marquee.x0) > 4 || Math.abs(marquee.y1 - marquee.y0) > 4) marquee.moved = true;
       if (marquee.moved) {
         const t0 = timeForX(Math.min(marquee.x0, marquee.x1)), t1 = timeForX(Math.max(marquee.x0, marquee.x1));
@@ -417,7 +447,7 @@
     }
     if (!drag) return;
     const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    const x = contentX(event.clientX), y = event.clientY - rect.top;
     if (!drag.dirtied) {
       if (Math.abs(x - drag.x) < 2 && Math.abs(y - drag.y) < 2) return;
       checkpoint();
@@ -456,7 +486,7 @@
   canvas.addEventListener('dblclick', (event) => {
     if (!doc()) return;
     const rect = canvas.getBoundingClientRect();
-    const start = snapSeconds(timeForX(event.clientX - rect.left));
+    const start = snapSeconds(timeForX(contentX(event.clientX)));
     const pitch = pitchForY(event.clientY - rect.top);
     const division = Number($('quantize').value) || 16;
     const length = (60 / (Number(doc().bpm) || 120)) * (4 / division);
@@ -558,7 +588,7 @@
     const x = xForTime(playhead);
     const view = scroll.clientWidth;
     if (x < scroll.scrollLeft + KEY_W + 24 || x > scroll.scrollLeft + view - 60) {
-      scroll.scrollLeft = clamp(x - view * .35, 0, Math.max(0, canvas.clientWidth - view));
+      scroll.scrollLeft = clamp(x - view * .35, 0, Math.max(0, contentWidth() - view));
     }
   }
 
@@ -766,8 +796,7 @@
       return;
     }
     event.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const anchorTime = timeForX(event.clientX - rect.left);
+    const anchorTime = timeForX(contentX(event.clientX));
     const factor = Math.exp(-event.deltaY * 0.0016);
     const next = clamp(zoom * factor, Number($('zoom').min), Number($('zoom').max));
     if (next === zoom) return;
@@ -776,9 +805,10 @@
     resizeRoll();
     // Keep the pointer over the same musical position.
     scroll.scrollLeft = clamp(xForTime(anchorTime) - (event.clientX - scroll.getBoundingClientRect().left),
-      0, Math.max(0, canvas.clientWidth - scroll.clientWidth));
+      0, Math.max(0, contentWidth() - scroll.clientWidth));
   }, { passive: false });
 
+  scroll.addEventListener('scroll', () => drawRoll(), { passive: true });
   window.addEventListener('resize', () => { resizeWave(); resizeRoll(); });
   window.addEventListener('beforeunload', (event) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
   window.openReviewProject = openPath;

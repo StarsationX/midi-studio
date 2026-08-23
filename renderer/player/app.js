@@ -1210,7 +1210,12 @@ function queueRow(path, i) {
   x.addEventListener('click', (e) => { e.stopPropagation(); removeTrack(i); });
 
   li.append(num, n, play, up, down, x);
-  li.addEventListener('click', () => { if (!isPlaying && i !== curIdx) selectTrack(i, false); });
+  // Click a row to load it; the row's play button is what starts it.
+  li.addEventListener('click', () => {
+    if (i === curIdx) return;
+    if (isPlaying) { userStopped = true; window.api.send({ cmd: 'stop' }); }
+    selectTrack(i, false);
+  });
   return li;
 }
 
@@ -1289,13 +1294,16 @@ function addToQueue(paths) {
 
 // Public entry for browse / recents / library / the Forge hand-off: put the file
 // in the playlist (or find it there) and make it current.
-function setMidiFile(path) {
+function setMidiFile(path, andPlay = false) {
   if (!path) return;
   let i = tracks.indexOf(path);
   if (i < 0) { tracks.push(path); i = tracks.length - 1; }
-  const keepGoing = isPlaying;
+  // Loading is not playing. Starting the engine also focuses the game window,
+  // so it only happens when the user asks: the Play button, a row's play
+  // button, a hotkey, or the natural end of the previous track.
   if (isPlaying) { userStopped = true; window.api.send({ cmd: 'stop' }); }
-  selectTrack(i, keepGoing);
+  selectTrack(i, andPlay);
+  if (!andPlay) log('info', 'Loaded ' + path.split(/[\/]/).pop() + " — press Play when you're ready.");
 }
 
 // Natural end of a track -> the next row. Returns true if it took over.

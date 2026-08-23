@@ -40,8 +40,9 @@ echo [build] verifying imports (fails the build if the sidecar can't start) ...
 echo [build] slimming bundle (this gets re-extracted on every portable launch) ...
 set "SP=%PYDIR%\Lib\site-packages"
 rem pip/setuptools/wheel aren't needed at runtime; pythonwin is the pywin32 IDE;
-rem the .chm is a help file; isapi/demos are samples. ~20 MB removed.
-for %%D in (pip pip-* setuptools setuptools-* wheel wheel-* pkg_resources pythonwin win32comext\axdebug win32comext\axscript) do rd /s /q "%SP%\%%D" 2>nul
+rem the .chm is a help file; win32com/win32comext/adodbapi/isapi are COM and
+rem ASP support that nothing here imports. ~25 MB removed.
+for %%D in (pip pip-* setuptools setuptools-* wheel wheel-* pkg_resources pythonwin win32com win32comext adodbapi isapi) do rd /s /q "%SP%\%%D" 2>nul
 del /q "%SP%\PyWin32.chm" 2>nul
 for /d /r "%PYDIR%" %%P in (__pycache__) do rd /s /q "%%P" 2>nul
 echo [build] light sidecar python ready at %PYDIR%

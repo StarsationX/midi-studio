@@ -4,6 +4,7 @@
 'use strict';
 
 const { app, shell } = require('electron');
+const { execFile } = require('child_process');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
@@ -83,6 +84,45 @@ const pickSetup = (a) => (a || []).find((x) => /setup.*\.exe$/i.test(x.name)) ||
 // or earlier cannot replace itself with an installer, so show the wizard —
 // otherwise it silently installs a second copy and keeps nagging forever.
 const installerArgs = () => (process.env.PORTABLE_EXECUTABLE_FILE ? [] : ['/S']);
+
+// Can this process write where the app is installed?
+// An app in C:\Program Files cannot be replaced by a silent installer run
+// without elevation — the installer exits 1223 immediately and nothing happens,
+// which is exactly what "the updater does nothing" looked like.
+function installDirWritable() {
+  try {
+    const dir = path.dirname(app.getPath('exe'));
+    const probe = path.join(dir, `.midi-studio-update-${process.pid}`);
+    fs.writeFileSync(probe, 'ok');
+    fs.unlinkSync(probe);
+    return true;
+  } catch (_) { return false; }
+}
+
+// Launch the installer, elevating when the install location needs it. Resolves
+// once it is actually running (or the user refused the UAC prompt).
+function launchInstaller(file) {
+  return new Promise((resolve) => {
+    const args = installerArgs();
+    if (process.platform !== 'win32' || installDirWritable()) {
+      try {
+        spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+        resolve({ ok: true });
+      } catch (e) { resolve({ ok: false, error: String(e.message || e) }); }
+      return;
+    }
+    const quoted = file.replace(/'/g, "''");
+    const argList = args.length ? ` -ArgumentList '${args.join("','")}'` : '';
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `Start-Process -FilePath '${quoted}'${argList} -Verb RunAs`],
+      { windowsHide: true, timeout: 120000 }, (error) => {
+        if (!error) { resolve({ ok: true, elevated: true }); return; }
+        resolve({ ok: false, elevated: true,
+          error: 'Windows needs permission to replace the installed files. '
+            + 'Approve the prompt, or run the downloaded installer yourself.' });
+      });
+  });
+}
 let cached = null;
 function stagingDir() { const d = path.join(app.getPath('userData'), 'updates'); try { fs.mkdirSync(d, { recursive: true }); } catch {} return d; }
 
@@ -134,9 +174,17 @@ async function applyUpdate(send) {
       return;
     }
     send({ state: 'ready' });
-    spawn(installer, installerArgs(), { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    const started = await launchInstaller(installer);
+    if (!started.ok) {
+      // Leave the app running and hand the user the file rather than quitting
+      // into nothing.
+      shell.showItemInFolder(installer);
+      send({ state: 'error', message: started.error || 'The installer could not be started.' });
+      return;
+    }
     setTimeout(() => app.quit(), 400);
   } catch (e) { send({ state: 'error', message: String((e && e.message) || e) }); }
 }
 
-module.exports = { checkForUpdates, applyUpdate, cmpVer, parseVer, verifyDigest, pickSetupAsset: pickSetup, installerArgs };
+module.exports = { checkForUpdates, applyUpdate, cmpVer, parseVer, verifyDigest,
+  pickSetupAsset: pickSetup, installerArgs, installDirWritable };
