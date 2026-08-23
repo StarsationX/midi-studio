@@ -472,6 +472,10 @@
   function setEnv(state, text) { $('env-dot').className = 'dot ' + (state || ''); $('env-text').textContent = text; }
   // Where setup will install, shown in the setup panel with the free space on
   // that drive — picking the drive is the one decision setup can't recover from.
+  if (window.studio && studio.getVersion) {
+    studio.getVersion().then((v) => { $('setup-version').textContent = 'v' + v; }).catch(() => {});
+  }
+
   async function refreshStorage() {
     if (!window.studio || !studio.forgeInfo) return;
     let info; try { info = await studio.forgeInfo(); } catch { return; }
@@ -521,6 +525,14 @@
     updateStart();
   }
   $('env-recheck').addEventListener('click', refreshEnv);
+  // Copying beats hunting for a file when someone is trying to send you a log.
+  $('setup-copy').addEventListener('click', async () => {
+    const text = $('log').textContent || '';
+    try {
+      await navigator.clipboard.writeText(text || '(the setup log is empty)');
+      logLine('Setup log copied to the clipboard.');
+    } catch (_) { logLine('Could not copy — use "Open setup log" instead.'); }
+  });
   $('setup-log').addEventListener('click', async () => {
     if (!window.studio || !studio.openSetupLog) return;
     const r = await studio.openSetupLog();

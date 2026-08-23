@@ -302,7 +302,7 @@ class Provisioner:
 
     def run(self):
         self._mark(f"setup starting in {self.env_dir}")
-        step(5, "Start", "Preparing…")
+        step(5, "Start", "Checking your system…")
         self.env_dir.mkdir(parents=True, exist_ok=True)
         self._mark("checking graphics driver")
         cuda = self._nvidia_present()

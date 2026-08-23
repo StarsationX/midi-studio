@@ -19,7 +19,7 @@
   <div class="wrap">
     <!-- SETUP panel (shown when forge isn't provisioned) -->
     <section class="card setup" id="setup" hidden>
-      <h2>Set up Midi Forge</h2>
+      <h2>Set up Midi Forge <span class="setup-version mono" id="setup-version"></span></h2>
       <p class="muted">One-time download of the model + dependencies (~3 GB). GPU-accelerated on NVIDIA (CUDA) and AMD/Intel (DirectML).
         The Midi Player tab works without this.</p>
       <div class="storage-row">
@@ -34,6 +34,7 @@
         <button class="btn btn-primary" id="setup-start">Set up Midi Forge</button>
         <button class="btn btn-ghost" id="setup-cancel" hidden>Cancel</button>
         <button class="btn btn-ghost" id="setup-log" type="button" title="Everything setup has printed, with timestamps">Open setup log</button>
+        <button class="btn btn-ghost" id="setup-copy" type="button" title="Copy the whole setup log to the clipboard">Copy log</button>
       </div>
       <div class="prog" id="setup-prog" hidden>
         <div class="prog-row"><span id="setup-step">Starting…</span><span id="setup-elapsed" class="mono muted"></span><span id="setup-pct" class="mono"></span></div>
