@@ -52,11 +52,28 @@ class ForgeProvisioner {
       return;
     }
     this._child = child;
-    this._emit({ event: 'forge.provision.progress', percent: 0, step: 'Start', message: 'Setting up Midi-Forge…' });
+    this._emit({ event: 'forge.provision.progress', percent: 0, step: 'Start', message: 'Setting up Midi Forge…' });
+    // A step that prints nothing for a while is normal (a 3 GB download prints
+    // once), but silence with no explanation reads as a hang. Say it's alive.
+    this._lastOutput = Date.now();
+    this._lastStep = 'Preparing';
+    clearInterval(this._watchdog);
+    this._watchdog = setInterval(() => {
+      if (!this.isRunning()) return;
+      const quiet = Math.round((Date.now() - this._lastOutput) / 1000);
+      if (quiet >= 45) {
+        this._emit({ event: 'forge.provision.log',
+          line: `still working — ${this._lastStep} has been running for ${Math.floor(quiet / 60)}m ${quiet % 60}s with no output. Downloads print only when they finish.` });
+        this._lastOutput = Date.now();
+      }
+    }, 15000);
+    if (this._watchdog.unref) this._watchdog.unref();
     let buf = '';
     const onLine = (line) => {
+      this._lastOutput = Date.now();
       if (line.startsWith('MSTEP|')) {
         const p = line.split('|', 4);
+        if (p.length === 4) this._lastStep = p[2];
         if (p.length === 4) { const pct = parseInt(p[1], 10); this._emit({ event: 'forge.provision.progress', percent: Number.isNaN(pct) ? -1 : pct, step: p[2], message: p[3] }); }
         return;
       }
@@ -70,6 +87,7 @@ class ForgeProvisioner {
     child.stderr.setEncoding('utf-8'); child.stderr.on('data', pump);
     child.on('exit', (code) => {
       this._child = null;
+      clearInterval(this._watchdog); this._watchdog = null;
       if (this._logFd != null) { try { fs.writeSync(this._logFd, `\n=== exited code=${code} cancelled=${!!child.__cancelled} ===\n`); fs.closeSync(this._logFd); } catch {} this._logFd = null; }
       if (child.__cancelled) this._emit({ event: 'forge.provision.error', message: 'Setup cancelled.' });
       else if (code !== 0) this._emit({ event: 'forge.provision.error', message: `Setup failed (exit ${code}). Full log: ${this._logPath}`, logPath: this._logPath });

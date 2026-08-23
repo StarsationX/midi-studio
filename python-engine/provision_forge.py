@@ -75,6 +75,8 @@ class Provisioner:
         # space mid-download. Keep every big write on the drive they chose.
         self.pip_cache = env_dir / "pip-cache"
         self.tmp_dir = env_dir / "tmp"
+        self._nvidia = None
+        self._t0 = time.time()
 
     def _nvidia_present(self):
         """Is there an NVIDIA GPU the CUDA build could actually use?
@@ -86,15 +88,16 @@ class Provisioner:
         """
         if TORCH_BUILD in ("cuda", "cpu"):
             return TORCH_BUILD == "cuda"
-        smi = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe"
-        if not smi.exists():
-            return False
-        try:
-            out = subprocess.run([str(smi), "-L"], capture_output=True, text=True,
-                                 timeout=15, creationflags=_NO_WINDOW)
-            return out.returncode == 0 and "GPU 0" in (out.stdout or "")
-        except Exception:
-            return False
+        if self._nvidia is not None:
+            return self._nvidia
+        # File check, not a subprocess. Running nvidia-smi here could hang the
+        # whole setup before a single line of output ("stuck at Preparing"),
+        # and subprocess.run's timeout does not save you when a grandchild
+        # holds the pipes. nvcuda.dll is installed by every NVIDIA driver that
+        # can run CUDA, which is exactly the question being asked.
+        system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+        self._nvidia = (system32 / "nvcuda.dll").exists()
+        return self._nvidia
 
     def _drive(self):
         return str(Path(self.env_dir).anchor) or str(self.env_dir)
@@ -171,7 +174,7 @@ class Provisioner:
 
     def ensure_python(self):
         if self.py.exists():
-            log("embedded Python present"); return
+            self._mark("embedded Python present"); return
         step(10, "Python", "Downloading embedded Python…")
         zp = self.env_dir / "python-embed.zip"
         self._download(PYEMBED_URL, zp, "Python")
@@ -203,6 +206,7 @@ class Provisioner:
         elif self._torch_installed():
             log("torch present"); return
         cuda = self._nvidia_present()
+        self._mark("installing PyTorch — this is the long one")
         if cuda:
             self._require_disk(MIN_FREE_GB_TORCH, "PyTorch + CUDA")
             step(-1, "PyTorch", "Installing PyTorch + CUDA (~3 GB, 5–12 min — don't close)…")
@@ -219,6 +223,7 @@ class Provisioner:
         partial.unlink(missing_ok=True)
 
     def install_deps(self):
+        self._mark("installing the Python packages")
         req = self.engine_dir / "requirements.txt"
         step(-1, "Packages", "Installing Python packages…")
         # --prefer-binary: the embeddable Python has no dev headers (Python.h), so
@@ -238,6 +243,7 @@ class Provisioner:
         self._pip("--prefer-binary", "onnxruntime-directml")
 
     def fetch_msst(self):
+        self._mark("fetching the separation framework")
         if (self.env_dir / "msst" / "inference.py").exists():
             log("MSST present"); return
         step(70, "MSST", "Downloading separation framework…")
@@ -254,6 +260,7 @@ class Provisioner:
             ex.rename(dst)
 
     def fetch_assets(self):
+        self._mark("downloading the model and FFmpeg")
         self._require_disk(MIN_FREE_GB_MODEL, "the model + FFmpeg")
         step(80, "Model", "Downloading model + FFmpeg (~900 MB)…")
         script = self.engine_dir / "download_assets.py"
@@ -271,6 +278,7 @@ class Provisioner:
             raise ProvisionError("download_assets.py failed")
 
     def verify(self):
+        self._mark("verifying")
         step(95, "Verify", "Verifying installation…")
         script = self.engine_dir / "verify_install.py"
         if not script.exists():
@@ -288,11 +296,21 @@ class Provisioner:
              "ts": int(time.time())}, indent=2))
         (self.env_dir / ".ready").write_text(ENV_VERSION)
 
+    def _mark(self, message):
+        """Every phase says when it started. A silent setup is unfixable."""
+        log(f"[{time.time() - self._t0:5.1f}s] {message}")
+
     def run(self):
-        self.env_dir.mkdir(parents=True, exist_ok=True)
-        self._require_disk(MIN_FREE_GB_START if self._nvidia_present() else MIN_FREE_GB_START_CPU,
-                           "first-time setup")
+        self._mark(f"setup starting in {self.env_dir}")
         step(5, "Start", "Preparing…")
+        self.env_dir.mkdir(parents=True, exist_ok=True)
+        self._mark("checking graphics driver")
+        cuda = self._nvidia_present()
+        self._mark(f"{'NVIDIA driver found — CUDA build' if cuda else 'no NVIDIA driver — CPU build (much smaller)'}")
+        self._mark(f"checking free space on {self._drive()}")
+        self._require_disk(MIN_FREE_GB_START if cuda else MIN_FREE_GB_START_CPU, "first-time setup")
+        self._mark(f"{self._free_gb():.1f} GB free — ok")
+        self._mark("checking the embedded Python")
         self.ensure_python()
         self.install_torch()
         self.install_deps()
