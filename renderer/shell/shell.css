@@ -144,3 +144,9 @@ body.modal-open .tabframe { visibility: hidden; }
 .limit-row { display: flex; gap: 12px; justify-content: flex-end; }
 .limit-row label { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 11.5px; }
 .limit-row input { width: 62px; height: 28px; padding: 0 6px; color: var(--text); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
+
+.limit-control { flex: 1; min-width: 0; display: grid; gap: 6px; justify-items: end; }
+.limit-head { display: flex; align-items: center; gap: 10px; width: 100%; }
+.limit-head input[type=range] { flex: 1; accent-color: var(--accent); }
+#s-perf-value { min-width: 42px; text-align: right; color: var(--accent); font-size: 12px; }
+.limit-explain { text-align: right; line-height: 1.5; }

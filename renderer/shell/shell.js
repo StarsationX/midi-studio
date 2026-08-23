@@ -40,22 +40,18 @@
   // permanently the first time Roblox was seen.
   // '' = full speed, 'balanced' = half rate, 'easy' = smallest footprint. A
   // running game can raise the level but never lowers the user's choice.
-  let userPerf = 'full', gameActive = '', gamingRule = 'limit';
-  function effectivePerf() {
-    const order = ['full', 'balanced', 'easy'];
-    let level = userPerf;
-    if (gameActive && gamingRule !== 'nothing') {
-      level = order[Math.max(order.indexOf(level), order.indexOf('easy'))];
-    }
-    return level;
+  // The allowance is a percentage; a running game halves it but never raises it.
+  let perf = { percent: 100, drawMs: 33, whenGaming: 'limit' }, gameActive = '';
+  function effectiveDrawMs() {
+    const base = perf.drawMs || 33;
+    return gameActive && perf.whenGaming !== 'nothing' ? base * 3 : base;
   }
   function applyPerf() {
-    const level = effectivePerf();
-    const value = level === 'full' ? '' : level;
-    document.documentElement.dataset.perf = value;
+    const value = String(effectiveDrawMs());
+    document.documentElement.dataset.drawms = value;
     frames.forEach((f) => {
       const el = f.contentDocument && f.contentDocument.documentElement;
-      if (el) el.dataset.perf = value;
+      if (el) el.dataset.drawms = value;
     });
   }
   function activate(name, persist = true) {
@@ -137,13 +133,7 @@
 
   // Restore last tab.
   if (studio && studio.getUi) studio.getUi().then((ui) => { if (ui) { if (ui.lastTab) activate(ui.lastTab, false); applyTheme(ui.theme); if (ui.accent) applyAccent(ui.accent); } }).catch(() => {});
-  if (studio && studio.getPerformance) studio.getPerformance().then((p) => {
-    if (!p) return;
-    // perfMode was the old on/off switch; honour it as "easy" on first run.
-    userPerf = p.level || 'full';
-    gamingRule = p.whenGaming || 'limit';
-    applyPerf();
-  }).catch(() => {});
+  if (studio && studio.getPerformance) studio.getPerformance().then(showPerf).catch(() => {});
 
   // ---- version badge ----
   const badge = document.getElementById('version-badge');
@@ -219,10 +209,8 @@
     refreshForgeInfo();
     if (studio.getPerformance) studio.getPerformance().then((p) => {
       if (!p) return;
-      $('s-perf-level').value = p.level || 'full';
       $('s-perf-gaming').value = p.whenGaming || 'limit';
-      $('s-perf-threads').value = String(p.threads || 4);
-      $('s-perf-batch').value = String(p.batch || 2);
+      showPerf(p);
     }).catch(() => {});
     if (studio.getUi) studio.getUi().then((ui) => { $('s-autoupdate').checked = !ui || ui.autoCheckUpdates !== false; $('s-theme').value = (ui && ui.theme) || 'lime'; $('s-accent').value = (ui && ui.accent) || (getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'); }).catch(() => {});
   }
@@ -234,22 +222,38 @@
   $('s-theme').addEventListener('change', (e) => { applyAccent(''); applyTheme(e.target.value); studio.setUi && studio.setUi({ theme: e.target.value, accent: '' });
     $('s-accent').value = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'; });
   $('s-accent').addEventListener('input', (e) => { applyAccent(e.target.value); studio.setUi && studio.setUi({ accent: e.target.value }); });
-  $('s-perf-level').addEventListener('change', (e) => {
-    userPerf = e.target.value; applyPerf();
-    studio.setPerformance && studio.setPerformance({ level: userPerf });
+  // Say what the number will actually do — a percentage on its own means nothing.
+  function showPerf(p) {
+    if (!p) return;
+    perf = p;
+    $('s-perf-percent').value = String(p.percent);
+    $('s-perf-value').textContent = `${p.percent}%`;
+    $('s-perf-threads').value = String(p.threads);
+    $('s-perf-batch').value = String(p.batch);
+    const fps = Math.max(1, Math.round(1000 / p.drawMs));
+    const custom = p.custom && (p.custom.threads || p.custom.batch) ? ' · set by hand' : '';
+    $('s-perf-explain').textContent =
+      `${p.threads} of ${p.cores} CPU cores · GPU batch ${p.batch} · ${fps} fps visuals`
+      + (p.lowPriority ? ' · low priority' : '') + custom;
+    applyPerf();
+  }
+
+  const savePerf = (patch) => studio.setPerformance && studio.setPerformance(patch).then(showPerf).catch(() => {});
+
+  $('s-perf-percent').addEventListener('input', (e) => {
+    $('s-perf-value').textContent = `${e.target.value}%`;
   });
-  $('s-perf-gaming').addEventListener('change', (e) => {
-    gamingRule = e.target.value; applyPerf();
-    studio.setPerformance && studio.setPerformance({ whenGaming: gamingRule });
+  $('s-perf-percent').addEventListener('change', (e) => savePerf({ percent: Number(e.target.value) }));
+  $('s-perf-gaming').addEventListener('change', (e) => savePerf({ whenGaming: e.target.value }));
+  $('s-perf-toggle').addEventListener('click', () => {
+    const row = $('s-perf-advanced');
+    row.hidden = !row.hidden;
+    $('s-perf-toggle').textContent = row.hidden ? 'Set exact numbers…' : 'Hide exact numbers';
   });
+  $('s-perf-auto').addEventListener('click', () => savePerf({ percent: perf.percent }));
   ['s-perf-threads', 's-perf-batch'].forEach((id) => {
-    $(id).addEventListener('change', (e) => {
-      const key = id === 's-perf-threads' ? 'threads' : 'batch';
-      const max = key === 'threads' ? 32 : 8;
-      const value = Math.max(1, Math.min(max, Math.round(Number(e.target.value) || 1)));
-      e.target.value = String(value);
-      studio.setPerformance && studio.setPerformance({ [key]: value });
-    });
+    $(id).addEventListener('change', () => savePerf({ advanced: {
+      threads: Number($('s-perf-threads').value), batch: Number($('s-perf-batch').value) } }));
   });
   $('s-openforge').addEventListener('click', () => studio.openForgeFolder && studio.openForgeFolder());
   async function relocateForge(method, button) {

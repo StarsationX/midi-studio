@@ -64,18 +64,19 @@
           <label class="check"><input type="checkbox" id="s-autoupdate" checked /> Check for updates automatically</label>
         </div>
         <div class="srow">
-          <span class="skey">Resource limit</span>
-          <select class="sval" id="s-perf-level" title="How hard MIDI Studio may work">
-            <option value="full">Full speed</option>
-            <option value="balanced">Balanced — half rate visuals</option>
-            <option value="easy">Easy — smallest footprint</option>
-          </select>
-        </div>
-        <div class="srow">
-          <span class="skey">Forge limits</span>
-          <div class="limit-row">
-            <label>CPU threads <input type="number" id="s-perf-threads" min="1" max="32" step="1" /></label>
-            <label>GPU batch <input type="number" id="s-perf-batch" min="1" max="8" step="1" /></label>
+          <span class="skey">Use at most</span>
+          <div class="limit-control">
+            <div class="limit-head">
+              <input type="range" id="s-perf-percent" min="10" max="100" step="5" value="100" aria-label="Maximum share of this computer MIDI Studio may use" />
+              <output class="mono" id="s-perf-value">100%</output>
+            </div>
+            <div class="limit-explain muted small" id="s-perf-explain">of this computer</div>
+            <div class="limit-row" id="s-perf-advanced" hidden>
+              <label>CPU threads <input type="number" id="s-perf-threads" min="1" max="64" step="1" /></label>
+              <label>GPU batch <input type="number" id="s-perf-batch" min="1" max="8" step="1" /></label>
+              <button class="link" id="s-perf-auto" type="button">Back to automatic</button>
+            </div>
+            <button class="link" id="s-perf-toggle" type="button">Set exact numbers…</button>
           </div>
         </div>
         <div class="srow">

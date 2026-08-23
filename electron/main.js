@@ -366,16 +366,38 @@ function freeGb(dir) {
   } catch (_) { return null; }
 }
 
-// One place decides what the limits are; the old ui.perfMode boolean still
-// counts as "easy" so nobody's existing choice is lost.
+// One number the user understands — "how much of this machine may MIDI Studio
+// use" — and everything else is derived from it here, in one place, so the UI
+// can show exactly what it will mean.
 function performanceSettings() {
   const p = settings.get('performance') || {};
-  const legacyEasy = !!(settings.get('ui') || {}).perfMode;
+  const legacy = settings.get('ui') || {};
+  let percent = Number(p.percent);
+  if (!Number.isFinite(percent)) {
+    // Carry the older settings forward rather than resetting anyone.
+    percent = p.level === 'easy' || legacy.perfMode ? 35 : p.level === 'balanced' ? 65 : 100;
+  }
+  percent = Math.max(10, Math.min(100, Math.round(percent / 5) * 5));
+
+  const cores = Math.max(1, os.cpus().length);
+  const advanced = isObj(p.advanced) ? p.advanced : {};
+  // Number(null) is 0 and 0 is finite, so "cleared" has to be checked as a
+  // value, not as a number — otherwise clearing an override set it to 1.
+  const hand = (v) => (v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null);
+  const threads = hand(advanced.threads) != null
+    ? Math.max(1, Math.min(64, Math.round(hand(advanced.threads))))
+    : Math.max(1, Math.min(cores, Math.round(cores * percent / 100)));
+  const batch = hand(advanced.batch) != null
+    ? Math.max(1, Math.min(8, Math.round(hand(advanced.batch))))
+    : Math.max(1, Math.round(percent / 50));          // 100% -> 2, 50% -> 1
+  // 100% is 30fps; the budget stretches as the allowance shrinks.
+  const drawMs = Math.round(1000 / Math.max(4, 30 * percent / 100));
+
   return {
-    level: ['full', 'balanced', 'easy'].includes(p.level) ? p.level : (legacyEasy ? 'easy' : 'full'),
-    threads: Math.max(1, Math.min(32, Math.round(Number(p.threads) || 4))),
-    batch: Math.max(1, Math.min(8, Math.round(Number(p.batch) || 2))),
+    percent, cores, threads, batch, drawMs,
+    lowPriority: percent <= 50,
     whenGaming: ['nothing', 'limit', 'pause'].includes(p.whenGaming) ? p.whenGaming : 'limit',
+    custom: { threads: hand(advanced.threads), batch: hand(advanced.batch) },
   };
 }
 
@@ -615,10 +637,19 @@ function wireIpc() {
   ipcMain.handle('app:setPerformance', (_e, patch) => {
     const clean = {};
     if (isObj(patch)) {
-      if (['full', 'balanced', 'easy'].includes(patch.level)) clean.level = patch.level;
+      if (Number.isFinite(Number(patch.percent))) {
+        clean.percent = Math.max(10, Math.min(100, Math.round(Number(patch.percent))));
+        // Explicit nulls, not an empty object: the settings store deep-merges,
+        // so {} would leave a previous hand-set value in place.
+        clean.advanced = { threads: null, batch: null };
+      }
       if (['nothing', 'limit', 'pause'].includes(patch.whenGaming)) clean.whenGaming = patch.whenGaming;
-      if (Number.isFinite(Number(patch.threads))) clean.threads = Math.max(1, Math.min(32, Math.round(Number(patch.threads))));
-      if (Number.isFinite(Number(patch.batch))) clean.batch = Math.max(1, Math.min(8, Math.round(Number(patch.batch))));
+      if (isObj(patch.advanced)) {
+        const advanced = {};
+        if (Number.isFinite(Number(patch.advanced.threads))) advanced.threads = Math.max(1, Math.min(64, Math.round(Number(patch.advanced.threads))));
+        if (Number.isFinite(Number(patch.advanced.batch))) advanced.batch = Math.max(1, Math.min(8, Math.round(Number(patch.advanced.batch))));
+        clean.advanced = advanced;
+      }
     }
     settings.merge({ performance: clean });
     return performanceSettings();

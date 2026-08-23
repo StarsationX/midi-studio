@@ -340,14 +340,12 @@
   // throttling is disabled app-wide to keep playback alive behind the game
   // window — without a cap here that would mean a full-rate repaint forever.
   let lastDraw = 0;
-  const perfLevel = () => document.documentElement.dataset.perf || 'full';
+  // The shell publishes the frame budget in milliseconds, derived from the
+  // "use at most N%" setting. Unfocused windows get an eighth of the rate.
   function drawBudgetMs() {
     if (document.hidden) return Infinity;          // minimized: don't draw at all
-    const level = perfLevel();
-    const focused = document.hasFocus();
-    if (level === 'easy') return focused ? 100 : 1000;
-    if (level === 'balanced') return focused ? 66 : 500;
-    return focused ? 33 : 250;                     // covered/unfocused: 4 fps
+    const base = Number(document.documentElement.dataset.drawms) || 33;
+    return document.hasFocus() ? base : Math.max(250, base * 8);
   }
   function tick() {
     if (!player.playing) return;

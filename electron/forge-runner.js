@@ -214,7 +214,9 @@ class ForgeRunner {
     // Forge can saturate a GPU and several CPU cores. Keep the realtime player
     // and Electron renderer responsive while a transcription runs.
     try {
-      os.setPriority(child.pid, this._background ? os.constants.priority.PRIORITY_LOW
+      const perf = (this._settings() && this._settings().performance) || {};
+      os.setPriority(child.pid, (this._background || perf.lowPriority)
+        ? os.constants.priority.PRIORITY_LOW
         : os.constants.priority.PRIORITY_BELOW_NORMAL);
     } catch {}
     // "exit code 1" tells a user nothing. Keep the tail of the output and any
@@ -292,12 +294,11 @@ class ForgeRunner {
     if (!inputPath) { setTimeout(() => this._emit({ event: 'forge.done', jobId, ok: false, error: 'No input file.' }), 0); return jobId; }
     const [script, stageTable] = selectScript(pipeline, skipSeparation);
     const env = Object.assign({}, paths.forgeChildEnv(this._settings()));
-    // The user's own numbers, halved while a game is in the foreground.
+    // Derived from the user's allowance, halved again while a game is up front.
     const perf = (this._settings() && this._settings().performance) || {};
-    const easy = perf.level === 'easy' || this._background;
     const half = (n) => Math.max(1, Math.round(n / 2));
-    const batch = easy ? half(perf.batch || 2) : (perf.batch || 2);
-    const threads = easy ? half(perf.threads || 4) : (perf.threads || 4);
+    const batch = this._background ? half(perf.batch || 2) : (perf.batch || 2);
+    const threads = this._background ? half(perf.threads || 4) : (perf.threads || 4);
     env.SEPARATION_BATCH = env.SEPARATION_BATCH || String(batch);
     env.TRANSCRIBE_BATCH = env.TRANSCRIBE_BATCH || String(batch);
     env.OMP_NUM_THREADS = env.OMP_NUM_THREADS || String(threads);
