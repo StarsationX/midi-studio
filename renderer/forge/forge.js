@@ -826,7 +826,16 @@
     $('out-name').value = '';   // a name belongs to one song, not to the queue
   }
   $('start').addEventListener('click', () => { runningQueue = queue.length > 0; startJob(); });
-  let jobPaused = false;
+  let jobPaused = false, lastStage = '';
+  function setPausedUi(paused) {
+    $('pause').textContent = paused ? 'Resume' : 'Pause';
+    // Assigning the label to itself left it reading "Paused" forever, because
+    // the pipeline can go minutes without printing another progress line.
+    $('job-stage').textContent = paused ? 'Paused' : (lastStage || 'Working…');
+    $('job-bar').classList.toggle('is-paused', paused);
+    $('job-prog').classList.toggle('is-paused', paused);
+  }
+
   $('pause').addEventListener('click', async () => {
     if (!F.pause) return;
     const want = !jobPaused;
@@ -835,8 +844,7 @@
     $('pause').disabled = false;
     if (r && r.ok) {
       jobPaused = r.paused;
-      $('pause').textContent = jobPaused ? 'Resume' : 'Pause';
-      $('job-stage').textContent = jobPaused ? 'Paused' : $('job-stage').textContent;
+      setPausedUi(jobPaused);
       logLine(jobPaused ? '⏸ Paused — the GPU is free until you resume.' : '▶ Resumed.');
     } else logLine((r && r.error) || 'Could not pause the job.');
   });
@@ -902,12 +910,17 @@
       }
 
       case 'forge.progress': {
-        $('job-stage').textContent = s.stage || '';
+        if (s.stage) lastStage = s.stage;
+        $('job-stage').textContent = jobPaused ? 'Paused' : (s.stage || '');
         const indet = (s.percent == null || s.percent < 0);
         $('job-bar').className = 'bar-fill' + (indet ? ' indet' : ''); $('job-bar').style.width = indet ? '' : (s.percent + '%');
         $('job-pct').textContent = indet ? '' : (s.percent + '%'); break;
       }
       case 'forge.log': logLine(s.line); break;
+      case 'forge.paused':
+        jobPaused = !!s.paused;
+        setPausedUi(jobPaused);
+        break;
       case 'forge.done': {
         const wasSkipped = skipRequested;
         skipRequested = false;
