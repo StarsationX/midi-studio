@@ -28,6 +28,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 import zipfile
@@ -126,6 +127,43 @@ class Provisioner:
             env.update(extra)
         return env
 
+    def _site_packages_mb(self):
+        """Bytes written into the environment so far, as MB."""
+        total = 0
+        root = self.env_dir / "python" / "Lib" / "site-packages"
+        try:
+            for base, _dirs, files in os.walk(root):
+                for name in files:
+                    try:
+                        total += os.path.getsize(os.path.join(base, name))
+                    except OSError:
+                        pass
+        except OSError:
+            return 0
+        return total / (1024 * 1024)
+
+    def _watch_progress(self, label, expected_mb):
+        """Report growth while a command prints nothing.
+
+        pip writes several GB of files after its last line of output, so the
+        longest part of setup looks identical to a hang. Watch the folder
+        instead of waiting for the process to say something.
+        """
+        stop = threading.Event()
+        start_mb = self._site_packages_mb()
+
+        def run():
+            while not stop.wait(6.0):
+                grown = max(0.0, self._site_packages_mb() - start_mb)
+                if expected_mb:
+                    pct = min(99, int(grown * 100 / expected_mb))
+                    step(-1, label, f"{label}: {grown:,.0f} MB written (~{pct}%)")
+                else:
+                    step(-1, label, f"{label}: {grown:,.0f} MB written")
+        thread = threading.Thread(target=run, daemon=True, name="progress")
+        thread.start()
+        return stop
+
     def _run(self, args, env=None):
         log("$ " + " ".join(str(a) for a in args))
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -145,12 +183,17 @@ class Provisioner:
                     f"Settings -> Forge storage -> Change, then run setup again.")
             raise ProvisionError(f"command failed: {args[0]}")
 
-    def _pip(self, *args):
+    def _pip(self, *args, watch=None, expected_mb=0):
         base = [str(self.py), "-m", "pip", "install", "--retries", "5", "--timeout", "60",
                 "--disable-pip-version-check", "--no-warn-script-location"]
         if self.wheelhouse.is_dir():
             base += ["--find-links", str(self.wheelhouse)]
-        self._run(base + list(args), env=self._child_env())
+        stop = self._watch_progress(watch, expected_mb) if watch else None
+        try:
+            self._run(base + list(args), env=self._child_env())
+        finally:
+            if stop is not None:
+                stop.set()
 
     def _download(self, url, dest, label):
         log(f"download {url}")
@@ -217,8 +260,11 @@ class Provisioner:
                 "through DirectML)")
             step(-1, "PyTorch", "Installing PyTorch (CPU build, ~300 MB)…")
         partial.write_text("1")
+        # Unpacked sizes, roughly: the CUDA build lands around 5.5 GB, the CPU
+        # build around 800 MB. Close enough to turn silence into a percentage.
         self._pip("--index-url", TORCH_INDEX if cuda else TORCH_INDEX_CPU,
-                  "torch==2.11.0", "torchaudio==2.11.0", "torchvision==0.26.0")
+                  "torch==2.11.0", "torchaudio==2.11.0", "torchvision==0.26.0",
+                  watch="PyTorch", expected_mb=5500 if cuda else 800)
         self._pip("torchcodec==0.11.1")
         partial.unlink(missing_ok=True)
 
@@ -233,7 +279,7 @@ class Provisioner:
         # Python.h. We ship those wheels in python-engine/wheelhouse (added to
         # --find-links by _pip); prefer-binary makes pip take them over an sdist.
         if req.exists():
-            self._pip("-r", str(req), "--prefer-binary")
+            self._pip("-r", str(req), "--prefer-binary", watch="Packages", expected_mb=1200)
         else:
             log(f"requirements.txt not found at {req}")
         self._pip("--no-deps", "--prefer-binary", "basic-pitch==0.4.0")
