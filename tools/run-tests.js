@@ -116,7 +116,12 @@ delete process.env.PORTABLE_EXECUTABLE_FILE;
   ok(/^\d+\.\d+\.\d+$/.test(pkg.version), 'package version is semver');
   ok(lock.version === pkg.version && lock.packages[''].version === pkg.version, 'package-lock version matches package.json');
   ok(pkg.build.nsis.include === 'build/installer.nsh', 'NSIS includes custom Forge storage page');
-  ok(installer.includes('--configure-forge-storage'), 'installer applies Forge storage choice');
+  // The installer records the choice; the app applies it on first run. It must
+  // NOT launch the app itself - that broke shortcut creation and left a process
+  // behind for the next install's "app is running" check.
+  ok(installer.indexOf('WriteRegStr HKCU') >= 0 && installer.indexOf('ForgeStorageDir') >= 0,
+    'installer records the Forge storage choice');
+  ok(installer.indexOf('$appExe') < 0, 'installer does not launch the app during install');
   try { fs.rmSync(base, { recursive: true, force: true }); } catch {}
 
   console.log(`\n${pass} passed, ${fail} failed`);

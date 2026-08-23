@@ -115,11 +115,12 @@
   FunctionEnd
 
   !macro customInstall
+    ; Record the choice and stop there. Launching the app from inside the
+    ; installer (the old ExecWait) started a 178 MB Electron process mid-install,
+    ; elevated, before the shell had finished registering shortcuts - which left
+    ; a process behind for the next install's "app is running" check and could
+    ; fail the shortcut with "Unspecified error". The app reads this value on
+    ; its first run instead.
     WriteRegStr HKCU "Software\StarsationX\MIDI Studio" "ForgeStorageDir" "$ForgeStorageDir"
-    DetailPrint "Configuring Forge storage..."
-    ExecWait '\"$appExe\" --configure-forge-storage \"$ForgeStorageDir\"' $0
-    ${If} $0 != 0
-      MessageBox MB_ICONEXCLAMATION|MB_OK "MIDI Studio was installed, but Forge storage could not be configured. You can choose it later in Settings." /SD IDOK
-    ${EndIf}
   !macroend
 !endif

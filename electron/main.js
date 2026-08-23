@@ -332,6 +332,7 @@ function createServices() {
   });
   // Nothing needs to know about a running game in the first seconds.
   setTimeout(() => gameWatch.start(), 8000);
+  try { adoptInstallerForgePath(); } catch (e) { blog(`adopt forge path failed: ${e.message}`); }
   // A previous run that was force-killed can leave a Forge job pinning the GPU.
   try {
     const reaped = reapOrphanJobs();
@@ -361,6 +362,33 @@ function forgeInfo() {
   return { version: app.getVersion(), forgeReady: paths.forgeEnvReady(s),
     forgePython: paths.forgeEnvPython(s), forgeEnvDir: dir, forgeFreeGb: freeGb(dir),
     forgeDefaultDir: paths.forgeEnvDir({}), forgeCustom: !!s.forgeEnvDir };
+}
+
+// The installer records the folder the user picked; the app applies it on its
+// first run. (It used to be applied by the installer launching the app, which
+// caused install-time failures.)
+function adoptInstallerForgePath() {
+  if (process.platform !== 'win32') return;
+  if (settings.forgePaths().forgeEnvDir) return;         // an explicit choice already exists
+  let chosen = '';
+  try {
+    const out = spawnSync('reg.exe', ['query', 'HKCU\Software\StarsationX\MIDI Studio', '/v', 'ForgeStorageDir'],
+      { windowsHide: true, encoding: 'utf-8', timeout: 5000 });
+    const match = /ForgeStorageDir\s+REG_SZ\s+(.+)/i.exec(out.stdout || '');
+    chosen = match ? match[1].trim() : '';
+  } catch (_) { return; }
+  if (!chosen) return;
+  const current = paths.forgeEnvDir(settings.forgePaths());
+  if (forgeStorage.samePath(chosen, current)) return;
+  try {
+    forgeStorage.assertWritable(path.dirname(chosen));
+    forgeStorage.markManaged(chosen);
+    settings.merge({ paths: { forgeEnvDir: forgeStorage.samePath(chosen, paths.forgeEnvDir({})) ? '' : chosen,
+      forgePythonPath: '', modelsDir: '' } });
+    blog(`adopted installer Forge storage: ${chosen}`);
+  } catch (e) {
+    blog(`installer Forge storage ${chosen} unusable (${e.message}); keeping ${current}`);
+  }
 }
 
 function syncInstallerForgePath(dir) {
