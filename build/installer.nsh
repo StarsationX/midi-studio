@@ -24,16 +24,27 @@
   !macroend
 
   !macro customInit
-    ; The installer unpacks its payload through %TEMP%, which is on C: no
-    ; matter which drive you install to. On a full C: that fails as
-    ; "Extract: error writing to file", which explains nothing.
+    ; Windows unpacks installers through the Temp folder on C: no matter which
+    ; drive you install to. When that drive is full the failure arrives as
+    ; "error writing to file ...nsb821A.tmp\modern-wizard.bmp", which names a
+    ; random temp path and explains nothing. Check space AND writability first.
     StrCpy $2 $TEMP 3
     ${DriveSpace} "$2" "/D=F /S=M" $3
     ${If} $3 != ""
-    ${AndIf} $3 < 700
-      MessageBox MB_ICONSTOP|MB_OK "Not enough free space on $2 to unpack the installer.$\r$\n$\r$\nFree: $3 MB, needed: about 700 MB.$\r$\n$\r$\nWindows unpacks installers through the Temp folder on $2 even when you install to another drive. Free some space there, then run this again." /SD IDOK
+    ${AndIf} $3 < 350
+      MessageBox MB_ICONSTOP|MB_OK "Not enough free space on $2 to unpack the installer.$\r$\n$\r$\nFree: $3 MB, needed: at least 350 MB.$\r$\n$\r$\nWindows unpacks installers through the Temp folder on $2 even when you install MIDI Studio to another drive. Free some space on $2 and run this again." /SD IDOK
       Abort
     ${EndIf}
+
+    ClearErrors
+    FileOpen $4 "$TEMP\.midi-studio-temp-test" w
+    ${If} ${Errors}
+      MessageBox MB_ICONSTOP|MB_OK "Windows Temp folder is not writable:$\r$\n$TEMP$\r$\n$\r$\nThat is where installers unpack. Check the folder exists and that antivirus is not blocking it, then run this again." /SD IDOK
+      Abort
+    ${EndIf}
+    FileWrite $4 "ok"
+    FileClose $4
+    Delete "$TEMP\.midi-studio-temp-test"
     ReadRegStr $ForgeStorageDir HKCU "Software\StarsationX\MIDI Studio" "ForgeStorageDir"
     ${If} $ForgeStorageDir == ""
       StrCpy $ForgeStorageDir "$LOCALAPPDATA\midi-studio\forge-env"
