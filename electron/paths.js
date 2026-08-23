@@ -54,6 +54,11 @@ function defaultForgeEnvDir() {
   return local;
 }
 
+// Always-writable location: inside the user's own profile.
+function legacyDefaultForgeEnvDir() {
+  return path.join(localAppData(), 'midi-studio', 'forge-env');
+}
+
 function forgeEnvDir(settings) {
   const override = settings && settings.forgeEnvDir;
   if (override) return override;
@@ -192,7 +197,7 @@ function forgeChildEnv(settings) {
 module.exports = {
   isPackaged, exists, localAppData,
   pythonEngineDir, bundledPlayerPython,
-  forgeEnvDir, defaultForgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
+  forgeEnvDir, defaultForgeEnvDir, legacyDefaultForgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
   modelsDir, rendererIndexHtml, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,
   userMappingsDir, ensureUserMappings, forgeSetupLog, forgeJobsFile,
 };

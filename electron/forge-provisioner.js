@@ -17,38 +17,70 @@ function lightPython() {
 }
 
 class ForgeProvisioner {
-  constructor({ emit, getSettings } = {}) {
+  constructor({ emit, getSettings, settings } = {}) {
     this._emit = emit || (() => {});
     this._getSettings = getSettings || (() => ({}));
+    this._settingsStore = settings || null;
     this._child = null;
   }
 
   isRunning() { return !!(this._child && this._child.exitCode === null); }
 
   start() {
-    if (this.isRunning()) return;
-    try { forgeStorage.markManaged(paths.forgeEnvDir(this._getSettings())); }
-    catch (error) {
-      this._emit({ event: 'forge.provision.error', message: `Forge storage is not writable: ${error.message}` });
+    if (this.isRunning()) {
+      this._emit({ event: 'forge.provision.log', line: 'Setup is already running.' });
       return;
     }
-    const py = lightPython();
-    const env = paths.forgeChildEnv(this._getSettings());
-    // Tee the full run to a persistent file so a user can share it after a
-    // failure (the in-app log panel is ephemeral and not easily copyable).
+    // Open the log FIRST. Everything below can fail, and when it did there was
+    // no file anywhere to explain why — the panel just sat on its placeholder.
     this._logPath = paths.forgeSetupLog();
     try {
       fs.mkdirSync(path.dirname(this._logPath), { recursive: true });
       this._logFd = fs.openSync(this._logPath, 'w');
-      fs.writeSync(this._logFd, `=== Midi-Forge setup log — ${new Date().toISOString()} ===\n`);
+      fs.writeSync(this._logFd, `=== Midi Forge setup log — ${new Date().toISOString()} ===\n`);
     } catch { this._logFd = null; }
+
+    const envDir = paths.forgeEnvDir(this._getSettings());
+    const py = lightPython();
+    const say = (line) => {
+      if (this._logFd != null) { try { fs.writeSync(this._logFd, line + '\n'); } catch {} }
+      this._emit({ event: 'forge.provision.log', line });
+    };
+    say(`log file: ${this._logPath}`);
+    say(`install target: ${envDir}`);
+    say(`launcher: ${py}`);
+
+    const fail = (message) => {
+      say(`FAILED before start: ${message}`);
+      if (this._logFd != null) { try { fs.closeSync(this._logFd); } catch {} this._logFd = null; }
+      this._emit({ event: 'forge.provision.error', message, logPath: this._logPath });
+    };
+
+    try { forgeStorage.markManaged(envDir); }
+    catch (error) {
+      // A drive root ("D:\MIDI Studio Forge") needs administrator rights on
+      // most machines, and that is the default when the app is installed off
+      // C:. Fall back to the user profile rather than dead-ending.
+      say(`cannot write ${envDir}: ${error.message}`);
+      const fallback = paths.legacyDefaultForgeEnvDir();
+      try {
+        forgeStorage.markManaged(fallback);
+        this._settingsStore && this._settingsStore.merge({ paths: { forgeEnvDir: fallback } });
+        say(`using ${fallback} instead — change it in Settings if you want another drive`);
+      } catch (second) {
+        fail(`Cannot create the Forge folder at ${envDir} (${error.message}) or at ${fallback} (${second.message}). `
+          + 'Pick another folder with "Change folder…".');
+        return;
+      }
+    }
+    const env = paths.forgeChildEnv(this._getSettings());
     let child;
     try {
       child = spawn(py, [path.join(paths.pythonEngineDir(), 'provision_forge.py')], {
         cwd: paths.pythonEngineDir(), env, windowsHide: process.platform === 'win32',
       });
     } catch (e) {
-      this._emit({ event: 'forge.provision.error', message: `Couldn't start setup: ${e.message}` });
+      fail(`Couldn't start setup: ${e.message}`);
       return;
     }
     this._child = child;

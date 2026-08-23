@@ -521,6 +521,11 @@
     updateStart();
   }
   $('env-recheck').addEventListener('click', refreshEnv);
+  $('setup-log').addEventListener('click', async () => {
+    if (!window.studio || !studio.openSetupLog) return;
+    const r = await studio.openSetupLog();
+    if (r && !r.ok) logLine(r.error || 'No setup log yet — it appears once setup starts.');
+  });
   $('setup-change').addEventListener('click', async () => {
     if (!window.studio || !studio.changeForgeFolder) return;
     const btn = $('setup-change'); btn.disabled = true; const label = btn.textContent; btn.textContent = 'Moving…';
@@ -532,22 +537,69 @@
   });
 
   // ---- setup / provisioning ----
+  // On a slow connection a step prints nothing for minutes; an elapsed clock is
+  // the difference between "working" and "frozen".
+  let setupStarted = 0, setupTimer = null, setupSilence = null, setupHeard = false;
+
+  function startSetupTimer() {
+    setupStarted = Date.now();
+    clearInterval(setupTimer);
+    setupTimer = setInterval(() => {
+      const seconds = Math.floor((Date.now() - setupStarted) / 1000);
+      $('setup-elapsed').textContent =
+        String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0') + ' elapsed';
+    }, 1000);
+  }
+
+  function stopSetupTimer() {
+    clearInterval(setupTimer); setupTimer = null;
+    clearTimeout(setupSilence); setupSilence = null;
+    $('setup-elapsed').textContent = '';
+  }
+
+  function noteSetupOutput() {
+    setupHeard = true;
+    clearTimeout(setupSilence); setupSilence = null;
+  }
+
   $('setup-start').addEventListener('click', async () => {
-    // 15 GB is what provision_forge.py hard-gates on; finding that out four
-    // gigabytes into the download is not a plan.
-    if (window.studio && studio.forgeInfo) {
-      try {
-        const info = await studio.forgeInfo();
-        if (info && info.forgeFreeGb != null && info.forgeFreeGb < 15) {
-          logLine(`Only ${info.forgeFreeGb} GB free on ${info.forgeEnvDir} — setup needs about 15 GB.`);
-          if (!window.confirm(`That drive has ${info.forgeFreeGb} GB free and setup needs about 15 GB.\n\n`
-            + 'Use "Change folder…" to install the engine on another drive.\n\nStart anyway?')) return;
-        }
-      } catch (_) { /* the check is advisory */ }
+    try {
+      if (window.studio && studio.forgeInfo) {
+        try {
+          const info = await studio.forgeInfo();
+          if (info && info.forgeFreeGb != null && info.forgeFreeGb < 15) {
+            logLine('Only ' + info.forgeFreeGb + ' GB free on ' + info.forgeEnvDir + ' - setup needs about 15 GB.');
+            if (!window.confirm('That drive has ' + info.forgeFreeGb + ' GB free and setup needs about 15 GB. '
+              + 'Use "Change folder..." to install the engine on another drive. Start anyway?')) return;
+          }
+        } catch (_) { /* advisory only */ }
+      }
+      $('setup-start').disabled = true; $('setup-cancel').hidden = false; $('setup-prog').hidden = false;
+      $('setup-step').textContent = 'Starting...';
+      $('setup-msg').textContent = '';
+      startSetupTimer();
+      setupHeard = false;
+      // Nothing coming back at all must look like a failure, not like progress.
+      clearTimeout(setupSilence);
+      setupSilence = setTimeout(() => {
+        if (setupHeard) return;
+        $('setup-step').textContent = 'Setup did not start';
+        $('setup-msg').textContent = 'No response from the setup process. Open the setup log, or use "Change folder..." and pick a folder inside your user profile.';
+        $('setup-start').disabled = false;
+        $('setup-cancel').hidden = true;
+        stopSetupTimer();
+      }, 12000);
+      await F.provision();
+    } catch (error) {
+      // A thrown handler used to leave the panel showing its placeholder with
+      // no error anywhere, which is indistinguishable from a hang.
+      stopSetupTimer();
+      $('setup-step').textContent = 'Setup could not start';
+      $('setup-msg').textContent = String((error && error.message) || error);
+      $('setup-start').disabled = false;
+      $('setup-cancel').hidden = true;
+      logLine('Setup could not start: ' + String((error && error.message) || error));
     }
-    $('setup-start').disabled = true; $('setup-cancel').hidden = false; $('setup-prog').hidden = false;
-    startSetupTimer();
-    F.provision();
   });
   $('setup-cancel').addEventListener('click', () => {
     if (!window.confirm('Cancel Midi Forge setup? Setup resumes where it stopped when you start it again.')) return;
@@ -812,6 +864,8 @@
 
   // ---- status stream ----
   F.onStatus((s) => {
+    // Any word from the provisioner means it really started.
+    if (s && typeof s.event === 'string' && s.event.startsWith('forge.provision')) noteSetupOutput();
     if (!s || !s.event) return;
     switch (s.event) {
       case 'forge.provision.progress': {
@@ -821,8 +875,8 @@
         $('setup-pct').textContent = indet ? '' : (s.percent + '%'); $('setup-msg').textContent = s.message || ''; break;
       }
       case 'forge.provision.log': logLine(s.line); break;
-      case 'forge.provision.done': $('setup-msg').textContent = 'Done!'; $('setup-cancel').hidden = true; $('setup-cancel').textContent = 'Cancel'; $('setup-start').disabled = false; $('setup-start').textContent = 'Set up Midi Forge'; refreshEnv(); break;
-      case 'forge.provision.error': {
+      case 'forge.provision.done': stopSetupTimer(); $('setup-msg').textContent = 'Done!'; $('setup-cancel').hidden = true; $('setup-cancel').textContent = 'Cancel'; $('setup-start').disabled = false; $('setup-start').textContent = 'Set up Midi Forge'; refreshEnv(); break;
+      case 'forge.provision.error': { stopSetupTimer();
         $('setup-msg').textContent = '✖ ' + (s.message || 'Setup failed.');
         $('setup-cancel').hidden = true; $('setup-cancel').textContent = 'Cancel';
         $('setup-start').disabled = false; $('setup-start').textContent = /cancel/i.test(s.message || '') ? 'Set up Midi Forge' : 'Retry setup';

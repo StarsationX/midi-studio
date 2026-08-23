@@ -338,7 +338,7 @@ function createServices() {
     if (reaped) { blog(`reaped ${reaped} orphaned forge job(s)`); setTimeout(() =>
       broadcast('forge:status', { event: 'forge.log', line: `Stopped ${reaped} leftover Forge job${reaped === 1 ? '' : 's'} from a previous session.`, level: 'info' }), 1500); }
   } catch (e) { blog(`reap failed: ${e.message}`); }
-  provisioner = new ForgeProvisioner({ emit: forgeEmit, getSettings: () => settings.forgePaths() });
+  provisioner = new ForgeProvisioner({ emit: forgeEmit, getSettings: () => settings.forgePaths(), settings });
 }
 
 // ---- IPC --------------------------------------------------------------------

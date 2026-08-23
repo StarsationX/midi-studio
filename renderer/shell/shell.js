@@ -230,6 +230,10 @@
   $('s-changeforge').addEventListener('click', () => relocateForge('changeForgeFolder', $('s-changeforge')));
   $('s-resetforge').addEventListener('click', () => relocateForge('resetForgeFolder', $('s-resetforge')));
   $('s-recheck').addEventListener('click', () => { studio.checkForUpdates({ manual: true }); closeSettings(); });
+  $('s-setuplog').addEventListener('click', async () => {
+    const r = studio.openSetupLog ? await studio.openSetupLog() : null;
+    if (r && !r.ok) toast(r.error || 'No setup log yet', 'err');
+  });
   $('s-repo').addEventListener('click', (e) => { e.preventDefault(); studio.openExternal && studio.openExternal('https://github.com/StarsationX/midi-studio'); });
   $('s-clean').addEventListener('click', () => {
     if (!window.confirm('Clean reinstall? This deletes MIDI Studio\'s managed Forge environment so it re-downloads next time. (It never touches a separate Midi-Forge install.)')) return;
