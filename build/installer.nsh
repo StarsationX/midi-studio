@@ -24,6 +24,16 @@
   !macroend
 
   !macro customInit
+    ; The installer unpacks its payload through %TEMP%, which is on C: no
+    ; matter which drive you install to. On a full C: that fails as
+    ; "Extract: error writing to file", which explains nothing.
+    StrCpy $2 $TEMP 3
+    ${DriveSpace} "$2" "/D=F /S=M" $3
+    ${If} $3 != ""
+    ${AndIf} $3 < 700
+      MessageBox MB_ICONSTOP|MB_OK "Not enough free space on $2 to unpack the installer.$\r$\n$\r$\nFree: $3 MB, needed: about 700 MB.$\r$\n$\r$\nWindows unpacks installers through the Temp folder on $2 even when you install to another drive. Free some space there, then run this again." /SD IDOK
+      Abort
+    ${EndIf}
     ReadRegStr $ForgeStorageDir HKCU "Software\StarsationX\MIDI Studio" "ForgeStorageDir"
     ${If} $ForgeStorageDir == ""
       StrCpy $ForgeStorageDir "$LOCALAPPDATA\midi-studio\forge-env"
