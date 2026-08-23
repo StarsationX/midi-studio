@@ -8,16 +8,22 @@
   Var ForgeStorageInput
   Var ForgeStorageFree
 
-  !macro customInit
-    ; The app bundles its own python.exe under $INSTDIR. If a previous run was
-    ; force-killed, that child is still alive and electron-builder's
-    ; "is the app running" check refuses to continue - with a dialog naming
-    ; MIDI Studio, which the user has already closed. Clear that child only -
-    ; a running app is still the installer's own prompt to handle.
-    nsExec::ExecToStack 'powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process | Where-Object { $$_.Name -eq \"python.exe\" -and $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith(\"$INSTDIR\") } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }"'
+  ; electron-builder's default "is the app running" check produces a dialog
+  ; asking the user to close MIDI Studio even on a machine that was just
+  ; restarted with nothing open. Replace the check outright: close anything of
+  ; ours that really is running, then continue. No dialog, no dead end.
+  !macro customCheckAppRunning
+    DetailPrint "Closing MIDI Studio if it is running..."
+    nsExec::Exec 'taskkill /f /t /im "${APP_EXECUTABLE_FILENAME}"'
     Pop $0
-    Pop $1
+    ; The bundled python engine lives inside the install folder and survives a
+    ; force-killed app, which is what made the old check fire with nothing open.
+    nsExec::Exec 'powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process | Where-Object { $$_.Name -eq \"python.exe\" -and $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith(\"$INSTDIR\") } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }"'
+    Pop $0
+    Sleep 700
+  !macroend
 
+  !macro customInit
     ReadRegStr $ForgeStorageDir HKCU "Software\StarsationX\MIDI Studio" "ForgeStorageDir"
     ${If} $ForgeStorageDir == ""
       StrCpy $ForgeStorageDir "$LOCALAPPDATA\midi-studio\forge-env"
