@@ -186,6 +186,9 @@ function createWindow() {
   // has unsaved notes) silently cancels the close unless we answer for it — the
   // window just refused to close, with no dialog and no way out but Task Manager.
   win.webContents.on('will-prevent-unload', (e) => {
+    // With no visible window there is nobody to answer, and the app would sit
+    // in the background forever holding the single-instance lock.
+    if (!win || win.isDestroyed() || !win.isVisible()) { e.preventDefault(); return; }
     const choice = dialog.showMessageBoxSync(win, {
       type: 'question', title: 'Unsaved changes',
       message: 'The Midi Editor has unsaved note edits.',
@@ -201,6 +204,7 @@ function createWindow() {
     const job = forge && forge.isRunning();
     const setup = provisioner && provisioner.isRunning();
     if (!job && !setup) return;
+    if (!win || win.isDestroyed() || !win.isVisible()) return;   // nobody to ask
     const choice = dialog.showMessageBoxSync(win, {
       type: 'question', title: 'Still working',
       message: job ? 'A transcription is still running.' : 'Midi Forge setup is still downloading.',
@@ -671,7 +675,20 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
 } else if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+  // Launching again must always end with a window on screen. If the first
+  // instance somehow lost its window but kept the single-instance lock, the new
+  // process used to just exit — so the app "wouldn't open" until the user found
+  // it in Task Manager and ended it.
+  app.on('second-instance', () => {
+    blog('second-instance');
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      if (!win.isVisible()) win.show();
+      win.focus();
+      return;
+    }
+    try { createWindow(); } catch (e) { blog(`second-instance recreate failed: ${e.message}`); }
+  });
 
   app.whenReady().then(() => {
     blog('whenReady fired');
@@ -690,7 +707,17 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   });
 
-  app.on('window-all-closed', () => { blog('window-all-closed'); cleanup(); if (process.platform !== 'darwin') app.quit(); });
+  app.on('window-all-closed', () => {
+    blog('window-all-closed');
+    cleanup();
+    if (process.platform !== 'darwin') {
+      app.quit();
+      // app.quit() can be swallowed (a pending dialog, a handler that throws),
+      // which leaves a process with no window holding the instance lock. Give
+      // the graceful path a moment, then leave for real.
+      setTimeout(() => { blog('forced exit after window-all-closed'); app.exit(0); }, 4000).unref();
+    }
+  });
 
   process.on('unhandledRejection', (e) => { blog(`unhandledRejection: ${e && e.stack || e}`); try { broadcast('engine-event', { event: 'log', level: 'error', message: `Internal error: ${e && e.message || e}` }); } catch (_) {} });
   process.on('uncaughtException', (e) => { blog(`uncaughtException: ${e && e.stack || e}`); try { console.error('[uncaught]', e); broadcast('engine-event', { event: 'log', level: 'error', message: `Internal error: ${e && e.message || e}` }); } catch (_) {} });
