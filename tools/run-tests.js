@@ -82,6 +82,19 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/KMP_BLOCKTIME.*'0'/.test(runner), 'forge children set KMP_BLOCKTIME=0');
 }
 
+// A bad Forge path must never beat a working one. 2.20.0's silent update wrote
+// a computed default into the installer registry value; adopting that pointed
+// provisioned installs at an empty folder and reported "torch missing".
+{
+  const fsx = require('fs');
+  const m = fsx.readFileSync(path.join(root, 'electron', 'main.js'), 'utf8');
+  ok(/ignored installer Forge storage/.test(m), 'adopt refuses an unprovisioned installer path over a working one');
+  ok(/function recoverForgeEnv/.test(m), 'startup can recover a Forge env that moved');
+  ok(/recoverForgeEnv\(\);/.test(m), 'recoverForgeEnv actually runs at startup');
+  const pj = fsx.readFileSync(path.join(root, 'electron', 'paths.js'), 'utf8');
+  ok(/function findReadyForgeEnv/.test(pj), 'paths can search for a provisioned env');
+}
+
 // verifyDigest, verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
   const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');

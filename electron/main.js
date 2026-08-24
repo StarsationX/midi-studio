@@ -367,6 +367,7 @@ function createServices() {
   // Nothing needs to know about a running game in the first seconds.
   setTimeout(() => gameWatch.start(), 8000);
   try { adoptInstallerForgePath(); } catch (e) { blog(`adopt forge path failed: ${e.message}`); }
+  try { recoverForgeEnv(); } catch (e) { blog(`forge env recovery failed: ${e.message}`); }
   // A previous run that was force-killed can leave a Forge job pinning the GPU.
   try {
     const reaped = reapOrphanJobs();
@@ -449,6 +450,15 @@ function adoptInstallerForgePath() {
   if (!chosen) return;
   const current = paths.forgeEnvDir(settings.forgePaths());
   if (forgeStorage.samePath(chosen, current)) return;
+  // Never trade a provisioned env for an empty one. 2.20.0's silent update
+  // could write a computed default into this registry value, and adopting it
+  // pointed a working install at a folder with nothing in it: "torch is
+  // missing", plus an offer to download several GB again. The registry only
+  // wins when it leads somewhere real, or when nothing is set up either way.
+  if (paths.forgeEnvReady({ forgeEnvDir: current }) && !paths.forgeEnvReady({ forgeEnvDir: chosen })) {
+    blog(`ignored installer Forge storage ${chosen}: not provisioned, keeping ${current}`);
+    return;
+  }
   try {
     forgeStorage.assertWritable(path.dirname(chosen));
     forgeStorage.markManaged(chosen);
@@ -458,6 +468,27 @@ function adoptInstallerForgePath() {
   } catch (e) {
     blog(`installer Forge storage ${chosen} unusable (${e.message}); keeping ${current}`);
   }
+}
+
+// If the configured Forge env is not provisioned but a provisioned one exists
+// somewhere else, point at that instead of announcing "torch is missing" and
+// offering to download several GB again.
+//
+// This exists because 2.20.0's silent update could rewrite the path to a
+// default on C:. Users saw a broken setup while their real env sat untouched on
+// the drive they had deliberately chosen, and re-running setup would have
+// filled the very drive they were avoiding.
+function recoverForgeEnv() {
+  if (paths.forgeEnvReady(settings.forgePaths())) return;   // nothing to fix
+  const found = paths.findReadyForgeEnv(settings.forgePaths());
+  if (!found) return;                                       // genuinely not set up
+  const current = paths.forgeEnvDir(settings.forgePaths());
+  if (forgeStorage.samePath(found, current)) return;
+  settings.merge({ paths: { forgeEnvDir: found, forgePythonPath: '', modelsDir: '' } });
+  syncInstallerForgePath(found);
+  blog(`recovered Forge env: ${current} was empty, using ${found}`);
+  setTimeout(() => broadcast('forge:status', { event: 'forge.log', level: 'info',
+    line: `Found your Forge engine at ${found}. It had been pointed somewhere empty, so setup is not needed.` }), 1500);
 }
 
 function syncInstallerForgePath(dir) {

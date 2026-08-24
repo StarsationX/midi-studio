@@ -97,6 +97,37 @@ function forgeEnvReady(settings) {
   return hasTorch && hasReady;
 }
 
+// Every place a provisioned Forge env could be sitting, best guess first.
+// A 2.20.0 update could rewrite the configured path to a default on C:, which
+// left the app staring at an empty folder reporting "torch missing" while the
+// real multi-GB env sat untouched on another drive. Rather than offer to
+// download it all again, go and look.
+function candidateForgeEnvDirs(settings) {
+  const out = [];
+  const add = (d) => { if (d && !out.some((x) => x.toLowerCase() === String(d).toLowerCase())) out.push(String(d)); };
+  add(settings && settings.forgeEnvDir);
+  add(defaultForgeEnvDir());
+  add(legacyDefaultForgeEnvDir());
+  add(legacyForgeEnvDir());
+  if (process.platform === 'win32') {
+    // The installer names its folder "MIDI Studio Forge" at a drive root.
+    for (const letter of 'DEFGHIJKLMNOPQRSTUVWXYZC') {
+      const root = `${letter}:\\`;
+      try { if (exists(root)) add(path.join(root, 'MIDI Studio Forge')); } catch (_) {}
+    }
+    add(path.join('C:\\ProgramData', 'midi-studio', 'forge-env'));
+  }
+  return out;
+}
+
+// The first candidate that is actually provisioned, or '' if none is.
+function findReadyForgeEnv(settings) {
+  for (const dir of candidateForgeEnvDirs(settings)) {
+    try { if (forgeEnvReady({ forgeEnvDir: dir })) return dir; } catch (_) {}
+  }
+  return '';
+}
+
 function modelsDir(settings) {
   const override = settings && settings.modelsDir;
   if (override) return override;
@@ -198,6 +229,7 @@ module.exports = {
   isPackaged, exists, localAppData,
   pythonEngineDir, bundledPlayerPython,
   forgeEnvDir, defaultForgeEnvDir, legacyDefaultForgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
+  candidateForgeEnvDirs, findReadyForgeEnv,
   modelsDir, rendererIndexHtml, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,
   userMappingsDir, ensureUserMappings, forgeSetupLog, forgeJobsFile,
 };
