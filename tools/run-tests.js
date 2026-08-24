@@ -124,6 +124,20 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(navs === panes * 2, `every settings pane has a nav button (${navs} refs for ${panes} panes)`);
 }
 
+// Slow-machine races. A fast PC always wins these, so they only ever showed up
+// as "it opens white" and "the updater never appears" from one user.
+{
+  const fsx = require('fs');
+  const m = fsx.readFileSync(path.join(root, 'electron', 'main.js'), 'utf8');
+  ok(/winPainted/.test(m), 'window tracks whether it has painted');
+  ok(/if \(winPainted && !win\.isVisible\(\)\) win\.show\(\)/.test(m),
+    'second-instance never shows an unpainted (white) window');
+  ok(/lastUpdateStatus/.test(m), 'update status is remembered for a late renderer');
+  ok(/did-finish-load[\s\S]{0,200}lastUpdateStatus/.test(m),
+    'a renderer that loads late is told the update status it missed');
+  ok(/loadAttempts <= 2/.test(m), 'a failed renderer load is retried before giving up');
+}
+
 // verifyDigest, verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
   const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');

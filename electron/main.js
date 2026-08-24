@@ -61,6 +61,14 @@ let forge = null;
 let provisioner = null;
 let gameWatch = null;
 let lastReady = null; // cached engine 'ready' so a late-loading tab iframe still syncs
+// Has the window painted yet? Showing it before its first frame reveals an
+// empty white rectangle, which on a slow machine is what "it opens white and
+// never loads" actually was.
+let winPainted = false;
+// The last update status, replayed to the renderer when it finishes loading.
+// Pushing it the moment the network answers loses it entirely if the renderer
+// has not subscribed yet, which is normal on a slow machine.
+let lastUpdateStatus = null;
 
 const gotLock = CONFIGURE_FORGE_INDEX >= 0 || app.requestSingleInstanceLock();
 blog(`gotLock=${gotLock}`);
@@ -186,9 +194,19 @@ function createWindow() {
   win.setMenuBarVisibility(false);
   win.loadFile(paths.rendererIndexHtml());
   win.once('ready-to-show', () => {
+    winPainted = true;
     if (wb.maximized) win.maximize();
     win.show();
     if (OPEN_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' });
+  });
+
+  // The renderer subscribes to update-status as it loads. Anything that
+  // arrived before then was sent into the void, so hand it over now.
+  win.webContents.on('did-finish-load', () => {
+    if (lastUpdateStatus) {
+      const payload = lastUpdateStatus;
+      setTimeout(() => sendToRenderer('update-status', payload), 300);
+    }
   });
 
   // A tab iframe loads after the engine may have already emitted 'ready'. Replay
@@ -242,8 +260,21 @@ function createWindow() {
   });
 
   // Blank-screen recovery: a missing/corrupt renderer should not fail silently.
+  // A failed load leaves Chromium showing a blank white page, which is exactly
+  // what "it opens white and never loads" looks like from the outside. On a slow
+  // machine that is usually transient (antivirus still scanning the freshly
+  // installed asar), so retry twice before giving up and saying so.
+  let loadAttempts = 0;
   win.webContents.on('did-fail-load', (_e, code, desc, url) => {
     if (code === -3) return; // aborted (normal during reloads)
+    loadAttempts += 1;
+    blog(`did-fail-load ${code} ${desc} ${url} (attempt ${loadAttempts})`);
+    if (loadAttempts <= 2 && win && !win.isDestroyed()) {
+      setTimeout(() => {
+        if (win && !win.isDestroyed()) win.loadFile(paths.rendererIndexHtml());
+      }, 800 * loadAttempts);
+      return;
+    }
     dialog.showErrorBox('MIDI Studio failed to load',
       `The interface couldn't load (${desc} ${code}).\n${url}\nTry reinstalling.`);
   });
@@ -800,8 +831,12 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
     blog('second-instance');
     if (win && !win.isDestroyed()) {
       if (win.isMinimized()) win.restore();
-      if (!win.isVisible()) win.show();
-      win.focus();
+      // Only show a window that has painted. A second launch while the first
+      // is still starting up (which is exactly what someone does when it feels
+      // slow) used to force the empty window on screen: a white rectangle that
+      // stays white until the renderer catches up. ready-to-show will show it.
+      if (winPainted && !win.isVisible()) win.show();
+      if (winPainted) win.focus();
       return;
     }
     try { createWindow(); } catch (e) { blog(`second-instance recreate failed: ${e.message}`); }
@@ -816,10 +851,20 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
       createWindow();
       blog(`window created; index=${paths.rendererIndexHtml()}`);
     } catch (e) { blog(`BOOT ERROR: ${e && e.stack || e}`); throw e; }
+    // Remember whatever the updater says, so a renderer that is still loading
+    // can be told about it when it is ready instead of missing it.
+    const pushUpdate = (p) => { lastUpdateStatus = p; sendToRenderer('update-status', p); };
     if (POST_UPDATE) {
-      setTimeout(() => sendToRenderer('update-status', { state: 'updated', version: app.getVersion() }), 1500);
+      setTimeout(() => pushUpdate({ state: 'updated', version: app.getVersion() }), 1500);
     } else if (app.isPackaged && settings.get('ui.autoCheckUpdates') !== false) {
-      setTimeout(() => updater.checkForUpdates((p) => sendToRenderer('update-status', p), { manual: false }), 4000);
+      // Start counting from the moment the window is actually up, not from
+      // whenReady. On a slow machine the renderer was still loading when the
+      // old fixed 4s timer fired, and the answer went nowhere.
+      const startCheck = () => setTimeout(
+        () => updater.checkForUpdates(pushUpdate, { manual: false }), 2500);
+      if (winPainted) startCheck();
+      else if (win) win.once('ready-to-show', startCheck);
+      else setTimeout(startCheck, 4000);
     }
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   });
