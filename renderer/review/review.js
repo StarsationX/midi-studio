@@ -649,6 +649,8 @@
   let lastDraw = 0, lastPlayX = -1;
   function shouldDraw() {
     if (document.hidden) return false;
+    // another tab is showing: playback carries on, it just has no viewer
+    if (document.documentElement.dataset.onscreen === '0') return false;
     const now = performance.now();
     const base = Number(document.documentElement.dataset.drawms) || 33;
     const budget = document.hasFocus() ? base : Math.max(250, base * 8);

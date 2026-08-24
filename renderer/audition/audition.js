@@ -344,6 +344,8 @@
   // "use at most N%" setting. Unfocused windows get an eighth of the rate.
   function drawBudgetMs() {
     if (document.hidden) return Infinity;          // minimized: don't draw at all
+    // Another tab is showing. Playback continues, it just has no viewer.
+    if (document.documentElement.dataset.onscreen === '0') return Infinity;
     const base = Number(document.documentElement.dataset.drawms) || 33;
     return document.hasFocus() ? base : Math.max(250, base * 8);
   }
@@ -355,6 +357,9 @@
     player.frame = requestAnimationFrame(tick);
   }
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { lastDraw = 0; updateSongUI(); } });
+  // Coming back on screen: catch the canvas up immediately. The loop itself
+  // kept running while hidden, it just skipped the drawing.
+  window.addEventListener('midi-studio:onscreen', () => { lastDraw = 0; updateSongUI(); });
 
   async function togglePlay() {
     if (!currentDocument() || !player.duration) return;

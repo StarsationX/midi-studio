@@ -367,6 +367,7 @@ window.api.onEngineEvent((evt) => {
       totalNotes = evt.total_notes;
       bpm = evt.bpm;
       viz.startClock(evt.duration, evt.start_elapsed || 0);
+      repaintNow();   // swap the idle timer for the frame clock right away
       setStatus('playing', 'Playing');
       els.refocusTarget.hidden = true;
       renderQueue();
@@ -384,6 +385,7 @@ window.api.onEngineEvent((evt) => {
     case 'playback_done':
       isPlaying = false;
       isPaused = false;
+      repaintNow();   // one last paint, then the loop settles to the idle rate
       els.play.disabled = false;
       els.pause.disabled = true;
       els.stop.disabled = true;
@@ -1594,7 +1596,57 @@ window.addEventListener('drop',     (e) => e.preventDefault());
 // Render loop
 // --------------------------------------------------------------------------
 let lastOverviewFrame = 0;
+let lastFrame = 0;
+
+// How long to wait between repaints. This loop used to redraw as fast as the
+// platform would allow (measured at ~500/sec, because backgroundThrottling is
+// off so playback survives alt-tab, which also removes the vsync cap) and it
+// did it even with no MIDI loaded and the tab hidden. Nothing here is needed
+// when nothing is moving: the engine that plays notes is the Python side, this
+// only draws. Idle still repaints a few times a second, so anything that
+// changes without telling us self-heals instead of leaving a stale canvas.
+function drawBudgetMs() {
+  const root = document.documentElement;
+  if (document.hidden) return Infinity;              // window minimised
+  if (root.dataset.onscreen === '0') return Infinity; // another tab is showing
+  const base = Number(root.dataset.drawms) || 16;
+  if (!isPlaying) return 250;                        // idle: 4/sec is plenty
+  return document.hasFocus() ? base : Math.max(100, base * 4);
+}
+// Two id spaces, tracked separately: a rAF handle and a timeout handle can
+// collide numerically, so clearTimeout(rafHandle) could cancel someone else's
+// timer.
+let rafId = 0, timerId = 0;
+function cancelPending() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+  if (timerId) { clearTimeout(timerId); timerId = 0; }
+}
+// Draw at the next opportunity. Also how playback starts the frame clock, so
+// pressing Play does not wait out an idle timer first.
+function repaintNow() {
+  lastFrame = 0;
+  cancelPending();
+  rafId = requestAnimationFrame(frame);
+}
+window.addEventListener('midi-studio:onscreen', repaintNow);
+window.addEventListener('focus', repaintNow);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) repaintNow(); });
+
 function frame(now) {
+  rafId = 0; timerId = 0;
+  const budget = drawBudgetMs();
+  // Nothing to draw for (hidden window, or another tab is showing): stop the
+  // loop outright rather than waking 500 times a second to do nothing.
+  // repaintNow() starts it again when this tab comes back.
+  if (budget === Infinity) return;
+  // While playing, ride the frame clock. While idle, a timer at the budget
+  // interval instead: rAF here runs ~500/sec (no vsync cap, see above), and
+  // waking the thread that often to decide not to draw is the whole cost on a
+  // slow machine. Four wakeups a second is enough to keep the canvas honest.
+  if (isPlaying) rafId = requestAnimationFrame(frame);
+  else timerId = setTimeout(() => frame(performance.now()), budget);
+  if (now - lastFrame < budget) return;
+  lastFrame = now;
   viz.render();
   const elapsed = viz.elapsed();
 
@@ -1613,10 +1665,8 @@ function frame(now) {
     lastOverviewFrame = now;
     drawRangeOverview();
   }
-
-  requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
+rafId = requestAnimationFrame(frame);
 
 // --------------------------------------------------------------------------
 // Boot

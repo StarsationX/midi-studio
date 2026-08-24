@@ -101,25 +101,35 @@ function installDirWritable() {
 
 // Launch the installer, elevating when the install location needs it. Resolves
 // once it is actually running (or the user refused the UAC prompt).
+//
+// On Windows the installer is ALWAYS started through Start-Process, never with
+// a direct spawn. A directly spawned process stays a child of MIDI Studio.exe
+// (detached:true does not change that on Windows), and the installer's own
+// "close the running app" step used to taskkill that tree, so the installer
+// killed itself. Start-Process hands the launch to a helper that exits
+// immediately, so the installer is not sitting in our process tree.
 function launchInstaller(file) {
   return new Promise((resolve) => {
     const args = installerArgs();
-    if (process.platform !== 'win32' || installDirWritable()) {
+    if (process.platform !== 'win32') {
       try {
         spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
         resolve({ ok: true });
       } catch (e) { resolve({ ok: false, error: String(e.message || e) }); }
       return;
     }
+    const elevate = !installDirWritable();
     const quoted = file.replace(/'/g, "''");
     const argList = args.length ? ` -ArgumentList '${args.join("','")}'` : '';
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-      `Start-Process -FilePath '${quoted}'${argList} -Verb RunAs`],
+      `Start-Process -FilePath '${quoted}'${argList}${elevate ? ' -Verb RunAs' : ''}`],
       { windowsHide: true, timeout: 120000 }, (error) => {
-        if (!error) { resolve({ ok: true, elevated: true }); return; }
-        resolve({ ok: false, elevated: true,
-          error: 'Windows needs permission to replace the installed files. '
-            + 'Approve the prompt, or run the downloaded installer yourself.' });
+        if (!error) { resolve({ ok: true, elevated: elevate }); return; }
+        resolve({ ok: false, elevated: elevate,
+          error: elevate
+            ? 'Windows needs permission to replace the installed files. '
+              + 'Approve the prompt, or run the downloaded installer yourself.'
+            : 'The installer could not be started. Run the downloaded file yourself.' });
       });
   });
 }

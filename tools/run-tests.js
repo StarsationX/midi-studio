@@ -40,6 +40,25 @@ process.env.PORTABLE_EXECUTABLE_FILE = '/tmp/MIDI-Studio-portable.exe';
 ok(u.installerArgs().length === 0, 'portable build runs the installer visibly');
 delete process.env.PORTABLE_EXECUTABLE_FILE;
 
+// The self-kill regression. The updater starts the installer, so the installer
+// is in MIDI Studio's process tree. Two things must stay true or "check for
+// updates" closes the app and silently installs nothing:
+//   1. the installer's app-close step must not use taskkill /t (kills the tree,
+//      and the installer is IN that tree)
+//   2. the updater must not spawn the installer directly on Windows
+{
+  const fsx = require('fs');
+  const nsh = fsx.readFileSync(path.join(root, 'build', 'installer.nsh'), 'utf8');
+  const killLine = nsh.split('\n').find((l) => /taskkill/i.test(l) && /APP_EXECUTABLE_FILENAME/.test(l)) || '';
+  ok(killLine !== '', 'installer.nsh still closes the running app');
+  ok(!/\/t\b/i.test(killLine), 'installer app-close does NOT use taskkill /t (would kill the installer itself)');
+
+  const up = fsx.readFileSync(path.join(root, 'electron', 'updater.js'), 'utf8');
+  const launch = up.slice(up.indexOf('function launchInstaller'), up.indexOf('let cached'));
+  ok(/Start-Process/.test(launch), 'launchInstaller hands the launch to Start-Process');
+  ok(/process\.platform !== 'win32'/.test(launch), 'launchInstaller only spawns directly off Windows');
+}
+
 // verifyDigest, verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
   const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');

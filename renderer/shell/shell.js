@@ -53,6 +53,24 @@
       const el = f.contentDocument && f.contentDocument.documentElement;
       if (el) el.dataset.drawms = value;
     });
+    markVisibility();
+  }
+
+  // A hidden tab still has a live document, and backgroundThrottling is off so
+  // the platform will not slow its animation loops for us. An iframe cannot see
+  // that it is off-screen (document.hidden only tracks the window), so say it:
+  // frames read data-onscreen and skip drawing entirely while it is "0".
+  function markVisibility() {
+    frames.forEach((f) => {
+      const el = f.contentDocument && f.contentDocument.documentElement;
+      if (!el) return;
+      const on = f.classList.contains('is-active') ? '1' : '0';
+      if (el.dataset.onscreen === on) return;
+      el.dataset.onscreen = on;
+      if (on === '1' && f.contentWindow) {
+        try { f.contentWindow.dispatchEvent(new Event('midi-studio:onscreen')); } catch {}
+      }
+    });
   }
   function activate(name, persist = true) {
     if (!frames.some((f) => f.dataset.tab === name)) return;
@@ -63,6 +81,7 @@
       t.setAttribute('aria-selected', on ? 'true' : 'false');
     });
     frames.forEach((f) => f.classList.toggle('is-active', f.dataset.tab === name));
+    markVisibility();
     const titles = { forge: 'MIDI Studio: Midi Forge', player: 'MIDI Studio: Midi Player',
       review: 'MIDI Studio: Midi Editor', audition: 'MIDI Studio: Self Midi' };
     document.title = titles[name] || 'MIDI Studio';

@@ -14,7 +14,13 @@
   ; ours that really is running, then continue. No dialog, no dead end.
   !macro customCheckAppRunning
     DetailPrint "Closing MIDI Studio if it is running..."
-    nsExec::Exec 'taskkill /f /t /im "${APP_EXECUTABLE_FILENAME}"'
+    ; NO /t here. The in-app updater starts this installer, so the installer is
+    ; a child of MIDI Studio.exe, and /t kills the whole tree, which includes
+    ; this installer. That is why "check for updates" closed the app and then
+    ; did nothing, while running the same file by hand worked: started from
+    ; Explorer it is not in the app's tree. The engine processes /t was meant
+    ; to catch are swept explicitly below.
+    nsExec::Exec 'taskkill /f /im "${APP_EXECUTABLE_FILENAME}"'
     Pop $0
     ; The bundled python engine lives inside the install folder and survives a
     ; force-killed app, which is what made the old check fire with nothing open.
