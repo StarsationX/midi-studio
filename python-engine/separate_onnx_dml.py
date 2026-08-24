@@ -1,7 +1,7 @@
-"""GPU separation via ONNX Runtime + DirectML — for machines with no CUDA.
+"""GPU separation via ONNX Runtime + DirectML, for machines with no CUDA.
 
 NVIDIA users get the SOTA BS-Rofo piano roformer on CUDA (see song_to_midi.py).
-Everyone else (AMD/Intel GPUs on Windows — e.g. an RX 580) otherwise falls back
+Everyone else (AMD/Intel GPUs on Windows, e.g. an RX 580) otherwise falls back
 to a 20-40 min CPU separation. This runs an MDX-Net instrumental model on the
 DmlExecutionProvider instead: the heavy conv runs on ANY DirectX 12 GPU, while
 torch does the cheap STFT on CPU. Output is a vocal-removed instrumental wav for
@@ -136,7 +136,7 @@ def separate(in_path: Path, out_dir: Path, model_path: Path) -> Path:
 def separate_general(in_path: Path, out_dir: Path,
                      inst_model: Path, drums_model: Path) -> Path:
     """General-mode stem on DirectML: instrumental (mix − vocals) minus the
-    drums stem — i.e. every pitched instrument, matching what mix_pitched_stems
+    drums stem, i.e. every pitched instrument, matching what mix_pitched_stems
     produces from the 6-stem roformer on CUDA."""
     mix = _load_stereo(in_path)
     inst = _run_model(mix, INST, inst_model)

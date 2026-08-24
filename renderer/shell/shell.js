@@ -1,4 +1,4 @@
-// shell.js — tab switching + version badge + update banner + lightweight toasts.
+// shell.js: tab switching + version badge + update banner + lightweight toasts.
 (() => {
   const studio = window.studio || window.api;
 
@@ -36,7 +36,7 @@
 
   // Resource limit: pushed onto every frame's <html> so the animation loops can
   // read it without another IPC round trip. The user's preference and "a game is
-  // running" are kept apart — folding them into one flag latched the limit on
+  // running" are kept apart, folding them into one flag latched the limit on
   // permanently the first time Roblox was seen.
   // '' = full speed, 'balanced' = half rate, 'easy' = smallest footprint. A
   // running game can raise the level but never lowers the user's choice.
@@ -63,8 +63,8 @@
       t.setAttribute('aria-selected', on ? 'true' : 'false');
     });
     frames.forEach((f) => f.classList.toggle('is-active', f.dataset.tab === name));
-    const titles = { forge: 'MIDI Studio — Midi Forge', player: 'MIDI Studio — Midi Player',
-      review: 'MIDI Studio — Midi Editor', audition: 'MIDI Studio — Self Midi' };
+    const titles = { forge: 'MIDI Studio: Midi Forge', player: 'MIDI Studio: Midi Player',
+      review: 'MIDI Studio: Midi Editor', audition: 'MIDI Studio: Self Midi' };
     document.title = titles[name] || 'MIDI Studio';
     if (persist && studio && studio.setUi) studio.setUi({ lastTab: name });
   }
@@ -127,8 +127,8 @@
     const was = gameActive;
     gameActive = (p && p.game) || '';
     applyPerf();
-    if (gameActive && !was) toast(`${gameActive.replace(/\.exe$/i, '')} detected — going easy on the GPU`, 'ok');
-    if (!gameActive && was) toast('Game closed — full speed again', 'ok');
+    if (gameActive && !was) toast(`${gameActive.replace(/\.exe$/i, '')} detected, going easy on the GPU`, 'ok');
+    if (!gameActive && was) toast('Game closed, full speed again', 'ok');
   });
 
   // Restore last tab.
@@ -165,7 +165,7 @@
     switch (s.state) {
       case 'available': {
         staged = true;
-        $('ub-title').textContent = `Update available — v${s.version}`;
+        $('ub-title').textContent = `Update available: v${s.version}`;
         const note = (s.notes || '').split(/\r?\n/).find((l) => l.trim()) || 'A new version is ready.';
         $('ub-sub').textContent = `From v${s.current}${s.size ? ` · ${(s.size / 1048576).toFixed(0)} MB` : ''} · ${note.replace(/^#+\s*/, '')}`;
         $('ub-prog').hidden = true;
@@ -196,7 +196,7 @@
     if (!info) return;
     $('s-version').textContent = 'v' + info.version;
     $('s-forge').textContent = info.forgeReady ? 'Ready' : 'Not set up';
-    $('s-forgedir').textContent = info.forgeEnvDir || '—';
+    $('s-forgedir').textContent = info.forgeEnvDir || 'not set';
     $('s-forgedir').title = info.forgeEnvDir || '';
     $('s-resetforge').hidden = !info.forgeCustom;
   }
@@ -222,7 +222,7 @@
   $('s-theme').addEventListener('change', (e) => { applyAccent(''); applyTheme(e.target.value); studio.setUi && studio.setUi({ theme: e.target.value, accent: '' });
     $('s-accent').value = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e'; });
   $('s-accent').addEventListener('input', (e) => { applyAccent(e.target.value); studio.setUi && studio.setUi({ accent: e.target.value }); });
-  // Say what the number will actually do — a percentage on its own means nothing.
+  // Say what the number will actually do, a percentage on its own means nothing.
   function showPerf(p) {
     if (!p) return;
     perf = p;

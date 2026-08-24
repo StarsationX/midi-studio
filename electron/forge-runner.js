@@ -1,4 +1,4 @@
-// forge-runner.js — drives the Midi-Forge pipeline scripts as cancellable child
+// forge-runner.js: drives the Midi-Forge pipeline scripts as cancellable child
 // jobs under the FORGE-ENV interpreter (never the player python). Streams coarse,
 // honest progress to the renderer via the injected emit() callback.
 'use strict';
@@ -27,7 +27,7 @@ function selectScript(pipeline, skipSeparation) {
   if (pipeline === 'melody') return ['melody_to_midi.py', STAGES_4];
   if (pipeline === 'drums') return ['drums_to_midi.py', STAGES_3];  // handles its own skip-sep
   // 'fast' is checked BEFORE skipSeparation: both mean "no separation", and
-  // testing skip first silently routed Fast to Transkun — minutes of CPU work
+  // testing skip first silently routed Fast to Transkun, minutes of CPU work
   // the user explicitly opted out of.
   if (pipeline === 'fast') return ['stem_to_midi.py', STAGES_2];  // basic-pitch, quick/rough
   if (skipSeparation) return ['transcribe.py', STAGES_2];   // input is already a stem
@@ -242,7 +242,7 @@ class ForgeRunner {
       }
       if (line.startsWith('DONE')) {
         // Scripts write {input}.mid (no custom output name is passed), so the
-        // derived audioOut is authoritative — don't parse the noisy DONE text.
+        // derived audioOut is authoritative, don't parse the noisy DONE text.
         child.__finalized = true;
         this._emit({ event: 'forge.progress', jobId, stage: 'Done', percent: 100, message: 'Extraction complete' });
         this._emit({ event: 'forge.done', jobId, ok: true,
@@ -252,7 +252,7 @@ class ForgeRunner {
       for (const [marker, stage, pct] of stageTable) {
         if (line.includes(marker)) { progress(stage, pct, line); return; }
       }
-      // Only prose lines from the scripts may drive the keyword fallback — the
+      // Only prose lines from the scripts may drive the keyword fallback, the
       // "Input: Clean Bandit - Symphony.mp3" echo used to jump the bar to 90%.
       if (!/^input:/i.test(line)) {
         for (const [re, stage, pct] of STAGE_KEYWORDS) {

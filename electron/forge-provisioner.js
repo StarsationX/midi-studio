@@ -1,4 +1,4 @@
-// forge-provisioner.js — runs provision_forge.py under the LIGHT player python
+// forge-provisioner.js: runs provision_forge.py under the LIGHT player python
 // (stdlib only; it bootstraps the heavy env). Parses the MSTEP/MLOG/MDONE/MFAIL
 // protocol into forge:status events for the renderer's setup panel.
 'use strict';
@@ -32,12 +32,12 @@ class ForgeProvisioner {
       return;
     }
     // Open the log FIRST. Everything below can fail, and when it did there was
-    // no file anywhere to explain why — the panel just sat on its placeholder.
+    // no file anywhere to explain why, the panel just sat on its placeholder.
     this._logPath = paths.forgeSetupLog();
     try {
       fs.mkdirSync(path.dirname(this._logPath), { recursive: true });
       this._logFd = fs.openSync(this._logPath, 'w');
-      fs.writeSync(this._logFd, `=== Midi Forge setup log — ${new Date().toISOString()} ===\n`);
+      fs.writeSync(this._logFd, `=== Midi Forge setup log, ${new Date().toISOString()} ===\n`);
     } catch { this._logFd = null; }
 
     const envDir = paths.forgeEnvDir(this._getSettings());
@@ -66,7 +66,7 @@ class ForgeProvisioner {
       try {
         forgeStorage.markManaged(fallback);
         this._settingsStore && this._settingsStore.merge({ paths: { forgeEnvDir: fallback } });
-        say(`using ${fallback} instead — change it in Settings if you want another drive`);
+        say(`using ${fallback} instead, change it in Settings if you want another drive`);
       } catch (second) {
         fail(`Cannot create the Forge folder at ${envDir} (${error.message}) or at ${fallback} (${second.message}). `
           + 'Pick another folder with "Change folder…".');
@@ -95,7 +95,7 @@ class ForgeProvisioner {
       const quiet = Math.round((Date.now() - this._lastOutput) / 1000);
       if (quiet >= 45) {
         this._emit({ event: 'forge.provision.log',
-          line: `still working — ${this._lastStep} has been running for ${Math.floor(quiet / 60)}m ${quiet % 60}s with no output. Downloads print only when they finish.` });
+          line: `still working, ${this._lastStep} has been running for ${Math.floor(quiet / 60)}m ${quiet % 60}s with no output. Downloads print only when they finish.` });
         this._lastOutput = Date.now();
       }
     }, 15000);

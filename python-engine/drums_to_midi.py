@@ -1,4 +1,4 @@
-"""drums_to_midi.py — Drums pipeline: separate -> drum stem -> classified drum MIDI.
+"""drums_to_midi.py. Drums pipeline: separate -> drum stem -> classified drum MIDI.
 
 Stage [1/3] separation reuses song_to_midi.run_separation (BS-Roformer 6-stem),
 stage [2/3] onset-detects the drum stem and classifies each hit by band energy
@@ -173,7 +173,7 @@ def main() -> int:
         by[n] = by.get(n, 0) + 1
     names = {36: "kick", 38: "snare", 42: "chat", 46: "ohat", 41: "tomL", 45: "tomM",
              48: "tomH", 49: "crash", 51: "ride"}
-    print(f"  {len(hits)} hits in {time.time()-t0:.1f}s — " +
+    print(f"  {len(hits)} hits in {time.time()-t0:.1f}s, " +
           ", ".join(f"{names.get(k, k)}:{v}" for k, v in sorted(by.items())))
 
     out_midi = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else src.with_suffix(".mid")

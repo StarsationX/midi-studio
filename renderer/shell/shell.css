@@ -1,4 +1,4 @@
-/* shell.css — app chrome. Design system in ../shared/tokens.css.
+/* shell.css: app chrome. Design system in ../shared/tokens.css.
    Console Pro: flat graphite toolbar, tab blocks with lime underline +
    keyboard hints, precise modal, flat alert strips. */
 
@@ -13,25 +13,25 @@ body { display: flex; flex-direction: column; }
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag; user-select: none;
 }
-.brand { display: flex; align-items: center; gap: 10px; -webkit-app-region: no-drag; }
+.brand { display: flex; align-items: center; gap: 12px; -webkit-app-region: no-drag; }
 .brand-logo { height: 30px; width: auto; display: block; }
 #s-theme { height: 30px; }
 
-/* tab switcher — flat blocks, lime underline on active, key hints */
+/* tab switcher, flat blocks, lime underline on active, key hints */
 .tabs { display: flex; gap: 0; -webkit-app-region: no-drag; align-self: stretch; }
 .tab {
   -webkit-app-region: no-drag; position: relative;
   background: transparent; color: var(--text-3);
   border: 0; border-left: 1px solid var(--line); border-right: 1px solid transparent;
-  padding: 0 22px;
+  padding: 0 24px;
   font: 600 13px/1 var(--font-body); cursor: pointer;
-  display: inline-flex; align-items: center; gap: 9px;
+  display: inline-flex; align-items: center; gap: 8px;
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .tab:last-child { border-right: 1px solid var(--line); }
 .tab::after {  /* keyboard hint chip */
-  font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
-  color: var(--text-3); padding: 2px 5px; border: 1px solid var(--line-2);
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--text-3); padding: 2px 4px; border: 1px solid var(--line-2);
   border-radius: 3px; background: var(--bg-2);
 }
 .tab[data-tab="forge"]::after  { content: "^1"; }
@@ -48,9 +48,9 @@ body { display: flex; flex-direction: column; }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s3); padding-right: var(--s4); -webkit-app-region: no-drag; }
 .version-badge {
   -webkit-app-region: no-drag; display: inline-flex; align-items: center;
-  height: 24px; padding: 0 9px; border-radius: 3px;
+  height: 24px; padding: 0 8px; border-radius: 3px;
   background: var(--bg-2); color: var(--text-3); border: 1px solid var(--line-2);
-  font: 600 10.5px/1 var(--font-mono); letter-spacing: .4px;
+  font: 600 12px/1 var(--font-mono); letter-spacing: .4px;
   cursor: pointer;
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
@@ -58,7 +58,7 @@ body { display: flex; flex-direction: column; }
 .iconbtn {
   -webkit-app-region: no-drag; width: 28px; height: 28px; border-radius: var(--r-sm);
   background: transparent; color: var(--text-3); border: 1px solid transparent;
-  font-size: 14px; line-height: 1; cursor: pointer; display: grid; place-items: center;
+  font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center;
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .iconbtn:hover { color: var(--text); background: var(--surface-2); border-color: var(--line-2); }
@@ -85,15 +85,15 @@ body { display: flex; flex-direction: column; }
 .srow { display: flex; align-items: center; gap: var(--s4); justify-content: space-between; }
 .skey {
   color: var(--text-3); flex: 0 0 100px;
-  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
   letter-spacing: 1.2px; text-transform: uppercase;
 }
 .sval { color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .storage-row { align-items: flex-start; }
 .storage-control { flex: 1; min-width: 0; display: grid; gap: var(--s2); }
-.storage-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 10.5px; }
+.storage-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 12px; }
 .storage-actions { display: flex; align-items: center; gap: var(--s2); }
-.storage-actions .btn { height: 28px; padding: 0 10px; }
+.storage-actions .btn { height: 28px; padding: 0 12px; }
 .modal-actions { display: flex; gap: var(--s2); flex-wrap: wrap; padding-top: var(--s1); }
 
 /* ---- tab surfaces ------------------------------------------------------- */
@@ -117,22 +117,22 @@ body.modal-open .tabframe { visibility: hidden; }
 .update-banner[hidden] { display: none; }
 .ub-icon {
   width: 30px; height: 30px; border-radius: var(--r-sm); flex: 0 0 auto;
-  display: grid; place-items: center; font-size: 14px;
+  display: grid; place-items: center; font-size: 15px;
   background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line);
 }
 .ub-text { flex: 1 1 auto; min-width: 0; }
 .ub-title { font-weight: 600; }
-.ub-sub { color: var(--text-3); font-size: 11.5px; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ub-sub { color: var(--text-3); font-size: 12px; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ub-prog { height: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 2px; margin-top: 8px; overflow: hidden; }
 .ub-prog-fill { height: 100%; width: 0; background: var(--accent); transition: width var(--dur-2) var(--ease); }
 
 /* ---- toasts -------------------------------------------------------------- */
 .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 10000; }
 .toast {
-  min-width: 220px; max-width: 380px; padding: 10px 14px; border-radius: var(--r-sm);
+  min-width: 220px; max-width: 380px; padding: 12px 16px; border-radius: var(--r-sm);
   background: var(--surface-2); color: var(--text);
   border: 1px solid var(--line-2); border-left: 2px solid var(--accent);
-  box-shadow: var(--sh-pop); font-size: 12.5px; font-weight: 500;
+  box-shadow: var(--sh-pop); font-size: 13px; font-weight: 500;
   animation: toast-in var(--dur-2) var(--ease);
 }
 .toast.out { animation: toast-out var(--dur-2) var(--ease) forwards; }
@@ -142,11 +142,11 @@ body.modal-open .tabframe { visibility: hidden; }
 @keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
 
 .limit-row { display: flex; gap: 12px; justify-content: flex-end; }
-.limit-row label { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 11.5px; }
-.limit-row input { width: 62px; height: 28px; padding: 0 6px; color: var(--text); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
+.limit-row label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
+.limit-row input { width: 62px; height: 28px; padding: 0 8px; color: var(--text); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
 
-.limit-control { flex: 1; min-width: 0; display: grid; gap: 6px; justify-items: end; }
-.limit-head { display: flex; align-items: center; gap: 10px; width: 100%; }
+.limit-control { flex: 1; min-width: 0; display: grid; gap: 8px; justify-items: end; }
+.limit-head { display: flex; align-items: center; gap: 12px; width: 100%; }
 .limit-head input[type=range] { flex: 1; accent-color: var(--accent); }
 #s-perf-value { min-width: 42px; text-align: right; color: var(--accent); font-size: 12px; }
 .limit-explain { text-align: right; line-height: 1.5; }

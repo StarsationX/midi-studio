@@ -1,6 +1,6 @@
 {
   "name": "roblox88",
-  "description": "Full 88-key Roblox piano layout (MIDI 21 A0 -> MIDI 108 C8) — for Roblox piano mods that DO accept Shift+key for sharps and extended chars. The middle 61 keys (MIDI 36-96) match the standard Virtual Piano / Roblox layout. The 15 notes below and 12 notes above use unused symbols / shifted letters. Most Roblox piano games do NOT accept these — try the default 'roblox' preset first.",
+  "description": "Full 88-key Roblox piano layout (MIDI 21 A0 -> MIDI 108 C8), for Roblox piano mods that DO accept Shift+key for sharps and extended chars. The middle 61 keys (MIDI 36-96) match the standard Virtual Piano / Roblox layout. The 15 notes below and 12 notes above use unused symbols / shifted letters. Most Roblox piano games do NOT accept these, try the default 'roblox' preset first.",
   "note_to_key": {
     "21": "`",
     "22": "~",

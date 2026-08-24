@@ -1,4 +1,4 @@
-// gamewatch.js — is a game running right now?
+// gamewatch.js: is a game running right now?
 // MIDI Studio is a companion app: while Roblox is up, it must get out of the
 // way. Polls tasklist on a slow interval (only ever while it matters) and tells
 // the app to go easy on the GPU/CPU.
@@ -14,7 +14,7 @@ function probe() {
     if (process.platform !== 'win32') { resolve(''); return; }
     const filters = [];
     for (const name of GAMES) filters.push('/FI', `IMAGENAME eq ${name}`);
-    // tasklist ANDs multiple filters, so ask once per name — still one process
+    // tasklist ANDs multiple filters, so ask once per name, still one process
     // every 20s, and only while something is actually watching.
     let index = 0;
     const next = () => {

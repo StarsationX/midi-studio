@@ -1,4 +1,4 @@
-// forge.js — Midi Forge tab controller. Drives window.forge.
+// forge.js: Midi Forge tab controller. Drives window.forge.
 (() => {
   const F = window.forge;
   const Review = window.review;
@@ -23,11 +23,11 @@
   };
 
   const PIPELINE_HINT = {
-    melody: '⚠ Prototype — tuned for dense, fast electronic music (artcore/Camellia-style layering). Tracks the lead line across layers, removes octave doubles, and caps how many notes a second it hands you. Use Piano or General if the output disappoints.',
-    piano: 'Separate + Transkun on the piano stem — best for piano performances.',
-    general: 'Separate, mix every pitched stem, then Transkun — best for full songs (any genre).',
-    fast: 'basic-pitch straight on the audio — quick and rough, lower quality.',
-    drums: 'Separate, then classify each drum hit (kick/snare/hats/cymbals) — for Roblox drum kits.',
+    melody: '⚠ Prototype. Tuned for dense, fast electronic music (artcore/Camellia-style layering). It tracks the lead line across layers, removes octave doubles, and caps how many notes a second it hands you. Try Piano or General if the output disappoints.',
+    piano: 'Separate + Transkun on the piano stem. Best for piano performances.',
+    general: 'Separate, mix every pitched stem, then Transkun. Best for full songs, any genre.',
+    fast: 'basic-pitch straight on the audio. Quick and rough, lower quality.',
+    drums: 'Separate, then classify each drum hit (kick/snare/hats/cymbals) for Roblox drum kits.',
   };
 
   // Show only the tuning group relevant to the selected pipeline.
@@ -37,7 +37,7 @@
     if (h && PIPELINE_HINT[pipeline]) h.textContent = PIPELINE_HINT[pipeline];
     const ri = $('run-info-pipeline'); if (ri) ri.textContent = pipeline;
     const ro = $('run-info-out');
-    if (ro) ro.textContent = ($('out-dir').textContent || '').split(/[\\/]/).slice(-2).join('\\') || '—';
+    if (ro) ro.textContent = ($('out-dir').textContent || '').split(/[\\/]/).slice(-2).join('\\') || 'not set';
   }
   const AUDIO_EXT = /\.(mp3|wav|flac|m4a|ogg|opus|aac|wma)$/i;
   const MIDI_EXT = /\.midi?$/i;
@@ -114,7 +114,7 @@
     if (!inputPath && !queue.length) {
       const li = document.createElement('li');
       li.className = 'qi-empty';
-      li.textContent = 'Empty — drop or browse several files to batch them.';
+      li.textContent = 'Empty. Drop or browse several files to batch them.';
       list.appendChild(li);
     }
     saveQueue();
@@ -296,8 +296,8 @@
 
     const gridCount = waveDuration > 0 ? Math.min(12, Math.max(4, Math.floor(w / 110))) : 6;
     ctx.strokeStyle = css('--line-soft') || '#3a3d4566';
-    ctx.fillStyle = css('--text-3') || '#62656d';
-    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.fillStyle = css('--text-3') || '#868a92';
+    ctx.font = '11px "JetBrains Mono", monospace';
     for (let i = 0; i <= gridCount; i++) {
       const x = (i / gridCount) * w;
       ctx.beginPath();
@@ -471,7 +471,7 @@
   // ---- env status (probed only on load / re-check / provision-done) ----
   function setEnv(state, text) { $('env-dot').className = 'dot ' + (state || ''); $('env-text').textContent = text; }
   // Where setup will install, shown in the setup panel with the free space on
-  // that drive — picking the drive is the one decision setup can't recover from.
+  // that drive, picking the drive is the one decision setup can't recover from.
   if (window.studio && studio.getVersion) {
     studio.getVersion().then((v) => { $('setup-version').textContent = 'v' + v; }).catch(() => {});
   }
@@ -480,7 +480,7 @@
     if (!window.studio || !studio.forgeInfo) return;
     let info; try { info = await studio.forgeInfo(); } catch { return; }
     if (!info) return;
-    $('setup-dir').textContent = info.forgeEnvDir || '—';
+    $('setup-dir').textContent = info.forgeEnvDir || 'not set';
     $('setup-dir').title = info.forgeEnvDir || '';
     const free = info.forgeFreeGb;
     $('setup-free').textContent = free == null ? '' : `${free} GB free`;
@@ -496,7 +496,7 @@
     try { cached = JSON.parse(localStorage.getItem(ENV_CACHE_KEY) || 'null'); } catch (_) {}
     if (cached && cached.forgeReady) {
       envReady = true;
-      setEnv('ok', cached.gpu ? `Ready · GPU: ${cached.gpu}` : 'Ready (CPU mode — slow)');
+      setEnv('ok', cached.gpu ? `Ready · GPU: ${cached.gpu}` : 'Ready (CPU mode, slow)');
       $('setup').hidden = true;
       updateStart();
     } else {
@@ -507,12 +507,12 @@
     envReady = !!s.forgeReady;
     try { localStorage.setItem(ENV_CACHE_KEY, JSON.stringify({ forgeReady: envReady, gpu: s.gpu || '' })); } catch (_) {}
     if (envReady) {
-      setEnv('ok', s.gpu ? `Ready · GPU: ${s.gpu}` : 'Ready (CPU mode — slow)');
+      setEnv('ok', s.gpu ? `Ready · GPU: ${s.gpu}` : 'Ready (CPU mode, slow)');
       // A CPU-only machine spends 20-40 minutes on a Piano/General run. Say so
       // once, and point at the pipeline that finishes in a couple of minutes.
       if (!s.gpu && !cpuNoticeShown) {
         cpuNoticeShown = true;
-        logLine('No GPU detected — Piano/General take 20-40 min per song here. "Fast" finishes in a couple of minutes at lower quality.');
+        logLine('No GPU detected. Piano/General take 20 to 40 min per song here. "Fast" finishes in a couple of minutes at lower quality.');
       }
       $('setup').hidden = true; $('work').style.opacity = '1'; $('work').style.pointerEvents = '';
     } else {
@@ -531,12 +531,12 @@
     try {
       await navigator.clipboard.writeText(text || '(the setup log is empty)');
       logLine('Setup log copied to the clipboard.');
-    } catch (_) { logLine('Could not copy — use "Open setup log" instead.'); }
+    } catch (_) { logLine('Could not copy. Use "Open setup log" instead.'); }
   });
   $('setup-log').addEventListener('click', async () => {
     if (!window.studio || !studio.openSetupLog) return;
     const r = await studio.openSetupLog();
-    if (r && !r.ok) logLine(r.error || 'No setup log yet — it appears once setup starts.');
+    if (r && !r.ok) logLine(r.error || 'No setup log yet. It appears once setup starts.');
   });
   $('setup-change').addEventListener('click', async () => {
     if (!window.studio || !studio.changeForgeFolder) return;
@@ -818,7 +818,7 @@
     F.setSettings({ pipeline, skipSeparation: $('skipsep').checked, advanced, timing: timingRaw });
     hideResults(); $('job-prog').hidden = false; $('job-stage').textContent = 'Queued'; $('job-bar').className = 'bar-fill indet'; $('job-pct').textContent = '';
     setBusy(true); currentJob = null; pendingCancel = false;
-    const n = queue.length ? ` — ${queue.length} more queued` : '';
+    const n = queue.length ? ` (${queue.length} more queued)` : '';
     logLine('▶ Start ' + inputPath.split(/[\/]/).pop() + ' (' + pipeline + ($('skipsep').checked ? ', skip-sep' : '') + ')' + n);
     renderQueue();
     F.run({ inputPath, pipeline, skipSeparation: $('skipsep').checked, advanced, timing, outputName: outputName() })
@@ -845,13 +845,13 @@
     if (r && r.ok) {
       jobPaused = r.paused;
       setPausedUi(jobPaused);
-      logLine(jobPaused ? '⏸ Paused — the GPU is free until you resume.' : '▶ Resumed.');
+      logLine(jobPaused ? '⏸ Paused. The GPU is free until you resume.' : '▶ Resumed.');
     } else logLine((r && r.error) || 'Could not pause the job.');
   });
   $('cancel').addEventListener('click', () => {
-    // Cancelling the visible job abandons the whole batch — a half-run queue
+    // Cancelling the visible job abandons the whole batch, a half-run queue
     // that keeps going after you hit Cancel is never what anyone means.
-    if (queue.length) { rememberQueue(); queue = []; logLine('Queue cleared — press Undo to get the list back.'); }
+    if (queue.length) { rememberQueue(); queue = []; logLine('Queue cleared. Press Undo to get the list back.'); }
     runningQueue = false; renderQueue();
     skipRequested = false;
     if (currentJob) F.cancel(currentJob); else pendingCancel = true;
@@ -859,7 +859,7 @@
   });
 
   // ---- output actions ----
-  $('output-open').addEventListener('click', async () => { const p = $('output-path').textContent; if (p) { const r = await F.showItem(p); if (r && !r.ok) showError('File not found — it may have moved.'); } });
+  $('output-open').addEventListener('click', async () => { const p = $('output-path').textContent; if (p) { const r = await F.showItem(p); if (r && !r.ok) showError('File not found. It may have moved.'); } });
   $('output-listen').addEventListener('click', () => {
     const midiPath = $('output-path').textContent;
     if (midiPath) parent.postMessage({ type: 'studio:open-audition', midiPath, projectPath: currentProject, play: undefined }, '*');

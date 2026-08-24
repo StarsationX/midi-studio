@@ -1,4 +1,4 @@
-// tools/run-tests.js — Electron-free unit tests for merge-gate logic.
+// tools/run-tests.js. Electron-free unit tests for merge-gate logic.
 'use strict';
 const Module = require('module');
 const path = require('path');
@@ -40,7 +40,7 @@ process.env.PORTABLE_EXECUTABLE_FILE = '/tmp/MIDI-Studio-portable.exe';
 ok(u.installerArgs().length === 0, 'portable build runs the installer visibly');
 delete process.env.PORTABLE_EXECUTABLE_FILE;
 
-// verifyDigest — verifies a file against GitHub's per-asset "sha256:<hex>" digest
+// verifyDigest, verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
   const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
   const f = path.join(os.tmpdir(), `ms-digest-test-${process.pid}`);

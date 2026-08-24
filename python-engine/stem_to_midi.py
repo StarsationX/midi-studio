@@ -42,7 +42,7 @@ BP_MIN_NOTE_MS = int(os.environ.get("BP_MIN_NOTE_MS", "58"))
 
 # Constrain detection to the playable piano band (A0..C8). basic-pitch otherwise
 # happily emits sub-bass rumble and ultrasonic harmonic ghosts that the piano
-# player can't play anyway — limiting at the source yields a much cleaner MIDI.
+# player can't play anyway, limiting at the source yields a much cleaner MIDI.
 def _env_freq(name, default):
     v = os.environ.get(name, "")
     try:

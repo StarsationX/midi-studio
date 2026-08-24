@@ -26,14 +26,14 @@ class Visualizer {
     this.lookahead = LOOKAHEAD;
     this.noteColor = null;
 
-    // sync state — set by clockSet(), used by elapsed()
+    // sync state, set by clockSet(), used by elapsed()
     this.syncServerElapsed = 0;
     this.syncClientNowMs = 0;
     this.frozenElapsed = null;     // non-null while paused
     this.playing = false;
     this.totalDuration = 0;
     // While the user is dragging the scrubber, ignore incoming progress
-    // packets — otherwise the visualizer flickers between the drag
+    // packets, otherwise the visualizer flickers between the drag
     // position and the engine's stale elapsed (the seek hasn't been
     // processed yet on the engine side).
     this.dragLock = false;
@@ -173,10 +173,8 @@ class Visualizer {
     const pxPerSec = rollH / this.lookahead;
 
     if (!this.events.length) {
-      ctx.fillStyle = '#62656d';
-      ctx.font = '500 14px -apple-system, "Segoe UI", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Load a MIDI to begin', W / 2, H / 2);
+      // The .viz-empty HTML overlay owns the empty state, drawing a second
+      // caption here stacked two messages on top of each other.
       this._drawKeyboard(W, rollH, kbH, wkeyW, bkeyW, new Map());
       return;
     }
@@ -277,6 +275,8 @@ class Visualizer {
         const lbl = this.noteToKey[n];
         if (lbl) {
           ctx.fillStyle = '#272a31';
+          // ponytail: 9px, below the 12px floor, a white key is ~19px wide and
+          // these are single glyphs. Bigger only fits if the keybed gets taller.
           ctx.font = '600 9px Consolas, monospace';
           ctx.textAlign = 'center';
           ctx.fillText(lbl, g.x + g.w / 2, kbTop + kbH - 8);

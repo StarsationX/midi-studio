@@ -4,7 +4,7 @@ Run inside the forge-env (needs torch + transkun + onnx):
     python export_transkun_onnx.py [out_dir]
 
 Exports `processFramesBatch` (gain norm + spectrogram + transformer backbone +
-interval scorer) with THREE outputs — score, noise, ctx — unlike the
+interval scorer) with THREE outputs, score, noise, ctx, unlike the
 piano_trainer export this is based on, which dropped ctx and therefore lost
 the velocity / refined onset-offset heads (their decoder hardcodes velocity
 80). With ctx exported, transcribe_onnx_dml.py can run transkun's own
@@ -12,7 +12,7 @@ the velocity / refined onset-offset heads (their decoder hardcodes velocity
 decode on CPU torch.
 
 Input:  frames [1, 1, T, windowSize]  (audio must be mono; makeFrame runs
-        outside the graph — transcribe() already produces exactly this shape)
+        outside the graph, transcribe() already produces exactly this shape)
 Output: score [T, T, 90], noise [T-1, 90], ctx [1, 90, T, D]
 
 Weights are stored as external data named transkun_v2.onnx.data to match the
@@ -33,7 +33,7 @@ from transkun.Util import makeFrame
 from transkun.LayersTransformer import MultiHeadAttentionKernel
 
 # SDPA doesn't export cleanly to ONNX; swap in manual matmul/softmax attention
-# (numerically identical) before tracing — same idea as piano_trainer's export,
+# (numerically identical) before tracing, same idea as piano_trainer's export,
 # with one extra constraint: DirectML rejects MatMul on tensors above 4-D
 # ("The parameter is incorrect"), and this attention runs per pitch-symbol so
 # its tensors are 5-D+. Flatten every matmul to 2-D/3-D and reshape back.
@@ -68,7 +68,7 @@ def _patched_attn_forward(self, query, key=None, value=None):
 
 MultiHeadAttentionKernel.forward = _patched_attn_forward
 
-# The interval scorer's einsum ("iped,ipbd->ipeb" — a plain q·kᵀ) exports as
+# The interval scorer's einsum ("iped,ipbd->ipeb", a plain q·kᵀ) exports as
 # an ONNX Einsum node, which the DirectML EP fails to register at session
 # init (AbiCustomRegistry "parameter is incorrect"). Same math via bmm.
 from transkun.LayersTransformer import ScaledInnerProductIntervalScorer
@@ -135,7 +135,7 @@ def load_model():
 
 class AcousticFront(torch.nn.Module):
     """Backbone + interval scorer only. The spectrogram front-end (gain norm +
-    windowed FFT + mel) runs in torch on CPU at runtime instead — it's
+    windowed FFT + mel) runs in torch on CPU at runtime instead, it's
     millisecond-cheap, and the ONNX DFT op crashes the DirectML EP outright.
     Mirrors ModelTransformer.processFramesBatch after the feature extractor."""
 
@@ -169,7 +169,7 @@ def main():
 
     model, conf = load_model()
     # Gradient checkpointing is a no-op in eval and the TorchScript tracer
-    # can't trace through CheckpointFunction — force the bypass path.
+    # can't trace through CheckpointFunction, force the bypass path.
     model.backbone.useGradientCheckpoint = False
     wrapper = AcousticFront(model).eval()
 
@@ -230,13 +230,13 @@ def main():
             n_castlike += 1
     print(f"rewrote {n_castlike} CastLike -> Cast")
     # onnx resolves the external-data location against the CWD, not the model
-    # dir — chdir so the exists-check and the write both land in out_dir.
+    # dir, chdir so the exists-check and the write both land in out_dir.
     cwd = os.getcwd()
     os.chdir(out_dir)
     try:
         # optimize=False leaves constant-foldable shape chains
         # (Shape→Concat→Reshape) in the graph; DML dies on them at init.
-        # Fold with ORT's BASIC level — ONNX-compliant, no matmul re-fusion.
+        # Fold with ORT's BASIC level. ONNX-compliant, no matmul re-fusion.
         import onnxruntime as ort
         Path("_prefold.onnx.data").unlink(missing_ok=True)
         onnx.save_model(m, "_prefold.onnx", save_as_external_data=True,
@@ -257,10 +257,10 @@ def main():
     finally:
         os.chdir(cwd)
 
-    # Guard: DirectML rejects MatMul with >4-D inputs and ONNX functions —
+    # Guard: DirectML rejects MatMul with >4-D inputs and ONNX functions.
     # fail the export loudly if either ever sneaks back in.
     checked = onnx.shape_inference.infer_shapes(onnx.load(str(onnx_path)), data_prop=True)
-    assert len(checked.functions) == 0, "local functions present — DML will fail at init"
+    assert len(checked.functions) == 0, "local functions present. DML will fail at init"
     rank = {vi.name: len(vi.type.tensor_type.shape.dim)
             for vi in list(checked.graph.value_info) + list(checked.graph.input)
             + list(checked.graph.output)}

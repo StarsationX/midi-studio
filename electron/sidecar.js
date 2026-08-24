@@ -1,4 +1,4 @@
-// sidecar.js — the PLAYER engine sidecar (python-engine/ipc_main.py).
+// sidecar.js: the PLAYER engine sidecar (python-engine/ipc_main.py).
 // NDJSON over stdio. Prefers a bundled light Python; else probes the Windows
 // launcher / PATH. Surfaces actionable errors (missing module -> run install).
 'use strict';

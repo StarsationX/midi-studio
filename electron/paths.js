@@ -1,8 +1,8 @@
-// paths.js — centralized path resolution for the Electron main process.
+// paths.js: centralized path resolution for the Electron main process.
 // Two interpreters, kept strictly separate:
-//   * PLAYER python   — tiny (mido/pynput/psutil/pywin32). Bundled or on PATH.
+//   * PLAYER python, tiny (mido/pynput/psutil/pywin32). Bundled or on PATH.
 //                       Runs ipc_main.py (the realtime keypress engine).
-//   * FORGE python    — heavy (torch/CUDA + model). Provisioned on demand into
+//   * FORGE python, heavy (torch/CUDA + model). Provisioned on demand into
 //                       %LOCALAPPDATA%\midi-studio\forge-env. Single source of
 //                       truth for the ML pipeline; adopts a legacy midi-forge env.
 'use strict';
@@ -27,7 +27,7 @@ function pythonEngineDir() {
 }
 
 // A light Python bundled next to the engine by the player-engine build script.
-// Returns null in dev when not built — sidecar.js then probes PATH.
+// Returns null in dev when not built, sidecar.js then probes PATH.
 function bundledPlayerPython() {
   const p = path.join(pythonEngineDir(), 'python', 'python.exe');
   return exists(p) ? p : null;
@@ -139,7 +139,7 @@ function shouldRefreshPreset(src, dst) {
 }
 
 // Ensure the folder exists and seed it (first run only) with the bundled presets
-// so it's discoverable and editable. Never overwrites existing files — user
+// so it's discoverable and editable. Never overwrites existing files, user
 // edits and custom mappings are preserved. Returns the directory path.
 function ensureUserMappings() {
   const dir = userMappingsDir();
@@ -187,7 +187,7 @@ function forgeChildEnv(settings) {
     MIDI_STUDIO_FORGE_ENV_DIR: forgeEnvDir(settings),
     // Forge scripts import siblings (audio_utils, analyze, ...) and the forge
     // interpreter is also an embeddable Python that omits the script dir from
-    // sys.path — put the engine dir on PYTHONPATH so those imports resolve.
+    // sys.path, put the engine dir on PYTHONPATH so those imports resolve.
     PYTHONPATH: engineDir + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : ''),
     PYTHONUNBUFFERED: '1',
     PYTHONIOENCODING: 'utf-8',

@@ -123,7 +123,7 @@
       empty.className = 'library-empty';
       empty.textContent = libraryFiles.length
         ? 'Nothing matches that search.'
-        : 'No MIDI files found yet. Forge results land here automatically — or add a folder you keep MIDI in.';
+        : 'No MIDI files found yet. Forge results land here automatically, or add a folder you keep MIDI in.';
       host.appendChild(empty);
       return;
     }
@@ -201,7 +201,7 @@
     return clamp((player.context.currentTime - player.audioStart) * speed(), 0, player.duration);
   }
 
-  // First note at or after `from` — the scheduler walks forward from here.
+  // First note at or after `from`, the scheduler walks forward from here.
   function cursorFor(from) {
     const doc = currentDocument();
     if (!doc) return 0;
@@ -338,7 +338,7 @@
 
   // Audio runs off the scheduler, so drawing is free to be lazy. Background
   // throttling is disabled app-wide to keep playback alive behind the game
-  // window — without a cap here that would mean a full-rate repaint forever.
+  // window, without a cap here that would mean a full-rate repaint forever.
   let lastDraw = 0;
   // The shell publishes the frame budget in milliseconds, derived from the
   // "use at most N%" setting. Unfocused windows get an eighth of the rate.
@@ -478,11 +478,13 @@
     const span = viewSpan(), from = viewStart();
     const xFor = (t) => (t - from) / span * rect.width;
     const gridSeconds = span > 240 ? 30 : span > 90 ? 10 : span > 30 ? 5 : span > 10 ? 1 : 0.5;
-    ctx.font = '9px "JetBrains Mono", monospace'; ctx.fillStyle = '#62656d';
+    ctx.font = '11px "JetBrains Mono", monospace';
+    ctx.fillStyle = getComputedStyle(document.documentElement)
+      .getPropertyValue('--text-3').trim() || '#868a92';
     for (let at = Math.floor(from / gridSeconds) * gridSeconds; at <= from + span; at += gridSeconds) {
       const x = xFor(at);
       ctx.strokeStyle = '#2b2e36'; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, rect.height); ctx.stroke();
-      if (x + 30 < rect.width) ctx.fillText(formatTime(at), x + 4, 12);
+      if (x + 34 < rect.width) ctx.fillText(formatTime(at), x + 4, 13);
     }
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b8e62e';
     ctx.fillStyle = accent; ctx.globalAlpha = 0.82;

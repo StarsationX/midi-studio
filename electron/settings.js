@@ -1,4 +1,4 @@
-// settings.js — tiny dependency-free JSON settings store in %APPDATA%.
+// settings.js: tiny dependency-free JSON settings store in %APPDATA%.
 // Holds only light user prefs (window bounds, forge defaults). The player tab
 // keeps its own UI prefs in renderer localStorage (unchanged original behavior).
 'use strict';
@@ -12,7 +12,7 @@ const DEFAULTS = {
   library: { dirs: [] },        // extra folders Self Midi scans for MIDI files
   performance: {
     percent: 100,               // how much of the machine MIDI Studio may use
-    whenGaming: 'limit',        // nothing | limit | pause — on seeing a game
+    whenGaming: 'limit',        // nothing | limit | pause, on seeing a game
     advanced: {},               // optional hard overrides: { threads, batch }
   },
   forge: {

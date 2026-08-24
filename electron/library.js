@@ -1,4 +1,4 @@
-// library.js — finds every MIDI the user has, so Self Midi can list them.
+// library.js: finds every MIDI the user has, so Self Midi can list them.
 // Scans the Forge output folder plus any folders the user adds, and remembers
 // nothing but the folder list: the files themselves are re-read on demand.
 'use strict';
@@ -30,7 +30,7 @@ function scanDir(root, out, depth = 0) {
   }
 }
 
-// One entry per file path — the same folder can be reached from two roots.
+// One entry per file path, the same folder can be reached from two roots.
 function list(roots) {
   const found = [];
   const seenRoot = new Set();

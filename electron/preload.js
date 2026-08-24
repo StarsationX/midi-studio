@@ -1,5 +1,5 @@
-// preload.js — runs in every frame (top shell + tab iframes).
-//   window.api    : the ORIGINAL midi-player bridge (unchanged surface) — the
+// preload.js: runs in every frame (top shell + tab iframes).
+//   window.api    : the ORIGINAL midi-player bridge (unchanged surface), the
 //                   verbatim player renderer uses this.
 //   window.forge  : Midi-Forge tab (provisioning + pipeline jobs).
 //   window.studio : shell-level helpers (version, updates).

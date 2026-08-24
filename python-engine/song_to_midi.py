@@ -148,7 +148,7 @@ def _patched_msst_config(work_dir: Path, batch: int) -> Path:
         r"(inference:\s*(?:\n[ \t]+[^\n]*)*?\n[ \t]+batch_size:)[ \t]*\d+",
         rf"\g<1> {batch}", text, count=1)
     if n != 1:
-        print("  [warn] couldn't patch inference.batch_size — using stock config")
+        print("  [warn] couldn't patch inference.batch_size, using stock config")
         return BS_ROFO_YAML
     patched = work_dir / "bs_rofo_inference.yaml"
     patched.write_text(new, encoding="utf-8")
@@ -251,10 +251,10 @@ def _resolve_transcribe_backend() -> str:
         import onnxruntime as ort
         if "DmlExecutionProvider" in ort.get_available_providers():
             if not TRANSKUN_ONNX.exists():
-                # Installs provisioned before v2.3.0 lack the model — fetch it
+                # Installs provisioned before v2.3.0 lack the model, fetch it
                 # now (idempotent, ~54 MB) instead of silently using the CPU.
                 from download_assets import fetch_transkun_onnx
-                print("Transkun ONNX model missing — downloading (one-time)...")
+                print("Transkun ONNX model missing, downloading (one-time)...")
                 if not fetch_transkun_onnx():
                     return "cpu"       # offline; next run retries
             return "onnx_dml"
@@ -265,7 +265,7 @@ def _resolve_transcribe_backend() -> str:
 
 def transcribe_to_midi(piano_wav: Path, out_midi: Path) -> None:
     backend = _resolve_transcribe_backend()
-    print(f"\n[2/3] Transcribing with Transkun V2 (SOTA piano MIDI) — {backend}")
+    print(f"\n[2/3] Transcribing with Transkun V2 (SOTA piano MIDI), {backend}")
     t0 = time.time()
     env = os.environ
     if backend in ("cuda", "onnx_dml"):
@@ -380,7 +380,7 @@ def _resolve_backend() -> str:
         if "DmlExecutionProvider" in ort.get_available_providers():
             if not ONNX_MDX_MODEL.exists():
                 from download_assets import fetch_mdx_onnx
-                print("MDX ONNX model missing — downloading (one-time)...")
+                print("MDX ONNX model missing, downloading (one-time)...")
                 if not fetch_mdx_onnx():
                     return "msst"      # offline; next run retries
             return "onnx_dml"
@@ -402,14 +402,14 @@ def separate_onnx(src: Path, work_dir: Path) -> Path:
 
 
 def separate_onnx_general(src: Path, work_dir: Path) -> Path:
-    """General mode on DirectML: instrumental minus the drums stem — every
+    """General mode on DirectML: instrumental minus the drums stem, every
     pitched instrument, mirroring mix_pitched_stems on the CUDA path."""
     print("\n[1/3] Separating with MDX-Net (ONNX + DirectML, general: −vocals −drums)")
     if not ONNX_DRUMS_MODEL.exists():
         from download_assets import fetch_drums_onnx
-        print("Drums ONNX model missing — downloading (one-time)...")
+        print("Drums ONNX model missing, downloading (one-time)...")
         if not fetch_drums_onnx():
-            print("  drums model unavailable (offline?) — using instrumental only")
+            print("  drums model unavailable (offline?), using instrumental only")
             return separate_onnx(src, work_dir)
     t0 = time.time()
     import separate_onnx_dml as on
@@ -439,7 +439,7 @@ def main() -> int:
 
     backend = _resolve_backend()
     if backend == "onnx_dml":
-        print("Separator: MDX-Net (ONNX + DirectML) — GPU path for non-CUDA cards")
+        print("Separator: MDX-Net (ONNX + DirectML). GPU path for non-CUDA cards")
         if GENERAL_MODE:
             print("Mode: General (vocals + drums removed, all pitched stems kept)")
             stem_wav = separate_onnx_general(process_src, work_dir)

@@ -41,7 +41,7 @@ async function main() {
   })()`);
   socket.close();
   const state = inspected.result.result.value;
-  if (!state.visible || !state.path || state.path === '—' || !state.change || !state.open
+  if (!state.visible || !state.path || state.path === ', ' || !state.change || !state.open
       || !state.changeApi || !state.resetApi
       || !state.defaultMatches || !state.controlsFit || state.resetHidden === state.custom) {
     throw new Error(`Settings smoke test failed: ${JSON.stringify(state)}`);

@@ -1,4 +1,4 @@
-// updater.js — full-installer updater for MIDI Studio.
+// updater.js: full-installer updater for MIDI Studio.
 // GitHub Releases -> SemVer compare -> download Setup.exe -> SHA-256 verify
 // against GitHub's per-asset digest -> run the NSIS installer silently.
 'use strict';
@@ -81,13 +81,13 @@ function sha256File(p) {
 
 const pickSetup = (a) => (a || []).find((x) => /setup.*\.exe$/i.test(x.name)) || (a || []).find((x) => /\.exe$/i.test(x.name) && !/portable/i.test(x.name));
 // Installed builds update silently in place. A leftover portable .exe from 2.7.0
-// or earlier cannot replace itself with an installer, so show the wizard —
+// or earlier cannot replace itself with an installer, so show the wizard.
 // otherwise it silently installs a second copy and keeps nagging forever.
 const installerArgs = () => (process.env.PORTABLE_EXECUTABLE_FILE ? [] : ['/S']);
 
 // Can this process write where the app is installed?
 // An app in C:\Program Files cannot be replaced by a silent installer run
-// without elevation — the installer exits 1223 immediately and nothing happens,
+// without elevation, the installer exits 1223 immediately and nothing happens,
 // which is exactly what "the updater does nothing" looked like.
 function installDirWritable() {
   try {
@@ -137,7 +137,7 @@ async function checkForUpdates(send, { manual } = {}) {
       cached = {
         version: String(latest).replace(/^v/i, ''), current,
         // GitHub serves a per-asset `digest` ("sha256:…") in the release API,
-        // so we verify against that — no SHA256SUMS.txt sidecar needed.
+        // so we verify against that, no SHA256SUMS.txt sidecar needed.
         setup: { url: setup.browser_download_url, name: setup.name, size: setup.size, digest: setup.digest },
         notes: rel.body || '', htmlUrl: rel.html_url,
       };
@@ -156,7 +156,7 @@ async function verifyDigest(file, digest) {
   const want = String(digest || '').replace(/^sha256:/i, '').toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(want)) return false;
   const got = await sha256File(file);
-  if (got !== want) throw new Error('Checksum mismatch — download does not match the GitHub release digest');
+  if (got !== want) throw new Error('Checksum mismatch, download does not match the GitHub release digest');
   return true;
 }
 

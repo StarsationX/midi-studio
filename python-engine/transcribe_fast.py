@@ -5,9 +5,9 @@ Env:   TRANSCRIBE_BACKEND=cuda|onnx_dml (default: cuda if available else onnx_dm
        TRANSCRIBE_BATCH=4   segments per CUDA forward (auto-halves on OOM)
        SEGMENT_HOP          segment hop seconds (segment size stays at model default)
 
-A producer thread runs the neural backbone ahead of time — on CUDA with TF32
+A producer thread runs the neural backbone ahead of time, on CUDA with TF32
 + bf16 autocast and several segments per forward, on DirectML via the static
-ONNX graph one segment at a time — while the consumer runs transkun's stock
+ONNX graph one segment at a time, while the consumer runs transkun's stock
 `model.transcribe()` on CPU with `processFramesBatch` replaced by a queue pop.
 GPU compute and the CPU semi-CRF decode overlap, and the decode consumes
 exactly what the backbone produced, so output ordering/logic is unchanged.
@@ -56,7 +56,7 @@ def load_model():
 
 def segment_frames(model, x, hop):
     """Replicate model.transcribe()'s segmentation exactly (ModelTransformer
-    .transcribe): same padding, step, tail-pad — so the producer's frames are
+    .transcribe): same padding, step, tail-pad, so the producer's frames are
     identical to what the consumer's loop will ask for, in the same order."""
     from transkun.Util import makeFrame
     xT = x.transpose(-1, -2)
@@ -86,7 +86,7 @@ def producer_cuda(model, frames, nSym, out_q):
             chunk = frames[i:i + batch]
             try:
                 fb = torch.cat(chunk, dim=0).cuda()
-                # TF32 only — bf16 autocast quantizes the ±80k CRF scores
+                # TF32 only, bf16 autocast quantizes the ±80k CRF scores
                 # enough to flip Viterbi decisions (95.7% note match vs 100%).
                 crf, ctx = gpu.processFramesBatch(fb)
                 score = crf.score.float()
@@ -103,7 +103,7 @@ def producer_cuda(model, frames, nSym, out_q):
                     raise
                 batch = max(1, batch // 2)
                 torch.cuda.empty_cache()
-                print(f"CUDA OOM — retrying with batch {batch}")
+                print(f"CUDA OOM, retrying with batch {batch}")
     out_q.put(_DONE)
 
 
@@ -112,7 +112,7 @@ def producer_dml(model, frames, out_q):
     sess = ort.InferenceSession(
         str(ONNX_PATH), providers=["DmlExecutionProvider", "CPUExecutionProvider"])
     assert "ctx" in [o.name for o in sess.get_outputs()], \
-        "ONNX model lacks ctx output — re-export with export_transkun_onnx.py"
+        "ONNX model lacks ctx output, re-export with export_transkun_onnx.py"
     with torch.no_grad():
         for fb in frames:
             mean = torch.mean(fb, dim=[1, 2, 3], keepdim=True)
@@ -156,7 +156,7 @@ def main() -> int:
     hop = float(SEGMENT_HOP) if SEGMENT_HOP else model.segmentHopSizeInSecond
     frames = segment_frames(model, x, hop)
     nSym = len(model.targetMIDIPitch)
-    print(f"Backend: {backend} — {len(frames)} segments"
+    print(f"Backend: {backend}, {len(frames)} segments"
           + (f", batch {BATCH}, TF32" if backend == "cuda" else " (DirectML prefetch)"))
 
     # ~180 MB per queued segment; small bound keeps RAM flat while still

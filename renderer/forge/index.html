@@ -25,7 +25,7 @@
       <div class="storage-row">
         <div class="storage-copy">
           <span class="storage-label">Installs to</span>
-          <span class="mono storage-path" id="setup-dir">—</span>
+          <span class="mono storage-path" id="setup-dir">not set</span>
         </div>
         <span class="storage-free mono" id="setup-free"></span>
         <button class="btn btn-ghost compact" id="setup-change">Change folder…</button>
@@ -50,7 +50,7 @@
         <div class="dropzone" id="dropzone">
           <div class="dz-icon" aria-hidden="true">↑</div>
           <input id="input-path" type="text" readonly placeholder="Drop a song here, or browse…" />
-          <div class="dz-types" aria-hidden="true">mp3 · wav · flac · m4a · ogg — up to 30 min</div>
+          <div class="dz-types" aria-hidden="true">mp3 · wav · flac · m4a · ogg · up to 30 min</div>
           <div class="input-actions">
             <button class="btn" id="browse">Choose song</button>
             <button class="btn btn-ghost" id="queue-add" title="Add files without replacing the current song">+ Add to queue</button>
@@ -58,7 +58,7 @@
         </div>
         <div class="row url-row">
           <span class="url-chip" aria-hidden="true">URL</span>
-          <input id="url" type="text" placeholder="…or paste any link — YouTube, SoundCloud, Bandcamp, direct MP3" />
+          <input id="url" type="text" placeholder="or paste any link: YouTube, SoundCloud, Bandcamp, direct MP3" />
           <button class="btn" id="fetch">Fetch</button>
         </div>
         <div class="queue is-collapsed" id="queue-wrap">
@@ -92,10 +92,10 @@
       <div class="card">
         <div class="seg" id="pipeline">
           <button data-v="melody" class="is-active"><b>Main Melody <span class="badge-proto">PROTOTYPE</span></b><i>synth leads - clean hooks</i></button>
-          <button data-v="piano"><b>Piano</b><i>piano covers — highest accuracy</i></button>
-          <button data-v="general"><b>General</b><i>any song — full-mix transcription</i></button>
-          <button data-v="fast"><b>Fast</b><i>basic-pitch — quick &amp; rough</i></button>
-          <button data-v="drums"><b>Drums</b><i>drum kit — kick/snare/hats</i></button>
+          <button data-v="piano"><b>Piano</b><i>piano covers, highest accuracy</i></button>
+          <button data-v="general"><b>General</b><i>any song, full-mix transcription</i></button>
+          <button data-v="fast"><b>Fast</b><i>basic-pitch, quick &amp; rough</i></button>
+          <button data-v="drums"><b>Drums</b><i>drum kit: kick/snare/hats</i></button>
         </div>
         <div class="muted small" id="pipeline-hint" style="margin:4px 0 2px">Isolate synth leads, then build Clean, Balanced, and Detailed melody candidates.</div>
         <label class="check"><input type="checkbox" id="skipsep" /> Skip separation (input is already an isolated stem)</label>
@@ -166,7 +166,7 @@
               <label title="Lower values detect softer attacks; higher values reject noise.">Lead sensitivity <span class="adv-value"><input type="number" id="MELODY_ONSET_THRESHOLD" step="0.02" min="0.1" max="0.9" value="0.42" /><i>lower = more</i></span></label>
               <label title="Detected lead notes shorter than this are ignored.">Shortest lead note <span class="adv-value"><input type="number" id="MELODY_MIN_NOTE_MS" step="5" min="20" max="300" value="45" /><i>ms</i></span></label>
               <label title="Busy passages are thinned to this many notes per second so the result stays playable. 0 = keep everything.">Max notes / second <span class="adv-value"><input type="number" id="MELODY_DENSITY" step="1" min="0" max="40" value="13" /></span></label>
-              <label class="check" title="Move notes outside the range into it instead of deleting them — keeps a hook that climbs out of range."><input type="checkbox" id="MELODY_FOLD" checked /> Fold out-of-range notes back in</label>
+              <label class="check" title="Move notes outside the range into it instead of deleting them. Keeps a hook that climbs out of range."><input type="checkbox" id="MELODY_FOLD" checked /> Fold out-of-range notes back in</label>
             </div>
           </div>
           <div class="adv-group" data-group="drums" hidden>
@@ -197,7 +197,7 @@
             <div><span>OUTPUT</span><span id="run-info-out" class="mono">Documents\MIDI Studio</span></div>
           </div>
         </div>
-        <button class="btn btn-ghost" id="pause" hidden title="Suspend the job — frees the GPU, keeps the progress">Pause</button>
+        <button class="btn btn-ghost" id="pause" hidden title="Suspend the job. Frees the GPU, keeps the progress.">Pause</button>
         <button class="btn btn-ghost" id="cancel" hidden>Cancel</button>
         <div class="prog" id="job-prog" hidden>
           <div class="prog-row"><span id="job-stage">Queued</span><span id="job-pct" class="mono"></span></div>

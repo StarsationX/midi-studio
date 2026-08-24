@@ -1,4 +1,4 @@
-// main.js — Electron main process for MIDI Studio.
+// main.js: Electron main process for MIDI Studio.
 // One window with Forge, Review, and Player tab iframes. Owns the player
 // sidecar, the forge runner/provisioner, the updater, and all IPC.
 'use strict';
@@ -19,7 +19,7 @@ const library = require('./library');
 const { GameWatch } = require('./gamewatch');
 const updater = require('./updater');
 
-// Boot diagnostics — a packaged GUI app has no console; this captures startup
+// Boot diagnostics, a packaged GUI app has no console; this captures startup
 // milestones/errors to a file so a silent early exit can be diagnosed.
 const BOOT_LOG = path.join(os.tmpdir(), 'midi-studio-boot.log');
 function blog(m) { try { fs.appendFileSync(BOOT_LOG, `${Date.now()} ${m}\n`); } catch (_) {} }
@@ -50,7 +50,7 @@ const gotLock = CONFIGURE_FORGE_INDEX >= 0 || app.requestSingleInstanceLock();
 blog(`gotLock=${gotLock}`);
 
 // ---- frame-aware messaging --------------------------------------------------
-// Push to the MAIN (shell) frame only — used for update-status so the shell owns
+// Push to the MAIN (shell) frame only, used for update-status so the shell owns
 // the single updater UI (the player iframe must not also pop a banner).
 function sendToRenderer(channel, payload) {
   try {
@@ -94,7 +94,7 @@ function listMidis(dir) {
   return out;
 }
 
-// The program's output folder — where Forge writes transcriptions and the
+// The program's output folder, where Forge writes transcriptions and the
 // Midi-Player lists from by default. The Forge "Output folder" setting overrides
 // it; otherwise it's Documents\MIDI Studio.
 function programOutputDir() {
@@ -183,7 +183,7 @@ function createWindow() {
   });
 
   // An iframe calling preventDefault in beforeunload (the Editor does, when it
-  // has unsaved notes) silently cancels the close unless we answer for it — the
+  // has unsaved notes) silently cancels the close unless we answer for it, the
   // window just refused to close, with no dialog and no way out but Task Manager.
   win.webContents.on('will-prevent-unload', (e) => {
     // With no visible window there is nobody to answer, and the app would sit
@@ -250,7 +250,7 @@ function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTi
 // ---- services ---------------------------------------------------------------
 function createServices() {
   // Make user mappings persistent (AppData) and tell the player engine where
-  // to find them — set BEFORE the sidecar spawns so it inherits the env var.
+  // to find them, set BEFORE the sidecar spawns so it inherits the env var.
   try {
     const md = paths.ensureUserMappings();
     process.env.MIDI_STUDIO_MAPPINGS_DIR = md;
@@ -366,8 +366,8 @@ function freeGb(dir) {
   } catch (_) { return null; }
 }
 
-// One number the user understands — "how much of this machine may MIDI Studio
-// use" — and everything else is derived from it here, in one place, so the UI
+// One number the user understands, "how much of this machine may MIDI Studio
+// use", and everything else is derived from it here, in one place, so the UI
 // can show exactly what it will mean.
 function performanceSettings() {
   const p = settings.get('performance') || {};
@@ -382,7 +382,7 @@ function performanceSettings() {
   const cores = Math.max(1, os.cpus().length);
   const advanced = isObj(p.advanced) ? p.advanced : {};
   // Number(null) is 0 and 0 is finite, so "cleared" has to be checked as a
-  // value, not as a number — otherwise clearing an override set it to 1.
+  // value, not as a number, otherwise clearing an override set it to 1.
   const hand = (v) => (v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null);
   const threads = hand(advanced.threads) != null
     ? Math.max(1, Math.min(64, Math.round(hand(advanced.threads))))
@@ -671,7 +671,7 @@ function wireIpc() {
     if ((forge && forge.isRunning()) || (provisioner && provisioner.isRunning())) {
       return { ok: false, error: 'Wait for the current Forge job or setup to finish.' };
     }
-    // Only ever delete OUR managed env — never a user's adopted legacy midi-forge.
+    // Only ever delete OUR managed env, never a user's adopted legacy midi-forge.
     const dir = paths.forgeEnvDir(settings.forgePaths());
     if (!forgeStorage.isManaged(dir, paths.forgeEnvDir({}))) return { ok: false, error: 'refused (unsafe path)' };
     try { if (paths.exists(dir)) fs.rmSync(dir, { recursive: true, force: true }); return { ok: true, dir }; }
@@ -739,7 +739,7 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
 } else {
   // Launching again must always end with a window on screen. If the first
   // instance somehow lost its window but kept the single-instance lock, the new
-  // process used to just exit — so the app "wouldn't open" until the user found
+  // process used to just exit, so the app "wouldn't open" until the user found
   // it in Task Manager and ended it.
   app.on('second-instance', () => {
     blog('second-instance');

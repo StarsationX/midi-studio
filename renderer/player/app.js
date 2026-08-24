@@ -4,7 +4,7 @@
 
 const $ = (id) => document.getElementById(id);
 const els = {
-  // sidebar — source
+  // sidebar, source
   midiPath: $('midi-path'),
   midiBrowse: $('midi-browse'),
   queueField: $('queue-field'),
@@ -22,7 +22,7 @@ const els = {
   autoPickTarget: $('auto-pick-target'),
   mappingSelect: $('mapping-select'),
   mappingBrowse: $('mapping-browse'),
-  // sidebar — playback
+  // sidebar, playback
   tempo: $('tempo'),
   tempoLabel: $('tempo-label'),
   transpose: $('transpose'),
@@ -37,7 +37,7 @@ const els = {
   noteColorReset: $('note-color-reset'),
   fallSpeed: $('fall-speed'),
   fallSpeedLabel: $('fall-speed-label'),
-  // sidebar — hotkeys
+  // sidebar, hotkeys
   hkPlay: $('hotkey-play'),
   hkStop: $('hotkey-stop'),
   hkPause: $('hotkey-pause'),
@@ -58,11 +58,11 @@ const els = {
   statusText: $('status-text'),
   refocusTarget: $('refocus-target'),
   forgeActivity: $('forge-activity'),
-  // transport — buttons
+  // transport, buttons
   play: $('play'),
   pause: $('pause'),
   stop: $('stop'),
-  // transport — times
+  // transport, times
   timeElapsed: $('time-elapsed'),
   timeTotal: $('time-total'),
   // track info strip
@@ -257,7 +257,7 @@ function addCustomMappingOption(p) {
   if (existing) existing.remove();
   const opt = document.createElement('option');
   opt.value = '__custom__';
-  opt.textContent = `custom — ${p.split(/[\\/]/).pop()}`;
+  opt.textContent = `custom: ${p.split(/[\\/]/).pop()}`;
   opt.dataset.path = p;
   els.mappingSelect.appendChild(opt);
 }
@@ -313,7 +313,7 @@ window.api.onEngineEvent((evt) => {
       totalNotes = evt.events.length;
       bpm = evt.bpm;
       els.vizEmpty.classList.add('is-hidden');
-      log('info', `Loaded "${lastMidiPath?.split(/[\\/]/).pop()}" — `
+      log('info', `Loaded "${lastMidiPath?.split(/[\\/]/).pop()}": `
         + `${evt.events.length} events, ${evt.duration.toFixed(1)}s, `
         + `~${evt.bpm.toFixed(1)} BPM`);
       if (typeof evt.transpose === 'number' && evt.transpose !== (settings.transpose | 0)) {
@@ -392,7 +392,7 @@ window.api.onEngineEvent((evt) => {
       // A natural end left the clock parked at the duration, so the next Play
       // seeked to the end and instantly "finished" again. Rewind instead.
       if (pendingRestartAt === null && !userStopped && !evt.crashed) viz.seek(0);
-      if (evt.crashed) log('error', 'Player engine stopped unexpectedly — playback reset.');
+      if (evt.crashed) log('error', 'Player engine stopped unexpectedly. Playback reset.');
       setStatus('idle', 'Idle');
       els.refocusTarget.hidden = true;
       if (evt.stats) {
@@ -496,7 +496,7 @@ function setStatus(kind, text) {
   els.statusText.textContent = text;
 }
 
-// Icon-only Pause/Resume button — swap glyph + tint instead of label text.
+// Icon-only Pause/Resume button, swap glyph + tint instead of label text.
 const ICON_PAUSE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z" fill="currentColor"/></svg>';
 const ICON_PLAY  = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
 function setPauseButton(paused) {
@@ -950,7 +950,7 @@ function initHotkeyCapture(input) {
       return;
     }
     const combo = keyEventToPynput(e);
-    if (!combo) return;          // modifier-only press — keep listening
+    if (!combo) return;          // modifier-only press, keep listening
     setHotkeyInput(input, combo);
     input.dataset.prev = combo;
     input.blur();
@@ -994,7 +994,7 @@ function setTempo(t) {
     window.api.send({ cmd: 'stop' });
   } else if (isPlaying && isPaused) {
     // Paused: never auto-resume. End the session and pre-seek the scrubber
-    // to the equivalent spot — the next Play picks it up from there.
+    // to the equivalent spot, the next Play picks it up from there.
     pendingSeekAfterLoad = viz.elapsed() * prev / t;
     window.api.send({ cmd: 'stop' });
     loadMidi();
@@ -1102,7 +1102,7 @@ function loadPath(p) {
   loadMidi();
 }
 
-// Recent files — most-recent-first, de-duplicated, capped.
+// Recent files, most-recent-first, de-duplicated, capped.
 function pushRecent(p) {
   if (!p) return;
   const list = (settings.recentFiles || []).filter(x => x !== p);
@@ -1115,7 +1115,7 @@ function pushRecent(p) {
 function renderRecents() {
   const list = settings.recentFiles || [];
   els.recentField.style.display = list.length ? '' : 'none';
-  els.recentSelect.innerHTML = '<option value="">— recent files —</option>';
+  els.recentSelect.innerHTML = '<option value="">Recent files</option>';
   for (const p of list) {
     const o = document.createElement('option');
     o.value = p;
@@ -1172,7 +1172,7 @@ function renderQueue() {
   if (!tracks.length) {
     const li = document.createElement('li');
     li.className = 'q-empty';
-    li.textContent = 'Empty \u2014 drop or browse .mid files to build a playlist.';
+    li.textContent = 'Empty. Drop or browse .mid files to build a playlist.';
     els.queueList.appendChild(li);
     return;
   }
@@ -1230,7 +1230,7 @@ function moveTrack(from, to) {
 }
 
 // Load a track. Plays it too when `andPlay`, once 'midi_loaded' comes back.
-// Move through the playlist without touching the mouse — the whole point is
+// Move through the playlist without touching the mouse, the whole point is
 // not having to leave the game window.
 function skipTrack(direction) {
   const list = settings.playlist || [];
@@ -1303,7 +1303,7 @@ function setMidiFile(path, andPlay = false) {
   // button, a hotkey, or the natural end of the previous track.
   if (isPlaying) { userStopped = true; window.api.send({ cmd: 'stop' }); }
   selectTrack(i, andPlay);
-  if (!andPlay) log('info', 'Loaded ' + path.split(/[\/]/).pop() + " — press Play when you're ready.");
+  if (!andPlay) log('info', 'Loaded ' + path.split(/[\/]/).pop() + ". Press Play when you're ready.");
 }
 
 // Natural end of a track -> the next row. Returns true if it took over.
@@ -1376,8 +1376,8 @@ function doPlay() {
 }
 
 function doStop()  {
-  // User stop wins over a pending tempo restart. Always send the stop —
-  // even if the UI thinks nothing is playing — so a restart session that
+  // User stop wins over a pending tempo restart. Always send the stop,
+  // even if the UI thinks nothing is playing, so a restart session that
   // was just dispatched gets killed instead of continuing.
   pendingRestartAt = null;
   pendingSeekAfterLoad = null;
@@ -1429,7 +1429,7 @@ function populateWindows(previousHwnd = null) {
   els.targetSelect.innerHTML = '';
   if (!windows.length) {
     const o = document.createElement('option');
-    o.value = ''; o.textContent = '— no windows found —';
+    o.value = ''; o.textContent = 'No windows found';
     els.targetSelect.appendChild(o);
     return;
   }
@@ -1457,7 +1457,7 @@ function populateWindows(previousHwnd = null) {
 }
 
 // --------------------------------------------------------------------------
-// Scrubber — YouTube-style: hover preview, click-to-seek, drag-to-scrub
+// Scrubber. YouTube-style: hover preview, click-to-seek, drag-to-scrub
 // --------------------------------------------------------------------------
 let isDragging = false;
 
@@ -1584,7 +1584,7 @@ window.addEventListener('drop', (e) => {
     log('info', `Dropped mapping: ${json.split(/[\\/]/).pop()}`);
     loadMidi();
   } else {
-    log('warn', 'Drop ignored — only .mid/.midi/.json files are supported.');
+    log('warn', 'Drop ignored. Only .mid/.midi/.json files are supported.');
   }
 });
 window.addEventListener('dragover', (e) => e.preventDefault());
@@ -1653,7 +1653,7 @@ requestAnimationFrame(frame);
         els.versionBadge.classList.remove('checking');
         els.versionBadge.classList.add('update');
         els.versionBadge.textContent = `v${version} → v${s.version}`;
-        els.updateTitle.textContent = `Update available — v${s.version}`;
+        els.updateTitle.textContent = `Update available: v${s.version}`;
         els.updateSub.textContent = s.canSelfUpdate
           ? `You have v${s.current}. Download is ~${Math.round((s.size||0)/1048576)} MB.`
           : `You have v${s.current}. Click to open the download page.`;
@@ -1676,7 +1676,7 @@ requestAnimationFrame(frame);
         break;
       case 'ready':
         els.updateApply.textContent = 'Restarting…';
-        log('info', 'Update downloaded — restarting to apply.');
+        log('info', 'Update downloaded. Restarting to apply.');
         break;
       case 'error':
         els.versionBadge.classList.remove('checking');

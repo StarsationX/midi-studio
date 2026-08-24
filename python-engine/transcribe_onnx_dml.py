@@ -3,9 +3,9 @@
 Usage: transcribe_onnx_dml.py <audio> <out_midi>
 
 GPU path for non-CUDA cards (AMD/Intel, any DX12 GPU). The heavy transformer
-backbone runs as ONNX on DirectML; everything else — segmentation, the
+backbone runs as ONNX on DirectML; everything else, segmentation, the
 velocity / refined onset-offset heads, semi-CRF Viterbi decode, cross-segment
-merging, MIDI assembly — is transkun's own unmodified Python code on CPU
+merging, MIDI assembly, is transkun's own unmodified Python code on CPU
 torch. We just monkeypatch `model.processFramesBatch` with an ONNX session
 call that returns the same (crf, ctx) contract.
 
@@ -94,7 +94,7 @@ def main() -> int:
         import soxr
         audio = soxr.resample(audio, fs, model.fs)
     # Graph is traced mono; downmix. (Reference model averages the power
-    # spectrogram across channels — waveform mean is the practical stand-in.)
+    # spectrogram across channels, waveform mean is the practical stand-in.)
     if audio.ndim == 2 and audio.shape[1] > 1:
         audio = audio.mean(axis=1, keepdims=True)
     elif audio.ndim == 1:

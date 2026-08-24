@@ -129,7 +129,7 @@ def _step_cost(previous_pitch, pitch):
     """Contour penalty between consecutive lead notes.
 
     A leap is unmusical, except the octave leap, which these leads do all the
-    time — so ±12 is charged like a small step rather than a 12-semitone jump.
+    time, so ±12 is charged like a small step rather than a 12-semitone jump.
     """
     if previous_pitch is None:
         return 0.0

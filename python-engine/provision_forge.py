@@ -40,7 +40,7 @@ PYEMBED_URL = f"https://www.python.org/ftp/python/{PYVER}/python-{PYVER}-embed-a
 GETPIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
 TORCH_INDEX_CPU = "https://download.pytorch.org/whl/cpu"
-# cuda | cpu | auto — auto installs the CUDA build only when an NVIDIA GPU is
+# cuda | cpu | auto, auto installs the CUDA build only when an NVIDIA GPU is
 # actually present.
 TORCH_BUILD = os.environ.get("FORGE_TORCH", "auto").lower()
 MSST_REF = os.environ.get("MSST_REF", "main")  # TODO: pin to a commit (supply chain)
@@ -83,7 +83,7 @@ class Provisioner:
         """Is there an NVIDIA GPU the CUDA build could actually use?
 
         A machine with no NVIDIA card was still downloading 2.75 GB of CUDA
-        wheels it can never run — the slowest, most painful part of setup, for
+        wheels it can never run, the slowest, most painful part of setup, for
         nothing. AMD/Intel keep GPU acceleration through onnxruntime-directml,
         which is installed either way.
         """
@@ -239,23 +239,23 @@ class Provisioner:
     def install_torch(self):
         # A cancelled/failed torch install leaves a half-populated dir that the
         # "torch dir exists" check would wrongly treat as done. Guard with a
-        # marker: if it's present, the last attempt didn't finish — wipe + redo.
+        # marker: if it's present, the last attempt didn't finish, wipe + redo.
         site = self.env_dir / "python" / "Lib" / "site-packages"
         partial = self.env_dir / ".torch.partial"
         if partial.exists():
-            log("previous torch install was interrupted — cleaning up first")
+            log("previous torch install was interrupted, cleaning up first")
             for d in ("torch", "torchaudio", "torchvision", "torchcodec"):
                 shutil.rmtree(site / d, ignore_errors=True)
         elif self._torch_installed():
             log("torch present"); return
         cuda = self._nvidia_present()
-        self._mark("installing PyTorch — this is the long one")
+        self._mark("installing PyTorch, this is the long one")
         if cuda:
             self._require_disk(MIN_FREE_GB_TORCH, "PyTorch + CUDA")
-            step(-1, "PyTorch", "Installing PyTorch + CUDA (~3 GB, 5–12 min — don't close)…")
+            step(-1, "PyTorch", "Installing PyTorch + CUDA (~3 GB, 5, 12 min, don't close)…")
         else:
             self._require_disk(MIN_FREE_GB_TORCH_CPU, "PyTorch")
-            log("no NVIDIA GPU found — installing the CPU build of PyTorch "
+            log("no NVIDIA GPU found, installing the CPU build of PyTorch "
                 "(about 2.5 GB less to download; AMD/Intel GPUs still accelerate "
                 "through DirectML)")
             step(-1, "PyTorch", "Installing PyTorch (CPU build, ~300 MB)…")
@@ -285,7 +285,7 @@ class Provisioner:
         self._pip("--no-deps", "--prefer-binary", "basic-pitch==0.4.0")
         # onnxruntime-directml (not plain onnxruntime): ships both the CPU EP
         # (basic-pitch) AND DmlExecutionProvider, which gives GPU separation on
-        # ANY DirectX 12 card — the only GPU path for non-CUDA users (AMD/Intel).
+        # ANY DirectX 12 card, the only GPU path for non-CUDA users (AMD/Intel).
         self._pip("--prefer-binary", "onnxruntime-directml")
 
     def fetch_msst(self):
@@ -352,10 +352,10 @@ class Provisioner:
         self.env_dir.mkdir(parents=True, exist_ok=True)
         self._mark("checking graphics driver")
         cuda = self._nvidia_present()
-        self._mark(f"{'NVIDIA driver found — CUDA build' if cuda else 'no NVIDIA driver — CPU build (much smaller)'}")
+        self._mark(f"{'NVIDIA driver found. CUDA build' if cuda else 'no NVIDIA driver. CPU build (much smaller)'}")
         self._mark(f"checking free space on {self._drive()}")
         self._require_disk(MIN_FREE_GB_START if cuda else MIN_FREE_GB_START_CPU, "first-time setup")
-        self._mark(f"{self._free_gb():.1f} GB free — ok")
+        self._mark(f"{self._free_gb():.1f} GB free, ok")
         self._mark("checking the embedded Python")
         self.ensure_python()
         self.install_torch()

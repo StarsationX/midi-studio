@@ -15,7 +15,7 @@
         <path d="M3 18V6h2v12H3zm4 0V6h2v12H7zm5 2V4h2v16h-2zm5-2V6h2v12h-2zm5-9V6h-2v3h2zm0 6v-3h-2v3h2z" fill="currentColor"/>
       </svg>
       <span class="brand-name">MIDI Player</span>
-      <button class="version-badge" id="version-badge" title="Check for updates">v—</button>
+      <button class="version-badge" id="version-badge" title="Check for updates">v...</button>
     </div>
     <div class="header-actions">
       <div class="forge-activity" id="forge-activity" hidden title="Midi-Forge is running with reduced resource priority">
@@ -48,7 +48,7 @@
   <main class="app-grid">
 
     <!-- ============================================================
-         Sidebar — accordion (one section open at a time)
+         Sidebar, accordion (one section open at a time)
          ============================================================ -->
     <aside class="panel sidebar">
 
@@ -73,14 +73,14 @@
           <div class="field" id="recent-field" style="display:none">
             <label>Recent</label>
             <div class="file-row">
-              <select id="recent-select"><option value="">— recent files —</option></select>
+              <select id="recent-select"><option value="">Recent files</option></select>
               <button id="recent-clear" class="btn btn-icon" title="Clear recent files">✕</button>
             </div>
           </div>
           <div class="field">
             <label>Target window</label>
             <div class="file-row">
-              <select id="target-select"><option value="">— refresh to populate —</option></select>
+              <select id="target-select"><option value="">Refresh to populate</option></select>
               <button id="target-refresh" class="btn btn-icon" title="Refresh">↻</button>
             </div>
             <label class="check" style="margin-top:8px">
@@ -91,13 +91,13 @@
             <label>Mapping</label>
             <div class="file-row">
               <select id="mapping-select">
-                <option value="roblox">roblox — 36 keys (1…m)</option>
-                <option value="roblox61">roblox61 — 61 keys + Shift</option>
-                <option value="roblox66">roblox66 — 66 keys + Shift</option>
-                <option value="roblox88">roblox88 — full 88 keys</option>
-                <option value="roblox88ctrl">roblox88ctrl — 88 keys + Ctrl</option>
-                <option value="virtualpiano">virtualpiano — 88 keys</option>
-                <option value="virtualpiano66">virtualpiano66 — 66 keys</option>
+                <option value="roblox">roblox (36 keys, 1 to m)</option>
+                <option value="roblox61">roblox61 (61 keys + Shift)</option>
+                <option value="roblox66">roblox66 (66 keys + Shift)</option>
+                <option value="roblox88">roblox88 (full 88 keys)</option>
+                <option value="roblox88ctrl">roblox88ctrl (88 keys + Ctrl)</option>
+                <option value="virtualpiano">virtualpiano (88 keys)</option>
+                <option value="virtualpiano66">virtualpiano66 (66 keys)</option>
                 <option value="drums">drums - Roblox pictured 8-pad kit</option>
               </select>
               <button id="mapping-browse" class="btn btn-icon" title="Custom mapping">+</button>
@@ -208,7 +208,7 @@
     </aside>
 
     <!-- ============================================================
-         Main column — visualizer / transport / log
+         Main column, visualizer / transport / log
          ============================================================ -->
     <section class="main-col">
 

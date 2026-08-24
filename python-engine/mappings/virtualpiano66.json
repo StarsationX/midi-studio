@@ -1,6 +1,6 @@
 {
   "name": "virtualpiano66",
-  "description": "66-key Virtual Piano layout (G1 -> C7, MIDI 31 -> 96). 5.5 octaves. Same as the standard 61-key layout for MIDI 36-96, plus 5 extra low notes (G1..B1) using ; : ' \" , for the bottom register. Notes outside this range are skipped — useful for songs targeting a 66-key piano.",
+  "description": "66-key Virtual Piano layout (G1 -> C7, MIDI 31 -> 96). 5.5 octaves. Same as the standard 61-key layout for MIDI 36-96, plus 5 extra low notes (G1..B1) using ; : ' \" , for the bottom register. Notes outside this range are skipped, useful for songs targeting a 66-key piano.",
   "note_to_key": {
     "31": ";",
     "32": ":",

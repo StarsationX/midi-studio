@@ -1,6 +1,6 @@
 {
   "name": "roblox88ctrl",
-  "description": "Full 88-key Roblox piano (A0 -> C8, MIDI 21 -> 108). Middle 61 keys (MIDI 36-96) use the standard layout with Shift sharps. The 15 notes below (MIDI 21-35) and 12 notes above (MIDI 97-108) use Ctrl+char, walking through 1234567890qwertyuiopasdfghj — Ctrl+1..Ctrl+t for the low extension and Ctrl+y..Ctrl+j for the high extension.",
+  "description": "Full 88-key Roblox piano (A0 -> C8, MIDI 21 -> 108). Middle 61 keys (MIDI 36-96) use the standard layout with Shift sharps. The 15 notes below (MIDI 21-35) and 12 notes above (MIDI 97-108) use Ctrl+char, walking through 1234567890qwertyuiopasdfghj. Ctrl+1..Ctrl+t for the low extension and Ctrl+y..Ctrl+j for the high extension.",
   "note_to_key": {
     "21": "ctrl+1",
     "22": "ctrl+2",

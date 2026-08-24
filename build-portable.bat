@@ -14,9 +14,9 @@ rem deps" makes the second pass die on `pip install` (No module named pip). Inst
 rem if the bundle's already built (deps import), we're done; if it's present but
 rem broken, wipe it and rebuild from scratch (which restores pip).
 if exist "%PYDIR%\python.exe" (
-  echo [build] light python present — verifying existing bundle ...
+  echo [build] light python present, verifying existing bundle ...
   "%PYDIR%\python.exe" -c "import mido,pynput,psutil,win32gui,win32con,win32process" && ( echo [build] already built, skipping & exit /b 0 )
-  echo [build] present but incomplete — wiping and rebuilding
+  echo [build] present but incomplete, wiping and rebuilding
   rd /s /q "%PYDIR%" 2>nul
 )
 

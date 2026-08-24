@@ -1,7 +1,7 @@
-// midi-library.js — adds a "Songs folder" picker to the player's Source panel.
+// midi-library.js: adds a "Songs folder" picker to the player's Source panel.
 // Lists every .mid in the chosen folder (defaults to the Forge output folder) so
 // you can pick one to load + play. Loaded after app.js in the same frame; reuses
-// the player's global setMidiFile() — app.js itself is untouched.
+// the player's global setMidiFile(), app.js itself is untouched.
 (() => {
   const studio = window.studio;
   // self-apply saved theme on load (shell also pushes it live on change)
@@ -18,7 +18,7 @@
     '<input id="lib-search" type="text" placeholder="Search songs…" autocomplete="off" ' +
       'style="width:100%;margin-bottom:6px;display:none" />' +
     '<div class="file-row">' +
-      '<select id="lib-select"><option value="">— choose a folder —</option></select>' +
+      '<select id="lib-select"><option value="">Choose a folder</option></select>' +
       '<button id="lib-refresh" class="btn btn-icon" title="Rescan folder">↻</button>' +
       '<button id="lib-browse" class="btn btn-icon" title="Choose a folder of MIDIs">📁</button>' +
     '</div>';
@@ -41,9 +41,9 @@
     sel.innerHTML = '';
     const head = document.createElement('option');
     head.value = '';
-    head.textContent = !allFiles.length ? '— no MIDIs here —'
-      : list.length ? `— ${list.length}${q ? ' match' + (list.length > 1 ? 'es' : '') : ' MIDI' + (list.length > 1 ? 's' : '')} —`
-      : '— no matches —';
+    head.textContent = !allFiles.length ? 'No MIDIs here'
+      : list.length ? `${list.length}${q ? ' match' + (list.length > 1 ? 'es' : '') : ' MIDI' + (list.length > 1 ? 's' : '')}`
+      : 'No matches';
     sel.appendChild(head);
     for (const p of list) {
       const o = document.createElement('option');
@@ -55,7 +55,7 @@
   }
 
   async function refresh() {
-    if (!dir) { allFiles = []; sel.innerHTML = '<option value="">— choose a folder —</option>'; count.textContent = ''; return; }
+    if (!dir) { allFiles = []; sel.innerHTML = '<option value="">Choose a folder</option>'; count.textContent = ''; return; }
     try { allFiles = await studio.listMidis(dir); } catch (_) { allFiles = []; }
     render();
     count.textContent = dir.split(/[\\/]/).filter(Boolean).pop();

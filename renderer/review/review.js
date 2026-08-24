@@ -195,7 +195,7 @@
       const beatLine = index % 4 === 0;
       ctx.strokeStyle = strong ? '#4a4e58' : beatLine ? '#343740' : '#24272d';
       ctx.beginPath(); ctx.moveTo(x, strong ? 0 : TOP_H); ctx.lineTo(x, height); ctx.stroke();
-      if (strong) { ctx.fillStyle = '#858891'; ctx.font = '9px JetBrains Mono'; ctx.fillText(String(index / 16 + 1), x + 4, 16); }
+      if (strong) { ctx.fillStyle = '#858891'; ctx.font = '11px JetBrains Mono'; ctx.fillText(String(index / 16 + 1), x + 4, 16); }
     }
 
     for (const note of current.notes) {
@@ -226,7 +226,7 @@
       const black = [1, 3, 6, 8, 10].includes(pitch % 12);
       ctx.fillStyle = black ? '#202228' : '#d9dadc'; ctx.fillRect(0, y, KEY_W - 1, ROW_H - 1);
       if (pitch % 12 === 0) {
-        ctx.fillStyle = black ? '#afb1b6' : '#25272d'; ctx.font = '9px JetBrains Mono';
+        ctx.fillStyle = black ? '#afb1b6' : '#25272d'; ctx.font = '11px JetBrains Mono';
         ctx.fillText(`C${Math.floor(pitch / 12) - 1}`, 6, y + 10);
       }
     }
@@ -422,7 +422,7 @@
     if (!selected.has(hit.note.id)) { selected.clear(); selected.add(hit.note.id); }
     if (!hit.edge) playSynthNote(hit.note, true);
     // The undo snapshot is taken on the first move that actually changes
-    // something — a plain click is how you select and audition a note, and it
+    // something, a plain click is how you select and audition a note, and it
     // used to mark the project unsaved and push a no-op onto the undo stack.
     const originals = doc().notes.filter((note) => selected.has(note.id)).map((note) => ({ note, start: note.start, end: note.end, pitch: note.pitch }));
     drag = { x, y, edge: hit.edge, originals, dirtied: false };
@@ -578,7 +578,7 @@
 
   function updateTime() {
     $('time').textContent = `${fmt(playhead)} / ${fmt(duration)}`;
-    $('range-readout').textContent = `${fmt(loopStart)} — ${fmt(loopEnd)}`;
+    $('range-readout').textContent = `${fmt(loopStart)} / ${fmt(loopEnd)}`;
   }
 
   // Keep the playhead on screen; the roll is duration*zoom pixels wide, so
@@ -718,7 +718,7 @@
     if (Math.abs(event.clientX - waveDrag.startX) <= 4) seek(waveDrag.start);
     waveDrag = null;
   });
-  // dblclick resets the zoom (TimelineZoom) — clear the loop with the toggle.
+  // dblclick resets the zoom (TimelineZoom), clear the loop with the toggle.
 
   // Renaming decides the filenames the next Save/Export writes.
   $('project-name').addEventListener('change', (event) => {
@@ -731,7 +731,7 @@
     // ones the old name pointed at.
     project.candidates = {};
     setDirty();
-    $('transport-note').textContent = 'Renamed — Save project or Export MIDI writes it under the new name.';
+    $('transport-note').textContent = 'Renamed. Save project or Export MIDI writes it under the new name.';
   });
   $('open').addEventListener('click', chooseFile); $('empty-open').addEventListener('click', chooseFile);
   $('save').addEventListener('click', saveAll); $('export').addEventListener('click', exportMidi);

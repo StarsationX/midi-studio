@@ -1,6 +1,6 @@
 {
   "name": "roblox",
-  "description": "Standard Roblox piano layout — 36 unshifted chars '1234567890qwertyuiopasdfghjklzxcvbnm' covering MIDI 36 (C2) to MIDI 96 (C7). Black keys (sharps) are mapped to their lower neighbor white key, since most Roblox piano games (Got Talent, Roblox Piano, Got Piano, etc.) only listen for these 36 unshifted chars. If your game DOES support Shift for sharps, use 'roblox66' or 'roblox88' instead.",
+  "description": "Standard Roblox piano layout, 36 unshifted chars '1234567890qwertyuiopasdfghjklzxcvbnm' covering MIDI 36 (C2) to MIDI 96 (C7). Black keys (sharps) are mapped to their lower neighbor white key, since most Roblox piano games (Got Talent, Roblox Piano, Got Piano, etc.) only listen for these 36 unshifted chars. If your game DOES support Shift for sharps, use 'roblox66' or 'roblox88' instead.",
   "note_to_key": {
     "36": "1",
     "37": "1",

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ipc_main.py — JSON-over-stdio bridge between the Electron frontend and the
+ipc_main.py: JSON-over-stdio bridge between the Electron frontend and the
 midi_player engine. Spawned by the Electron main process as a sidecar.
 
 Protocol (newline-delimited JSON in both directions):
@@ -393,7 +393,7 @@ class Bridge:
             # pynput's Win32 SendInput on modern hardware). Previously we ran
             # benchmark_keypress here which pressed 'a' 20 times to measure
             # the real overhead, but those presses landed in whatever window
-            # had focus when Play fired — usually the target game — sending
+            # had focus when Play fired, usually the target game, sending
             # 20 stray 'a's right before playback started. Not worth the
             # ~1 ms accuracy gain.
             latency = 0.0015
@@ -420,7 +420,7 @@ class Bridge:
 
             self.session_state = engine.State(len(events), total_dur, bpm)
             # If the user pre-seeked via the scrubber before pressing Play,
-            # apply that as the initial position — playback_loop honours
+            # apply that as the initial position, playback_loop honours
             # seek_request at the top of its first iteration.
             if start_at > 0 and total_dur > 0:
                 self.session_state.seek_request = min(start_at, total_dur)

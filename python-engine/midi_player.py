@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-midi_player.py — Plays MIDI files by simulating keypresses into a target window.
+midi_player.py: Plays MIDI files by simulating keypresses into a target window.
 
 Design summary (see README for full notes):
   * Playback runs on the main thread. It pre-computes every event before the
-    first note plays and does ZERO allocation in its hot loop — only sleep,
+    first note plays and does ZERO allocation in its hot loop, only sleep,
     keypress, and a non-blocking queue.put_nowait() to feed the display.
   * The pygame display runs in its own daemon thread. It is allowed to drop
     frames if the system is loaded; it can never delay a note.
@@ -268,7 +268,7 @@ def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0):
                 start, key = open_notes.pop(k)
                 events.append((start, key, abs_time - start, msg.note, msg.channel))
 
-    # Hanging notes (missing note_off) — close them at end-of-file.
+    # Hanging notes (missing note_off), close them at end-of-file.
     for (channel, note), (start, key) in open_notes.items():
         events.append((start, key, max(0.05, abs_time - start), note, channel))
 
@@ -277,7 +277,7 @@ def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0):
     # Collapse near-simultaneous same-key events. Pressing the same char
     # twice within 5 ms is indistinguishable from one press to the target
     # app, but the second press still costs ~1.5 ms of keypress latency
-    # — that's where the worst chord-induced timing errors come from.
+    # and that's where the worst chord-induced timing errors come from.
     # The collapse is critical for white-only Roblox layouts where chords
     # like C+C# both map to '1'.
     DEDUP_WINDOW = 0.005
@@ -349,7 +349,7 @@ def _parse_mapping_value(value):
     Shifted char →  (["shift"], unshifted) e.g. "!"  → (["shift"], "1")
     Modifier form → "mod+...+char"        e.g. "ctrl+1" → (["ctrl"], "1")
                                           e.g. "ctrl+shift+a" → (["ctrl","shift"], "a")
-    Allows the base to itself be a shifted symbol — Shift is then added
+    Allows the base to itself be a shifted symbol. Shift is then added
     on top of whatever explicit mods were declared."""
     if len(value) <= 1 or "+" not in value:
         # plain char (or empty); shift handling deferred to caller
@@ -457,7 +457,7 @@ class State:
         self.seek_request = None
 
     # The pause gate is paused when EITHER focus is lost OR the user paused.
-    # Helpers below keep the two sources coherent — flipping one shouldn't
+    # Helpers below keep the two sources coherent, flipping one shouldn't
     # accidentally resume when the other is still asserted.
     def _refresh_pause_event(self):
         if self.user_paused or self.focus_lost:
@@ -512,7 +512,7 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
     pause, which shifts `base`, keeps them consistent) and drained during
     the sleep slices. Re-pressing a still-held key releases it first so the
     game sees a fresh keydown; stale heap entries are skipped lazily.
-    Pause/seek/stop release everything (a paused note stays released —
+    Pause/seek/stop release everything (a paused note stays released,
     resuming does not re-press it)."""
     pause_event = state.pause_event
     stop_event = state.stop_event
@@ -630,16 +630,16 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
                             pass
                         break
 
-                # Normal completion of the sleep — go fire the event.
+                # Normal completion of the sleep, go fire the event.
                 if not interrupted:
                     break
                 # A seek arrived: bail out of the middle loop too so the
                 # outer loop's seek handler runs (otherwise we'd loop in
-                # here forever — seek_request stays set, inner sleep keeps
+                # here forever, seek_request stays set, inner sleep keeps
                 # detecting it, middle loop keeps re-entering inner).
                 if state.seek_request is not None:
                     break
-                # Otherwise it was a pause — loop the middle while again
+                # Otherwise it was a pause, loop the middle while again
                 # to drain it.
 
             # If a seek was requested mid-sleep, restart the outer loop
@@ -697,7 +697,7 @@ def focus_monitor(state, target_win, log_fn=print):
     target_id = target_win["hwnd"]
     while not state.stop_event.is_set():
         if not window_alive(target_win):
-            log_fn("[!] Target window closed — stopping playback.")
+            log_fn("[!] Target window closed, stopping playback.")
             state.stop_event.set()
             state.pause_event.set()
             return
@@ -705,13 +705,13 @@ def focus_monitor(state, target_win, log_fn=print):
         if cur != target_id:
             if not state.focus_lost:
                 state.set_focus_lost(True)
-                log_fn("[!] Focus lost — playback paused. "
+                log_fn("[!] Focus lost, playback paused. "
                        "Re-focus the target window to resume.")
         else:
             if state.focus_lost:
                 state.set_focus_lost(False)
                 if not state.user_paused:
-                    log_fn("[+] Focus regained — resuming.")
+                    log_fn("[+] Focus regained, resuming.")
         time.sleep(0.5)
 
 
@@ -735,7 +735,7 @@ def display_thread(state, q, events, note_to_key, total_duration, mapping_name):
 
     win_w, win_h = 900, 600
     screen = pygame.display.set_mode((win_w, win_h), pygame.RESIZABLE)
-    pygame.display.set_caption(f"MIDI Player — {mapping_name}")
+    pygame.display.set_caption(f"MIDI Player, {mapping_name}")
     clock = pygame.time.Clock()
     font_s = pygame.font.SysFont("Consolas", 12)
     font_m = pygame.font.SysFont("Consolas", 14)
@@ -924,7 +924,7 @@ def display_thread(state, q, events, note_to_key, total_duration, mapping_name):
                              pygame.Rect(pb.x, pb.y, fill, pb.h))
 
         if state.focus_lost:
-            status, color = "● LOST FOCUS – paused", (255, 80, 80)
+            status, color = "● LOST FOCUS, paused", (255, 80, 80)
         else:
             status, color = "● FOCUSED", (80, 220, 120)
         s_txt = font_b.render(status, True, color)

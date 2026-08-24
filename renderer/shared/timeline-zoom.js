@@ -1,4 +1,4 @@
-// timeline-zoom.js — shared wheel-zoom for every time-axis canvas in the app
+// timeline-zoom.js: shared wheel-zoom for every time-axis canvas in the app
 // (Forge waveform, Editor waveform, Player range overview).
 //
 // Each of those draws a whole song across a fixed-width canvas, which is

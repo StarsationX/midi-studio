@@ -114,7 +114,7 @@
       Abort
     ${EndIf}
     ; Create BEFORE resolving: GetFullPathName blanks the variable when the path
-    ; does not exist yet, which is always true on a first install — that is why
+    ; does not exist yet, which is always true on a first install, that is why
     ; choosing a custom folder silently fell back to the default.
     ClearErrors
     CreateDirectory "$ForgeStorageDir"

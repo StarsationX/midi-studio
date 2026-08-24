@@ -57,8 +57,8 @@ check_import("torchaudio")
 # torchcodec is NOT checked: it's only pulled in as a torchaudio companion and is
 # never used at runtime (MSST loads via librosa, transkun via pydub→ffmpeg.exe, our
 # scripts via soundfile). It also dlopen-loads the FFmpeg shared libs and only ships
-# cores for FFmpeg 4–8, so when the unpinned BtbN "master" build rolls to a newer
-# FFmpeg major it fails to load — which used to fail the whole install for nothing.
+# cores for FFmpeg 4, 8, so when the unpinned BtbN "master" build rolls to a newer
+# FFmpeg major it fails to load, which used to fail the whole install for nothing.
 check_import("pretty_midi")
 check_import("librosa")
 check_import("soundfile")
@@ -125,7 +125,7 @@ if issues:
     print("\nmidi-forge will not run correctly until these are fixed. Re-run install.bat to retry.")
     sys.exit(1)
 if warnings:
-    # Warnings are NON-FATAL — e.g. "no CUDA" on an AMD/Intel/no-GPU machine just
+    # Warnings are NON-FATAL, e.g. "no CUDA" on an AMD/Intel/no-GPU machine just
     # means slower CPU-mode transcription, not a broken install. Exiting non-zero
     # here would make the provisioner reject a perfectly usable setup at 95%.
     print(f"{len(warnings)} warning(s) (setup is still usable):")

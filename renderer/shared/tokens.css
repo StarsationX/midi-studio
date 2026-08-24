@@ -1,6 +1,6 @@
-/* tokens.css — ONE design system shared by the shell + Midi-Forge + Midi-Player.
+/* tokens.css: ONE design system shared by the shell + Midi-Forge + Midi-Player.
    ============================================================================
-   "CONSOLE PRO" — professional audio software (Ableton/FL class).
+   "CONSOLE PRO", professional audio software (Ableton/FL class).
    Flat graphite panels, exact 1px borders, dense precise controls, tabular
    mono readouts, ONE functional accent: acid lime. No gradients-for-decoration,
    no glow theater. Confidence through precision.
@@ -40,14 +40,14 @@
   /* ---- text ---- */
   --text:        #e8e9ea;
   --text-2:      #9b9ea6;
-  --text-3:      #62656d;
+  --text-3:      #868a92;   /* AA on --bg (5.27) and --surface (4.82) */
 
   /* ---- accent: ACID LIME (functional only) ---- */
   --accent:      #b8e62e;
   --accent-2:    #c6f23e;             /* hover */
   --accent-deep: #8fb320;
   --accent-ink:  #161900;             /* text on lime */
-  --accent-grad: var(--accent);       /* flat — no gradients */
+  --accent-grad: var(--accent);       /* flat, no gradients */
   --accent-soft: #252a1a;             /* lime-tinted panel */
   --accent-line: #4d5640;             /* lime-tinted border */
 
@@ -61,6 +61,12 @@
 
   /* ---- spacing (4-based) ---- */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
+
+  /* ---- type scale: FOUR steps, nothing between ------------------------------
+     t1 caption/label · t2 body+controls · t3 section head · t4 page title.
+     The old 8.5-11.5px band was unreadable at 100% on a 1080p panel, so it
+     collapses into t1. */
+  --t1: 12px; --t2: 13px; --t3: 15px; --t4: 18px;
 
   /* ---- elevation: flat, minimal ---- */
   --sh-1: 0 1px 2px rgba(0,0,0,.3);
@@ -97,7 +103,7 @@
 }
 
 * { box-sizing: border-box; }
-/* Restore the hidden attribute — component display rules would otherwise win. */
+/* Restore the hidden attribute, component display rules would otherwise win. */
 [hidden] { display: none !important; }
 
 html, body {
@@ -113,14 +119,14 @@ html, body {
 /* ---- type utilities ---- */
 .mono { font-family: var(--font-mono); font-variant-ligatures: none; }
 .muted { color: var(--text-3); }
-.small { font-size: 11.5px; }
+.small { font-size: 12px; }
 
-/* numbered section label — "01 INPUT" rail. Containers that set a section
+/* numbered section label, "01 INPUT" rail. Containers that set a section
    counter (e.g. forge .work) make the number increment automatically. */
 .lbl {
   display: flex; align-items: center; gap: 8px;
   font-family: var(--font-mono);
-  font-size: 11px; font-weight: 600; letter-spacing: 2px;
+  font-size: 12px; font-weight: 600; letter-spacing: 2px;
   text-transform: uppercase; color: var(--text-3);
   margin-bottom: var(--s3);
 }
@@ -135,10 +141,10 @@ html, body {
 .btn {
   --bh: 32px;
   display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
-  height: var(--bh); padding: 0 14px;
+  height: var(--bh); padding: 0 16px;
   background: var(--surface-2); color: var(--text);
   border: 1px solid var(--line-2); border-radius: var(--r-sm);
-  font: 600 12.5px/1 var(--font-body); letter-spacing: .2px;
+  font: 600 13px/1 var(--font-body); letter-spacing: .2px;
   cursor: pointer; white-space: nowrap;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
@@ -146,8 +152,8 @@ html, body {
 .btn:active { background: #1f2126; }
 .btn:disabled, .btn[disabled] { opacity: .4; cursor: not-allowed; }
 .btn.big {
-  height: 44px; padding: 0 28px;
-  font: 700 14px/1 var(--font-body); letter-spacing: 1.5px; text-transform: uppercase;
+  height: 44px; padding: 0 32px;
+  font: 700 15px/1 var(--font-body); letter-spacing: 1.5px; text-transform: uppercase;
   border-radius: var(--r);
 }
 
@@ -174,11 +180,11 @@ html, body {
 
 /* ---- text inputs: recessed wells, mono readouts ---- */
 .input, input[type="text"], input[type="number"] {
-  height: 34px; padding: 0 11px;
+  height: 34px; padding: 0 12px;
   background: var(--bg-2); color: var(--text);
   border: 1px solid var(--line); border-radius: var(--r-sm);
   box-shadow: var(--well);
-  font: 500 12.5px/1 var(--font-mono); font-variant-ligatures: none;
+  font: 500 13px/1 var(--font-mono); font-variant-ligatures: none;
   transition: border-color var(--dur) var(--ease);
 }
 input::placeholder { color: var(--text-3); }
@@ -218,7 +224,7 @@ input::placeholder { color: var(--text-3); }
 .dot.err  { background: var(--err);  box-shadow: 0 0 6px #e65a5a66; }
 
 /* ---- checkbox row ---- */
-.check { display: inline-flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: 12.5px; cursor: pointer; }
+.check { display: inline-flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: 13px; cursor: pointer; }
 .check input { accent-color: var(--accent); width: 14px; height: 14px; }
 
 /* ---- segmented control: flat radio blocks ---- */
@@ -227,8 +233,8 @@ input::placeholder { color: var(--text-3); }
   position: relative; flex: 1;
   background: var(--surface-2); color: var(--text-2);
   border: 0; border-right: 1px solid var(--line);
-  padding: 10px 14px 10px 30px; text-align: left;
-  font: 600 12.5px/1.2 var(--font-body); cursor: pointer;
+  padding: 12px 16px 12px 32px; text-align: left;
+  font: 600 13px/1.2 var(--font-body); cursor: pointer;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .seg button:last-child { border-right: 0; }
