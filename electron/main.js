@@ -41,6 +41,22 @@ const CONFIGURE_FORGE_STORAGE = CONFIGURE_FORGE_INDEX >= 0
 let win = null;
 let settings = null;
 let sidecar = null;
+// Playback is live / a game is in the foreground. Either one makes Forge give
+// way; tracked apart so one ending does not cancel the other.
+let playbackActive = false;
+let gameUp = false;
+// A game only counts if the user left that setting on. Playback always counts:
+// it is not a preference, a late keypress is simply wrong.
+function refreshForgeBackground() {
+  if (!forge) return;
+  const rule = performanceSettings().whenGaming;
+  forge.setBackground(playbackActive || (gameUp && rule !== 'nothing'));
+}
+function setPlaybackActive(on) {
+  if (playbackActive === !!on) return;
+  playbackActive = !!on;
+  refreshForgeBackground();
+}
 let forge = null;
 let provisioner = null;
 let gameWatch = null;
@@ -263,6 +279,13 @@ function createServices() {
       const ev = payload && payload.event;
       if (ev === 'ready') lastReady = payload;
       if (ev === 'ready' || ev === 'error') console.log('[player]', JSON.stringify(payload).slice(0, 200));
+      // Playing notes into a game is timing-critical work: a late keypress is
+      // audibly wrong, and there is no way to catch up afterwards. A transcribe
+      // is not: it finishes when it finishes. So while playback is live, Forge
+      // steps aside exactly as it does for a game. Without this the two fight
+      // for the same cores and both stutter.
+      if (ev === 'playback_started') setPlaybackActive(true);
+      if (ev === 'playback_done' || ev === 'error') setPlaybackActive(false);
       broadcast('engine-event', payload);
     },
     onError: (msg) => broadcast('engine-error', msg),
@@ -331,8 +354,9 @@ function createServices() {
   // While a game is up, this app is the guest: idle priority, smaller batches,
   // and the renderer drops to its limited draw rate.
   gameWatch = new GameWatch((game) => {
+    gameUp = !!game;
     const rule = performanceSettings().whenGaming;
-    if (forge && rule !== 'nothing') forge.setBackground(!!game);
+    refreshForgeBackground();
     // "Pause Forge jobs entirely" is the strongest setting: the GPU is handed
     // back to the game, and the job continues when the game closes.
     if (forge && rule === 'pause' && forge.isRunning()) {
