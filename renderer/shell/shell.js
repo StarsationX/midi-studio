@@ -96,6 +96,41 @@
     if (e.key === '3') { activate('review'); e.preventDefault(); }
     if (e.key === '4') { activate('audition'); e.preventDefault(); }
   });
+  // ---- settings: pane switching + the Forge layout chooser --------------
+  {
+    const nav = document.getElementById('snav');
+    if (nav) nav.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-pane]');
+      if (!b) return;
+      for (const x of nav.querySelectorAll('button')) x.classList.toggle('is-active', x === b);
+      for (const p of document.querySelectorAll('.spane')) {
+        p.classList.toggle('is-active', p.dataset.pane === b.dataset.pane);
+      }
+    });
+
+    // The chooser lives in Settings but the layout belongs to the Forge tab,
+    // so push it into that frame and let the frame persist it.
+    const cards = document.getElementById('s-forge-layout');
+    const mark = (name) => {
+      if (!cards) return;
+      for (const x of cards.querySelectorAll('button')) {
+        const on = x.dataset.layout === name;
+        x.classList.toggle('is-active', on);
+        x.setAttribute('aria-checked', on ? 'true' : 'false');
+      }
+    };
+    if (cards) cards.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-layout]');
+      if (!b) return;
+      mark(b.dataset.layout);
+      const f = frames.find((x) => x.dataset.tab === 'forge');
+      const w = f && f.contentWindow;
+      if (w && typeof w.setForgeLayout === 'function') w.setForgeLayout(b.dataset.layout);
+      else if (studio && studio.setUi) studio.setUi({ forgeLayout: b.dataset.layout });
+    });
+    if (studio && studio.getUi) studio.getUi().then((u) => mark((u && u.forgeLayout) || 'classic')).catch(() => {});
+  }
+
   function openAudition(payload) {
     const frame = document.getElementById('frame-audition');
     const deliver = () => {

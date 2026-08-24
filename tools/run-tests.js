@@ -95,6 +95,35 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/function findReadyForgeEnv/.test(pj), 'paths can search for a provisioned env');
 }
 
+// Forge layouts. The blocks are MOVED between arrangements rather than
+// duplicated, so the markup must contain exactly one of each control and the
+// classic layout must be restorable from the original child order.
+{
+  const fsx = require('fs');
+  const html = fsx.readFileSync(path.join(root, 'renderer', 'forge', 'index.html'), 'utf8');
+  const js = fsx.readFileSync(path.join(root, 'renderer', 'forge', 'forge.js'), 'utf8');
+  for (const id of ['dropzone', 'pipeline', 'queue-wrap', 'waveform', 'adv', 'log', 'start']) {
+    const n = (html.match(new RegExp('id="' + id + '"', 'g')) || []).length;
+    ok(n === 1, `forge markup has exactly one #${id} (found ${n})`);
+  }
+  ok(/const LAYOUTS = \['classic', 'cards', 'bench', 'console'\]/.test(js), 'all four layouts are offered');
+  ok(/applyLayout\('classic'\)/.test(js), 'classic is the fallback layout');
+  ok(/original = \[\.\.\.work\.children\]/.test(js), 'classic is restored from the original child order');
+  // classic must put the preview/advanced trio back by appending, not by
+  // insertBefore a sibling that may itself have moved into another lane.
+  ok(/for \(const node of \[b\.time, b\.advToggle, b\.adv\]\) if \(node\) b\.pipeline\.appendChild\(node\)/.test(js),
+    'classic restore does not depend on a sibling that may have moved');
+
+  const shell = fsx.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
+  for (const id of ['s-forge-layout', 'snav', 's-perf-percent', 's-forgedir', 's-theme', 's-recheck']) {
+    ok(shell.includes('id="' + id + '"'), `settings still has #${id}`);
+  }
+  const panes = (shell.match(/class="spane[^"]*" data-pane=/g) || []).length;
+  const navs = (shell.match(/data-pane="[a-z]+"/g) || []).length;
+  ok(panes === 5, `settings has 5 panes (found ${panes})`);
+  ok(navs === panes * 2, `every settings pane has a nav button (${navs} refs for ${panes} panes)`);
+}
+
 // verifyDigest, verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
   const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');

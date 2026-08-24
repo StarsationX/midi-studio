@@ -44,7 +44,16 @@
     </section>
 
     <!-- WORKSPACE -->
-    <section class="work" id="work">
+    <div class="layout-bar">
+        <span class="layout-lbl">Layout</span>
+        <div class="layout-picker" id="layout-picker" role="group" aria-label="Forge layout">
+          <button type="button" data-layout="classic" class="is-active" aria-pressed="true" title="The original stacked layout">Classic</button>
+          <button type="button" data-layout="cards" aria-pressed="false" title="One column, the queue as a stack of jobs">Cards</button>
+          <button type="button" data-layout="bench" aria-pressed="false" title="Status on top, work below">Bench</button>
+          <button type="button" data-layout="console" aria-pressed="false" title="Rail, canvas and inspector">Console</button>
+        </div>
+      </div>
+      <section class="work" id="work" data-layout="classic">
       <label class="lbl">Input</label>
       <div class="card">
         <div class="dropzone" id="dropzone">

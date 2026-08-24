@@ -299,3 +299,112 @@ body { height: 100%; overflow-y: auto; }
 /* a paused job should look paused */
 .bar-fill.is-paused { opacity: .45; animation: none; }
 .prog.is-paused #job-stage, .prog.is-paused #setup-step { color: var(--warn, #e6b800); }
+
+/* ==========================================================================
+   LAYOUTS. Four arrangements of the same controls; the blocks are moved
+   between lanes by forge.js, so everything below is placement only.
+   ========================================================================== */
+
+.layout-bar {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s3) var(--s6) 0;
+}
+.layout-lbl {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  letter-spacing: 2px; text-transform: uppercase; color: var(--text-3);
+}
+.layout-picker { display: flex; border: 1px solid var(--line-2); border-radius: var(--r); overflow: hidden; }
+.layout-picker button {
+  background: var(--surface-2); color: var(--text-2); border: 0;
+  border-right: 1px solid var(--line); padding: 6px 14px;
+  font: 600 12px/1 var(--font-body); cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.layout-picker button:last-child { border-right: 0; }
+.layout-picker button:hover { background: var(--surface-3); color: var(--text); }
+.layout-picker button.is-active { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+
+/* A moved block keeps a heading, since it leaves the numbered rail behind. */
+.lane-sec { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.lane-title {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  letter-spacing: 2px; text-transform: uppercase; color: var(--text-3);
+}
+.lane { display: flex; flex-direction: column; gap: var(--s6); min-width: 0; }
+
+/* classic keeps the shipped single-column rail and its own numbering. */
+.work[data-layout="classic"] { display: block; }
+
+/* cards: one column. */
+.work[data-layout="cards"] { display: block; }
+.work[data-layout="cards"] .lane-main { gap: var(--s6); }
+
+/* bench: run status across the top, two columns of work under it. */
+.work[data-layout="bench"] {
+  display: grid; align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s6);
+}
+.work[data-layout="bench"] .lane-top { grid-column: 1 / -1; }
+.work[data-layout="bench"] .lane-top .run-card { flex-direction: row; flex-wrap: wrap; align-items: center; }
+
+/* console: rail | canvas | inspector. */
+.work[data-layout="console"] {
+  display: grid; align-items: start;
+  grid-template-columns: 290px minmax(0, 1fr) 300px;
+  gap: var(--s4);
+}
+.work[data-layout="console"] .lane-canvas .wave-shell { min-height: 240px; }
+.work[data-layout="console"] .log { max-height: 150px; }
+
+/* Below the three-column threshold the inspector drops under the canvas
+   rather than squeezing every control to nothing. */
+@media (max-width: 1180px) {
+  .work[data-layout="console"] { grid-template-columns: 260px minmax(0, 1fr); }
+  .work[data-layout="console"] .lane-insp { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .work[data-layout="console"],
+  .work[data-layout="bench"] { grid-template-columns: minmax(0, 1fr); }
+  .work[data-layout="console"] .lane-insp,
+  .work[data-layout="bench"] .lane-top { grid-column: auto; }
+}
+
+/* --------------------------------------------------------------------------
+   Narrow-column behaviour. The engine picker, the URL row and the time grid
+   are all built as single rows, which is right at full width and wrong in a
+   300px inspector, where the picker showed 2 of its 5 engines and the Fetch
+   button sat on top of the Start field.
+   -------------------------------------------------------------------------- */
+.lane-insp .seg,
+.lane-right .seg { flex-direction: column; }
+.lane-insp .seg button,
+.lane-right .seg button { border-right: 0; border-bottom: 1px solid var(--line); }
+.lane-insp .seg button:last-child,
+.lane-right .seg button:last-child { border-bottom: 0; }
+
+.lane .url-row { flex-wrap: wrap; }
+.lane .url-row input { flex: 1 1 160px; min-width: 0; }
+
+.lane .time-grid { flex-wrap: wrap; }
+.lane .time-grid label { flex: 1 1 120px; min-width: 0; }
+
+.lane .out-row { flex-wrap: wrap; }
+.lane .preview-footer { flex-wrap: wrap; gap: var(--s2); }
+.lane .input-actions { flex-wrap: wrap; }
+
+/* The run row is a wide two-up; in a column it stacks. */
+.lane-canvas .run-row,
+.lane-right .run-row { flex-wrap: wrap; }
+
+/* The dropzone's path field is a single line; in a rail it needs to be
+   allowed to shrink rather than clip its own placeholder. */
+.lane .dropzone { min-width: 0; }
+.lane .dropzone input { width: 100%; min-width: 0; text-overflow: ellipsis; }
+
+/* The queue header is a single row of five controls, which does not fit a
+   290px rail. Let it wrap there; the spacer stops pushing once it does. */
+.lane .queue-head { flex-wrap: wrap; row-gap: var(--s2); }
+.lane .queue-head .spacer { flex: 1 1 100%; height: 0; }
+.lane-rail .queue-head .spacer { display: none; }
+.lane .qi-name { min-width: 0; }

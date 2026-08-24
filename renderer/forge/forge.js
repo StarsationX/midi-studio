@@ -948,6 +948,160 @@
     }
   });
 
+  // ---- layouts ---------------------------------------------------------
+  // Four arrangements of the SAME controls. Nothing is duplicated and nothing
+  // is rebuilt: blocks are moved between lanes, which keeps every element id
+  // and every listener already attached to them intact.
+  //
+  // 'classic' is the shipped layout and the default. It is restored by putting
+  // #work's original children back in their original order, so it is the real
+  // thing rather than a rebuild of it.
+  const LAYOUTS = ['classic', 'cards', 'bench', 'console'];
+  const lanes = {};
+  let blocks = null;
+  let original = null;
+  let layout = 'classic';
+
+  function collectBlocks() {
+    const work = $('work');
+    if (!work) return null;
+    original = [...work.children];
+    const labels = original.filter((n) => n.classList && n.classList.contains('lbl'));
+    const cardAfter = (text) => {
+      const l = labels.find((x) => x.textContent.trim().toLowerCase() === text);
+      return l ? l.nextElementSibling : null;
+    };
+    const input = cardAfter('input');
+    const pipeline = cardAfter('pipeline');
+    const run = work.querySelector(':scope > .run-card');
+    const log = work.querySelector(':scope > .log-card');
+    if (!input || !pipeline || !run || !log) return null;
+    return {
+      input, pipeline, run, log,
+      queue: $('queue-wrap'),
+      time: pipeline.querySelector('.time-panel'),
+      advToggle: $('adv-toggle'),
+      adv: $('adv'),
+    };
+  }
+
+  function lane(name) {
+    const el = document.createElement('div');
+    el.className = 'lane lane-' + name;
+    el.id = 'lane-' + name;
+    lanes[name] = el;
+    return el;
+  }
+
+  // A titled container, so a block keeps its heading when it changes column.
+  function section(title, ...nodes) {
+    const wrap = document.createElement('div');
+    wrap.className = 'lane-sec';
+    if (title) {
+      const h = document.createElement('div');
+      h.className = 'lane-title';
+      h.textContent = title;
+      wrap.appendChild(h);
+    }
+    for (const n of nodes) if (n) wrap.appendChild(n);
+    return wrap;
+  }
+
+  function applyLayout(name) {
+    if (!LAYOUTS.includes(name)) name = 'classic';
+    if (!blocks) blocks = collectBlocks();
+    if (!blocks) return;
+    const work = $('work');
+    layout = name;
+
+    for (const k of Object.keys(lanes)) { lanes[k].remove(); delete lanes[k]; }
+    // The numbered rail belongs to classic. Every other layout supplies its own
+    // headings, and leaving these in place printed both ("01 INPUT" above
+    // "SOURCE") and left them sitting in the grid as stray items.
+    for (const node of original) {
+      if (node.classList && node.classList.contains('lbl')) node.remove();
+    }
+
+    const b = blocks;
+    const advPair = [b.advToggle, b.adv];
+
+    if (name === 'classic') {
+      // Put the shipped DOM back exactly as authored, labels and all.
+      for (const node of original) work.appendChild(node);
+      // The queue and preview belong back inside the cards they came from.
+      // Order matters and cannot rely on a sibling that may itself have moved,
+      // so put them back positionally: the queue sits above the two out-rows,
+      // and the preview / advanced trio are the last children of the pipeline.
+      if (b.queue && b.queue.parentElement !== b.input) {
+        const outRow = b.input.querySelector('.out-row');
+        if (outRow) b.input.insertBefore(b.queue, outRow);
+        else b.input.appendChild(b.queue);
+      }
+      for (const node of [b.time, b.advToggle, b.adv]) if (node) b.pipeline.appendChild(node);
+    } else if (name === 'console') {
+      // rail | canvas | inspector, the shape every music tool already uses
+      const rail = lane('rail');
+      rail.append(section('Source', b.input), section('Queue', b.queue));
+      const canvas = lane('canvas');
+      canvas.append(section('Preview', b.time), section('Run', b.run), section('', b.log));
+      const insp = lane('insp');
+      insp.append(section('Engine', b.pipeline), section('', ...advPair));
+      work.append(rail, canvas, insp);
+    } else if (name === 'bench') {
+      // status across the top, the work under it
+      const top = lane('top');
+      top.append(section('', b.run));
+      const left = lane('left');
+      left.append(section('Source', b.input), section('Queue', b.queue), section('Preview', b.time));
+      const right = lane('right');
+      right.append(section('Engine', b.pipeline), section('', ...advPair), section('', b.log));
+      work.append(top, left, right);
+    } else {
+      // cards: one column, the queue reads as a stack of jobs
+      const main = lane('main');
+      main.append(
+        section('Source', b.input),
+        section('Queue', b.queue),
+        section('Engine', b.pipeline),
+        section('Preview', b.time),
+        section('', ...advPair),
+        section('Run', b.run),
+        section('', b.log),
+      );
+      work.append(main);
+    }
+
+    work.dataset.layout = name;
+    document.documentElement.dataset.forgeLayout = name;
+    const picker = $('layout-picker');
+    if (picker) for (const btn of picker.querySelectorAll('button')) {
+      const on = btn.dataset.layout === name;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    // The waveform canvas is sized from its box, which just changed.
+    try { drawWaveform(); } catch (_) {}
+  }
+
+  function setLayout(name) {
+    applyLayout(name);
+    if (window.studio && studio.setUi) studio.setUi({ forgeLayout: layout });
+  }
+  window.setForgeLayout = setLayout;
+
+  {
+    const picker = $('layout-picker');
+    if (picker) picker.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-layout]');
+      if (b) setLayout(b.dataset.layout);
+    });
+  }
+  if (window.studio && studio.getUi) {
+    studio.getUi().then((u) => applyLayout((u && u.forgeLayout) || 'classic')).catch(() => applyLayout('classic'));
+  } else {
+    applyLayout('classic');
+  }
+
   restoreQueue();
   renderQueue();
   syncTimingControls();

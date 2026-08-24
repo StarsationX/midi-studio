@@ -150,3 +150,86 @@ body.modal-open .tabframe { visibility: hidden; }
 .limit-head input[type=range] { flex: 1; accent-color: var(--accent); }
 #s-perf-value { min-width: 42px; text-align: right; color: var(--accent); font-size: 12px; }
 .limit-explain { text-align: right; line-height: 1.5; }
+
+/* ==========================================================================
+   SETTINGS: a two-pane dialog. The old version was one flat list where the
+   accent picker sat next to "clean reinstall", so nothing had any weight.
+   ========================================================================== */
+.modal-split { display: grid; grid-template-columns: 168px minmax(0, 1fr); min-height: 0; }
+
+.snav {
+  display: flex; flex-direction: column; gap: 2px; padding: var(--s3);
+  background: var(--bg-2); border-right: 1px solid var(--line);
+}
+.snav button {
+  text-align: left; background: none; border: 0; border-radius: var(--r-sm);
+  padding: 8px 12px; color: var(--text-2);
+  font: 600 13px/1.2 var(--font-body); cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.snav button:hover { background: var(--surface-2); color: var(--text); }
+.snav button.is-active { background: var(--accent-soft); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+
+.spanes { padding: var(--s6); overflow-y: auto; min-width: 0; }
+.spane { display: none; flex-direction: column; gap: var(--s8); }
+.spane.is-active { display: flex; }
+
+.sgroup { display: flex; flex-direction: column; gap: var(--s3); }
+.sgroup-h { display: flex; flex-direction: column; gap: 4px; }
+.sgroup-h h3 {
+  margin: 0; font: 700 13px/1.2 var(--font-mono);
+  letter-spacing: 2px; text-transform: uppercase; color: var(--text-3);
+}
+.sgroup-h p { margin: 0; color: var(--text-2); font-size: 13px; max-width: 56ch; }
+.snote { margin: 0; color: var(--text-3); font-size: 12px; max-width: 60ch; line-height: 1.5; }
+.sactions { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.btn.danger { color: var(--err); }
+.btn.danger:hover { background: var(--err-soft); border-color: #5a2e2e; }
+
+/* Layout chooser: each option draws its own shape, so the choice is visible
+   rather than a word you have to imagine. */
+/* Four options, so 2x2 reads as a set. auto-fit gave 3 + 1 orphan. */
+.layout-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
+.layout-cards button {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+  padding: var(--s3); border-radius: var(--r);
+  background: var(--surface-2); border: 1px solid var(--line-2);
+  cursor: pointer; text-align: left;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.layout-cards button:hover { background: var(--surface-3); }
+.layout-cards button.is-active { background: var(--accent-soft); border-color: var(--accent-line); }
+.lc-name { font: 600 13px/1.2 var(--font-body); color: var(--text); }
+.lc-desc { font-size: 12px; color: var(--text-3); line-height: 1.4; }
+
+/* the little diagram of each arrangement */
+.lc-art { display: grid; gap: 3px; width: 100%; height: 40px; padding: 4px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 3px; }
+.lc-art i { background: var(--line-2); border-radius: 1.5px; display: block; }
+.layout-cards button.is-active .lc-art i { background: var(--accent-deep); }
+.lc-classic { grid-template-rows: repeat(3, 1fr); }
+.lc-cards   { grid-template-rows: repeat(4, 1fr); }
+.lc-bench   { grid-template-rows: 8px 1fr; grid-template-columns: 1fr 1fr; }
+.lc-bench i:first-child { grid-column: 1 / -1; }
+.lc-console { grid-template-columns: 1fr 2fr 1fr; }
+
+@media (max-width: 620px) {
+  .modal-split { grid-template-columns: minmax(0, 1fr); }
+  .snav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .snav button.is-active { box-shadow: inset 0 -2px 0 var(--accent); }
+}
+
+/* The panes are narrower than the old full-width modal, so the 100px key
+   column wrapped "CUSTOM COLOUR" onto two lines. Give keys room and stop
+   them wrapping; the value side can shrink instead. */
+.spanes .skey { flex: 0 1 auto; white-space: nowrap; }
+.spanes .srow { gap: var(--s3); }
+.spanes .sval { min-width: 0; }
+/* A native select on a dark ground renders its text at the platform's idea of
+   "control text", which reads as disabled here. Say what it should be. */
+.spanes select.sval {
+  color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  padding: 5px 8px; font: 500 13px/1 var(--font-body);
+}
+.spanes select.sval option { color: var(--text); background: var(--surface); }

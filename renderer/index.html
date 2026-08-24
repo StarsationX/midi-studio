@@ -28,71 +28,164 @@
   <div class="modal-scrim" id="settings-modal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="modal-head">
-        <h2 id="settings-title">Settings &amp; About</h2>
-        <button class="iconbtn" id="settings-close" aria-label="Close">✕</button>
+        <h2 id="settings-title">Settings</h2>
+        <button class="iconbtn" id="settings-close" aria-label="Close">&#10005;</button>
       </div>
-      <div class="modal-body">
-        <div class="srow"><span class="skey">Version</span><span class="sval mono" id="s-version">...</span></div>
-        <div class="srow"><span class="skey">Midi-Forge</span><span class="sval" id="s-forge">checking…</span></div>
-        <div class="srow storage-row">
-          <span class="skey">Forge storage</span>
-          <div class="storage-control">
-            <span class="storage-path mono" id="s-forgedir">not set</span>
-            <div class="storage-actions">
-              <button class="btn" id="s-changeforge">Change</button>
-              <button class="btn btn-ghost" id="s-resetforge" hidden>Default</button>
-              <button class="btn btn-ghost" id="s-openforge">Open folder</button>
+
+      <div class="modal-split">
+        <nav class="snav" id="snav" aria-label="Settings sections">
+          <button type="button" class="is-active" data-pane="appearance">Appearance</button>
+          <button type="button" data-pane="performance">Performance</button>
+          <button type="button" data-pane="forge">Forge engine</button>
+          <button type="button" data-pane="updates">Updates</button>
+          <button type="button" data-pane="about">About</button>
+        </nav>
+
+        <div class="spanes">
+          <!-- APPEARANCE -->
+          <section class="spane is-active" data-pane="appearance">
+            <div class="sgroup">
+              <div class="sgroup-h">
+                <h3>Forge layout</h3>
+                <p>Four arrangements of the same controls. Switch any time; nothing is lost.</p>
+              </div>
+              <div class="layout-cards" id="s-forge-layout" role="radiogroup" aria-label="Forge layout">
+                <button type="button" data-layout="classic" class="is-active" role="radio" aria-checked="true">
+                  <span class="lc-art lc-classic" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="lc-name">Classic</span>
+                  <span class="lc-desc">The original stacked list</span>
+                </button>
+                <button type="button" data-layout="cards" role="radio" aria-checked="false">
+                  <span class="lc-art lc-cards" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                  <span class="lc-name">Cards</span>
+                  <span class="lc-desc">The queue as a stack of jobs</span>
+                </button>
+                <button type="button" data-layout="bench" role="radio" aria-checked="false">
+                  <span class="lc-art lc-bench" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="lc-name">Bench</span>
+                  <span class="lc-desc">Status on top, work below</span>
+                </button>
+                <button type="button" data-layout="console" role="radio" aria-checked="false">
+                  <span class="lc-art lc-console" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="lc-name">Console</span>
+                  <span class="lc-desc">Rail, canvas, inspector</span>
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-        <div class="srow">
-          <span class="skey">Theme</span>
-          <select class="sval" id="s-theme">
-            <option value="lime">Lime (default)</option>
-            <option value="cyan">Cyan</option>
-            <option value="indigo">Indigo</option>
-            <option value="magenta">Magenta</option>
-            <option value="amber">Amber</option>
-          </select>
-        </div>
-        <div class="srow">
-          <span class="skey">Custom color</span>
-          <input type="color" id="s-accent" value="#b8e62e" title="Pick any accent color" />
-        </div>
-        <div class="srow">
-          <span class="skey">On launch</span>
-          <label class="check"><input type="checkbox" id="s-autoupdate" checked /> Check for updates automatically</label>
-        </div>
-        <div class="srow">
-          <span class="skey">Use at most</span>
-          <div class="limit-control">
-            <div class="limit-head">
-              <input type="range" id="s-perf-percent" min="10" max="100" step="5" value="100" aria-label="Maximum share of this computer MIDI Studio may use" />
-              <output class="mono" id="s-perf-value">100%</output>
+
+            <div class="sgroup">
+              <div class="sgroup-h"><h3>Colour</h3></div>
+              <div class="srow">
+                <span class="skey">Accent</span>
+                <select class="sval" id="s-theme">
+                  <option value="lime">Lime (default)</option>
+                  <option value="cyan">Cyan</option>
+                  <option value="indigo">Indigo</option>
+                  <option value="magenta">Magenta</option>
+                  <option value="amber">Amber</option>
+                </select>
+              </div>
+              <div class="srow">
+                <span class="skey">Custom colour</span>
+                <input type="color" id="s-accent" value="#b8e62e" title="Pick any accent colour" />
+              </div>
             </div>
-            <div class="limit-explain muted small" id="s-perf-explain">of this computer</div>
-            <div class="limit-row" id="s-perf-advanced" hidden>
-              <label>CPU threads <input type="number" id="s-perf-threads" min="1" max="64" step="1" /></label>
-              <label>GPU batch <input type="number" id="s-perf-batch" min="1" max="8" step="1" /></label>
-              <button class="link" id="s-perf-auto" type="button">Back to automatic</button>
+          </section>
+
+          <!-- PERFORMANCE -->
+          <section class="spane" data-pane="performance">
+            <div class="sgroup">
+              <div class="sgroup-h">
+                <h3>Use at most</h3>
+                <p>One number for the whole app. Everything else is worked out from it.</p>
+              </div>
+              <div class="limit-control">
+                <div class="limit-head">
+                  <input type="range" id="s-perf-percent" min="10" max="100" step="5" value="100" aria-label="Maximum share of this computer MIDI Studio may use" />
+                  <output class="mono" id="s-perf-value">100%</output>
+                </div>
+                <div class="limit-explain muted small" id="s-perf-explain">of this computer</div>
+                <div class="limit-row" id="s-perf-advanced" hidden>
+                  <label>CPU threads <input type="number" id="s-perf-threads" min="1" max="64" step="1" /></label>
+                  <label>GPU batch <input type="number" id="s-perf-batch" min="1" max="8" step="1" /></label>
+                  <button class="link" id="s-perf-auto" type="button">Back to automatic</button>
+                </div>
+                <button class="link" id="s-perf-toggle" type="button">Set exact numbers&#8230;</button>
+              </div>
             </div>
-            <button class="link" id="s-perf-toggle" type="button">Set exact numbers…</button>
-          </div>
+
+            <div class="sgroup">
+              <div class="sgroup-h">
+                <h3>While gaming</h3>
+                <p>What to do when Roblox, Roblox Studio or Minecraft is running.</p>
+              </div>
+              <div class="srow">
+                <span class="skey">Then</span>
+                <select class="sval" id="s-perf-gaming">
+                  <option value="nothing">Carry on as normal</option>
+                  <option value="limit">Go easy (idle priority, smaller batches)</option>
+                  <option value="pause">Pause Forge jobs entirely</option>
+                </select>
+              </div>
+              <p class="snote">The Player always takes priority over Forge while it is playing, whatever this is set to. A late keypress cannot be made up afterwards.</p>
+            </div>
+          </section>
+
+          <!-- FORGE -->
+          <section class="spane" data-pane="forge">
+            <div class="sgroup">
+              <div class="sgroup-h"><h3>Status</h3></div>
+              <div class="srow"><span class="skey">Engine</span><span class="sval" id="s-forge">checking&#8230;</span></div>
+            </div>
+
+            <div class="sgroup">
+              <div class="sgroup-h">
+                <h3>Storage</h3>
+                <p>Where the engine and models live. Several GB, so put it on a drive with room.</p>
+              </div>
+              <div class="storage-control">
+                <span class="storage-path mono" id="s-forgedir">not set</span>
+                <div class="storage-actions">
+                  <button class="btn" id="s-changeforge">Change&#8230;</button>
+                  <button class="btn btn-ghost" id="s-resetforge" hidden>Default</button>
+                  <button class="btn btn-ghost" id="s-openforge">Open folder</button>
+                </div>
+              </div>
+              <p class="snote">Moving it copies what is already downloaded. Nothing is downloaded twice.</p>
+            </div>
+
+            <div class="sgroup">
+              <div class="sgroup-h"><h3>Maintenance</h3></div>
+              <div class="sactions">
+                <button class="btn btn-ghost" id="s-setuplog">Open setup log</button>
+                <button class="btn btn-ghost danger" id="s-clean">Clean reinstall&#8230;</button>
+              </div>
+              <p class="snote">A clean reinstall deletes the managed engine so it downloads again. It never touches a separate Midi-Forge install.</p>
+            </div>
+          </section>
+
+          <!-- UPDATES -->
+          <section class="spane" data-pane="updates">
+            <div class="sgroup">
+              <div class="sgroup-h"><h3>Updates</h3></div>
+              <div class="srow">
+                <span class="skey">On launch</span>
+                <label class="check"><input type="checkbox" id="s-autoupdate" checked /> Check automatically</label>
+              </div>
+              <div class="sactions"><button class="btn" id="s-recheck">Check now</button></div>
+              <p class="snote">Updating opens the installer so you can confirm where things go. It keeps your install location and your Forge storage exactly as they are.</p>
+            </div>
+          </section>
+
+          <!-- ABOUT -->
+          <section class="spane" data-pane="about">
+            <div class="sgroup">
+              <div class="sgroup-h"><h3>MIDI Studio</h3></div>
+              <div class="srow"><span class="skey">Version</span><span class="sval mono" id="s-version">&#8230;</span></div>
+              <div class="srow"><span class="skey">Project</span><a class="link" id="s-repo" href="#">github.com/StarsationX/midi-studio</a></div>
+            </div>
+          </section>
         </div>
-        <div class="srow">
-          <span class="skey">While gaming</span>
-          <select class="sval" id="s-perf-gaming" title="What to do when Roblox, Roblox Studio or Minecraft is running">
-            <option value="nothing">Carry on as normal</option>
-            <option value="limit">Go easy (idle priority, smaller batches)</option>
-            <option value="pause">Pause Forge jobs entirely</option>
-          </select>
-        </div>
-        <div class="modal-actions">
-          <button class="btn" id="s-recheck">Re-check updates</button>
-          <button class="btn btn-ghost" id="s-setuplog">Open setup log</button>
-          <button class="btn btn-ghost" id="s-clean">Clean reinstall…</button>
-        </div>
-        <div class="srow"><span class="skey">Project</span><a class="link" id="s-repo" href="#">github.com/StarsationX/midi-studio</a></div>
       </div>
     </div>
   </div>
