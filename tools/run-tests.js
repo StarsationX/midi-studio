@@ -32,13 +32,25 @@ const assets = [
 ];
 ok(u.pickSetupAsset(assets).name === 'MIDI-Studio-2.1.0-Setup.exe', 'picks Setup not portable');
 
-// A portable build cannot replace itself with an installer, so it must show the
-// wizard instead of installing a silent second copy.
+// NEVER pass /S. This is an assisted installer and NSIS skips every page in
+// silent mode, so /S does not install quietly, it re-decides the install
+// directory and the Forge storage location from defaults. That relocated a
+// Program Files install to a per-user one (running the old uninstaller on the
+// way) and rewrote a deliberate "Forge env on D:" to a default on C:.
 delete process.env.PORTABLE_EXECUTABLE_FILE;
-ok(u.installerArgs().join() === '/S', 'installed build updates silently');
+ok(u.installerArgs().length === 0, 'installed build shows the wizard, never /S');
 process.env.PORTABLE_EXECUTABLE_FILE = '/tmp/MIDI-Studio-portable.exe';
 ok(u.installerArgs().length === 0, 'portable build runs the installer visibly');
 delete process.env.PORTABLE_EXECUTABLE_FILE;
+ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'updater.js'), 'utf8')),
+  'no /S anywhere in the updater');
+
+// The installer must not overwrite a Forge storage choice it never asked about.
+{
+  const nsh2 = require('fs').readFileSync(path.join(root, 'build', 'installer.nsh'), 'utf8');
+  ok(/\$\{If\} \$\{Silent\}/.test(nsh2), 'customInstall guards the registry write on silent mode');
+  ok(/ExistingForgeStorage/.test(nsh2), 'installer reads the existing Forge storage before deciding');
+}
 
 // The self-kill regression. The updater starts the installer, so the installer
 // is in MIDI Studio's process tree. Two things must stay true or "check for

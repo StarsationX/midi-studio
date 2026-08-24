@@ -7,6 +7,7 @@
   Var ForgeStorageDir
   Var ForgeStorageInput
   Var ForgeStorageFree
+  Var ExistingForgeStorage
 
   ; electron-builder's default "is the app running" check produces a dialog
   ; asking the user to close MIDI Studio even on a machine that was just
@@ -51,7 +52,17 @@
     FileWrite $4 "ok"
     FileClose $4
     Delete "$TEMP\.midi-studio-temp-test"
-    ReadRegStr $ForgeStorageDir HKCU "Software\StarsationX\MIDI Studio" "ForgeStorageDir"
+    ; $ExistingForgeStorage stays empty unless the machine already has a choice
+    ; recorded. customInstall uses it to refuse to overwrite a real choice with
+    ; a computed default.
+    ReadRegStr $ExistingForgeStorage HKCU "Software\StarsationX\MIDI Studio" "ForgeStorageDir"
+    ${If} $ExistingForgeStorage == ""
+      ; An elevated install reads the ADMIN's HKCU, not the user's, so a real
+      ; choice can look absent here. HKLM is written alongside it for exactly
+      ; this case.
+      ReadRegStr $ExistingForgeStorage HKLM "Software\StarsationX\MIDI Studio" "ForgeStorageDir"
+    ${EndIf}
+    StrCpy $ForgeStorageDir $ExistingForgeStorage
     ${If} $ForgeStorageDir == ""
       StrCpy $ForgeStorageDir "$LOCALAPPDATA\midi-studio\forge-env"
     ${EndIf}
@@ -148,6 +159,20 @@
     ; a process behind for the next install's "app is running" check and could
     ; fail the shortcut with "Unspecified error". The app reads this value on
     ; its first run instead.
-    WriteRegStr HKCU "Software\StarsationX\MIDI Studio" "ForgeStorageDir" "$ForgeStorageDir"
+    ;
+    ; A silent run never shows the storage page, so $ForgeStorageDir is whatever
+    ; customInit computed. Writing that back replaced a deliberate "put the
+    ; multi-GB env on D:" with a default on C: for a user whose C: was full.
+    ; An existing choice is only ever replaced by one the user actually made on
+    ; the page, which cannot have happened silently.
+    ${If} ${Silent}
+    ${AndIf} $ExistingForgeStorage != ""
+      DetailPrint "Keeping existing Forge storage: $ExistingForgeStorage"
+    ${Else}
+      WriteRegStr HKCU "Software\StarsationX\MIDI Studio" "ForgeStorageDir" "$ForgeStorageDir"
+      ; Mirrored so an ELEVATED installer, which sees the admin's HKCU rather
+      ; than the user's, can still find the real choice next time.
+      WriteRegStr HKLM "Software\StarsationX\MIDI Studio" "ForgeStorageDir" "$ForgeStorageDir"
+    ${EndIf}
   !macroend
 !endif

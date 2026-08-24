@@ -80,10 +80,20 @@ function sha256File(p) {
 }
 
 const pickSetup = (a) => (a || []).find((x) => /setup.*\.exe$/i.test(x.name)) || (a || []).find((x) => /\.exe$/i.test(x.name) && !/portable/i.test(x.name));
-// Installed builds update silently in place. A leftover portable .exe from 2.7.0
-// or earlier cannot replace itself with an installer, so show the wizard.
-// otherwise it silently installs a second copy and keeps nagging forever.
-const installerArgs = () => (process.env.PORTABLE_EXECUTABLE_FILE ? [] : ['/S']);
+// ALWAYS show the wizard. Never pass /S.
+//
+// This is an assisted installer: it carries an install-directory page and the
+// Forge storage page, and both matter. NSIS skips every page in silent mode, so
+// /S did not "install quietly", it re-decided those choices from defaults. An
+// install living in Program Files began installing itself per-user instead, ran
+// the old uninstaller on the way (which is what "it uninstalled itself" was),
+// and the Forge storage path was rewritten to a fallback on C: for someone who
+// had deliberately put it on another drive because C: is full.
+//
+// A visible wizard pre-fills both pages with the existing values, so an update
+// keeps the app and the multi-GB Forge env exactly where the user put them.
+// Clicking through a short wizard is a far smaller cost than being relocated.
+const installerArgs = () => [];
 
 // Can this process write where the app is installed?
 // An app in C:\Program Files cannot be replaced by a silent installer run
