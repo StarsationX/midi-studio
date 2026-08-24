@@ -59,6 +59,17 @@ delete process.env.PORTABLE_EXECUTABLE_FILE;
   ok(/process\.platform !== 'win32'/.test(launch), 'launchInstaller only spawns directly off Windows');
 }
 
+// Torch's OpenMP pool spin-waits by default, which pins every core at 100%
+// between parallel regions and makes the whole app stutter while a song
+// transcribes. Below-normal priority does not help: a spinning thread never
+// yields. These two have to stay set.
+{
+  const fsx = require('fs');
+  const runner = fsx.readFileSync(path.join(root, 'electron', 'forge-runner.js'), 'utf8');
+  ok(/OMP_WAIT_POLICY.*PASSIVE/.test(runner), 'forge children run OpenMP with a passive wait policy');
+  ok(/KMP_BLOCKTIME.*'0'/.test(runner), 'forge children set KMP_BLOCKTIME=0');
+}
+
 // verifyDigest, verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
   const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');

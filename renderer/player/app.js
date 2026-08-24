@@ -1611,7 +1611,9 @@ function drawBudgetMs() {
   if (root.dataset.onscreen === '0') return Infinity; // another tab is showing
   const base = Number(root.dataset.drawms) || 16;
   if (!isPlaying) return 250;                        // idle: 4/sec is plenty
-  return document.hasFocus() ? base : Math.max(100, base * 4);
+  // Playing into a game means THIS window is not the focused one, so unfocused
+  // is the normal case here, not a reason to go choppy. Ease off, don't stall.
+  return document.hasFocus() ? base : Math.max(50, base * 2);
 }
 // Two id spaces, tracked separately: a rAF handle and a timeout handle can
 // collide numerically, so clearTimeout(rafHandle) could cancel someone else's

@@ -76,8 +76,21 @@ try:
         print(f"{PASS} CUDA available -> {torch.cuda.get_device_name(0)}")
         print(f"         compute capability sm_{torch.cuda.get_device_capability(0)[0]}{torch.cuda.get_device_capability(0)[1]}")
     else:
-        print(f"{WARN} CUDA not available - separation will fall back to CPU (~20-40 min per song)")
-        warnings.append("CUDA not detected - check NVIDIA driver is up to date")
+        # No CUDA does NOT mean CPU. song_to_midi picks DirectML on any DX12
+        # GPU, which is the difference between minutes and half an hour, and
+        # saying "will fall back to CPU" here had people thinking a working
+        # setup was broken.
+        dml = False
+        try:
+            import onnxruntime as ort
+            dml = "DmlExecutionProvider" in ort.get_available_providers()
+        except Exception:
+            pass
+        if dml:
+            print(f"{PASS} No CUDA, using DirectML on your GPU instead")
+        else:
+            print(f"{WARN} No CUDA and no DirectML GPU, separation runs on the CPU (~20-40 min per song)")
+            warnings.append("No GPU acceleration found - transcription will be slow")
 except Exception as e:
     print(f"{FAIL} CUDA check failed: {e}")
     issues.append(f"CUDA check: {e}")

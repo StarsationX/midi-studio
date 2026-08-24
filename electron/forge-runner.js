@@ -303,6 +303,16 @@ class ForgeRunner {
     env.TRANSCRIBE_BATCH = env.TRANSCRIBE_BATCH || String(batch);
     env.OMP_NUM_THREADS = env.OMP_NUM_THREADS || String(threads);
     env.MKL_NUM_THREADS = env.MKL_NUM_THREADS || String(threads);
+    // Torch's OpenMP pool SPIN-WAITS between parallel regions by default: idle
+    // worker threads burn a full core doing nothing rather than sleeping. On a
+    // 2-4 core machine that starves the UI even though this job already runs
+    // below normal priority, because a spinning thread never yields. It is what
+    // makes the app go unresponsive in ~0.2s bursts while a song transcribes.
+    // PASSIVE/blocktime 0 puts idle workers to sleep instead. It costs a little
+    // on very short parallel regions and gives the machine back the rest of the
+    // time.
+    env.OMP_WAIT_POLICY = env.OMP_WAIT_POLICY || 'PASSIVE';
+    env.KMP_BLOCKTIME = env.KMP_BLOCKTIME || '0';
     for (const [k, v] of Object.entries(advanced || {})) { if (v !== null && v !== undefined && v !== '') env[k] = (v === true ? '1' : v === false ? '0' : String(v)); }
     const start = timing && parseTimeSeconds(timing.start);
     const end = timing && parseTimeSeconds(timing.end);
