@@ -25,6 +25,10 @@ const els = {
   // sidebar, playback
   tempo: $('tempo'),
   tempoLabel: $('tempo-label'),
+  tempoBpm: $('tempo-bpm'),
+  tempoBpmSrc: $('tempo-bpm-src'),
+  tempoBpmReset: $('tempo-bpm-reset'),
+  tempoBpmGuess: $('tempo-bpm-guess'),
   transpose: $('transpose'),
   transposeLabel: $('transpose-label'),
   transposeFit: $('transpose-fit'),
@@ -150,12 +154,19 @@ let lastMidiPath = null;
 let totalDuration = 0;
 let totalNotes = 0;
 let bpm = 0;
+// What the note spacing implies, when that disagrees with the file's own
+// tempo event. Zero when they agree, or when nothing is loaded.
+let bpmEstimate = 0;
 let isPlaying = false;
 let isPaused = false;
 let isFocusLost = false;
 let pendingRestartAt = null;   // seconds; set by a live tempo change
 let pendingSeekAfterLoad = null; // seconds; pre-seek viz after next midi_loaded
 let overviewEvents = [];
+// The last midi_loaded, kept whole. The overlay window can be opened at any
+// point, including halfway through a song, and the notes it needs were sent
+// before it existed; this is what gets replayed to it.
+let lastMidiLoaded = null;
 const viz = new Visualizer(els.vizCanvas);
 
 // --------------------------------------------------------------------------
@@ -307,11 +318,14 @@ window.api.onEngineEvent((evt) => {
       break;
 
     case 'midi_loaded':
+      lastMidiLoaded = evt;   // so a later-opened overlay can be handed it
       viz.load(evt.events, evt.note_to_key);
       overviewEvents = evt.events || [];
       totalDuration = evt.duration;
       totalNotes = evt.events.length;
       bpm = evt.bpm;
+      bpmEstimate = evt.bpm_estimate || 0;
+      showBpm();
       els.vizEmpty.classList.add('is-hidden');
       log('info', `Loaded "${lastMidiPath?.split(/[\\/]/).pop()}": `
         + `${evt.events.length} events, ${evt.duration.toFixed(1)}s, `
@@ -366,6 +380,8 @@ window.api.onEngineEvent((evt) => {
       totalDuration = evt.duration;
       totalNotes = evt.total_notes;
       bpm = evt.bpm;
+      bpmEstimate = evt.bpm_estimate || 0;
+      showBpm();
       viz.startClock(evt.duration, evt.start_elapsed || 0);
       repaintNow();   // swap the idle timer for the frame clock right away
       setStatus('playing', 'Playing');
@@ -442,6 +458,30 @@ window.api.onEngineEvent((evt) => {
       break;
   }
 });
+
+// ---- Perch toggle ---------------------------------------------------------
+(function wirePerch() {
+  const btn = document.getElementById('perch-btn');
+  if (!btn || !window.api.toggleOverlay) { if (btn) btn.hidden = true; return; }
+  const paint = (state) => btn.setAttribute('aria-pressed', String(!!(state && state.open)));
+  btn.addEventListener('click', () => window.api.toggleOverlay().then(paint).catch(() => {}));
+  // The overlay can also be opened by its global key or closed by its own X,
+  // so the button follows the window rather than tracking its own idea of it.
+  if (window.api.onOverlayState) window.api.onOverlayState(paint);
+  if (window.api.overlayState) window.api.overlayState().then(paint).catch(() => {});
+})();
+
+// The overlay asking to be caught up. It missed midi_loaded (and, if it opened
+// mid-song, playback_started too), so hand both back and let it resync its
+// clock off the next ordinary progress packet.
+if (window.api.onOverlayWantsState) {
+  window.api.onOverlayWantsState(() => {
+    if (lastMidiLoaded) window.api.replayToOverlay(lastMidiLoaded);
+    if (isPlaying) {
+      window.api.replayToOverlay({ event: 'playback_started', start_elapsed: viz.elapsed() });
+    }
+  });
+}
 
 const activeForgeJobs = new Set();
 if (window.forge?.onStatus) {
@@ -799,6 +839,7 @@ els.transposeReset.addEventListener('click', () => applyTranspose(0, false));
 els.tempo.addEventListener('input', () => {
   settings.tempo = parseFloat(els.tempo.value);
   els.tempoLabel.textContent = `${settings.tempo.toFixed(2)}×`;
+  showBpm();
   saveSettings();
 });
 // The slider used to call loadMidi() directly, which re-scaled the visualizer
@@ -820,11 +861,13 @@ els.sustain.addEventListener('change', () => {
   saveSettings();
 });
 
-els.hkApply.addEventListener('click', () => {
+function applyHotkeySettings() {
   const hk = (el) => (el.dataset.hk || '').trim();
-  settings.playHotkey = hk(els.hkPlay) || '<f6>';
-  settings.stopHotkey = hk(els.hkStop) || '<f7>';
-  settings.pauseHotkey = hk(els.hkPause) || '<f8>';
+  // Empty means unbound, including for these three. They used to spring back
+  // to F6/F7/F8, so there was no way to free those keys for the game.
+  settings.playHotkey = hk(els.hkPlay);
+  settings.stopHotkey = hk(els.hkStop);
+  settings.pauseHotkey = hk(els.hkPause);
   settings.tempoUpHotkey = hk(els.hkTempoUp);
   settings.tempoDownHotkey = hk(els.hkTempoDown);
   settings.tempoSetHotkey = hk(els.hkTempoSet);
@@ -834,7 +877,8 @@ els.hkApply.addEventListener('click', () => {
   settings.seekBackHotkey = hk(els.hkSeekBack);
   saveSettings();
   sendHotkeys();
-});
+}
+els.hkApply.addEventListener('click', applyHotkeySettings);
 
 els.seekStep.addEventListener('change', () => {
   settings.seekStep = Math.max(1, Math.abs(parseFloat(els.seekStep.value)) || 5);
@@ -958,9 +1002,36 @@ function initHotkeyCapture(input) {
     input.blur();
   });
 }
-[els.hkPlay, els.hkStop, els.hkPause,
- els.hkTempoUp, els.hkTempoDown, els.hkTempoSet,
- els.hkSeekFwd, els.hkSeekBack].forEach(initHotkeyCapture);
+const HK_INPUTS = [els.hkPlay, els.hkStop, els.hkPause,
+  els.hkTempoUp, els.hkTempoDown, els.hkTempoSet,
+  els.hkSeekFwd, els.hkSeekBack, els.hkNext, els.hkPrev];
+HK_INPUTS.forEach(initHotkeyCapture);
+
+// A visible way to unbind. Backspace-while-focused already did it, but nothing
+// on screen said so, so in practice a key you no longer wanted stayed bound.
+HK_INPUTS.forEach((input) => {
+  if (!input || input.parentElement.classList.contains('hk-slot')) return;
+  const slot = document.createElement('div');
+  slot.className = 'hk-slot';
+  input.parentElement.insertBefore(slot, input);
+  slot.appendChild(input);
+  const clear = document.createElement('button');
+  clear.type = 'button';
+  clear.className = 'hk-clear';
+  clear.title = 'Unbind';
+  clear.setAttribute('aria-label', 'Unbind');
+  clear.innerHTML = Icon.svg('close', 10);
+  clear.addEventListener('click', () => {
+    setHotkeyInput(input, '');
+    input.dataset.prev = '';
+    applyHotkeySettings();
+  });
+  slot.appendChild(clear);
+  const paint = () => slot.classList.toggle('is-set', !!(input.dataset.hk || ''));
+  paint();
+  input.addEventListener('blur', paint);
+  clear.addEventListener('click', paint);
+});
 
 // ---- seek hotkey action -----------------------------------------------
 // Same flow as the scrubber's arrow keys: drag-lock the visualizer so stale
@@ -972,6 +1043,73 @@ function seekRelative(delta) {
   viz.seek(next);
   requestSeek(next);
   setTimeout(() => viz.setDragLock(false), 250);
+}
+
+// ---- tempo as BPM ------------------------------------------------------
+// The slider is a multiplier, which only means something if you already know
+// what the file's own tempo is. This is the same setting said as the number
+// people actually think in. Neither control is the source of truth; the tempo
+// scale is, and both are drawn from it.
+function showBpm() {
+  if (!els.tempoBpm) return;
+  const scale = parseFloat(els.tempo.value) || 1;
+  if (!bpm) {
+    els.tempoBpm.value = '';
+    els.tempoBpm.disabled = true;
+    els.tempoBpmSrc.textContent = 'source —';
+    return;
+  }
+  els.tempoBpm.disabled = false;
+  // Do not fight the user mid-type: 17 on the way to 174 would be rewritten
+  // and the caret would jump.
+  if (document.activeElement !== els.tempoBpm) {
+    els.tempoBpm.value = Math.round(bpm * scale);
+  }
+  els.tempoBpmSrc.textContent = `source ${Math.round(bpm)}`;
+  // Every transcription this app makes is stamped 120 BPM by the library that
+  // writes it, true or not, so "source" is not always trustworthy. Offer what
+  // the note spacing suggests rather than overriding the file behind your back.
+  const guess = Math.round(bpmEstimate || 0);
+  const differs = guess > 0 && Math.abs(guess - Math.round(bpm)) >= 3;
+  els.tempoBpmGuess.hidden = !differs;
+  if (differs) {
+    els.tempoBpmGuess.textContent = `Sounds like ${guess}`;
+    els.tempoBpmGuess.title = `The file says ${Math.round(bpm)} BPM, but the gaps `
+      + `between notes suggest ${guess}. Use this as the source tempo instead.`;
+  }
+}
+
+function setBpm(target) {
+  const want = Number(target);
+  if (!bpm || !Number.isFinite(want) || want <= 0) { showBpm(); return; }
+  const min = parseFloat(els.tempo.min), max = parseFloat(els.tempo.max);
+  const scale = want / bpm;
+  if (scale < min || scale > max) {
+    // Say why, rather than silently clamping to a tempo nobody asked for.
+    log('warn', `${Math.round(want)} BPM needs a ${scale.toFixed(2)}× tempo, `
+      + `outside the ${min}–${max}× range. Clamped.`);
+  }
+  setTempo(scale);
+  showBpm();
+}
+
+if (els.tempoBpmGuess) {
+  // Taking the guess means treating it as the file's real tempo from here on,
+  // so the multiplier stays put and only the reference number moves.
+  els.tempoBpmGuess.addEventListener('click', () => {
+    if (!bpmEstimate) return;
+    log('info', `Source tempo set to ${Math.round(bpmEstimate)} BPM (was ${Math.round(bpm)}).`);
+    bpm = bpmEstimate;
+    bpmEstimate = 0;
+    showBpm();
+  });
+}
+
+if (els.tempoBpm) {
+  els.tempoBpm.addEventListener('change', () => setBpm(els.tempoBpm.value));
+  els.tempoBpm.addEventListener('keydown', (e) => { if (e.key === 'Enter') els.tempoBpm.blur(); });
+  els.tempoBpm.addEventListener('blur', () => showBpm());
+  els.tempoBpmReset.addEventListener('click', () => { setTempo(1); showBpm(); });
 }
 
 // ---- tempo hotkey actions ---------------------------------------------
@@ -987,6 +1125,7 @@ function setTempo(t) {
   els.tempo.value = t;
   settings.tempo = t;
   els.tempoLabel.textContent = `${t.toFixed(2)}×`;
+  showBpm();
   saveSettings();
   log('info', `Tempo → ${t.toFixed(2)}×`);
   if (isPlaying && !isPaused) {
@@ -1046,17 +1185,21 @@ function sendHotkeys() {
     prev_track: settings.prevHotkey || '',
     seek_back: settings.seekBackHotkey || '',
   });
-  const parts = [
-    `Play ${hkLabel(settings.playHotkey)}`,
-    `Pause ${hkLabel(settings.pauseHotkey)}`,
-    `Stop ${hkLabel(settings.stopHotkey)}`,
-  ];
+  // Play/Pause/Stop can now be unbound, so they are no longer guaranteed to
+  // have a label; printing "Play " with nothing after it reads as a glitch.
+  const parts = [];
+  const say = (name, combo) => { if (combo) parts.push(`${name} ${hkLabel(combo)}`); };
+  say('Play', settings.playHotkey);
+  say('Pause', settings.pauseHotkey);
+  say('Stop', settings.stopHotkey);
   if (settings.tempoUpHotkey) parts.push(`T+ ${hkLabel(settings.tempoUpHotkey)}`);
   if (settings.tempoDownHotkey) parts.push(`T− ${hkLabel(settings.tempoDownHotkey)}`);
   if (settings.tempoSetHotkey) parts.push(`T= ${hkLabel(settings.tempoSetHotkey)}`);
   if (settings.seekFwdHotkey) parts.push(`→ ${hkLabel(settings.seekFwdHotkey)}`);
   if (settings.seekBackHotkey) parts.push(`← ${hkLabel(settings.seekBackHotkey)}`);
-  els.hkStatus.textContent = parts.join('   ·   ');
+  els.hkStatus.textContent = parts.length
+    ? parts.join('   ·   ')
+    : 'No hotkeys bound. Use the buttons on screen, or set one above.';
 }
 
 // Suspend global hotkeys while a capture box is focused so pressing the
@@ -1195,7 +1338,7 @@ function queueRow(path, i) {
   n.className = 'qn'; n.textContent = path.split(/[\\/]/).pop();
 
   const play = document.createElement('button');
-  play.className = 'q-action q-play'; play.type = 'button'; play.title = 'Play this song'; play.textContent = '▶';
+  play.className = 'q-action q-play'; play.type = 'button'; play.title = 'Play this song'; play.innerHTML = Icon.svg('play', 10);
   play.addEventListener('click', (e) => { e.stopPropagation(); playTrack(i, true); });
 
   const up = document.createElement('button');
@@ -1611,9 +1754,13 @@ function drawBudgetMs() {
   if (root.dataset.onscreen === '0') return Infinity; // another tab is showing
   const base = Number(root.dataset.drawms) || 16;
   if (!isPlaying) return 250;                        // idle: 4/sec is plenty
-  // Playing into a game means THIS window is not the focused one, so unfocused
-  // is the normal case here, not a reason to go choppy. Ease off, don't stall.
-  return document.hasFocus() ? base : Math.max(50, base * 2);
+  // While notes are moving, this canvas IS the thing being watched, so it gets
+  // at least 30fps whatever the allowance says. The perf budget and the "a game
+  // is running" multiplier used to compound with an unfocused penalty on top,
+  // landing at 5fps: the roll teleported from note to note instead of scrolling.
+  // Playing into a game also means this window is normally NOT the focused one,
+  // so unfocused is the usual case here, not a reason to go choppy.
+  return Math.min(base, 33);
 }
 // Two id spaces, tracked separately: a rAF handle and a timeout handle can
 // collide numerically, so clearTimeout(rafHandle) could cancel someone else's

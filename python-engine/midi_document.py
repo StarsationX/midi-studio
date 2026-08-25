@@ -8,6 +8,27 @@ from pathlib import Path
 import mido
 
 
+def _bpm_from_onsets(starts, fallback: float) -> float:
+    """Crude tempo estimate from the spacing between note onsets.
+
+    Takes the median gap as the densest common subdivision (a 16th, which is
+    what most transcribed material lands on) and folds the result into a
+    musical range. It only has to be close enough that the quantize grid lines
+    up with the actual beat.
+    """
+    uniq = sorted({round(float(s), 4) for s in starts})
+    gaps = [b - a for a, b in zip(uniq, uniq[1:]) if 0.02 <= b - a <= 2.0]
+    if len(gaps) < 6:
+        return fallback
+    gaps.sort()
+    bpm = 60.0 / (gaps[len(gaps) // 2] * 4.0)
+    while bpm < 90.0:
+        bpm *= 2.0
+    while bpm > 250.0:
+        bpm /= 2.0
+    return round(bpm, 2)
+
+
 def load_midi(path: Path) -> dict:
     midi = mido.MidiFile(str(path))
     time_sec = 0.0
@@ -54,10 +75,19 @@ def load_midi(path: Path) -> dict:
     for index, note in enumerate(notes, 1):
         note["id"] = f"n{index}"
     duration = max([float(midi.length)] + [n["end"] for n in notes])
+    # Transcriptions carry no tempo track, so mido hands back its 500000 default
+    # and every one of them claimed to be 120 BPM. The editor's Quantize snaps to
+    # that grid, which on a 174 BPM song moves every note to the wrong place.
+    # Guess from the onsets instead, and say the guess is a guess.
+    estimated = not found_tempo
+    bpm = round(mido.tempo2bpm(tempo), 3)
+    if estimated:
+        bpm = _bpm_from_onsets([n["start"] for n in notes], bpm)
     return {
         "path": str(path.resolve()),
         "name": path.stem,
-        "bpm": round(mido.tempo2bpm(tempo), 3),
+        "bpm": bpm,
+        "bpmEstimated": estimated,
         "duration": round(duration, 6),
         "programs": programs,
         "notes": notes,

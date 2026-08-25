@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en" data-mode="full">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>Perch</title>
+  <link rel="stylesheet" href="../shared/tokens.css" />
+  <link rel="stylesheet" href="overlay.css" />
+</head>
+<body>
+  <div id="card" class="unit" data-state="idle">
+    <!-- Position in the song, as the top edge of the unit. Full bleed, no
+         padding: it reads as a meter, not as a widget with a progress bar in it. -->
+    <div class="meter"><i id="meter-fill"></i></div>
+
+    <!-- One row: what is playing, where it is, and the two controls. Drag here. -->
+    <header class="head" id="head">
+      <span class="sig" id="sig" aria-hidden="true"></span>
+      <span class="name" id="song">NO FILE</span>
+      <span class="read" id="clock">0:00</span>
+      <button class="sq" id="btn-menu" type="button" title="Settings" aria-label="Settings" aria-expanded="false"><i data-icon="gear" data-icon-size="12"></i></button>
+      <button class="sq" id="btn-close" type="button" title="Hide (Ctrl+Alt+O)" aria-label="Hide"><i data-icon="close" data-icon-size="12"></i></button>
+    </header>
+
+    <div class="roll" id="roll">
+      <canvas id="viz"></canvas>
+      <!-- Playback stopping with no visible reason is the single most confusing
+           thing that happens mid-song, because the app is behind the game. -->
+      <div class="halt" id="veil" hidden>
+        <strong>NO FOCUS</strong>
+        <span>Click the game window</span>
+      </div>
+      <div class="count" id="count" hidden>3</div>
+    </div>
+
+    <div class="strip" id="strip">
+      <span class="read" id="strip-time">0:00 / 0:00</span>
+      <span class="lab" id="strip-note">&#8212;</span>
+    </div>
+
+    <footer class="deck" id="transport">
+      <button class="key" id="t-prev" type="button" title="Previous" aria-label="Previous"><i data-icon="prev" data-icon-size="12"></i></button>
+      <button class="key key-go" id="t-play" type="button" title="Play or pause" aria-label="Play"><i data-icon="play" data-icon-size="13"></i></button>
+      <button class="key" id="t-stop" type="button" title="Stop" aria-label="Stop"><i data-icon="stop" data-icon-size="11"></i></button>
+      <button class="key" id="t-next" type="button" title="Next" aria-label="Next"><i data-icon="next" data-icon-size="12"></i></button>
+      <span class="fill"></span>
+      <span class="lab" id="t-count">0/0</span>
+    </footer>
+
+    <div class="panel" id="menu" hidden>
+      <div class="cell">
+        <span class="lab">SIZE</span>
+        <div class="modeseg" id="m-mode" role="radiogroup" aria-label="Size">
+          <button type="button" data-mode="full" role="radio" aria-checked="true">FULL</button>
+          <button type="button" data-mode="slim" role="radio" aria-checked="false">SLIM</button>
+          <button type="button" data-mode="mini" role="radio" aria-checked="false">MINI</button>
+        </div>
+      </div>
+      <div class="cell">
+        <span class="lab">FADE</span>
+        <input type="range" id="m-opacity" min="20" max="100" step="5" value="92" aria-label="Opacity" />
+        <output class="read" id="m-opacity-val">92%</output>
+      </div>
+      <div class="cell">
+        <span class="lab">AHEAD</span>
+        <input type="range" id="m-lookahead" min="1" max="10" step="0.5" value="3" aria-label="Seconds visible" />
+        <output class="read" id="m-lookahead-val">3.0s</output>
+      </div>
+      <div class="cell">
+        <span class="lab">PARK</span>
+        <div class="pad" id="m-snap" role="group" aria-label="Move to a corner">
+          <button type="button" data-snap="top-left" aria-label="Top left"></button>
+          <button type="button" data-snap="top-center" aria-label="Top centre"></button>
+          <button type="button" data-snap="top-right" aria-label="Top right"></button>
+          <button type="button" data-snap="middle-left" aria-label="Middle left"></button>
+          <button type="button" data-snap="middle-center" aria-label="Centre"></button>
+          <button type="button" data-snap="middle-right" aria-label="Middle right"></button>
+          <button type="button" data-snap="bottom-left" aria-label="Bottom left"></button>
+          <button type="button" data-snap="bottom-center" aria-label="Bottom centre"></button>
+          <button type="button" data-snap="bottom-right" aria-label="Bottom right"></button>
+        </div>
+      </div>
+
+      <div class="switches">
+        <label><input type="checkbox" id="m-click" /> Click through <kbd>^&#8997;P</kbd></label>
+        <label><input type="checkbox" id="m-lock" /> Lock</label>
+        <label><input type="checkbox" id="m-keys" checked /> Keyboard</label>
+        <label><input type="checkbox" id="m-transport" checked /> Buttons</label>
+        <label><input type="checkbox" id="m-autoshow" checked /> Open on play</label>
+        <label><input type="checkbox" id="m-autohide" checked /> Hide on finish</label>
+      </div>
+      <p class="note">Click-through hands every click to the game underneath. <kbd>Ctrl+Alt+P</kbd> takes it back.</p>
+    </div>
+
+    <span class="plate" aria-hidden="true">PERCH</span>
+    <span class="grip" id="grip" aria-hidden="true"></span>
+  </div>
+
+  <script src="../shared/icons.js"></script>
+  <script src="../player/visualizer.js"></script>
+  <script src="overlay.js"></script>
+</body>
+</html>

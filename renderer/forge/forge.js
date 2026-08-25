@@ -23,7 +23,7 @@
   };
 
   const PIPELINE_HINT = {
-    melody: '⚠ Prototype. Tuned for dense, fast electronic music (artcore/Camellia-style layering). It tracks the lead line across layers, removes octave doubles, and caps how many notes a second it hands you. Try Piano or General if the output disappoints.',
+    melody: 'Prototype. Tuned for dense, fast electronic music (artcore/Camellia-style layering). It tracks the lead line across layers, removes octave doubles, and caps how many notes a second it hands you. Try Piano or General if the output disappoints.',
     piano: 'Separate + Transkun on the piano stem. Best for piano performances.',
     general: 'Separate, mix every pitched stem, then Transkun. Best for full songs, any genre.',
     fast: 'basic-pitch straight on the audio. Quick and rough, lower quality.',
@@ -133,15 +133,15 @@
       action.className = busy ? 'qi-skip' : 'qi-x';
       action.type = 'button';
       action.title = busy ? 'Skip this song and continue the queue' : 'Remove current song';
-      action.textContent = busy ? '⏭' : '✕';
+      action.innerHTML = Icon.svg(busy ? 'next' : 'close', 11);
       action.addEventListener('click', () => busy ? skipCurrent() : removeActive());
       li.appendChild(action);
     } else {
       const up = document.createElement('button');
-      up.className = 'qi-move'; up.type = 'button'; up.title = 'Move up'; up.textContent = '↑'; up.disabled = i === 0;
+      up.className = 'qi-move'; up.type = 'button'; up.title = 'Move up'; up.innerHTML = Icon.svg('up', 11); up.disabled = i === 0;
       up.addEventListener('click', () => { if (i < 1) return; rememberQueue(); [queue[i - 1], queue[i]] = [queue[i], queue[i - 1]]; renderQueue(); });
       const down = document.createElement('button');
-      down.className = 'qi-move'; down.type = 'button'; down.title = 'Move down'; down.textContent = '↓'; down.disabled = i === queue.length - 1;
+      down.className = 'qi-move'; down.type = 'button'; down.title = 'Move down'; down.innerHTML = Icon.svg('down', 11); down.disabled = i === queue.length - 1;
       down.addEventListener('click', () => { if (i >= queue.length - 1) return; rememberQueue(); [queue[i], queue[i + 1]] = [queue[i + 1], queue[i]]; renderQueue(); });
       name.classList.add('is-clickable');
       name.title = busy ? path : `${path}\n(click to make this the current song)`;
@@ -153,7 +153,7 @@
         setInput(picked); renderQueue(); updateStart();
       });
       const x = document.createElement('button');
-      x.className = 'qi-x'; x.type = 'button'; x.title = 'Remove from queue'; x.textContent = '✕';
+      x.className = 'qi-x'; x.type = 'button'; x.title = 'Remove from queue'; x.innerHTML = Icon.svg('close', 11);
       x.addEventListener('click', () => { rememberQueue(); queue.splice(i, 1); renderQueue(); updateStart(); });
       li.append(up, down, x);
     }
@@ -643,7 +643,7 @@
   // ---- URL fetch ----
   function doFetch() {
     const url = $('url').value.trim(); if (!url || busy) return;
-    hideResults(); logLine('▶ Fetching ' + url);
+    hideResults(); logLine('> Fetching ' + url);
     $('job-prog').hidden = false; $('job-stage').textContent = 'Download'; $('job-bar').className = 'bar-fill indet'; $('job-pct').textContent = '';
     setBusy(true); currentJob = null; pendingCancel = false;
     activeState = 'running'; skipRequested = false;
@@ -665,7 +665,7 @@
   $('pipeline').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; pipeline = b.dataset.v; document.querySelectorAll('#pipeline button').forEach((x) => x.classList.toggle('is-active', x === b)); syncPipelineUI(); });
   $('adv-toggle').addEventListener('click', () => {
     const a = $('adv'); a.hidden = !a.hidden;
-    $('adv-toggle').textContent = a.hidden ? 'Advanced ▾' : 'Advanced ▴';
+    $('adv-toggle').innerHTML = 'Advanced ' + Icon.svg(a.hidden ? 'caretDown' : 'caretUp', 11);
     $('adv-toggle').setAttribute('aria-expanded', String(!a.hidden));
   });
   $('adv-reset').addEventListener('click', () => {
@@ -819,7 +819,7 @@
     hideResults(); $('job-prog').hidden = false; $('job-stage').textContent = 'Queued'; $('job-bar').className = 'bar-fill indet'; $('job-pct').textContent = '';
     setBusy(true); currentJob = null; pendingCancel = false;
     const n = queue.length ? ` (${queue.length} more queued)` : '';
-    logLine('▶ Start ' + inputPath.split(/[\/]/).pop() + ' (' + pipeline + ($('skipsep').checked ? ', skip-sep' : '') + ')' + n);
+    logLine('> Start ' + inputPath.split(/[\/]/).pop() + ' (' + pipeline + ($('skipsep').checked ? ', skip-sep' : '') + ')' + n);
     renderQueue();
     F.run({ inputPath, pipeline, skipSeparation: $('skipsep').checked, advanced, timing, outputName: outputName() })
       .then((id) => { currentJob = id; if (pendingCancel) F.cancel(id); });

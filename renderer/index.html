@@ -20,7 +20,7 @@
       <button class="tab" data-tab="audition">Self Midi</button>
     </nav>
     <div class="topbar-right">
-      <button class="iconbtn" id="settings-btn" title="Settings & About" aria-label="Settings and About">⚙</button>
+      <button class="iconbtn" id="settings-btn" title="Settings & About" aria-label="Settings and About"><i data-icon="gear" data-icon-size="16"></i></button>
       <button class="version-badge" id="version-badge" title="Check for updates">v...</button>
     </div>
   </header>
@@ -29,7 +29,7 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="modal-head">
         <h2 id="settings-title">Settings</h2>
-        <button class="iconbtn" id="settings-close" aria-label="Close">&#10005;</button>
+        <button class="iconbtn" id="settings-close" aria-label="Close"><i data-icon="close" data-icon-size="14"></i></button>
       </div>
 
       <div class="modal-split">
@@ -89,6 +89,15 @@
                 <span class="skey">Custom colour</span>
                 <input type="color" id="s-accent" value="#b8e62e" title="Pick any accent colour" />
               </div>
+            </div>
+
+            <div class="sgroup">
+              <div class="sgroup-h"><h3>Window</h3></div>
+              <div class="srow">
+                <span class="skey">Stacking</span>
+                <label class="check"><input type="checkbox" id="s-ontop" checked /> Keep above other windows</label>
+              </div>
+              <p class="snote">On by default, so the piano roll stays visible with a game in front of it.</p>
             </div>
           </section>
 
@@ -191,14 +200,14 @@
   </div>
 
   <div class="update-banner" id="update-banner" hidden>
-    <span class="ub-icon">⬆</span>
+    <span class="ub-icon"><i data-icon="up" data-icon-size="16"></i></span>
     <div class="ub-text">
       <div class="ub-title" id="ub-title">Update available</div>
       <div class="ub-sub" id="ub-sub"></div>
       <div class="ub-prog" id="ub-prog" hidden><div class="ub-prog-fill" id="ub-prog-fill"></div></div>
     </div>
     <button class="btn btn-primary" id="ub-apply">Update &amp; restart</button>
-    <button class="btn btn-ghost" id="ub-dismiss" title="Dismiss">✕</button>
+    <button class="btn btn-ghost" id="ub-dismiss" title="Dismiss" aria-label="Dismiss"><i data-icon="close" data-icon-size="12"></i></button>
   </div>
 
   <main class="stage">
@@ -208,6 +217,7 @@
     <iframe class="tabframe"           id="frame-audition" data-tab="audition" data-src="./audition/index.html" title="Self Midi"></iframe>
   </main>
 
+  <script src="./shared/icons.js"></script>
   <script src="./shell/shell.js"></script>
 </body>
 </html>

@@ -191,7 +191,7 @@
     cancelAnimationFrame(player.frame);
     clearInterval(player.timer); player.timer = 0;
     clearVoices();
-    $('play').textContent = '▶';
+    $('play').innerHTML = Icon.svg('play', 14);
     $('play').setAttribute('aria-label', 'Play');
     updateSongUI();
   }
@@ -373,7 +373,7 @@
     player.playing = true;
     player.audioStart = player.context.currentTime - player.position / speed();
     player.cursor = cursorFor(player.position);
-    $('play').textContent = 'Ⅱ';
+    $('play').innerHTML = Icon.svg('pause', 13);
     $('play').setAttribute('aria-label', 'Pause');
     scheduleAhead();
     clearInterval(player.timer);

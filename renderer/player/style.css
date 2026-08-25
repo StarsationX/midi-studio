@@ -930,3 +930,59 @@ input[type=color].is-off { opacity: .45; }
 .btn-mini { height: 26px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--surface-2); color: var(--text-2); cursor: pointer; font-size: 12px; white-space: nowrap; }
 .btn-mini:hover { color: var(--text); background: var(--surface-3); }
 #range-warning.is-warn { color: var(--warn, #e6b800); }
+
+/* ---- Perch toggle ---------------------------------------------------------
+   Sits on the roll rather than in the transport row: it is about the window,
+   not about playback, and the transport row is already the busiest strip in
+   the app. */
+.perch-btn {
+  position: absolute; top: var(--s2); right: var(--s2); z-index: 3;
+  padding: 3px var(--s2);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  color: var(--text-3);
+  font: 600 var(--t1)/1.6 var(--font-body); letter-spacing: .04em; text-transform: uppercase;
+  cursor: pointer;
+  opacity: .5; transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.viz-panel:hover .perch-btn, .perch-btn:focus-visible { opacity: 1; }
+.perch-btn:hover { color: var(--text); border-color: var(--text-3); }
+.perch-btn[aria-pressed="true"] {
+  opacity: 1;
+  background: var(--accent); border-color: var(--accent-deep); color: var(--accent-ink);
+}
+.perch-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* ---- hotkey capture -------------------------------------------------------
+   The unbind sits inside the box rather than beside it: the grid is already two
+   columns and a third would push every label out of line. */
+.hk-slot { position: relative; display: flex; }
+.hk-slot .hk-capture { flex: 1 1 auto; min-width: 0; padding-right: 20px; }
+.hk-clear {
+  position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; padding: 0;
+  display: none; place-items: center;
+  background: transparent; border: 0; border-radius: var(--r-sm);
+  color: var(--text-3); cursor: pointer;
+}
+/* Nothing to unbind when nothing is bound. */
+.hk-slot.is-set .hk-clear { display: grid; }
+.hk-clear:hover { background: var(--surface-3); color: var(--err); }
+.hk-clear:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* ---- tempo as BPM ---------------------------------------------------------
+   Sits under the multiplier slider, not instead of it: the slider is for
+   sweeping, the number is for hitting an exact tempo you already know. */
+.bpm-row { align-items: center; gap: var(--s2); margin-top: var(--s2); }
+.bpm-set {
+  display: flex; align-items: center; gap: var(--s2);
+  flex: 0 0 auto; margin: 0;
+  font-size: var(--t1); color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.bpm-set input {
+  width: 62px; text-align: right;
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.bpm-set input:disabled { opacity: .45; }
+#tempo-bpm-src { flex: 1 1 auto; font-variant-numeric: tabular-nums; }

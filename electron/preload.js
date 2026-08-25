@@ -27,6 +27,13 @@ contextBridge.exposeInMainWorld('api', {
   checkForUpdates: (opts) => ipcRenderer.invoke('update:check', opts),
   applyUpdate: () => ipcRenderer.invoke('update:apply'),
   onUpdateStatus: onChannel('update-status'),
+  // The overlay can be opened mid-song, after midi_loaded has long gone past.
+  // It asks, and the Player tab (the only frame that kept the payload) answers.
+  onOverlayWantsState: onChannel('overlay-wants-state'),
+  replayToOverlay: (payload) => ipcRenderer.send('overlay:replay', payload),
+  overlayState: () => ipcRenderer.invoke('overlay:state'),
+  toggleOverlay: () => ipcRenderer.invoke('overlay:toggle'),
+  onOverlayState: onChannel('overlay-state'),
 });
 
 // ---- Forge tab -------------------------------------------------------------
@@ -70,6 +77,21 @@ contextBridge.exposeInMainWorld('library', {
   onChanged: onChannel('library-changed'),
 });
 
+// ---- Perch (the always-on-top overlay window) ------------------------------
+// Its own small surface rather than reusing `studio`: the overlay is a separate
+// window with a separate job, and giving it the whole app API would let a
+// frameless always-on-top window do things it has no business doing.
+contextBridge.exposeInMainWorld('perch', {
+  ready: () => ipcRenderer.send('overlay:ready'),
+  close: () => ipcRenderer.send('overlay:close'),
+  apply: (patch) => ipcRenderer.invoke('overlay:apply', patch),
+  snap: (where) => ipcRenderer.invoke('overlay:snap', where),
+  resize: (width, height) => ipcRenderer.send('overlay:resize', { width, height }),
+  command: (name) => ipcRenderer.send('overlay:command', name),
+  onEngineEvent: onChannel('engine-event'),
+  onConfig: onChannel('overlay-config'),
+});
+
 // ---- Shell -----------------------------------------------------------------
 contextBridge.exposeInMainWorld('studio', {
   getVersion: () => ipcRenderer.invoke('app:version'),
@@ -96,4 +118,8 @@ contextBridge.exposeInMainWorld('studio', {
   pickFolder: () => ipcRenderer.invoke('app:pickFolder'),
   openMappingsDir: () => ipcRenderer.invoke('app:openMappingsDir'),
   onLibraryChanged: onChannel('library-changed'),
+  overlayState: () => ipcRenderer.invoke('overlay:state'),
+  toggleOverlay: () => ipcRenderer.invoke('overlay:toggle'),
+  setOverlay: (patch) => ipcRenderer.invoke('overlay:apply', patch),
+  onOverlayState: onChannel('overlay-state'),
 });

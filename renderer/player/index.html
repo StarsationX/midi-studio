@@ -42,7 +42,7 @@
     </div>
     <div class="update-progress" id="update-progress"><div class="update-progress-bar" id="update-progress-bar"></div></div>
     <button class="btn btn-update" id="update-apply">Update &amp; restart</button>
-    <button class="btn btn-ghost" id="update-dismiss" title="Dismiss">✕</button>
+    <button class="btn btn-ghost" id="update-dismiss" title="Dismiss" aria-label="Dismiss"><i data-icon="close" data-icon-size="12"></i></button>
   </div>
 
   <main class="app-grid">
@@ -65,8 +65,8 @@
               <span class="queue-title">Queue <span id="queue-count" class="queue-count"></span></span>
               <label class="queue-loop"><input type="checkbox" id="queue-loop"/> loop</label>
               <button id="queue-add" class="btn btn-icon" title="Add MIDI files to queue">+</button>
-              <button id="queue-undo" class="btn btn-icon" title="Undo last queue change" hidden>↶</button>
-              <button id="queue-clear" class="btn btn-icon" title="Clear queued songs">✕</button>
+              <button id="queue-undo" class="btn btn-icon" title="Undo last queue change" aria-label="Undo last queue change" hidden><i data-icon="undo" data-icon-size="13"></i></button>
+              <button id="queue-clear" class="btn btn-icon" title="Clear queued songs" aria-label="Clear queued songs"><i data-icon="close" data-icon-size="12"></i></button>
             </div>
             <ol class="queue-list" id="queue-list"></ol>
           </div>
@@ -74,14 +74,14 @@
             <label>Recent</label>
             <div class="file-row">
               <select id="recent-select"><option value="">Recent files</option></select>
-              <button id="recent-clear" class="btn btn-icon" title="Clear recent files">✕</button>
+              <button id="recent-clear" class="btn btn-icon" title="Clear recent files" aria-label="Clear recent files"><i data-icon="close" data-icon-size="12"></i></button>
             </div>
           </div>
           <div class="field">
             <label>Target window</label>
             <div class="file-row">
               <select id="target-select"><option value="">Refresh to populate</option></select>
-              <button id="target-refresh" class="btn btn-icon" title="Refresh">↻</button>
+              <button id="target-refresh" class="btn btn-icon" title="Refresh" aria-label="Refresh"><i data-icon="refresh" data-icon-size="13"></i></button>
             </div>
             <label class="check" style="margin-top:8px">
               <input id="auto-pick-target" type="checkbox"/> Auto-select last target on launch
@@ -115,8 +115,19 @@
         </button>
         <div class="section-body">
           <div class="field">
-            <label>Tempo <span class="muted" id="tempo-label">1.00×</span></label>
+            <label>Tempo <span class="muted" id="tempo-label">1.00&#215;</span></label>
             <input id="tempo" type="range" min="0.25" max="3" step="0.05" value="1"/>
+            <!-- A multiplier is only meaningful if you already know the song's
+                 own tempo. This is the same control said in BPM, which is the
+                 number people actually have in mind. -->
+            <div class="field-row bpm-row">
+              <label class="bpm-set" for="tempo-bpm">BPM
+                <input id="tempo-bpm" type="number" min="20" max="400" step="1" placeholder="&#8212;" />
+              </label>
+              <span class="muted small" id="tempo-bpm-src">source &#8212;</span>
+              <button class="btn-mini" id="tempo-bpm-guess" type="button" hidden></button>
+              <button class="btn-mini" id="tempo-bpm-reset" type="button" title="Back to the file's own tempo">Original</button>
+            </div>
           </div>
           <div class="field">
             <label>Transpose <span class="muted" id="transpose-label">0</span>
@@ -152,7 +163,7 @@
             <label>MIDI file</label>
             <div class="file-row">
               <input id="midi-path" type="text" readonly placeholder="Drag a .mid here, or browse…"/>
-              <button id="midi-browse" class="btn btn-icon" title="Browse">…</button>
+              <button id="midi-browse" class="btn btn-icon" title="Browse" aria-label="Browse"><i data-icon="dots" data-icon-size="14"></i></button>
             </div>
           </div>
           <label class="check" title="Hold keys down for the note's full length instead of a quick tap">
@@ -193,16 +204,16 @@
             <input id="hotkey-seek-fwd" class="hk-capture" type="text" value="" placeholder="unset" readonly />
             <span class="muted">← Back</span>
             <input id="hotkey-seek-back" class="hk-capture" type="text" value="" placeholder="unset" readonly />
-            <span class="muted">Next ⏭</span>
+            <span class="muted">Next</span>
             <input id="hotkey-next" class="hk-capture" type="text" value="" placeholder="unset" readonly />
-            <span class="muted">⏮ Prev</span>
+            <span class="muted">Prev</span>
             <input id="hotkey-prev" class="hk-capture" type="text" value="" placeholder="unset" readonly />
             <span class="muted">Seek s</span>
             <input id="seek-step" type="number" min="1" max="60" step="1" value="5" />
             <button id="hotkey-apply" class="btn">Apply</button>
           </div>
           <div class="muted small" id="hotkey-status" style="margin-top:10px">Defaults active.</div>
-          <div class="muted small" style="margin-top:4px">Click a hotkey box, then press the key. Backspace clears, Esc cancels.</div>
+          <div class="muted small" style="margin-top:4px">Click a box, then press the key. The &#215; unbinds it, Esc cancels. An unbound key does nothing until you set it again.</div>
         </div>
       </section>
     </aside>
@@ -219,6 +230,8 @@
           <div class="viz-empty-text">Drag a MIDI file here</div>
           <div class="viz-empty-cta">or click ⌄ to browse</div>
         </div>
+        <button id="perch-btn" class="perch-btn" type="button" aria-pressed="false"
+                title="Perch: keep the roll on top of the game (Ctrl+Alt+O)">Perch</button>
       </div>
 
       <div class="panel transport-panel">
@@ -296,6 +309,7 @@
     </div>
   </div>
 
+  <script src="../shared/icons.js"></script>
   <script src="../shared/timeline-zoom.js"></script>
   <script src="visualizer.js"></script>
   <script src="app.js"></script>

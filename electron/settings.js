@@ -23,7 +23,14 @@ const DEFAULTS = {
     timing: { enabled: false, start: '', end: '' },
   },
   paths: { forgeEnvDir: '', forgePythonPath: '', modelsDir: '' },
-  ui: { lastTab: 'forge', autoCheckUpdates: true },
+  ui: { lastTab: 'forge', autoCheckUpdates: true, alwaysOnTop: true },
+  // Perch, the always-on-top playback overlay. See electron/overlay.js; the
+  // shape is kept there so the two cannot drift apart.
+  overlay: {
+    mode: 'full', opacity: 0.92, clickThrough: false, locked: false,
+    autoShow: true, autoHide: true, lookahead: 3,
+    showKeys: true, showTransport: true, bounds: {},
+  },
   libraryDir: '',    // manual override: folder the Midi-Player lists .mid files from
   lastOutputDir: '', // folder the most recent Forge transcription was written to (the default)
 };

@@ -8,7 +8,7 @@ Design summary (see README for full notes):
     keypress, and a non-blocking queue.put_nowait() to feed the display.
   * The pygame display runs in its own daemon thread. It is allowed to drop
     frames if the system is loaded; it can never delay a note.
-  * A focus-monitor daemon thread polls the foreground window every 500 ms.
+  * A focus-monitor daemon thread polls the foreground window every 25 ms.
     If focus drifts off the target, playback pauses; when focus returns, the
     base time is shifted forward by the pause duration and playback resumes.
 """
@@ -234,7 +234,68 @@ def best_transpose(midi_path, note_to_key, limit=12):
     return best, best_hits, len(pitches)
 
 
-def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0):
+def _bpm_from_onsets(starts, fallback):
+    """Crude tempo estimate from the spacing between note onsets.
+
+    The median gap is taken as the densest common subdivision, assumed to be a
+    16th, and the result folded into a musical range. It only has to be close
+    enough that "the same song, faster" lands where a musician expects.
+    """
+    uniq = sorted({round(float(t), 4) for t in starts})
+    gaps = [b - a for a, b in zip(uniq, uniq[1:]) if 0.02 <= b - a <= 2.0]
+    if len(gaps) < 6:
+        return fallback
+    gaps.sort()
+    bpm = 60.0 / (gaps[len(gaps) // 2] * 4.0)
+    while bpm < 90.0:
+        bpm *= 2.0
+    while bpm > 250.0:
+        bpm /= 2.0
+    return round(bpm, 2)
+
+
+def make_resolver(note_to_key, fold=True):
+    """Return note -> key lookup that folds out-of-range notes by octaves.
+
+    A mapping covers a fixed span (Roblox is MIDI 36-96). Anything outside it
+    used to be dropped, so a bassline an octave below the keyboard, or a lead
+    above it, just went missing and the song played back with holes in it.
+    Folding by whole octaves keeps the pitch class, which is what carries the
+    tune; the register is the only thing lost. Notes with no mapping anywhere
+    in their pitch class (a white-only layout has no key for C#) still return
+    None and are reported as unmapped."""
+    if not fold or not note_to_key:
+        return note_to_key.get
+    lo, hi = min(note_to_key), max(note_to_key)
+    cache = {}
+
+    def resolve(n):
+        key = note_to_key.get(n)
+        if key is not None:
+            return key
+        if n in cache:
+            return cache[n]
+        m = n
+        while m < lo:
+            m += 12
+        while m > hi:
+            m -= 12
+        key = note_to_key.get(m)
+        if key is None:
+            # In range but this exact note is not mapped (white-only layouts),
+            # or the mapping spans less than an octave. Try every octave of the
+            # same pitch class before giving up.
+            for cand in range(n % 12, 128, 12):
+                if lo <= cand <= hi and cand in note_to_key:
+                    key = note_to_key[cand]
+                    break
+        cache[n] = key
+        return key
+
+    return resolve
+
+
+def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0, fold=True):
     """
     Returns:
         events: sorted list of (t_sec, key_str, duration_sec, midi_note, channel)
@@ -247,6 +308,7 @@ def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0):
     is dropped, which is why some songs played back with half the melody gone.
     """
     transpose = int(transpose or 0)
+    resolve = make_resolver(note_to_key, fold)
     mid = mido.MidiFile(midi_path)
 
     events = []
@@ -257,7 +319,7 @@ def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0):
     for msg in mid:                       # mido yields msg.time in seconds
         abs_time += msg.time
         if msg.type == "note_on" and msg.velocity > 0:
-            key = note_to_key.get(msg.note + transpose)
+            key = resolve(msg.note + transpose)
             if key is None:
                 unmapped.add(msg.note)
                 continue
@@ -298,15 +360,23 @@ def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0):
               for (t, k, d, n, c) in events]
     total = (mid.length - first_t) / tempo_scale
 
-    # Initial BPM from the first set_tempo (or 120 default).
+    # Initial BPM from the first set_tempo, or 120 if the file has none.
+    #
+    # That number is often a lie. Every transcription this app produces goes
+    # through pretty_midi, which stamps a 120 BPM tempo event whether or not it
+    # knows the tempo, so a 174 BPM track reports 120 and looks authoritative
+    # doing it. There is no way to tell that stamp apart from a real 120, so
+    # the file's own tempo is still what gets returned; the onset estimate goes
+    # back alongside it and the UI offers it rather than silently overriding.
     bpm = 120.0
     for m in mido.MidiFile(midi_path):
         if m.type == "set_tempo":
             bpm = 60_000_000 / m.tempo
             break
+    estimate = _bpm_from_onsets([e[0] for e in events], bpm)
     bpm *= tempo_scale
 
-    return events, sorted(unmapped), max(total, 0.0), bpm
+    return events, sorted(unmapped), max(total, 0.0), bpm, estimate * tempo_scale
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +447,13 @@ def _parse_mapping_value(value):
     return mods, base
 
 
+def _spin_until(target):
+    """Busy-wait to a perf_counter target. Used for sub-millisecond gaps where
+    time.sleep() would overshoot by the whole scheduler quantum."""
+    while time.perf_counter() < target:
+        pass
+
+
 def play_keys(kb, value):
     """Press + release a key, applying any modifiers declared in the mapping.
 
@@ -404,6 +481,12 @@ def press_keys_hold(kb, value, held):
     if base in held:
         kb.release(base)
         del held[base]
+        # Re-articulation: the same key sounding again while it is still down.
+        # Release and press back-to-back land in the same input frame, so the
+        # game coalesces them and the repeated note is simply never heard.
+        # One millisecond is enough to separate them and is only paid on a
+        # repeat, never on the common path.
+        _spin_until(time.perf_counter() + 0.001)
     for mk in mod_keys:
         kb.press(mk)
     try:
@@ -712,7 +795,11 @@ def focus_monitor(state, target_win, log_fn=print):
                 state.set_focus_lost(False)
                 if not state.user_paused:
                     log_fn("[+] Focus regained, resuming.")
-        time.sleep(0.5)
+        # 25 ms, not the 500 ms this used to be. Alt-tabbing mid-song leaked
+        # up to half a second of keypresses into whatever you switched to,
+        # which at speed is a dozen notes typed into a chat box. Both calls
+        # here are single Win32 lookups, so polling this often is free.
+        time.sleep(0.025)
 
 
 # ---------------------------------------------------------------------------
@@ -1002,7 +1089,7 @@ def main():
 
     # ---- parse ----
     print(f"Parsing MIDI: {args.midi}")
-    events, unmapped, total_dur, bpm = parse_midi(
+    events, unmapped, total_dur, bpm, _bpm_guess = parse_midi(
         args.midi, note_to_key, args.tempo_scale)
     print(f"  {len(events)} events, {total_dur:.1f}s, ~{bpm:.1f} BPM")
     if unmapped:

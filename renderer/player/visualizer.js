@@ -25,6 +25,7 @@ class Visualizer {
     // User style (see setStyle). noteColor null => per-channel rainbow.
     this.lookahead = LOOKAHEAD;
     this.noteColor = null;
+    this.showKeys = true;
 
     // sync state, set by clockSet(), used by elapsed()
     this.syncServerElapsed = 0;
@@ -53,9 +54,12 @@ class Visualizer {
   // Called from the renderer on midi_loaded.
   // speed: 1 = default fall rate; 2 = twice as fast (half the lookahead).
   // color: '#rrggbb' to paint every channel the same, or null for rainbow.
-  setStyle({ speed, color } = {}) {
-    if (speed) this.lookahead = LOOKAHEAD / Math.max(0.25, Math.min(4, speed));
+  // keys: false gives the roll the whole canvas. The overlay squeezed into a
+  // corner of a game has no room for a keyboard nobody is reading.
+  setStyle({ speed, color, keys } = {}) {
+    if (speed) this.lookahead = LOOKAHEAD / Math.max(0.1, Math.min(4, speed));
     this.noteColor = color || null;
+    if (keys !== undefined) this.showKeys = keys !== false;
   }
 
   _chColor(ch) {
@@ -164,7 +168,7 @@ class Visualizer {
     ctx.fillStyle = '#101115';
     ctx.fillRect(0, 0, W, H);
 
-    const rollH = Math.floor(H * 0.72);
+    const rollH = this.showKeys ? Math.floor(H * 0.72) : H;
     const kbH   = H - rollH;
     const nWhite = Math.max(1, this.whiteNotes.length);
     const wkeyW = W / nWhite;
@@ -175,7 +179,7 @@ class Visualizer {
     if (!this.events.length) {
       // The .viz-empty HTML overlay owns the empty state, drawing a second
       // caption here stacked two messages on top of each other.
-      this._drawKeyboard(W, rollH, kbH, wkeyW, bkeyW, new Map());
+      if (this.showKeys) this._drawKeyboard(W, rollH, kbH, wkeyW, bkeyW, new Map());
       return;
     }
 

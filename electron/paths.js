@@ -207,6 +207,11 @@ function rendererIndexHtml() {
     ? path.join(app.getAppPath(), 'renderer', 'index.html')
     : path.join(DEV_ROOT, 'renderer', 'index.html');
 }
+function overlayHtml() {
+  return isPackaged()
+    ? path.join(app.getAppPath(), 'renderer', 'overlay', 'overlay.html')
+    : path.join(DEV_ROOT, 'renderer', 'overlay', 'overlay.html');
+}
 function preloadScript() { return path.join(__dirname, 'preload.js'); }
 
 // Env passed to the forge child processes so they find their model/ffmpeg.
@@ -230,6 +235,6 @@ module.exports = {
   pythonEngineDir, bundledPlayerPython,
   forgeEnvDir, defaultForgeEnvDir, legacyDefaultForgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
   candidateForgeEnvDirs, findReadyForgeEnv,
-  modelsDir, rendererIndexHtml, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,
+  modelsDir, rendererIndexHtml, overlayHtml, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,
   userMappingsDir, ensureUserMappings, forgeSetupLog, forgeJobsFile,
 };

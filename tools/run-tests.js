@@ -220,6 +220,95 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(installer.indexOf('WriteRegStr HKCU') >= 0 && installer.indexOf('ForgeStorageDir') >= 0,
     'installer records the Forge storage choice');
   ok(installer.indexOf('$appExe') < 0, 'installer does not launch the app during install');
+  // Relative to the repo root, so a test reads like the path it is checking.
+  const read = (rel) => fs.readFileSync(path.join(root, ...rel.split('/')), 'utf8');
+
+  // ---- always-on-top -----------------------------------------------------
+  const settingsSrc = read('electron/settings.js');
+  const mainSrc = read('electron/main.js');
+  ok(/alwaysOnTop:\s*true/.test(settingsSrc), 'always-on-top defaults to on');
+  ok(/alwaysOnTop:\s*settings\.get\('ui\.alwaysOnTop'\)\s*!==\s*false/.test(mainSrc),
+    'the window is created with the saved always-on-top choice');
+  ok(/win\.setAlwaysOnTop\(ui\.alwaysOnTop !== false\)/.test(mainSrc),
+    'toggling always-on-top applies without a restart');
+  ok(read('renderer/index.html').includes('id="s-ontop"'), 'settings has the always-on-top control');
+  ok(read('renderer/shell/shell.js').includes("$('s-ontop')"), 'the always-on-top control is wired');
+
+  // ---- Perch, the overlay -------------------------------------------------
+  const ovSrc = read('electron/overlay.js');
+  const ovJs = read('renderer/overlay/overlay.js');
+  const ovHtml = read('renderer/overlay/overlay.html');
+  const ovCss = read('renderer/overlay/overlay.css');
+  ok(/setAlwaysOnTop\(true, 'screen-saver'\)/.test(ovSrc),
+    "overlay uses the screen-saver level, the only one that beats a fullscreen game");
+  ok(/showInactive\(\)/.test(ovSrc) && !/\bthis\.win\.show\(\)/.test(ovSrc),
+    'overlay never steals focus (taking it would pause playback)');
+  ok(/setIgnoreMouseEvents/.test(ovSrc), 'overlay supports click-through');
+  ok(/Control\+Alt\+P/.test(mainSrc), 'a global key can undo click-through');
+  ok(/onScreen/.test(ovSrc) && /getAllDisplays/.test(ovSrc),
+    'a saved position is checked against the displays that exist now');
+  ok(/overlay\.close\(\)/.test(mainSrc), 'the overlay is closed with the app');
+  // window.api and window.perch are both injected into this frame; a top-level
+  // const of either name is a redeclaration that kills the whole script.
+  ok(!/^const (api|perch)\s*=/m.test(ovJs), 'overlay declares no name the preload already owns');
+  ok(/window\.perch/.test(ovJs), 'overlay talks to the main process through its own bridge');
+  for (const m of ['full', 'slim', 'mini']) {
+    ok(ovHtml.includes(`data-mode="${m}"`), `overlay offers the ${m} size`);
+    ok(ovCss.includes(`data-mode="${m}"`), `overlay styles the ${m} size`);
+  }
+  ok(ovHtml.split('data-snap=').length - 1 === 9, 'overlay parks in all nine screen positions');
+  // .seg is a shared component in tokens.css with a radio-dot ::before; reusing
+  // the class name drew that dot straight through the overlay's own labels.
+  ok(!/class="seg"/.test(ovHtml), 'overlay does not reuse the shared .seg component');
+
+  // ---- icons --------------------------------------------------------------
+  const iconsSrc = read('renderer/shared/icons.js');
+  ok(/window\.Icon|global\.Icon/.test(iconsSrc), 'the icon set is exposed');
+  for (const name of ['play', 'pause', 'stop', 'next', 'prev', 'close', 'gear', 'check']) {
+    ok(iconsSrc.includes(`${name}:`) || iconsSrc.includes(`'${name}'`), `icon set has ${name}`);
+  }
+  ok(/button\[role="radio"\][\s\S]*appearance: none/.test(read('renderer/shared/tokens.css')),
+    'role=radio buttons do not get a native radio widget painted over them');
+  for (const page of ['renderer/index.html', 'renderer/player/index.html',
+    'renderer/forge/index.html', 'renderer/audition/index.html',
+    'renderer/review/index.html', 'renderer/overlay/overlay.html']) {
+    ok(read(page).includes('icons.js'), `${page} loads the icon set`);
+  }
+  // The glyphs the icon set replaced. A font-dependent character is not an icon:
+  // some of these render as full-colour emoji on Windows.
+  for (const page of ['renderer/index.html', 'renderer/player/index.html',
+    'renderer/forge/index.html', 'renderer/overlay/overlay.html']) {
+    const src = read(page);
+    for (const glyph of ['▶', '⏸', '■', '⏭', '⏮', '⚙', '✕', '✖', '✓']) {
+      ok(!src.includes(glyph), `${page} has no bare ${escape(glyph)} glyph`);
+    }
+  }
+
+  // ---- tempo as BPM -------------------------------------------------------
+  const playerJs = read('renderer/player/app.js');
+  ok(/function setBpm/.test(playerJs), 'tempo can be set as a BPM number');
+  ok(/bpm_estimate/.test(playerJs), 'the onset-based tempo estimate reaches the UI');
+  ok(read('renderer/player/index.html').includes('id="tempo-bpm"'), 'the BPM field exists');
+  ok(read('python-engine/ipc_main.py').includes('"bpm_estimate"'), 'the engine reports a tempo estimate');
+
+  // ---- hotkeys can be unbound --------------------------------------------
+  ok(!/playHotkey = hk\(els\.hkPlay\) \|\| /.test(playerJs),
+    'clearing Play/Stop/Pause is respected instead of springing back to F6/F7/F8');
+  ok(/hk-clear/.test(playerJs) && /hk-clear/.test(read('renderer/player/style.css')),
+    'every hotkey box has a visible unbind');
+  ok(/els\.hkNext, els\.hkPrev/.test(playerJs),
+    'the next/prev hotkey boxes capture keys (they were never wired)');
+
+  // ---- playback fixes -----------------------------------------------------
+  const engineSrc = read('python-engine/midi_player.py');
+  ok(/def make_resolver/.test(engineSrc), 'out-of-range notes fold by octave instead of being dropped');
+  ok(/time\.sleep\(0\.025\)/.test(engineSrc), 'the focus monitor polls fast enough not to leak keystrokes');
+  ok(/_spin_until/.test(engineSrc), 'a re-articulated note is separated from its own release');
+  ok(/def panic_release/.test(read('python-engine/ipc_main.py')),
+    'stdin EOF releases held keys instead of leaving them down');
+  ok(/60 \* percent \/ 100/.test(mainSrc), 'the draw budget allows 60fps at full allowance');
+  ok(/Math\.min\(base, 33\)/.test(playerJs), 'the roll keeps 30fps while notes are moving');
+
   try { fs.rmSync(base, { recursive: true, force: true }); } catch {}
 
   console.log(`\n${pass} passed, ${fail} failed`);

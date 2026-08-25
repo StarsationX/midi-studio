@@ -265,3 +265,17 @@ input::placeholder { color: var(--text-3); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* ---- icons (see shared/icons.js) ------------------------------------------
+   Icons inherit colour from the text around them and sit on the text baseline,
+   so a button holding one lines up with a button holding a word. */
+.ic { display: block; flex: 0 0 auto; }
+[data-icon] { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+
+/* A <button role="radio"> keeps appearance:auto from the UA sheet, and Chromium
+   then paints a native radio control on top of whatever the button contains: a
+   grey ring straight through the middle of the label. Every segmented picker in
+   the app is built this way, so the fix belongs here rather than in each one. */
+button[role="radio"], button[role="checkbox"], button[role="switch"], button[role="tab"] {
+  -webkit-appearance: none; appearance: none;
+}

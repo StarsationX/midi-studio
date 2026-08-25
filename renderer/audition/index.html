@@ -67,8 +67,8 @@
 
     <section class="transport-panel">
       <div class="transport-row">
-        <button class="transport-btn primary" id="play" type="button" title="Play or pause" aria-label="Play" disabled>▶</button>
-        <button class="transport-btn" id="stop" type="button" title="Stop" aria-label="Stop" disabled>■</button>
+        <button class="transport-btn primary" id="play" type="button" title="Play or pause" aria-label="Play" disabled><i data-icon="play" data-icon-size="14"></i></button>
+        <button class="transport-btn" id="stop" type="button" title="Stop" aria-label="Stop" disabled><i data-icon="stop" data-icon-size="13"></i></button>
         <button class="transport-btn" id="back" type="button" title="Back 5 seconds" aria-label="Back 5 seconds" disabled>−5</button>
         <button class="transport-btn" id="forward" type="button" title="Forward 5 seconds" aria-label="Forward 5 seconds" disabled>+5</button>
         <input id="seek" class="seek" type="range" min="0" max="1000" value="0" aria-label="Playback position" disabled />
@@ -112,6 +112,7 @@
   </div>
 
   <div class="drop-overlay" id="drop-overlay" aria-hidden="true"><div>Drop MIDI to play</div></div>
+  <script src="../shared/icons.js"></script>
   <script src="../soundfonts/player.js"></script>
   <script src="./audition.js"></script>
 </body>

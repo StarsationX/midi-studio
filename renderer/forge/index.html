@@ -57,7 +57,7 @@
       <label class="lbl">Input</label>
       <div class="card">
         <div class="dropzone" id="dropzone">
-          <div class="dz-icon" aria-hidden="true">↑</div>
+          <div class="dz-icon" aria-hidden="true"><i data-icon="drop" data-icon-size="22"></i></div>
           <input id="input-path" type="text" readonly placeholder="Drop a song here, or browse…" />
           <div class="dz-types" aria-hidden="true">mp3 · wav · flac · m4a · ogg · up to 30 min</div>
           <div class="input-actions">
@@ -73,7 +73,7 @@
         <div class="queue is-collapsed" id="queue-wrap">
           <div class="row queue-head">
             <button class="btn queue-toggle" id="queue-toggle" type="button" aria-expanded="false">
-              <span class="qt-caret" aria-hidden="true">▸</span>Queue<span id="queue-count" class="qt-count">0</span>
+              <span class="qt-caret" aria-hidden="true"><i data-icon="caretRight" data-icon-size="12"></i></span>Queue<span id="queue-count" class="qt-count">0</span>
             </button>
             <span class="spacer"></span>
             <label class="check queue-auto" title="When one song finishes, start the next one by itself">
@@ -138,7 +138,7 @@
           <audio id="preview-audio"></audio>
         </div>
 
-        <button class="adv-toggle" id="adv-toggle" aria-expanded="false">Advanced ▾</button>
+        <button class="adv-toggle" id="adv-toggle" aria-expanded="false">Advanced <i data-icon="caretDown" data-icon-size="11"></i></button>
         <div class="adv" id="adv" hidden>
           <div class="adv-head">
             <div class="adv-sub muted small">Sound cleanup</div>
@@ -200,7 +200,7 @@
       <label class="lbl">Run</label>
       <div class="card run-card">
         <div class="run-row">
-          <button class="btn btn-primary big" id="start" disabled>▶ Start</button>
+          <button class="btn btn-primary big" id="start" disabled><i data-icon="play" data-icon-size="12"></i> Start</button>
           <div class="run-info" aria-hidden="true">
             <div><span>PIPELINE</span><span id="run-info-pipeline" class="mono">melody</span></div>
             <div><span>OUTPUT</span><span id="run-info-out" class="mono">Documents\MIDI Studio</span></div>
@@ -214,7 +214,7 @@
         </div>
         <div class="output" id="output" hidden>
           <div class="output-summary" id="output-summary" hidden>
-            <span>✓ Output:</span>
+            <span><i data-icon="check" data-icon-size="12"></i> Output:</span>
             <span class="mono" id="output-path"></span>
             <button class="link" id="output-open">Open folder</button>
             <button class="link" id="output-listen">Listen</button>
@@ -223,7 +223,7 @@
           </div>
         </div>
         <div class="errcard" id="errcard" hidden>
-          <span class="err-x">✖</span>
+          <span class="err-x"><i data-icon="alert" data-icon-size="14"></i></span>
           <span id="err-msg"></span>
           <span class="spacer"></span>
           <button class="link" id="err-dismiss">Dismiss</button>
@@ -237,8 +237,9 @@
     </section>
   </div>
   <div class="drop-overlay" id="drop-overlay" aria-hidden="true">
-    <div class="drop-card">⬇ Drop audio or MIDI to load</div>
+    <div class="drop-card"><i data-icon="drop" data-icon-size="16"></i> Drop audio or MIDI to load</div>
   </div>
+  <script src="../shared/icons.js"></script>
   <script src="../shared/timeline-zoom.js"></script>
   <script src="./forge.js"></script>
 </body>

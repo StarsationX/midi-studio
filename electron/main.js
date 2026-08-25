@@ -3,7 +3,7 @@
 // sidecar, the forge runner/provisioner, the updater, and all IPC.
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, spawnSync } = require('child_process');
@@ -17,6 +17,7 @@ const { ForgeProvisioner } = require('./forge-provisioner');
 const forgeStorage = require('./forge-storage');
 const library = require('./library');
 const { GameWatch } = require('./gamewatch');
+const { Overlay } = require('./overlay');
 const updater = require('./updater');
 
 // Boot diagnostics, a packaged GUI app has no console; this captures startup
@@ -61,6 +62,11 @@ let forge = null;
 let provisioner = null;
 let gameWatch = null;
 let lastReady = null; // cached engine 'ready' so a late-loading tab iframe still syncs
+let overlay = null;
+// The name of what is loaded. The engine only ever sees a path on the way in
+// and never sends it back, so the overlay would have nothing to put in its
+// title bar unless we remember it here as commands go past.
+let lastSongName = '';
 // Has the window painted yet? Showing it before its first frame reveals an
 // empty white rectangle, which on a slow machine is what "it opens white and
 // never loads" actually was.
@@ -97,6 +103,8 @@ function broadcast(channel, payload) {
       if (f !== main) { try { f.send(channel, payload); } catch (_) {} }
     }
   } catch (_) {}
+  // Perch is a separate window, so the frame walk above never reaches it.
+  try { if (overlay) overlay.send(channel, payload); } catch (_) {}
 }
 
 // List every .mid/.midi in a folder (one level of subfolders), for the player's
@@ -181,6 +189,9 @@ function createWindow() {
     x: typeof wb.x === 'number' ? wb.x : undefined,
     y: typeof wb.y === 'number' ? wb.y : undefined,
     backgroundColor: '#0e1014', title: 'MIDI Studio', show: false, autoHideMenuBar: true,
+    // On by default: the usual way to play is with a game on top of this window,
+    // and a player you cannot see is not much of a player. Settings turns it off.
+    alwaysOnTop: settings.get('ui.alwaysOnTop') !== false,
     icon: paths.appIcon() || undefined,
     webPreferences: {
       preload: paths.preloadScript(),
@@ -288,7 +299,10 @@ function createWindow() {
   }, 400);
   win.on('resize', persist);
   win.on('move', persist);
-  win.on('closed', () => { win = null; });
+  // Perch goes with it. It is skipTaskbar and always on top, so on its own it
+  // would be an orphan the user can see but has no way to reach, and it would
+  // hold window-all-closed open so the app never quits.
+  win.on('closed', () => { win = null; try { if (overlay) overlay.close(); } catch (_) {} });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
 }
 
@@ -446,8 +460,10 @@ function performanceSettings() {
   const batch = hand(advanced.batch) != null
     ? Math.max(1, Math.min(8, Math.round(hand(advanced.batch))))
     : Math.max(1, Math.round(percent / 50));          // 100% -> 2, 50% -> 1
-  // 100% is 30fps; the budget stretches as the allowance shrinks.
-  const drawMs = Math.round(1000 / Math.max(4, 30 * percent / 100));
+  // 100% is 60fps; the budget stretches as the allowance shrinks. This used to
+  // top out at 30fps, which is what made the piano roll look like it was
+  // jumping between positions instead of scrolling.
+  const drawMs = Math.round(1000 / Math.max(4, 60 * percent / 100));
 
   return {
     percent, cores, threads, batch, drawMs,
@@ -590,8 +606,103 @@ async function changeForgeStorage(fixedTarget = '') {
   return { ok: true, moved, ...forgeInfo() };
 }
 
+// ---- Perch, the always-on-top overlay ---------------------------------------
+function overlaySend(channel, payload) {
+  try { if (overlay) overlay.send(channel, payload); } catch (_) {}
+}
+function overlayStateChanged() {
+  const open = !!(overlay && overlay.isOpen());
+  broadcast('overlay-state', { open, ...(overlay ? overlay.config() : {}) });
+}
+function openOverlay() {
+  if (!overlay) return;
+  overlay.open();
+  // It opens with an empty roll otherwise: the notes arrived on a midi_loaded
+  // long before this window existed. The Player tab is asked to say it again.
+  broadcast('overlay-wants-state', {});
+  overlaySend('engine-event', { event: 'now_playing', name: lastSongName });
+  overlayStateChanged();
+}
+
+// Two global keys, because both are needed at moments when the game has focus
+// and the overlay does not. Turning click-through on is easy from the sheet;
+// turning it back OFF is impossible without one of these, since the window
+// stops accepting clicks entirely.
+function registerOverlayShortcuts() {
+  const bind = (accel, fn) => {
+    try { globalShortcut.register(accel, fn); } catch (_) { blog(`shortcut ${accel} unavailable`); }
+  };
+  bind('Control+Alt+P', () => {
+    if (!overlay) return;
+    if (!overlay.isOpen()) { openOverlay(); return; }
+    overlay.setClickThrough(!overlay.config().clickThrough);
+    overlayStateChanged();
+  });
+  bind('Control+Alt+O', () => {
+    if (!overlay) return;
+    if (overlay.isOpen()) overlay.close(); else openOverlay();
+    overlayStateChanged();
+  });
+}
+
+function wireOverlayIpc() {
+  ipcMain.on('overlay:ready', () => { if (overlay) { overlay.markReady(); broadcast('overlay-wants-state', {}); } });
+  ipcMain.on('overlay:close', () => { if (overlay) { overlay.close(); overlayStateChanged(); } });
+  ipcMain.on('overlay:resize', (_e, size) => {
+    if (!overlay || !overlay.isOpen() || !isObj(size)) return;
+    const w = Math.round(Number(size.width) || 0);
+    const h = Math.round(Number(size.height) || 0);
+    if (w < 100 || h < 40) return;
+    const b = overlay.win.getBounds();
+    overlay.win.setBounds({ x: b.x, y: b.y, width: w, height: h });
+  });
+  // Transport from the overlay is replayed as the hotkey the Player tab already
+  // handles, so the queue, the playlist and the tempo all stay in one place.
+  ipcMain.on('overlay:command', (_e, name) => {
+    const allowed = ['play', 'stop', 'pause', 'next_track', 'prev_track', 'seek_fwd', 'seek_back'];
+    if (allowed.includes(name)) broadcast('engine-event', { event: 'hotkey', name });
+  });
+  ipcMain.handle('overlay:apply', (_e, patch) => {
+    if (!overlay) return {};
+    const cfg = overlay.apply(patch);
+    overlayStateChanged();
+    return cfg;
+  });
+  ipcMain.handle('overlay:snap', (_e, where) => (overlay ? overlay.snap(where) : {}));
+  ipcMain.handle('overlay:state', () => ({ open: !!(overlay && overlay.isOpen()), ...(overlay ? overlay.config() : {}) }));
+  ipcMain.handle('overlay:toggle', () => {
+    if (!overlay) return { open: false };
+    if (overlay.isOpen()) overlay.close(); else openOverlay();
+    overlayStateChanged();
+    return { open: overlay.isOpen(), ...overlay.config() };
+  });
+  // The Player tab's answer to overlay-wants-state. Only the shapes the overlay
+  // actually reads are forwarded, so a compromised frame cannot use this as a
+  // general channel into the always-on-top window.
+  ipcMain.on('overlay:replay', (_e, payload) => {
+    if (!isObj(payload)) return;
+    const kind = payload.event;
+    if (kind !== 'midi_loaded' && kind !== 'playback_started' && kind !== 'progress') return;
+    overlaySend('engine-event', payload);
+  });
+}
+
 function wireIpc() {
-  ipcMain.handle('engine:send', (_e, msg) => (isObj(msg) ? sidecar.send(msg) : false));
+  ipcMain.handle('engine:send', (_e, msg) => {
+    if (!isObj(msg)) return false;
+    // Watch the commands going past for the two things the overlay needs and
+    // the engine never reports back: what is loaded, and that a song is
+    // starting (soon enough to open the window before the countdown, not after).
+    const file = msg.path || msg.midi_path;
+    if ((msg.cmd === 'load_midi' || msg.cmd === 'play') && file) {
+      lastSongName = String(file).split(/[\\/]/).pop().replace(/\.midi?$/i, '');
+      overlaySend('engine-event', { event: 'now_playing', name: lastSongName });
+    }
+    if (msg.cmd === 'play' && overlay && overlay.config().autoShow !== false && !overlay.isOpen()) {
+      openOverlay();
+    }
+    return sidecar.send(msg);
+  });
 
   ipcMain.handle('dialog:openMidi', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Select MIDI file(s)', properties: ['openFile', 'multiSelections'],
@@ -718,7 +829,13 @@ function wireIpc() {
     const r = await dialog.showOpenDialog(win, { title: 'Choose a folder of MIDI files', properties: ['openDirectory'] });
     return r.canceled ? null : r.filePaths[0];
   });
-  ipcMain.handle('app:setUi', (_e, patch) => settings.merge({ ui: isObj(patch) ? patch : {} }).ui);
+  ipcMain.handle('app:setUi', (_e, patch) => {
+    const ui = settings.merge({ ui: isObj(patch) ? patch : {} }).ui;
+    if (isObj(patch) && 'alwaysOnTop' in patch && win && !win.isDestroyed()) {
+      win.setAlwaysOnTop(ui.alwaysOnTop !== false);
+    }
+    return ui;
+  });
   ipcMain.handle('app:performance', () => performanceSettings());
   ipcMain.handle('app:setPerformance', (_e, patch) => {
     const clean = {};
@@ -846,7 +963,15 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
     blog('whenReady fired');
     try {
       settings = new Settings();
+      overlay = new Overlay({
+        settings,
+        indexHtml: paths.overlayHtml(),
+        preload: paths.preloadScript(),
+        onLog: blog,
+      });
       wireIpc();
+      wireOverlayIpc();
+      registerOverlayShortcuts();
       createServices();
       createWindow();
       blog(`window created; index=${paths.rendererIndexHtml()}`);
@@ -888,6 +1013,10 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
 let cleaned = false;
 function cleanup() {
   if (cleaned) return; cleaned = true;
+  // The overlay is skipTaskbar and always-on-top: left behind it would be a
+  // window the user can see but cannot close from anywhere.
+  try { if (overlay) overlay.close(); } catch {}
+  try { globalShortcut.unregisterAll(); } catch {}
   try { if (sidecar) sidecar.kill(); } catch {}
   try { if (forge) forge.cancelAll(); } catch {}
   try { if (provisioner) provisioner.cancel(); } catch {}

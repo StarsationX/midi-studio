@@ -53,7 +53,7 @@ import time
 import traceback
 from pathlib import Path
 
-from pynput.keyboard import Controller, GlobalHotKeys
+from pynput.keyboard import Controller, GlobalHotKeys, Key
 
 import midi_player as engine
 
@@ -158,7 +158,7 @@ class Bridge:
             transpose = int(msg.get("transpose", 0) or 0)
             if msg.get("auto_transpose"):
                 transpose, _, _ = engine.best_transpose(msg["path"], note_to_key)
-            events, unmapped, total, bpm = engine.parse_midi(
+            events, unmapped, total, bpm, bpm_guess = engine.parse_midi(
                 msg["path"], note_to_key, tempo, transpose)
             # Compress event tuples for transport
             payload = [
@@ -170,6 +170,9 @@ class Bridge:
                 "events": payload,
                 "duration": round(total, 3),
                 "bpm": round(bpm, 2),
+                # What the onsets say, which is not always what the file says:
+                # every transcription is stamped 120 whether or not that is true.
+                "bpm_estimate": round(bpm_guess, 2),
                 "note_to_key": {str(k): v for k, v in note_to_key.items()},
                 "mapping_name": mapping_data.get("name", msg["mapping"]),
                 "unmapped": unmapped,
@@ -201,6 +204,28 @@ class Bridge:
             s.pause_event.set()
         self._stop_requested = True
         log("info", "Stop requested.")
+
+    def panic_release(self, timeout=1.5):
+        """Stop playback and make sure nothing is left physically held down.
+
+        The session thread releases its own keys in a finally, but only if it
+        gets to run: on stdin EOF (the app closed, or was killed) the process
+        exits and daemon threads die where they stand, leaving whatever was
+        sustained at that instant held forever. So: ask it to stop, wait for
+        its finally, then release the modifiers ourselves as a backstop, since
+        a stuck Shift or Ctrl is worse than a stuck letter."""
+        s = self.session_state
+        if s is not None:
+            s.stop_event.set()
+            s.pause_event.set()
+        t = self.session_thread
+        if t is not None and t.is_alive():
+            t.join(timeout=timeout)
+        for mod in (Key.shift, Key.ctrl, Key.alt, Key.cmd):
+            try:
+                self.kb.release(mod)
+            except Exception:
+                pass
 
     def cmd_pause(self, _):
         s = self.session_state
@@ -372,7 +397,7 @@ class Bridge:
 
             mapping_data, note_to_key = engine.load_mapping(
                 _resolve_mapping(mapping_arg), SCRIPT_DIR)
-            events, unmapped, total_dur, bpm = engine.parse_midi(
+            events, unmapped, total_dur, bpm, _bpm_guess = engine.parse_midi(
                 midi_path, note_to_key, tempo, int(msg.get("transpose", 0) or 0))
             if not events:
                 emit({"event": "error", "message": "MIDI has no playable events."})
@@ -527,6 +552,16 @@ def main():
     bridge = Bridge()
     emit({"event": "ready"})
 
+    # The app closing (or dying) shows up here as stdin EOF. Falling straight
+    # out of main() would kill the daemon session thread mid-note and leave
+    # sustained keys held down in whatever window had focus, so unwind first.
+    try:
+        _serve(bridge)
+    finally:
+        bridge.panic_release()
+
+
+def _serve(bridge):
     for raw in sys.stdin:
         line = raw.strip()
         if not line:
