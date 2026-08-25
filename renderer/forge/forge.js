@@ -985,6 +985,19 @@
     };
   }
 
+  // A divider between two lanes. The multi-column layouts are the ones with a
+  // column width worth arguing with; the single-column ones have nothing to
+  // drag against.
+  function grip(prop, min, max, label) {
+    const el = document.createElement('i');
+    el.className = 'grip-h';
+    el.dataset.resize = prop;
+    el.dataset.min = String(min);
+    el.dataset.max = String(max);
+    el.setAttribute('aria-label', label);
+    return el;
+  }
+
   function lane(name) {
     const el = document.createElement('div');
     el.className = 'lane lane-' + name;
@@ -1015,6 +1028,10 @@
     layout = name;
 
     for (const k of Object.keys(lanes)) { lanes[k].remove(); delete lanes[k]; }
+    // Dividers are children of the grid, not of a lane, so clearing the lanes
+    // left them behind. They then piled up with every layout switch and turned
+    // up in the single-column layouts, which have nothing to divide.
+    for (const stale of work.querySelectorAll(':scope > .grip-h, :scope > .grip-v')) stale.remove();
     // The numbered rail belongs to classic. Every other layout supplies its own
     // headings, and leaving these in place printed both ("01 INPUT" above
     // "SOURCE") and left them sitting in the grid as stray items.
@@ -1046,7 +1063,8 @@
       canvas.append(section('Preview', b.time), section('Run', b.run), section('', b.log));
       const insp = lane('insp');
       insp.append(section('Engine', b.pipeline), section('', ...advPair));
-      work.append(rail, canvas, insp);
+      work.append(rail, grip('rail', 200, 520, 'Resize the source column'),
+        canvas, grip('insp', 200, 560, 'Resize the inspector'), insp);
     } else if (name === 'bench') {
       // status across the top, the work under it
       const top = lane('top');
@@ -1055,7 +1073,7 @@
       left.append(section('Source', b.input), section('Queue', b.queue), section('Preview', b.time));
       const right = lane('right');
       right.append(section('Engine', b.pipeline), section('', ...advPair), section('', b.log));
-      work.append(top, left, right);
+      work.append(top, grip('bench', 260, 900, 'Resize the left column'), left, right);
     } else {
       // cards: one column, the queue reads as a stack of jobs
       const main = lane('main');
@@ -1072,6 +1090,10 @@
     }
 
     work.dataset.layout = name;
+    work.dataset.split = 'forge';
+    // The dividers are built fresh with each layout, so they have to be picked
+    // up again; Resize.apply skips any it has already wired.
+    if (window.Resize) window.Resize.apply(work);
     document.documentElement.dataset.forgeLayout = name;
     const picker = $('layout-picker');
     if (picker) for (const btn of picker.querySelectorAll('button')) {

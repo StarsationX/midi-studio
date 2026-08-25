@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="./audition.css" />
 </head>
 <body>
-  <div class="layout">
+  <div class="layout" data-split="audition">
   <aside class="library" id="library">
     <div class="library-head">
       <strong>Your MIDI</strong>
@@ -28,6 +28,9 @@
       <button class="btn btn-ghost compact" id="library-refresh" type="button" title="Rescan folders">Rescan</button>
     </div>
   </aside>
+
+  <i class="grip-h" data-resize="side" data-min="180" data-max="520"
+     aria-label="Resize the MIDI list"></i>
   <main class="audition" id="audition">
     <header class="toolbar">
       <button class="btn btn-primary" id="open-midi" type="button">Open MIDI</button>
@@ -113,6 +116,7 @@
 
   <div class="drop-overlay" id="drop-overlay" aria-hidden="true"><div>Drop MIDI to play</div></div>
   <script src="../shared/icons.js"></script>
+  <script src="../shared/resize.js"></script>
   <script src="../soundfonts/player.js"></script>
   <script src="./audition.js"></script>
 </body>

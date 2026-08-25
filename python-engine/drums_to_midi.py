@@ -23,6 +23,20 @@ from audio_utils import audio_window_from_env
 
 ONSET_DELTA = float(os.environ.get("ONSET_DELTA", "0.07"))
 MIN_GAP_MS = int(os.environ.get("DRUM_MIN_GAP_MS", "50"))
+# How close two hits on the SAME drum may be. One figure for the whole kit was
+# wrong in both directions: 50 ms throws away hi-hat rolls (a 32nd at 175 BPM is
+# 43 ms, a breakcore roll is half that) while letting a crash retrigger every
+# 50 ms as it rings, which no drummer does. These are multipliers on the setting
+# above, so DRUM_MIN_GAP_MS still scales the whole kit.
+GAP_SCALE = {
+    36: 0.8,    # kick, can be doubled fast
+    38: 0.7,    # snare, ghost notes sit close behind the backbeat
+    42: 0.5,    # closed hat, the fastest thing on the kit
+    46: 0.9,    # open hat needs room to have been opened
+    41: 0.9, 45: 0.9, 48: 0.9,   # toms
+    49: 3.5,    # crash: a re-hit inside a third of a second is it still ringing
+    51: 1.6,    # ride
+}
 SKIP_SEP = os.environ.get("SKIP_SEPARATION", "0") in ("1", "true", "True", "yes")
 
 # GM drum notes. The drums.json preset maps these to the pictured kit:
@@ -71,56 +85,103 @@ def classify_hits(wav: Path):
     times = librosa.frames_to_time(onsets, sr=sr, hop_length=hop)
     n_frames = S.shape[1]
 
-    hits = []  # (t, note, velocity 0-1)
+    # Measure every onset first, then set the thresholds from what this track
+    # actually contains. The fixed numbers this used to carry were tuned on one
+    # kind of mix: on a quiet or heavily compressed stem they fired on
+    # everything or on nothing, and the same recording mastered louder came out
+    # as a different drum part.
+    measured = []
     for f, t in zip(onsets, times):
         a, b = f, min(f + 7, n_frames)          # ~80 ms attack window
-        e_sub = float(sub[a:b].max())
-        e_low = float(low[a:b].max())
-        e_body = float(body[a:b].max())
-        e_crack = float(crack[a:b].max())
-        e_metal = float(metal[a:b].max())
         c = min(f + 18, n_frames - 1)
-        ring = float(metal[c] / (metal[a:b].max() + 1e-9)) if b > a else 0.0
-        strength = float(np.clip(env[f] / (np.percentile(env, 95) + 1e-9), 0.15, 1.0))
+        peak_metal = float(metal[a:b].max())
+        measured.append({
+            "t": float(t), "a": a, "b": b,
+            "sub": float(sub[a:b].max()),
+            "low": float(low[a:b].max()),
+            "body": float(body[a:b].max()),
+            "crack": float(crack[a:b].max()),
+            "metal": peak_metal,
+            "ring": float(metal[c] / (peak_metal + 1e-9)) if b > a else 0.0,
+            "strength": float(np.clip(env[f] / (np.percentile(env, 95) + 1e-9), 0.15, 1.0)),
+        })
+    if not measured:
+        return []
 
-        labels = []
-        if e_sub > 0.48 and e_sub > e_low * 0.95 and e_sub > e_metal * 0.55:
-            labels.append(KICK)
+    def level(band, pct, floor):
+        """Threshold for one band: this track's own distribution, with a floor.
+
+        The floor is what stops a stem containing nothing but hats from deciding
+        its loudest hat must be a kick, on the grounds that something has to be.
+        """
+        return max(floor, float(np.percentile([m[band] for m in measured], pct)))
+
+    kick_at = level("sub", 62, 0.30)
+    snare_at = level("crack", 58, 0.22)
+    metal_at = level("metal", 45, 0.22)
+    body_at = level("body", 55, 0.25)
+
+    hits = []  # (t, note, velocity 0-1)
+    for m in measured:
+        e_sub, e_low, e_body = m["sub"], m["low"], m["body"]
+        e_crack, e_metal, ring = m["crack"], m["metal"], m["ring"]
+
+        # A hit is at most one drum and one cymbal, because that is what two
+        # hands can do. Taking "the first two labels" instead meant a kick
+        # landing together with a snare and a hat silently lost the hat, always
+        # the hat, because of the order the tests happened to run in.
+        drum = None
+        cymbal = None
+
+        if e_sub > kick_at and e_sub > e_low * 0.95 and e_sub > e_metal * 0.55:
+            drum = KICK
 
         snare_score = e_low * 0.55 + e_body * 0.45 + e_crack * 0.65
         tom_score = e_low * 0.65 + e_body * 0.75
-        if snare_score > 0.58 and e_crack > 0.32 and e_metal < max(1.15, e_crack * 2.2):
-            labels.append(SNARE)
-        elif tom_score > 0.62 and e_metal < 0.62 and e_sub < 1.2:
-            peak = _frame_peak_freq(S, freqs, a, b, 90, 900)
-            if peak and peak < 190:
-                labels.append(TOM_LO)       # H
-            elif peak and peak < 340:
-                labels.append(TOM_MID)      # J
-            else:
-                labels.append(TOM_HI)       # D
+        if drum is None:
+            if snare_score > body_at * 2.0 and e_crack > snare_at \
+                    and e_metal < max(1.15, e_crack * 2.2):
+                drum = SNARE
+            elif tom_score > body_at * 2.2 and e_metal < 0.62 and e_sub < 1.2:
+                peak = _frame_peak_freq(S, freqs, m["a"], m["b"], 90, 900)
+                if peak and peak < 190:
+                    drum = TOM_LO       # H
+                elif peak and peak < 340:
+                    drum = TOM_MID      # J
+                else:
+                    drum = TOM_HI       # D
 
-        if e_metal > 0.38 and e_metal > max(e_low, e_body) * 0.9:
+        if e_metal > metal_at and e_metal > max(e_low, e_body) * 0.9:
             if ring > 0.48 or e_metal > 1.2:
-                labels.append(CRASH if e_crack > 0.22 or e_body > 0.25 else RIDE)
+                cymbal = CRASH if e_crack > 0.22 or e_body > 0.25 else RIDE
             else:
-                labels.append(OHAT if ring > 0.24 else CHAT)
+                cymbal = OHAT if ring > 0.24 else CHAT
 
-        # Quiet/ambiguous transients are usually hat ticks in separated drum stems.
-        if not labels and e_metal > 0.18:
-            labels.append(CHAT)
+        # Quiet/ambiguous transients are usually hat ticks in separated stems.
+        if drum is None and cymbal is None and e_metal > metal_at * 0.5:
+            cymbal = CHAT
 
-        # Keep the physically plausible layers: kick + snare/hat, or snare + hat.
-        labels = labels[:2]
-        for note in labels:
-            hits.append((float(t), note, strength))
+        # Loudness per layer, not per onset. A ghost snare under a loud kick was
+        # being stamped at the kick's velocity, so every drum in the bar came out
+        # at the same level and the groove went flat.
+        for note in (drum, cymbal):
+            if note is None:
+                continue
+            if note == KICK:
+                layer = e_sub
+            elif note in (CHAT, OHAT, CRASH, RIDE):
+                layer = e_metal
+            else:
+                layer = max(e_body, e_crack)
+            velocity = float(np.clip(0.35 * m["strength"] + 0.65 * min(1.0, layer), 0.15, 1.0))
+            hits.append((m["t"], note, velocity))
 
-    # per-class retrigger gap
-    gap = MIN_GAP_MS / 1000.0
+    # Retrigger gap, per drum rather than one figure for the whole kit.
+    base = MIN_GAP_MS / 1000.0
     last = {}
     out = []
     for t, note, v in sorted(hits):
-        if note in last and t - last[note] < gap:
+        if note in last and t - last[note] < base * GAP_SCALE.get(note, 1.0):
             continue
         last[note] = t
         out.append((t, note, v))

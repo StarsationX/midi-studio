@@ -342,26 +342,30 @@ body { height: 100%; overflow-y: auto; }
 /* bench: run status across the top, two columns of work under it. */
 .work[data-layout="bench"] {
   display: grid; align-items: start;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: var(--bench, minmax(0, 1fr)) 7px minmax(0, 1fr);
   gap: var(--s6);
 }
 .work[data-layout="bench"] .lane-top { grid-column: 1 / -1; }
+.work[data-layout="bench"] > .grip-h { align-self: stretch; }
 .work[data-layout="bench"] .lane-top .run-card { flex-direction: row; flex-wrap: wrap; align-items: center; }
 
 /* console: rail | canvas | inspector. */
 .work[data-layout="console"] {
   display: grid; align-items: start;
-  grid-template-columns: 290px minmax(0, 1fr) 300px;
+  grid-template-columns: var(--rail, 290px) 7px minmax(0, 1fr) 7px var(--insp, 300px);
   gap: var(--s4);
 }
+.work[data-layout="console"] > .grip-h { align-self: stretch; }
 .work[data-layout="console"] .lane-canvas .wave-shell { min-height: 240px; }
 .work[data-layout="console"] .log { max-height: 150px; }
 
 /* Below the three-column threshold the inspector drops under the canvas
    rather than squeezing every control to nothing. */
 @media (max-width: 1180px) {
-  .work[data-layout="console"] { grid-template-columns: 260px minmax(0, 1fr); }
+  .work[data-layout="console"] { grid-template-columns: var(--rail, 260px) 7px minmax(0, 1fr); }
   .work[data-layout="console"] .lane-insp { grid-column: 1 / -1; }
+  /* The inspector is under the canvas now, so its divider has nothing to do. */
+  .work[data-layout="console"] > .grip-h[data-resize="insp"] { display: none; }
 }
 @media (max-width: 900px) {
   .work[data-layout="console"],

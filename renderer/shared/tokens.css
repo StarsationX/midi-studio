@@ -279,3 +279,27 @@ input::placeholder { color: var(--text-3); }
 button[role="radio"], button[role="checkbox"], button[role="switch"], button[role="tab"] {
   -webkit-appearance: none; appearance: none;
 }
+
+/* ---- resize dividers (see shared/resize.js) --------------------------------
+   A hairline that thickens under the pointer. The hit area is wider than the
+   line: a 1px target is a 1px target however carefully it is drawn. */
+.grip-h, .grip-v {
+  position: relative; flex: 0 0 auto;
+  background: transparent; border: 0; padding: 0;
+  touch-action: none;
+}
+.grip-h { width: 7px; margin: 0 -3px; cursor: col-resize; z-index: 4; }
+.grip-v { height: 7px; margin: -3px 0; cursor: row-resize; z-index: 4; }
+.grip-h::after, .grip-v::after {
+  content: ""; position: absolute; background: var(--line);
+  transition: background var(--dur) var(--ease);
+}
+.grip-h::after { top: 0; bottom: 0; left: 3px; width: 1px; }
+.grip-v::after { left: 0; right: 0; top: 3px; height: 1px; }
+.grip-h:hover::after, .grip-v:hover::after,
+.grip-h:focus-visible::after, .grip-v:focus-visible::after { background: var(--accent); }
+.grip-h:focus-visible, .grip-v:focus-visible { outline: none; }
+/* While a divider is being dragged, nothing else on the page should react to
+   the pointer: text selects, canvases start drags, buttons light up. */
+body.is-resizing, body.is-resizing * { user-select: none !important; }
+body.is-resizing iframe { pointer-events: none; }

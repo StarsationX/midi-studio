@@ -38,6 +38,11 @@ DENSITY = float(os.environ.get("MELODY_DENSITY", "13"))
 BP_ONSET = float(os.environ.get("MELODY_ONSET_THRESHOLD", "0.42"))
 BP_FRAME = float(os.environ.get("MELODY_FRAME_THRESHOLD", "0.28"))
 BP_MIN_NOTE_MS = int(os.environ.get("MELODY_MIN_NOTE_MS", "45"))
+# A supersaw stack transcribes as the note plus a quiet simultaneous fifth, and
+# those parallel fifths are the most obvious wrong thing in a dense electronic
+# transcription. Off for material that really does play in fifths (some
+# orchestral writing, power chords) where removing them takes real notes.
+STRICT_FIFTHS = os.environ.get("MELODY_STRICT_FIFTHS", "1") in ("1", "true", "True", "yes")
 SKIP_SEP = os.environ.get("SKIP_SEPARATION", "0") in ("1", "true", "True", "yes")
 
 
@@ -119,6 +124,8 @@ def build_candidates(raw_midi: Path, primary: Path):
     }
     # Timing everywhere below is derived from this, so a 200 BPM track stops
     # having its 32nds merged into chords by a fixed window.
+    # Only a starting point now: the shaper measures the local spacing itself,
+    # because this material changes speed inside a single track.
     bpm = shaper.estimate_bpm(raw_notes)
     print(f"  detected tempo: {bpm:.0f} BPM")
     specs = {
@@ -131,7 +138,8 @@ def build_candidates(raw_midi: Path, primary: Path):
     for name, (polyphony, min_duration, density) in specs.items():
         notes = shaper.shape(raw_notes, polyphony=polyphony, min_duration=min_duration,
                              bpm=bpm, low=MIN_PITCH, high=MAX_PITCH,
-                             fold=FOLD_OCTAVES, density=density)
+                             fold=FOLD_OCTAVES, density=density,
+                             strict_fifths=STRICT_FIFTHS)
         _write_candidate(bpm, notes, paths[name], f"Main Melody - {name.title()}")
         counts[name] = len(notes)
         print(f"  {name}: {len(notes)} notes")

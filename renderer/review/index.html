@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="./review.css" />
 </head>
 <body>
-  <main class="review" id="drop-zone">
+  <main class="review" id="drop-zone" data-split="editor">
     <header class="toolbar">
       <div class="file-group">
         <button class="btn btn-primary" id="open">Open</button>
@@ -50,6 +50,9 @@
       <canvas id="waveform" aria-label="Audio waveform and playback range"></canvas>
     </section>
 
+    <i class="grip-v" data-resize="wave" data-axis="y" data-min="90" data-max="420"
+       aria-label="Resize the waveform"></i>
+
     <section class="roll-section">
       <div class="section-head roll-head">
         <span>PIANO ROLL</span>
@@ -81,6 +84,7 @@
     <audio id="audio" preload="metadata"></audio>
   </main>
   <script src="../shared/icons.js"></script>
+  <script src="../shared/resize.js"></script>
   <script src="../shared/timeline-zoom.js"></script>
   <script src="../soundfonts/player.js"></script>
   <script src="./review.js"></script>

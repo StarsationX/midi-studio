@@ -45,7 +45,7 @@
     <button class="btn btn-ghost" id="update-dismiss" title="Dismiss" aria-label="Dismiss"><i data-icon="close" data-icon-size="12"></i></button>
   </div>
 
-  <main class="app-grid">
+  <main class="app-grid" data-split="player">
 
     <!-- ============================================================
          Sidebar, accordion (one section open at a time)
@@ -218,6 +218,9 @@
       </section>
     </aside>
 
+    <i class="grip-h" data-resize="side" data-min="240" data-max="620"
+       aria-label="Resize the sidebar"></i>
+
     <!-- ============================================================
          Main column, visualizer / transport / log
          ============================================================ -->
@@ -310,6 +313,7 @@
   </div>
 
   <script src="../shared/icons.js"></script>
+  <script src="../shared/resize.js"></script>
   <script src="../shared/timeline-zoom.js"></script>
   <script src="visualizer.js"></script>
   <script src="app.js"></script>

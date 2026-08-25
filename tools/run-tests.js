@@ -309,6 +309,53 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/60 \* percent \/ 100/.test(mainSrc), 'the draw budget allows 60fps at full allowance');
   ok(/Math\.min\(base, 33\)/.test(playerJs), 'the roll keeps 30fps while notes are moving');
 
+  // ---- resizable panes ----------------------------------------------------
+  const resizeSrc = read('renderer/shared/resize.js');
+  ok(/window\.Resize|global\.Resize/.test(resizeSrc), 'the resize component is exposed');
+  // Every tab is a separate frame sharing one localStorage. Writing a whole
+  // snapshot back erased the other tabs' saved sizes.
+  ok(/function remember/.test(resizeSrc) && !/save\(sizes\)/.test(resizeSrc),
+    'pane sizes merge into the store instead of overwriting it');
+  ok(/aria-orientation/.test(resizeSrc) && /ArrowLeft/.test(resizeSrc),
+    'dividers are reachable from the keyboard');
+  for (const page of ['renderer/player/index.html', 'renderer/forge/index.html',
+    'renderer/review/index.html', 'renderer/audition/index.html']) {
+    ok(read(page).includes('resize.js'), `${page} loads the resize component`);
+  }
+  for (const [page, prop] of [['renderer/player/index.html', 'side'],
+    ['renderer/review/index.html', 'wave'], ['renderer/audition/index.html', 'side']]) {
+    ok(read(page).includes(`data-resize="${prop}"`), `${page} has a --${prop} divider`);
+  }
+  for (const [sheet, prop] of [['renderer/player/style.css', 'side'],
+    ['renderer/review/review.css', 'wave'], ['renderer/audition/audition.css', 'side'],
+    ['renderer/forge/forge.css', 'rail']]) {
+    ok(read(sheet).includes(`var(--${prop}`), `${sheet} drives its grid from --${prop}`);
+  }
+  // Dividers live on the grid, not inside a lane, so the lane cleanup missed
+  // them: they piled up and appeared in the single-column layouts.
+  ok(/> \.grip-h, :scope > \.grip-v'\)\) stale\.remove\(\)/.test(read('renderer/forge/forge.js')),
+    'the forge layout engine clears its dividers before rebuilding');
+
+  // ---- melody: dense electronic ------------------------------------------
+  const shapeSrc = read('python-engine/melody_shape.py');
+  ok(/class TempoMap/.test(shapeSrc),
+    'the shaper measures local tempo (this material changes speed mid-track)');
+  ok(/def merge_repeats\(notes, tempo_map\)/.test(shapeSrc),
+    'repeat-merging is grid-aware, so a 32nd repeated-note riff is not one held note');
+  ok(/_GHOST_INTERVALS/.test(shapeSrc) && /\b7:/.test(shapeSrc),
+    'a supersaw stack has its fifth partial removed, not just its octave');
+  ok(/def _metrical_weight/.test(shapeSrc), 'density thinning keeps the beat, not the loudest');
+  ok(/dynamics \* 0\.35/.test(shapeSrc), 'the lead line prefers to stay on one layer');
+
+  // ---- drums -------------------------------------------------------------
+  const drumSrc = read('python-engine/drums_to_midi.py');
+  ok(/GAP_SCALE/.test(drumSrc),
+    'each drum has its own retrigger gap (one figure killed hat rolls)');
+  ok(/def level\(band, pct, floor\)/.test(drumSrc),
+    'drum thresholds come from the track, not from constants tuned on one mix');
+  ok(/drum = None/.test(drumSrc) && !/labels\[:2\]/.test(drumSrc),
+    'a hit is one drum plus one cymbal, not the first two labels that matched');
+
   try { fs.rmSync(base, { recursive: true, force: true }); } catch {}
 
   console.log(`\n${pass} passed, ${fail} failed`);
