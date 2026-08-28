@@ -22,7 +22,7 @@ you can actually play.
 
 |  | | |
 |---|---|---|
-| **Midi Forge** | Song → MIDI | Feed it an audio file or a YouTube/SoundCloud link. AI source separation splits the mix, then transcription turns the part you care about into notes: piano, full mix, a synth lead, or a drum kit. |
+| **Midi Forge** | Song → MIDI | Feed it an audio file or a YouTube/SoundCloud link. AI source separation splits the mix, then transcription turns the part you care about into notes: piano, full mix, a synth lead, or a full drum kit — kick, snare, closed and open hat, three toms, crash and ride. |
 | **Midi Player** | MIDI → keystrokes | Plays a MIDI into any other Windows app by simulating keypresses, for Roblox piano games, [virtualpiano.net](https://virtualpiano.net), or anything else that listens to a keyboard. Live piano roll, global hotkeys, tempo and transpose, and it pauses itself when the target window loses focus. |
 | **Midi Editor** | Fix the transcription | Piano-roll editing against the original waveform. Drag, box-select, quantize, transpose, undo/redo, export. |
 | **Self Midi** | Just listen | Plays a MIDI inside the app with bundled General MIDI instruments, no game or target window needed. |

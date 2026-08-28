@@ -27,7 +27,7 @@
     piano: 'Separate + Transkun on the piano stem. Best for piano performances.',
     general: 'Separate, mix every pitched stem, then Transkun. Best for full songs, any genre.',
     fast: 'basic-pitch straight on the audio. Quick and rough, lower quality.',
-    drums: 'Separate, then classify each drum hit (kick/snare/hats/cymbals) for Roblox drum kits.',
+    drums: 'Separate, then classify every drum hit onto the full 8-pad kit: kick, snare, closed and open hat, three toms, crash and ride.',
   };
 
   // Show only the tuning group relevant to the selected pipeline.
