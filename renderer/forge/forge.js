@@ -13,12 +13,12 @@
     'MELODY_DENSITY', 'MELODY_FOLD'];
   const ADV_DEFAULTS = {
     USE_TTA: false, LOUDNESS_NORM: true, BIGSHIFTS: 1, SEGMENT_HOP: '',
-    VELOCITY_GAMMA: 0.85, MIN_NOTE_SEC: 0.05, MIN_VELOCITY: 20,
+    VELOCITY_GAMMA: 0.85, MIN_NOTE_SEC: 0.03, MIN_VELOCITY: 20,
     PIANO_MIN_PITCH: 21, PIANO_MAX_PITCH: 108, BP_ONSET_THRESHOLD: 0.5,
     BP_FRAME_THRESHOLD: 0.3, BP_MIN_NOTE_MS: 120, MAX_POLYPHONY: 0,
     OCTAVE_FOLD: true, EXCLUDE_VOCALS: false, ONSET_DELTA: 0.07,
     DRUM_MIN_GAP_MS: 50, MELODY_MIN_PITCH: 45, MELODY_MAX_PITCH: 100,
-    MELODY_ONSET_THRESHOLD: 0.42, MELODY_MIN_NOTE_MS: 45,
+    MELODY_ONSET_THRESHOLD: 0.42, MELODY_MIN_NOTE_MS: 30,
     MELODY_DENSITY: 13, MELODY_FOLD: true,
   };
 
@@ -579,9 +579,10 @@
       if (window.studio && studio.forgeInfo) {
         try {
           const info = await studio.forgeInfo();
-          if (info && info.forgeFreeGb != null && info.forgeFreeGb < 15) {
-            logLine('Only ' + info.forgeFreeGb + ' GB free on ' + info.forgeEnvDir + ' - setup needs about 15 GB.');
-            if (!window.confirm('That drive has ' + info.forgeFreeGb + ' GB free and setup needs about 15 GB. '
+          const needGb = (info && info.forgeNeedGb) || 15;
+          if (info && info.forgeFreeGb != null && info.forgeFreeGb < needGb) {
+            logLine('Only ' + info.forgeFreeGb + ' GB free on ' + info.forgeEnvDir + ' - setup needs about ' + needGb + ' GB.');
+            if (!window.confirm('That drive has ' + info.forgeFreeGb + ' GB free and setup needs about ' + needGb + ' GB. '
               + 'Use "Change folder..." to install the engine on another drive. Start anyway?')) return;
           }
         } catch (_) { /* advisory only */ }
@@ -675,6 +676,7 @@
       else el.value = value;
     }
     F.setSettings({ advanced: collectAdvanced() });
+    syncQuality();
     const button = $('adv-reset');
     button.textContent = 'Reset done';
     setTimeout(() => { button.textContent = 'Reset tuning'; }, 1200);
@@ -780,6 +782,68 @@
   });
   window.addEventListener('resize', drawWaveform);
 
+  // ---- quality presets ------------------------------------------------------
+  // Best turns on separation TTA (a second, shifted pass over the audio), halves
+  // the transcriber's 8 s segment hop so notes near a segment edge get a second
+  // look, and drops the note-length and loudness floors so fast quiet runs
+  // survive the cleanup. Costs roughly 3-5x the time.
+  const QUALITY = {
+    balanced: { USE_TTA: false, BIGSHIFTS: 1, SEGMENT_HOP: '', MIN_NOTE_SEC: 0.03,
+      MIN_VELOCITY: 20, MELODY_MIN_NOTE_MS: 30, MELODY_DENSITY: 13 },
+    best: { USE_TTA: true, BIGSHIFTS: 3, SEGMENT_HOP: 4, MIN_NOTE_SEC: 0.02,
+      MIN_VELOCITY: 12, MELODY_MIN_NOTE_MS: 22, MELODY_DENSITY: 22 },
+  };
+  const QUALITY_HINT = {
+    balanced: 'One separation pass, default overlap.',
+    best: 'Extra separation pass, double overlap, lower cutoffs. Much slower.',
+    custom: 'Your own Advanced values.',
+  };
+
+  function applyQuality(name) {
+    const preset = QUALITY[name];
+    if (!preset) return;
+    for (const [k, v] of Object.entries(preset)) {
+      const el = $(k);
+      if (!el) continue;
+      if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+    }
+  }
+
+  // Which preset the current Advanced values match, or 'custom'.
+  function detectQuality() {
+    for (const [name, preset] of Object.entries(QUALITY)) {
+      const same = Object.entries(preset).every(([k, v]) => {
+        const el = $(k);
+        if (!el) return true;
+        return el.type === 'checkbox' ? el.checked === !!v : String(el.value) === String(v);
+      });
+      if (same) return name;
+    }
+    return 'custom';
+  }
+
+  function syncQuality() {
+    const q = $('quality');
+    if (!q) return;
+    const name = detectQuality();
+    q.querySelector('option[value="custom"]').hidden = name !== 'custom';
+    q.value = name;
+    $('quality-hint').textContent = QUALITY_HINT[name] || '';
+  }
+
+  if ($('quality')) {
+    $('quality').addEventListener('change', () => {
+      const name = $('quality').value;
+      if (name === 'custom') { syncQuality(); return; }
+      applyQuality(name);
+      syncQuality();
+      F.setSettings({ advanced: collectAdvanced() });
+      logLine('Quality: ' + name + '. ' + QUALITY_HINT[name]);
+    });
+    // Editing anything in Advanced by hand flips the label to Custom.
+    $('adv').addEventListener('change', syncQuality);
+  }
+
   function collectAdvanced() {
     const a = {};
     for (const k of ADV_KEYS) { const el = $(k); if (!el) continue; if (el.type === 'checkbox') a[k] = el.checked; else if (el.value !== '') a[k] = el.value; }
@@ -799,8 +863,10 @@
     if (s.outputDir) { outputDir = s.outputDir; $('out-dir').textContent = s.outputDir; $('clear-out').hidden = false; }
     else showDefaultOut();
     if (s.advanced) for (const [k, v] of Object.entries(s.advanced)) { const el = $(k); if (!el) continue; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; }
+    syncQuality();
     syncPipelineUI();
   }).catch(() => {});
+  syncQuality();
   syncPipelineUI();
 
   // ---- run / cancel ----

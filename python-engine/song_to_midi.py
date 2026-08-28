@@ -49,7 +49,10 @@ ONNX_DRUMS_MODEL = MODELS_BASE / "onnx" / "kuielab_b_drums.onnx"
 #   auto     - CUDA -> msst; else DirectML GPU -> onnx_dml; else msst on CPU
 SEPARATION_BACKEND = os.environ.get("SEPARATION_BACKEND", "auto").lower()
 
-MIN_NOTE_SEC = float(os.environ.get("MIN_NOTE_SEC", "0.05"))
+# A 32nd note at 174 BPM is 43 ms, so a 50 ms floor deleted real notes
+# out of fast tracks. Transkun rarely emits anything under 30 ms, so the
+# lower floor costs almost no false positives.
+MIN_NOTE_SEC = float(os.environ.get("MIN_NOTE_SEC", "0.03"))
 MIN_VELOCITY = int(os.environ.get("MIN_VELOCITY", "20"))
 USE_TTA = os.environ.get("USE_TTA", "0") in ("1", "true", "True", "yes")
 BIGSHIFTS = int(os.environ.get("BIGSHIFTS", "1"))

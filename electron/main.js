@@ -473,12 +473,22 @@ function performanceSettings() {
   };
 }
 
+// CUDA torch is 2.75 GB packed and unpacks to several more; the CPU wheel is a
+// tenth of that. Warning about 15 GB on a CPU machine sends people hunting for
+// space setup does not need. Mirrors MIN_FREE_GB_START* in provision_forge.py.
+function forgeNeedGb() {
+  const sys = process.env.SystemRoot || 'C:\Windows';
+  try { return fs.existsSync(path.join(sys, 'System32', 'nvcuda.dll')) ? 15 : 6; }
+  catch (_) { return 15; }
+}
+
 function forgeInfo() {
   const s = settings.forgePaths();
   const dir = paths.forgeEnvDir(s);
   return { version: app.getVersion(), forgeReady: paths.forgeEnvReady(s),
     forgePython: paths.forgeEnvPython(s), forgeEnvDir: dir, forgeFreeGb: freeGb(dir),
-    forgeDefaultDir: paths.forgeEnvDir({}), forgeCustom: !!s.forgeEnvDir };
+    forgeDefaultDir: paths.forgeEnvDir({}), forgeCustom: !!s.forgeEnvDir,
+    forgeNeedGb: forgeNeedGb() };
 }
 
 // The installer records the folder the user picked; the app applies it on its

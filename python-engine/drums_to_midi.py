@@ -151,7 +151,14 @@ def classify_hits(wav: Path):
                 else:
                     drum = TOM_HI       # D
 
-        if e_metal > metal_at and e_metal > max(e_low, e_body) * 0.9:
+        # Compare the top band against the bands that actually bleed into it.
+        # This used to test against e_low, which is the kick's own register: a
+        # kick landing with a hat has a huge low band and nothing above 3.5 kHz
+        # of its own, so the hat was thrown away on the strength of the kick.
+        # 33 of the 37 kick+hat coincidences in a 60 s dance-remix stem lost
+        # their hat that way. A snare's crack does reach up here, so keep the
+        # ratio test -- just point it at body/crack instead of low.
+        if e_metal > metal_at and e_metal > max(e_body, e_crack) * 0.9:
             if ring > 0.48 or e_metal > 1.2:
                 cymbal = CRASH if e_crack > 0.22 or e_body > 0.25 else RIDE
             else:

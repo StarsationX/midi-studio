@@ -138,6 +138,16 @@
           <audio id="preview-audio"></audio>
         </div>
 
+        <label class="lbl" for="quality">Quality</label>
+        <div class="quality-row">
+          <select id="quality">
+            <option value="balanced">Balanced - one pass (default)</option>
+            <option value="best">Best - extra passes, catches fast + quiet notes (3-5x slower)</option>
+            <option value="custom" hidden>Custom</option>
+          </select>
+          <span class="muted small" id="quality-hint"></span>
+        </div>
+
         <button class="adv-toggle" id="adv-toggle" aria-expanded="false">Advanced <i data-icon="caretDown" data-icon-size="11"></i></button>
         <div class="adv" id="adv" hidden>
           <div class="adv-head">
@@ -147,7 +157,7 @@
           <div class="adv-grid">
             <label class="check" title="Balances quiet and loud recordings before transcription"><input type="checkbox" id="LOUDNESS_NORM" checked /> Balance input volume</label>
             <label title="Controls the contrast between soft and strong notes">Note dynamics <span class="adv-value"><input type="number" id="VELOCITY_GAMMA" step="0.05" min="0.2" max="2" value="0.85" /></span></label>
-            <label title="Notes shorter than this are removed as noise">Shortest note <span class="adv-value"><input type="number" id="MIN_NOTE_SEC" step="0.01" min="0" value="0.05" /><i>s</i></span></label>
+            <label title="Notes shorter than this are removed as noise">Shortest note <span class="adv-value"><input type="number" id="MIN_NOTE_SEC" step="0.01" min="0" value="0.03" /><i>s</i></span></label>
             <label title="Notes quieter than this MIDI velocity are removed">Quiet-note cutoff <span class="adv-value"><input type="number" id="MIN_VELOCITY" min="0" max="127" value="20" /></span></label>
             <label title="Maximum keys pressed at once. Zero keeps every detected note.">Chord size limit <span class="adv-value"><input type="number" id="MAX_POLYPHONY" step="1" min="0" max="12" value="0" /><i>0 = all</i></span></label>
           </div>
@@ -173,7 +183,7 @@
               <label title="Lowest lead note to consider. MIDI 45 is A2.">Lowest lead note <span class="adv-value"><input type="number" id="MELODY_MIN_PITCH" min="24" max="96" value="45" /></span></label>
               <label title="Highest lead note to consider. MIDI 100 is E7.">Highest lead note <span class="adv-value"><input type="number" id="MELODY_MAX_PITCH" min="48" max="120" value="100" /></span></label>
               <label title="Lower values detect softer attacks; higher values reject noise.">Lead sensitivity <span class="adv-value"><input type="number" id="MELODY_ONSET_THRESHOLD" step="0.02" min="0.1" max="0.9" value="0.42" /><i>lower = more</i></span></label>
-              <label title="Detected lead notes shorter than this are ignored.">Shortest lead note <span class="adv-value"><input type="number" id="MELODY_MIN_NOTE_MS" step="5" min="20" max="300" value="45" /><i>ms</i></span></label>
+              <label title="Detected lead notes shorter than this are ignored.">Shortest lead note <span class="adv-value"><input type="number" id="MELODY_MIN_NOTE_MS" step="5" min="20" max="300" value="30" /><i>ms</i></span></label>
               <label title="Busy passages are thinned to this many notes per second so the result stays playable. 0 = keep everything.">Max notes / second <span class="adv-value"><input type="number" id="MELODY_DENSITY" step="1" min="0" max="40" value="13" /></span></label>
               <label class="check" title="Move notes outside the range into it instead of deleting them. Keeps a hook that climbs out of range."><input type="checkbox" id="MELODY_FOLD" checked /> Fold out-of-range notes back in</label>
             </div>

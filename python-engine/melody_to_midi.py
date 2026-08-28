@@ -37,7 +37,7 @@ FOLD_OCTAVES = os.environ.get("MELODY_FOLD", "1") in ("1", "true", "True", "yes"
 DENSITY = float(os.environ.get("MELODY_DENSITY", "13"))
 BP_ONSET = float(os.environ.get("MELODY_ONSET_THRESHOLD", "0.42"))
 BP_FRAME = float(os.environ.get("MELODY_FRAME_THRESHOLD", "0.28"))
-BP_MIN_NOTE_MS = int(os.environ.get("MELODY_MIN_NOTE_MS", "45"))
+BP_MIN_NOTE_MS = int(os.environ.get("MELODY_MIN_NOTE_MS", "30"))
 # A supersaw stack transcribes as the note plus a quiet simultaneous fifth, and
 # those parallel fifths are the most obvious wrong thing in a dense electronic
 # transcription. Off for material that really does play in fifths (some

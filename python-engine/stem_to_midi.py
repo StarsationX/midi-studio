@@ -31,7 +31,10 @@ from basic_pitch.inference import predict
 
 from audio_utils import audio_window_from_env, expand_velocities, load_normalize_save
 
-MIN_NOTE_SEC = float(os.environ.get("MIN_NOTE_SEC", "0.05"))
+# A 32nd note at 174 BPM is 43 ms, so a 50 ms floor deleted real notes
+# out of fast tracks. Transkun rarely emits anything under 30 ms, so the
+# lower floor costs almost no false positives.
+MIN_NOTE_SEC = float(os.environ.get("MIN_NOTE_SEC", "0.03"))
 MIN_VELOCITY = int(os.environ.get("MIN_VELOCITY", "20"))
 MIN_PITCH = int(os.environ.get("PIANO_MIN_PITCH", "0"))
 MAX_PITCH = int(os.environ.get("PIANO_MAX_PITCH", "127"))

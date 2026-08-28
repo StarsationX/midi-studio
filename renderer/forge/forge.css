@@ -412,3 +412,7 @@ body { height: 100%; overflow-y: auto; }
 .lane .queue-head .spacer { flex: 1 1 100%; height: 0; }
 .lane-rail .queue-head .spacer { display: none; }
 .lane .qi-name { min-width: 0; }
+
+.quality-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.quality-row select { flex: 0 1 auto; min-width: 0; }
+.quality-row #quality-hint { flex: 1 1 auto; }

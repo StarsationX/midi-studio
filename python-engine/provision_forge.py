@@ -201,7 +201,7 @@ class Provisioner:
         req = urllib.request.Request(url, headers={"User-Agent": "midi-studio-provisioner"})
         with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
             total = int(r.headers.get("Content-Length", "0"))
-            read, last = 0, -1
+            read, last, beat = 0, -1, 0.0
             while True:
                 chunk = r.read(1024 * 256)
                 if not chunk:
@@ -214,6 +214,11 @@ class Provisioner:
                         step(pct, label, f"{label} {pct}% ({mb:.0f} MB)"); last = pct
                 elif int(mb) % 8 == 0 and int(mb) != last:
                     step(-1, label, f"{label} {mb:.0f} MB"); last = int(mb)
+                # GitHub archives send no Content-Length, so the bar cannot move.
+                # The log must still show life or a slow link reads as a hang.
+                if mb - beat >= 4:
+                    beat = mb; log(f"{label} {mb:.0f} MB")
+        log(f"{label} downloaded ({read / 1048576:.0f} MB)")
 
     def ensure_python(self):
         if self.py.exists():

@@ -76,7 +76,10 @@ def transkun_cmd(backend, src, out_midi):
     if SEGMENT_SIZE:
         cmd += ["--segmentSize", SEGMENT_SIZE]
     return cmd
-MIN_NOTE_SEC = float(os.environ.get("MIN_NOTE_SEC", "0.05"))
+# A 32nd note at 174 BPM is 43 ms, so a 50 ms floor deleted real notes
+# out of fast tracks. Transkun rarely emits anything under 30 ms, so the
+# lower floor costs almost no false positives.
+MIN_NOTE_SEC = float(os.environ.get("MIN_NOTE_SEC", "0.03"))
 MIN_VELOCITY = int(os.environ.get("MIN_VELOCITY", "20"))
 PIANO_MIN_PITCH = int(os.environ.get("PIANO_MIN_PITCH", "21"))
 PIANO_MAX_PITCH = int(os.environ.get("PIANO_MAX_PITCH", "108"))

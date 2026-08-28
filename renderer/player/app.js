@@ -844,7 +844,12 @@ els.tempo.addEventListener('input', () => {
 });
 // The slider used to call loadMidi() directly, which re-scaled the visualizer
 // while the engine kept playing the old timeline. setTempo does the restart.
-els.tempo.addEventListener('change', () => setTempo(parseFloat(els.tempo.value)));
+els.tempo.addEventListener('change', () => {
+  setTempo(parseFloat(els.tempo.value));
+  // A range input answers arrow keys for as long as it holds focus, so a
+  // slider clicked once quietly eats every later keypress meant for the game.
+  els.tempo.blur();
+});
 
 els.countdown.addEventListener('change', () => {
   settings.countdown = parseInt(els.countdown.value, 10) || 0;
@@ -1234,6 +1239,10 @@ function loadMidi() {
     auto_transpose: !!pendingAutoTranspose,
   });
   pendingAutoTranspose = false;
+  const t = parseFloat(els.tempo.value) || 1;
+  if (Math.abs(t - 1) > 0.005) {
+    log('info', `Loaded at ${t.toFixed(2)}× tempo (carried over). Reset sets it back to 1.00×.`);
+  }
 }
 
 // Put a path in the box and hand it to the engine. Playlist bookkeeping lives
