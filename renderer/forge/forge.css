@@ -416,3 +416,5 @@ body { height: 100%; overflow-y: auto; }
 .quality-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .quality-row select { flex: 0 1 auto; min-width: 0; }
 .quality-row #quality-hint { flex: 1 1 auto; }
+
+.prog-right { display: inline-flex; align-items: baseline; gap: 10px; }

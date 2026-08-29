@@ -233,8 +233,25 @@ class ForgeRunner {
       if (/error|traceback|exception|no such file|not found|out of memory|CUDA|permission/i.test(line)
           && !/^\s*$/.test(line) && causes.length < 6) causes.push(line);
     };
+    // Where the Transcribe stage sits in this pipeline's table, and where the
+    // next one starts, so segment counts can walk the bar between them.
+    const tIdx = stageTable.findIndex(([, stage]) => stage === 'Transcribe');
+    const tFrom = tIdx >= 0 ? stageTable[tIdx][2] : 0;
+    const tTo = tIdx >= 0 && stageTable[tIdx + 1] ? stageTable[tIdx + 1][2] - 2 : tFrom;
+
     const onLine = (line) => {
       remember(line);
+      // TSEG|k|N from transcribe_fast.py. GPU and DirectML paths only; the CPU
+      // path runs stock transkun, which has nothing to report.
+      if (line.startsWith('TSEG|')) {
+        const [, k, n] = line.split('|');
+        const done = Number(k), total = Number(n);
+        if (tIdx >= 0 && total > 0) {
+          progress('Transcribe', Math.round(tFrom + (tTo - tFrom) * (done / total)),
+                   `Transcribing segment ${done}/${total}`);
+        }
+        return;
+      }
       if (line.startsWith('RESULT|')) {
         try { child.__result = JSON.parse(line.slice(7)); }
         catch { this._emit({ event: 'forge.log', jobId, line: 'Could not read pipeline result metadata.', level: 'error' }); }

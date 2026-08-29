@@ -184,10 +184,18 @@ def main() -> int:
 
     threading.Thread(target=run_producer, daemon=True, name="backbone").start()
 
+    # The decode is the longest stretch of the whole app and used to print
+    # nothing between "N segments" and "Transcribed N events", so the UI bar sat
+    # at one number for minutes. Count segments out loud instead.
+    done = [0]
+    total = len(frames)
+
     def pop_front(_framesBatch):
         item = out_q.get()
         if item is _DONE:
             raise RuntimeError(f"backbone producer ended early: {err or 'unknown'}")
+        done[0] += 1
+        print(f"TSEG|{done[0]}|{total}", flush=True)
         score, noise, ctx = item
         return CRF.NeuralSemiCRFInterval(score, noise), ctx
 

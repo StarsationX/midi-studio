@@ -645,7 +645,7 @@
   function doFetch() {
     const url = $('url').value.trim(); if (!url || busy) return;
     hideResults(); logLine('> Fetching ' + url);
-    $('job-prog').hidden = false; $('job-stage').textContent = 'Download'; $('job-bar').className = 'bar-fill indet'; $('job-pct').textContent = '';
+    $('job-prog').hidden = false; $('job-stage').textContent = 'Download'; $('job-bar').className = 'bar-fill indet'; $('job-pct').textContent = ''; startJobTimer();
     setBusy(true); currentJob = null; pendingCancel = false;
     activeState = 'running'; skipRequested = false;
     F.yt({ url, outDir: outputDir }).then((id) => { currentJob = id; if (pendingCancel) F.cancel(id); });
@@ -882,7 +882,7 @@
     const timingRaw = { enabled: $('time-enabled').checked, start: $('time-start').value.trim(), end: $('time-end').value.trim() };
     const timing = collectTiming();
     F.setSettings({ pipeline, skipSeparation: $('skipsep').checked, advanced, timing: timingRaw });
-    hideResults(); $('job-prog').hidden = false; $('job-stage').textContent = 'Queued'; $('job-bar').className = 'bar-fill indet'; $('job-pct').textContent = '';
+    hideResults(); $('job-prog').hidden = false; $('job-stage').textContent = 'Queued'; $('job-bar').className = 'bar-fill indet'; $('job-pct').textContent = ''; startJobTimer();
     setBusy(true); currentJob = null; pendingCancel = false;
     const n = queue.length ? ` (${queue.length} more queued)` : '';
     logLine('> Start ' + inputPath.split(/[\/]/).pop() + ' (' + pipeline + ($('skipsep').checked ? ', skip-sep' : '') + ')' + n);
@@ -924,6 +924,28 @@
     $('cancel').textContent = 'Cancelling…';
   });
 
+  // The transcribe stage parks the bar at one percentage and can print nothing
+  // for minutes (longer still on Best). Same fix as setup: a clock that moves.
+  let jobStarted = 0, jobTimer = null;
+
+  function startJobTimer() {
+    jobStarted = Date.now();
+    clearInterval(jobTimer);
+    const paint = () => {
+      const seconds = Math.floor((Date.now() - jobStarted) / 1000);
+      $('job-elapsed').textContent =
+        String(Math.floor(seconds / 60)).padStart(2, '0') + ':'
+        + String(seconds % 60).padStart(2, '0');
+    };
+    paint();
+    jobTimer = setInterval(paint, 1000);
+  }
+
+  function stopJobTimer() {
+    clearInterval(jobTimer); jobTimer = null;
+    $('job-elapsed').textContent = '';
+  }
+
   // ---- output actions ----
   $('output-open').addEventListener('click', async () => { const p = $('output-path').textContent; if (p) { const r = await F.showItem(p); if (r && !r.ok) showError('File not found. It may have moved.'); } });
   $('output-listen').addEventListener('click', () => {
@@ -931,7 +953,6 @@
     if (midiPath) parent.postMessage({ type: 'studio:open-audition', midiPath, projectPath: currentProject, play: undefined }, '*');
   });
   $('output-review').addEventListener('click', () => {
-    if (!currentProject) return;
     // Only the melody pipeline writes a project file; the others still have a
     // .mid the Editor can open directly.
     parent.postMessage({ type: 'studio:open-review',
@@ -946,7 +967,7 @@
   $('log-clear').addEventListener('click', () => { $('log').textContent = ''; });
   $('err-dismiss').addEventListener('click', () => { $('errcard').hidden = true; });
 
-  function showError(msg) { $('job-prog').hidden = true; $('errcard').hidden = false; $('err-msg').textContent = msg; }
+  function showError(msg) { stopJobTimer(); $('job-prog').hidden = true; $('errcard').hidden = false; $('err-msg').textContent = msg; }
 
   // ---- status stream ----
   F.onStatus((s) => {
@@ -990,7 +1011,7 @@
       case 'forge.done': {
         const wasSkipped = skipRequested;
         skipRequested = false;
-        setBusy(false); $('cancel').textContent = 'Cancel'; currentJob = null; pendingCancel = false; $('job-prog').hidden = true;
+        setBusy(false); $('cancel').textContent = 'Cancel'; currentJob = null; pendingCancel = false; $('job-prog').hidden = true; stopJobTimer();
         if (wasSkipped) {
           logLine('Skipped.');
         } else if (s.ok) {
