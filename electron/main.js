@@ -75,6 +75,24 @@ let winPainted = false;
 // Pushing it the moment the network answers loses it entirely if the renderer
 // has not subscribed yet, which is normal on a slow machine.
 let lastUpdateStatus = null;
+// A .mid double-clicked in Explorer arrives in argv (first launch) or via
+// second-instance (app already open). Hold it until a tab can take it.
+let pendingOpenPath = '';
+
+function midiPathFromArgv(argv) {
+  for (const a of (argv || []).slice(1)) {
+    const v = String(a || '').trim();
+    if (/\.midi?$/i.test(v) && fs.existsSync(v)) return path.resolve(v);
+  }
+  return '';
+}
+
+function deliverOpenPath() {
+  if (!pendingOpenPath) return;
+  const p = pendingOpenPath; pendingOpenPath = '';
+  blog(`open-file: ${p}`);
+  sendToRenderer('open-midi', { midiPath: p });
+}
 
 const gotLock = CONFIGURE_FORGE_INDEX >= 0 || app.requestSingleInstanceLock();
 blog(`gotLock=${gotLock}`);
@@ -214,6 +232,8 @@ function createWindow() {
   // The renderer subscribes to update-status as it loads. Anything that
   // arrived before then was sent into the void, so hand it over now.
   win.webContents.on('did-finish-load', () => {
+    // The shell subscribes on load; the player iframe needs a beat more.
+    setTimeout(deliverOpenPath, 600);
     if (lastUpdateStatus) {
       const payload = lastUpdateStatus;
       setTimeout(() => sendToRenderer('update-status', payload), 300);
@@ -954,8 +974,10 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
   // instance somehow lost its window but kept the single-instance lock, the new
   // process used to just exit, so the app "wouldn't open" until the user found
   // it in Task Manager and ended it.
-  app.on('second-instance', () => {
+  app.on('second-instance', (_e, argv) => {
     blog('second-instance');
+    const opened = midiPathFromArgv(argv);
+    if (opened) { pendingOpenPath = opened; if (winPainted) deliverOpenPath(); }
     if (win && !win.isDestroyed()) {
       if (win.isMinimized()) win.restore();
       // Only show a window that has painted. A second launch while the first
@@ -971,6 +993,7 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
 
   app.whenReady().then(() => {
     blog('whenReady fired');
+    pendingOpenPath = midiPathFromArgv(process.argv);
     try {
       settings = new Settings();
       overlay = new Overlay({

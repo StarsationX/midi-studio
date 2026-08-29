@@ -987,3 +987,6 @@ input[type=color].is-off { opacity: .45; }
 }
 .bpm-set input:disabled { opacity: .45; }
 #tempo-bpm-src { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
+
+#mapping-note { margin-top: 4px; line-height: 1.4; }
+#mapping-note.is-warn { color: var(--warn, #d9a441); }

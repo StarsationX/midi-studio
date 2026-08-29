@@ -45,7 +45,19 @@ function list(roots) {
     const key = file.path.toLowerCase();
     if (!byPath.has(key)) byPath.set(key, file);
   }
-  const files = [...byPath.values()].sort((a, b) => b.modified - a.modified);
+  // The melody pipeline writes X_melody.mid plus _balanced and _detailed
+  // siblings. Those are versions of one song, not three songs; the Version
+  // picker switches between them once the primary is open. Fold them in.
+  const CANDIDATE_RE = /_(balanced|detailed)$/i;
+  const primaries = new Set([...byPath.values()].map((f) => path.join(f.dir, f.name).toLowerCase()));
+  const files = [...byPath.values()]
+    .filter((f) => {
+      const m = f.name.match(CANDIDATE_RE);
+      if (!m) return true;
+      const primary = path.join(f.dir, f.name.slice(0, -m[0].length)).toLowerCase();
+      return !primaries.has(primary);   // orphaned candidate: still show it
+    })
+    .sort((a, b) => b.modified - a.modified);
   return { files, truncated: found.length >= MAX_FILES };
 }
 

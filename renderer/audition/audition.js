@@ -110,6 +110,21 @@
     return files;
   }
 
+  // "6 days ago" for the recent past, a short date after that. The point is
+  // telling last week's song from yesterday's without opening either.
+  function whenLabel(ms) {
+    if (!ms) return '';
+    const diff = Date.now() - ms;
+    const min = 60e3, hr = 60 * min, day = 24 * hr;
+    if (diff < hr) return 'just now';
+    if (diff < day) return `${Math.floor(diff / hr)} h ago`;
+    if (diff < 7 * day) return `${Math.floor(diff / day)} d ago`;
+    const d = new Date(ms);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString(undefined, sameYear
+      ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
   function renderLibrary() {
     const host = $('library-list');
     const files = libraryView();
@@ -139,7 +154,8 @@
         item.title = file.path;
         item.innerHTML = '<b></b><small></small>';
         item.querySelector('b').textContent = file.name;
-        item.querySelector('small').textContent = relativeDir(file.dir);
+        // Newest-first is meaningless without a date to read it against.
+        item.querySelector('small').textContent = `${whenLabel(file.modified)} · ${relativeDir(file.dir)}`;
         item.addEventListener('click', () => loadAudition(file.path, '', { play: true }));
         item.addEventListener('contextmenu', (event) => {
           event.preventDefault();

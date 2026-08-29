@@ -1,6 +1,6 @@
 {
   "name": "midi-studio",
-  "version": "2.24.0",
+  "version": "2.25.0",
   "description": "Turn a song into MIDI, edit it, and play it back on any keyboard.",
   "author": "StarsationX",
   "license": "MIT",
@@ -56,7 +56,15 @@
           ]
         }
       ],
-      "artifactName": "MIDI-Studio-${version}-${target}.${ext}"
+      "artifactName": "MIDI-Studio-${version}-${target}.${ext}",
+      "fileAssociations": [
+        {
+          "ext": ["mid", "midi"],
+          "name": "MIDI file",
+          "description": "MIDI Studio song",
+          "role": "Viewer"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

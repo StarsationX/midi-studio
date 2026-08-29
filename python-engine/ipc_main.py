@@ -165,9 +165,20 @@ class Bridge:
                 [round(t, 6), k, round(d, 6), n, c]
                 for (t, k, d, n, c) in events
             ]
+            # White-only layouts map a sharp onto the white key below it, so
+            # the note is "mapped" and never shows up as out of range. It is
+            # still a wrong note. Count them so the UI can say so.
+            black = {1, 3, 6, 8, 10}
+            collapsed = sum(
+                1 for (_, _, _, n, _) in events
+                if (n + transpose) % 12 in black
+                and note_to_key.get(n + transpose) is not None
+                and note_to_key.get(n + transpose) == note_to_key.get(n + transpose - 1))
             emit({
                 "event": "midi_loaded",
                 "events": payload,
+                "collapsed_sharps": collapsed,
+                "mapping_description": mapping_data.get("description", ""),
                 "duration": round(total, 3),
                 "bpm": round(bpm, 2),
                 # What the onsets say, which is not always what the file says:

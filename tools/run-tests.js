@@ -358,6 +358,20 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
 
   try { fs.rmSync(base, { recursive: true, force: true }); } catch {}
 
+
+// Self Midi library: melody candidates fold into their primary; a candidate
+// with no primary on disk still shows (nothing gets hidden with no way back).
+{
+  const fs = require('fs'), os = require('os');
+  const lib = require(path.join(root, 'electron', 'library.js'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-lib-'));
+  for (const n of ['song_melody.mid', 'song_melody_balanced.mid', 'song_melody_detailed.mid',
+                   'orphan_detailed.mid', 'piano.mid']) fs.writeFileSync(path.join(dir, n), '');
+  const names = lib.list([dir]).files.map((f) => f.name).sort();
+  ok(names.join(',') === 'orphan_detailed,piano,song_melody', `candidate fold (got ${names.join(',')})`);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

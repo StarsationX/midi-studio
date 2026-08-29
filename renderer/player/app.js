@@ -337,18 +337,12 @@ window.api.onEngineEvent((evt) => {
       els.rangeWarning.textContent = evt.unmapped && evt.unmapped.length
         ? `· ${evt.unmapped.length} notes out of range` : '';
       els.rangeWarning.classList.toggle('is-warn', !!(evt.unmapped && evt.unmapped.length));
-      if (typeof evt.transpose === 'number' && evt.transpose !== (settings.transpose | 0)) {
-        settings.transpose = evt.transpose; showTranspose(); saveSettings();
-        log('info', `Auto-transposed ${evt.transpose > 0 ? '+' : ''}${evt.transpose} semitones to fit the mapping.`);
-      }
-      els.rangeWarning.textContent = evt.unmapped && evt.unmapped.length
-        ? `· ${evt.unmapped.length} notes out of range` : '';
-      els.rangeWarning.classList.toggle('is-warn', !!(evt.unmapped && evt.unmapped.length));
       if (evt.unmapped && evt.unmapped.length) {
         log('warn',
           `Skipped ${evt.unmapped.length} notes outside the mapping range: `
           + `[${evt.unmapped.join(', ')}]`);
       }
+      showMappingNote(evt);
       updateTrackStrip();
       els.timeTotal.textContent = fmtClock(totalDuration);
       els.timeElapsed.textContent = fmtClock(0);
@@ -1448,6 +1442,26 @@ function addToQueue(paths) {
 
 // Public entry for browse / recents / library / the Forge hand-off: put the file
 // in the playlist (or find it there) and make it current.
+// The 36-key layout has no black keys, so every sharp lands on the white key
+// below it: mapped, so never "out of range", and wrong. A first-timer hears a
+// sour song and blames the transcription. Say what happened and where the
+// other layout is.
+function showMappingNote(evt) {
+  const el = document.getElementById('mapping-note');
+  if (!el) return;
+  const n = evt && evt.collapsed_sharps | 0;
+  if (n > 0) {
+    el.textContent = `${n} black-key notes will play as the white key below. `
+      + `If your piano takes Shift for sharps, pick roblox61.`;
+    el.classList.add('is-warn');
+    log('warn', `${n} sharps/flats have no key in this layout and will play a semitone low. `
+      + `Mapping → roblox61 if your game supports Shift.`);
+  } else {
+    el.textContent = (evt && evt.mapping_description) || '';
+    el.classList.remove('is-warn');
+  }
+}
+
 function setMidiFile(path, andPlay = false) {
   if (!path) return;
   let i = tracks.indexOf(path);

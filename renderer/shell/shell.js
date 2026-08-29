@@ -160,7 +160,7 @@
     const deliver = () => {
       const target = frame && frame.contentWindow;
       if (target && typeof target.setMidiFile === 'function') target.setMidiFile(payload.midiPath || '');
-      else if (target && target.api) target.api.send({ cmd: 'load_midi', path: payload.midiPath || '', mapping: 'roblox88', tempo: 1.0 });
+      else if (target && target.api) target.api.send({ cmd: 'load_midi', path: payload.midiPath || '', mapping: 'roblox', tempo: 1.0 });
     };
     if (frame && frame.contentWindow && typeof frame.contentWindow.setMidiFile === 'function') deliver();
     else if (frame) frame.addEventListener('load', () => setTimeout(deliver, 120), { once: true });
@@ -175,6 +175,9 @@
   // Ctrl+1..4 arrive from the main process (see before-input-event) because the
   // tab iframe swallows key events aimed at the shell.
   if (studio && studio.onShortcut) studio.onShortcut((p) => { if (p && p.tab) activate(p.tab); });
+  // Windows handed us a .mid (double-click, Open with). Same path as Forge's
+  // "Send to Midi Player".
+  if (studio && studio.onOpenMidi) studio.onOpenMidi((p) => { if (p && p.midiPath) openPlayer(p); });
 
   // A running game forces the limited draw rate regardless of the setting.
   if (studio && studio.onGameActive) studio.onGameActive((p) => {

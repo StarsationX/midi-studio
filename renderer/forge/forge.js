@@ -844,10 +844,33 @@
     $('adv').addEventListener('change', syncQuality);
   }
 
+  // Values a past release saved as if the user had chosen them. Every Start
+  // used to store the whole Advanced panel, defaults included, so bumping a
+  // default did nothing for anyone who had ever run a job: their disk still
+  // said 0.05, and the Quality box called that "Custom" on a panel they had
+  // never opened. Treat these exactly like an empty field.
+  const LEGACY_DEFAULTS = { MIN_NOTE_SEC: '0.05', MELODY_MIN_NOTE_MS: '45' };
+
+  // Every key, always. Settings are deep-merged on save, so a key left out is
+  // a key left as it was: clearing Segment spacing by omitting it kept the
+  // old 4 on disk and Best's transcribe cost with it. Empty means "engine
+  // default" and the runner already drops '' before building the env.
   function collectAdvanced() {
     const a = {};
-    for (const k of ADV_KEYS) { const el = $(k); if (!el) continue; if (el.type === 'checkbox') a[k] = el.checked; else if (el.value !== '') a[k] = el.value; }
+    for (const k of ADV_KEYS) {
+      const el = $(k); if (!el) continue;
+      a[k] = el.type === 'checkbox' ? el.checked : el.value;
+    }
     return a;
+  }
+
+  function restoreAdvanced(saved) {
+    for (const [k, v] of Object.entries(saved || {})) {
+      const el = $(k); if (!el) continue;
+      if (el.type === 'checkbox') { el.checked = !!v; continue; }
+      const stale = v == null || v === '' || String(v) === LEGACY_DEFAULTS[k];
+      el.value = stale ? (k in ADV_DEFAULTS && ADV_DEFAULTS[k] !== '' ? ADV_DEFAULTS[k] : '') : v;
+    }
   }
 
   F.getSettings().then((s) => {
@@ -862,7 +885,7 @@
     }
     if (s.outputDir) { outputDir = s.outputDir; $('out-dir').textContent = s.outputDir; $('clear-out').hidden = false; }
     else showDefaultOut();
-    if (s.advanced) for (const [k, v] of Object.entries(s.advanced)) { const el = $(k); if (!el) continue; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; }
+    restoreAdvanced(s.advanced);
     syncQuality();
     syncPipelineUI();
   }).catch(() => {});

@@ -103,6 +103,7 @@ contextBridge.exposeInMainWorld('studio', {
   setUi: (patch) => ipcRenderer.invoke('app:setUi', patch),
   forgeInfo: () => ipcRenderer.invoke('app:forgeInfo'),
   onShortcut: onChannel('shell-shortcut'),
+  onOpenMidi: onChannel('open-midi'),
   getPerformance: () => ipcRenderer.invoke('app:performance'),
   setPerformance: (patch) => ipcRenderer.invoke('app:setPerformance', patch),
   onGameActive: onChannel('game-active'),
