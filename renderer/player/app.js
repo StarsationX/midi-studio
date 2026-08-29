@@ -144,6 +144,7 @@ const settings = Object.assign({
   noteColor: '',            // '' = per-channel rainbow
   fallSpeed: 1,
   logCollapsed: true,
+  mapCollapsed: false,      // song map hidden, roll takes the space
   recentFiles: [],          // most-recent-first list of MIDI paths
   autoPickTarget: true,     // auto-select the remembered target on launch
   playlist: [],
@@ -1311,6 +1312,22 @@ els.pause.addEventListener('click', doTogglePause);
 els.stop.addEventListener('click', doStop);
 
 // Log header (anywhere except Clear) toggles collapse.
+// Song map collapse. The roll is what people watch; the map is a tool they
+// reach for. Hidden, its height goes to the roll.
+const mapToggle = $('map-toggle'), rangeEditor = $('range-editor');
+function applyMapCollapsed() {
+  const c = !!settings.mapCollapsed;
+  rangeEditor.classList.toggle('is-collapsed', c);
+  mapToggle.setAttribute('aria-expanded', String(!c));
+}
+mapToggle.addEventListener('click', () => {
+  settings.mapCollapsed = !settings.mapCollapsed;
+  saveSettings();
+  applyMapCollapsed();
+  window.dispatchEvent(new Event('resize'));
+});
+applyMapCollapsed();
+
 els.logHeader.addEventListener('click', (e) => {
   if (e.target.closest('#log-clear')) return;
   els.logPanel.classList.toggle('is-collapsed');

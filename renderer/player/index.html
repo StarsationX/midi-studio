@@ -244,7 +244,7 @@
     <!-- ============================================================
          Main column, visualizer / transport / log
          ============================================================ -->
-    <section class="main-col">
+    <section class="main-col" data-split="player-main" style="--map: 64px; --logh: 200px">
 
       <div class="panel viz-panel">
         <canvas id="viz" class="viz"></canvas>
@@ -257,31 +257,14 @@
                 title="Perch: keep the roll on top of the game (Ctrl+Alt+O)">Perch</button>
       </div>
 
+      <i class="grip-v" data-resize="map" data-axis="y" data-invert data-min="40" data-max="500"
+         aria-label="Resize the song map"></i>
+
       <div class="panel transport-panel">
         <div class="track-strip is-empty" id="track-strip">
           <span class="track-name" id="track-name">No file loaded</span>
           <span class="track-meta" id="track-meta"></span>
           <button id="export-sheet" class="btn-mini" type="button" title="Save a Virtual Piano sheet (.vp.txt) next to the MIDI and copy it">VP sheet</button>
-        </div>
-
-        <div class="range-editor" id="range-editor">
-          <div class="range-overview" id="range-overview" tabindex="0" role="slider" aria-label="Playback range" aria-valuemin="0" aria-valuemax="100">
-            <canvas id="range-canvas"></canvas>
-            <div class="range-empty" id="range-empty">Load a MIDI to see the full song</div>
-          </div>
-          <div class="range-controls">
-            <label class="range-toggle"><input type="checkbox" id="range-enabled"/> Play selection only</label>
-            <label>Start <input id="range-start" type="text" value="0:00" inputmode="decimal"/></label>
-            <label>Stop <input id="range-end" type="text" placeholder="end" inputmode="decimal"/></label>
-            <button id="range-full" class="btn btn-ghost" type="button">Full song</button>
-            <span id="range-summary" class="range-summary">Full song</span>
-          </div>
-          <div class="range-controls" id="practice-row">
-            <label class="range-toggle" title="Replay the selection until you stop"><input type="checkbox" id="range-loop"/> Loop selection</label>
-            <label title="Start slower and speed up each pass until the tempo above">Ramp from <input id="ramp-start" type="number" min="25" max="100" step="5" value="100" inputmode="numeric"/>%</label>
-            <label>+<input id="ramp-step" type="number" min="1" max="50" step="1" value="5" inputmode="numeric"/>% per pass</label>
-            <span id="practice-summary" class="range-summary"></span>
-          </div>
         </div>
 
         <div class="transport-row">
@@ -310,7 +293,37 @@
 
           <div class="transport-time right" id="time-total">00:00</div>
         </div>
+
+        <div class="range-editor" id="range-editor">
+          <button class="map-head" id="map-toggle" type="button" aria-expanded="true" title="Show or hide the song map">
+            <svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z" fill="currentColor"/></svg>
+            <span>Song map</span>
+            <span class="muted small" id="map-hint">drag to select a range · wheel to zoom · drag the bar above to resize</span>
+          </button>
+          <div class="map-body">
+            <div class="range-overview" id="range-overview" tabindex="0" role="slider" aria-label="Playback range" aria-valuemin="0" aria-valuemax="100">
+              <canvas id="range-canvas"></canvas>
+              <div class="range-empty" id="range-empty">Load a MIDI to see the full song</div>
+            </div>
+            <div class="range-controls">
+              <label class="range-toggle"><input type="checkbox" id="range-enabled"/> Play selection only</label>
+              <label>Start <input id="range-start" type="text" value="0:00" inputmode="decimal"/></label>
+              <label>Stop <input id="range-end" type="text" placeholder="end" inputmode="decimal"/></label>
+              <button id="range-full" class="btn btn-ghost" type="button">Full song</button>
+              <span id="range-summary" class="range-summary">Full song</span>
+            </div>
+            <div class="range-controls" id="practice-row">
+              <label class="range-toggle" title="Replay the selection until you stop"><input type="checkbox" id="range-loop"/> Loop selection</label>
+              <label title="Start slower and speed up each pass until the tempo above">Ramp from <input id="ramp-start" type="number" min="25" max="100" step="5" value="100" inputmode="numeric"/> %</label>
+              <label title="Tempo added after every pass">+ <input id="ramp-step" type="number" min="1" max="50" step="1" value="5" inputmode="numeric"/> % per pass</label>
+              <span id="practice-summary" class="range-summary"></span>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <i class="grip-v" data-resize="logh" data-axis="y" data-invert data-min="38" data-max="600"
+         aria-label="Resize the log"></i>
 
       <div class="panel log-panel is-collapsed" id="log-panel">
         <div class="log-header" id="log-header">
