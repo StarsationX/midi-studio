@@ -295,7 +295,8 @@ def make_resolver(note_to_key, fold=True):
     return resolve
 
 
-def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0, fold=True):
+def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0, fold=True,
+               hand="both", hand_split=60, chord_stagger=0.0):
     """
     Returns:
         events: sorted list of (t_sec, key_str, duration_sec, midi_note, channel)
@@ -306,8 +307,19 @@ def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0, fold=True):
     `transpose` shifts every note by N semitones before the mapping lookup. A
     Roblox keyboard covers MIDI 36-96; without a shift, everything outside that
     is dropped, which is why some songs played back with half the melody gone.
+
+    `hand` = "both" | "right" | "left" keeps only notes at/above or below
+    `hand_split` (original pitch, before transpose). Transcriptions are one
+    track, so a pitch split is the only hand split there is.
+
+    `chord_stagger` (seconds) rolls chords: the k-th note of a chord fires
+    k*stagger later, lowest pitch first. Keyboards ghost past ~6 keys and
+    games coalesce same-frame presses; a few ms of roll keeps every note.
     """
     transpose = int(transpose or 0)
+    hand = (hand or "both").lower()
+    hand_split = int(hand_split or 60)
+    chord_stagger = max(0.0, float(chord_stagger or 0.0))
     resolve = make_resolver(note_to_key, fold)
     mid = mido.MidiFile(midi_path)
 
@@ -319,6 +331,10 @@ def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0, fold=True):
     for msg in mid:                       # mido yields msg.time in seconds
         abs_time += msg.time
         if msg.type == "note_on" and msg.velocity > 0:
+            if hand == "right" and msg.note < hand_split:
+                continue
+            if hand == "left" and msg.note >= hand_split:
+                continue
             key = resolve(msg.note + transpose)
             if key is None:
                 unmapped.add(msg.note)
@@ -360,6 +376,26 @@ def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0, fold=True):
               for (t, k, d, n, c) in events]
     total = (mid.length - first_t) / tempo_scale
 
+    if chord_stagger > 0 and events:
+        # ponytail: chord = notes within 3 ms of the chord's first note; the
+        # roll is not clamped against the next chord, a 20 ms roll on a 10-key
+        # chord at 300 BPM will bleed. Nobody sets that.
+        CHORD_WINDOW = 0.003
+        rolled = []
+        i = 0
+        n = len(events)
+        while i < n:
+            j = i + 1
+            while j < n and events[j][0] - events[i][0] < CHORD_WINDOW:
+                j += 1
+            chord = sorted(events[i:j], key=lambda e: e[3])
+            t0 = events[i][0]
+            for k, (t, key, d, note, ch) in enumerate(chord):
+                rolled.append((t0 + k * chord_stagger, key, d, note, ch))
+            i = j
+        rolled.sort(key=lambda e: e[0])
+        events = rolled
+
     # Initial BPM from the first set_tempo, or 120 if the file has none.
     #
     # That number is often a lie. Every transcription this app produces goes
@@ -377,6 +413,70 @@ def parse_midi(midi_path, note_to_key, tempo_scale, transpose=0, fold=True):
     bpm *= tempo_scale
 
     return events, sorted(unmapped), max(total, 0.0), bpm, estimate * tempo_scale
+
+
+def chord_report(events, window=0.003, ghost_limit=6, short_sec=0.03):
+    """What the target will likely drop, computed from the final event list.
+
+    Most keyboards are 6-key rollover; a chord wider than that ghosts keys.
+    Notes shorter than a frame or two are often coalesced by the game."""
+    max_chord = 0
+    big_chords = 0
+    i = 0
+    n = len(events)
+    while i < n:
+        j = i + 1
+        while j < n and events[j][0] - events[i][0] < window:
+            j += 1
+        size = len({e[1] for e in events[i:j]})
+        if size > max_chord:
+            max_chord = size
+        if size > ghost_limit:
+            big_chords += 1
+        i = j
+    short_notes = sum(1 for e in events if e[2] < short_sec)
+    return {"max_chord": max_chord, "big_chords": big_chords,
+            "ghost_limit": ghost_limit, "short_notes": short_notes}
+
+
+def events_to_sheet(events, bpm, beats_per_line=8):
+    """Virtual Piano style sheet text: `[asd] f g - - h |`.
+
+    One token per chord, `-` per eighth-note rest, a bar `|` every
+    `beats_per_line` beats then a line break. Timing is quantised to eighths
+    at `bpm`; this is a reading aid, not a recording."""
+    if not events:
+        return ""
+    eighth = 60.0 / max(bpm, 1.0) / 2.0
+    out = []
+    line = []
+    i = 0
+    n = len(events)
+    prev_slot = 0
+    line_start_slot = 0
+    slots_per_line = beats_per_line * 2
+    while i < n:
+        j = i + 1
+        while j < n and events[j][0] - events[i][0] < 0.03:
+            j += 1
+        keys = []
+        for e in sorted(events[i:j], key=lambda e: e[3]):
+            if e[1] not in keys:
+                keys.append(e[1])
+        slot = int(round(events[i][0] / eighth))
+        if i > 0:
+            rests = slot - prev_slot - 1
+            line.extend("-" * max(0, min(rests, slots_per_line)))
+        while slot - line_start_slot >= slots_per_line:
+            out.append(" ".join(line) + " |")
+            line = []
+            line_start_slot += slots_per_line
+        line.append(keys[0] if len(keys) == 1 else "[" + "".join(keys) + "]")
+        prev_slot = slot
+        i = j
+    if line:
+        out.append(" ".join(line))
+    return "\n".join(out) + "\n"
 
 
 # ---------------------------------------------------------------------------

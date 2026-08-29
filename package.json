@@ -1,6 +1,6 @@
 {
   "name": "midi-studio",
-  "version": "2.25.0",
+  "version": "2.26.0",
   "description": "Turn a song into MIDI, edit it, and play it back on any keyboard.",
   "author": "StarsationX",
   "license": "MIT",

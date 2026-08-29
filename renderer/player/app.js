@@ -81,6 +81,17 @@ const els = {
   rangeEnd: $('range-end'),
   rangeFull: $('range-full'),
   rangeSummary: $('range-summary'),
+  rangeLoop: $('range-loop'),
+  rampStart: $('ramp-start'),
+  rampStep: $('ramp-step'),
+  practiceRow: $('practice-row'),
+  practiceSummary: $('practice-summary'),
+  hand: $('hand'),
+  handSplit: $('hand-split'),
+  handSplitLabel: $('hand-split-label'),
+  chordStagger: $('chord-stagger'),
+  playReport: $('play-report'),
+  exportSheet: $('export-sheet'),
   // scrubber
   scrubber: $('scrubber'),
   scrubFill: $('scrubber-fill'),
@@ -138,6 +149,12 @@ const settings = Object.assign({
   playlist: [],
   playlistCurrent: '',
   queueLoop: false,
+  hand: 'both',             // both | right | left, split by pitch at handSplit
+  handSplit: 60,
+  chordStaggerMs: 0,        // roll each chord by N ms per key, lowest first
+  rangeLoop: false,         // replay the selection until stopped
+  rampStart: 100,           // % of the set tempo the first pass runs at
+  rampStep: 5,              // % added per pass until 100
 }, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'));
 
 const MAX_RECENTS = 8;
@@ -167,6 +184,10 @@ let overviewEvents = [];
 // point, including halfway through a song, and the notes it needs were sent
 // before it existed; this is what gets replayed to it.
 let lastMidiLoaded = null;
+// Practice ramp in flight: { target: tempo the user set, pct: current % }.
+// Null when not ramping. The slider shows the ramped tempo while it runs and
+// goes back to `target` when the loop stops.
+let practice = null;
 const viz = new Visualizer(els.vizCanvas);
 
 // --------------------------------------------------------------------------
@@ -231,6 +252,14 @@ function applySettingsToUI() {
   els.seekStep.value = settings.seekStep;
   els.autoPickTarget.checked = settings.autoPickTarget !== false;
   els.queueLoop.checked = !!settings.queueLoop;
+  els.hand.value = ['both', 'right', 'left'].includes(settings.hand) ? settings.hand : 'both';
+  els.handSplit.value = settings.handSplit | 0 || 60;
+  showHandSplit();
+  els.chordStagger.value = settings.chordStaggerMs | 0;
+  els.rangeLoop.checked = !!settings.rangeLoop;
+  els.rampStart.value = settings.rampStart | 0 || 100;
+  els.rampStep.value = settings.rampStep | 0 || 5;
+  showPractice();
 
   // Open the persisted section
   document.querySelectorAll('.section').forEach((sec) => {
@@ -343,6 +372,7 @@ window.api.onEngineEvent((evt) => {
           + `[${evt.unmapped.join(', ')}]`);
       }
       showMappingNote(evt);
+      showReport(evt.report);
       updateTrackStrip();
       els.timeTotal.textContent = fmtClock(totalDuration);
       els.timeElapsed.textContent = fmtClock(0);
@@ -418,6 +448,11 @@ window.api.onEngineEvent((evt) => {
       // Reset notes counter on the track strip
       const tn = document.getElementById('track-notes');
       if (tn) tn.textContent = `${totalNotes} / ${totalNotes}`;
+      if (!userStopped && !evt.crashed && pendingRestartAt === null && typeof evt.sent === 'number') {
+        const dropped = evt.total - evt.sent;
+        log(dropped > 0 ? 'warn' : 'info',
+          `Sent ${evt.sent} / ${evt.total} keys` + (dropped > 0 ? ` (${dropped} not sent)` : ''));
+      }
       // A live tempo change stops the session, then resumes here at the
       // same musical position rescaled to the new tempo.
       if (pendingRestartAt !== null) {
@@ -425,12 +460,22 @@ window.api.onEngineEvent((evt) => {
         pendingRestartAt = null;
         loadMidi();                 // reload events/visualizer at new tempo
         sendPlay(at, 0);            // no countdown on a tempo restart
+      } else if (!userStopped && !evt.crashed && els.rangeLoop.checked && playbackRange().enabled) {
+        nextPracticePass();         // loop the selection, ramping if asked
       } else if (!userStopped && !evt.crashed) {
         advanceQueue();             // natural end -> next row in the playlist
       }
+      if (userStopped || evt.crashed) endPractice();
       userStopped = false;
       renderQueue();                // drop the ▶ marker back to a row number
       break;
+
+    case 'sheet_exported': {
+      const p = evt.path;
+      navigator.clipboard.writeText(evt.text || '').catch(() => {});
+      log('info', `VP sheet saved: ${p} (${evt.notes} notes` + (evt.unmapped ? `, ${evt.unmapped} out of range skipped` : '') + `). Copied to clipboard.`);
+      break;
+    }
 
     case 'hotkey':
       if (evt.name === 'play') {
@@ -860,6 +905,124 @@ els.sustain.addEventListener('change', () => {
   saveSettings();
 });
 
+// Options that change which notes exist or when they fire. They go with every
+// load/play so the visualizer, the keys sent and the sheet agree.
+function playOpts() {
+  return {
+    hand: settings.hand || 'both',
+    hand_split: settings.handSplit | 0 || 60,
+    chord_stagger_ms: settings.chordStaggerMs | 0,
+  };
+}
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+function showHandSplit() {
+  const n = settings.handSplit | 0 || 60;
+  els.handSplitLabel.textContent = `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
+  els.handSplit.disabled = (settings.hand || 'both') === 'both';
+}
+function reloadForOpts() {
+  saveSettings();
+  if (els.midiPath.value) { if (isPlaying) setTempo(parseFloat(els.tempo.value)); else loadMidi(); }
+}
+els.hand.addEventListener('change', () => { settings.hand = els.hand.value; showHandSplit(); reloadForOpts(); });
+els.handSplit.addEventListener('change', () => {
+  settings.handSplit = Math.max(24, Math.min(108, parseInt(els.handSplit.value, 10) || 60));
+  els.handSplit.value = settings.handSplit;
+  showHandSplit(); reloadForOpts();
+});
+els.chordStagger.addEventListener('change', () => {
+  settings.chordStaggerMs = Math.max(0, Math.min(30, parseInt(els.chordStagger.value, 10) || 0));
+  els.chordStagger.value = settings.chordStaggerMs;
+  reloadForOpts();
+});
+
+// What the target is likely to drop, so the user hears about it before Play
+// rather than after. Ghosting starts past ~6 keys on most keyboards.
+function showReport(r) {
+  if (!els.playReport) return;
+  if (!r) { els.playReport.textContent = ''; els.playReport.classList.remove('is-warn'); return; }
+  const parts = [];
+  if (r.big_chords > 0) parts.push(`${r.big_chords} chord${r.big_chords === 1 ? '' : 's'} over ${r.ghost_limit} keys (widest ${r.max_chord})`);
+  if (r.short_notes > 0) parts.push(`${r.short_notes} note${r.short_notes === 1 ? '' : 's'} under 30 ms`);
+  const warn = parts.length > 0;
+  els.playReport.classList.toggle('is-warn', warn);
+  if (!warn) { els.playReport.textContent = `Widest chord: ${r.max_chord} keys. Nothing likely to drop.`; return; }
+  const tip = r.big_chords > 0 && !(settings.chordStaggerMs | 0) ? ' Set Chord roll to 5–10 ms if notes go missing.' : '';
+  els.playReport.textContent = parts.join(' · ') + '.' + tip;
+}
+
+// Practice loop: replay the selection, optionally starting slow and speeding
+// up each pass until the tempo the user set.
+function showPractice() {
+  const on = els.rangeLoop.checked;
+  els.practiceRow.classList.toggle('is-off', !on);
+  els.rampStart.disabled = !on;
+  els.rampStep.disabled = !on;
+  if (!on) { els.practiceSummary.textContent = ''; return; }
+  const start = settings.rampStart | 0 || 100;
+  els.practiceSummary.textContent = practice
+    ? `pass at ${practice.pct}%`
+    : start < 100 ? `${start}% → 100%` : 'looping';
+}
+function applyRampTempo() {
+  const t = Math.max(0.25, Math.min(3, practice.target * practice.pct / 100));
+  els.tempo.value = t;
+  settings.tempo = t;
+  els.tempoLabel.textContent = `${t.toFixed(2)}×`;
+  showBpm();
+  showPractice();
+}
+function startPracticeIfAsked() {
+  const start = settings.rampStart | 0 || 100;
+  if (!els.rangeLoop.checked || !playbackRange().enabled || start >= 100 || practice) return false;
+  practice = { target: parseFloat(els.tempo.value) || 1, pct: start };
+  applyRampTempo();
+  return true;
+}
+function nextPracticePass() {
+  const range = playbackRange();
+  if (practice) {
+    const step = settings.rampStep | 0 || 5;
+    if (practice.pct < 100) {
+      practice.pct = Math.min(100, practice.pct + step);
+      applyRampTempo();
+      log('info', `Practice pass at ${practice.pct}% (${(settings.tempo).toFixed(2)}×)`);
+      loadMidi();                    // rescale the visualizer to the new tempo
+    }
+  }
+  sendPlay(range.start, 0);
+}
+function endPractice() {
+  if (!practice) return;
+  const t = practice.target;
+  practice = null;
+  els.tempo.value = t;
+  settings.tempo = t;
+  els.tempoLabel.textContent = `${t.toFixed(2)}×`;
+  showBpm();
+  saveSettings();
+  showPractice();
+  if (els.midiPath.value) loadMidi();
+}
+els.rangeLoop.addEventListener('change', () => { settings.rangeLoop = els.rangeLoop.checked; saveSettings(); showPractice(); });
+els.rampStart.addEventListener('change', () => {
+  settings.rampStart = Math.max(25, Math.min(100, parseInt(els.rampStart.value, 10) || 100));
+  els.rampStart.value = settings.rampStart; saveSettings(); showPractice();
+});
+els.rampStep.addEventListener('change', () => {
+  settings.rampStep = Math.max(1, Math.min(50, parseInt(els.rampStep.value, 10) || 5));
+  els.rampStep.value = settings.rampStep; saveSettings();
+});
+
+els.exportSheet.addEventListener('click', () => {
+  const p = els.midiPath.value;
+  if (!p) { log('error', 'Load a MIDI first.'); return; }
+  window.api.send({
+    cmd: 'export_sheet', path: p, mapping: 'virtualpiano',
+    transpose: settings.transpose | 0, ...playOpts(),
+  });
+});
+
 function applyHotkeySettings() {
   const hk = (el) => (el.dataset.hk || '').trim();
   // Empty means unbound, including for these three. They used to spring back
@@ -1231,6 +1394,7 @@ function loadMidi() {
     tempo: parseFloat(els.tempo.value),
     transpose: settings.transpose | 0,
     auto_transpose: !!pendingAutoTranspose,
+    ...playOpts(),
   });
   pendingAutoTranspose = false;
   const t = parseFloat(els.tempo.value) || 1;
@@ -1529,6 +1693,7 @@ function sendPlay(startAt, countdown) {
     sustain: !!els.sustain.checked,
     start_at: startAt,
     end_at: range.enabled ? range.end : null,
+    ...playOpts(),
   });
 }
 
@@ -1540,6 +1705,11 @@ function doPlay() {
   const range = playbackRange();
   let preSeek = viz.elapsed();
   if (range.enabled && range.valid !== false && (preSeek < range.start || preSeek >= range.end)) preSeek = range.start;
+  if (startPracticeIfAsked()) {
+    log('info', `Practice: ${practice.pct}% → 100%, +${settings.rampStep | 0 || 5}% per pass.`);
+    loadMidi();                      // the engine parses again on play; this is for the visualizer
+    preSeek = range.start;
+  }
   sendPlay(preSeek > 0.25 ? preSeek : 0, parseInt(els.countdown.value, 10) || 0);
 }
 
@@ -1551,6 +1721,7 @@ function doStop()  {
   pendingSeekAfterLoad = null;
   userStopped = true;               // suppresses queue advance in playback_done
   window.api.send({ cmd: 'stop' });
+  endPractice();
 }
 function doPause() {
   if (!isPlaying || isPaused) return;

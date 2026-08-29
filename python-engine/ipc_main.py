@@ -97,6 +97,21 @@ def _resolve_mapping(arg):
 _out_lock = threading.Lock()
 
 
+def _play_opts(msg):
+    """Options shared by load/play/export so the visualizer, the keys sent
+    and the sheet all agree on which notes exist and when."""
+    try:
+        stagger = float(msg.get("chord_stagger_ms", 0) or 0) / 1000.0
+    except (TypeError, ValueError):
+        stagger = 0.0
+    try:
+        split = int(msg.get("hand_split", 60) or 60)
+    except (TypeError, ValueError):
+        split = 60
+    return {"hand": msg.get("hand") or "both", "hand_split": split,
+            "chord_stagger": stagger}
+
+
 def emit(event_dict):
     line = json.dumps(event_dict, separators=(",", ":"), ensure_ascii=False)
     with _out_lock:
@@ -159,7 +174,7 @@ class Bridge:
             if msg.get("auto_transpose"):
                 transpose, _, _ = engine.best_transpose(msg["path"], note_to_key)
             events, unmapped, total, bpm, bpm_guess = engine.parse_midi(
-                msg["path"], note_to_key, tempo, transpose)
+                msg["path"], note_to_key, tempo, transpose, **_play_opts(msg))
             # Compress event tuples for transport
             payload = [
                 [round(t, 6), k, round(d, 6), n, c]
@@ -178,6 +193,7 @@ class Bridge:
                 "event": "midi_loaded",
                 "events": payload,
                 "collapsed_sharps": collapsed,
+                "report": engine.chord_report(events),
                 "mapping_description": mapping_data.get("description", ""),
                 "duration": round(total, 3),
                 "bpm": round(bpm, 2),
@@ -191,6 +207,31 @@ class Bridge:
             })
         except Exception as e:
             emit({"event": "error", "message": f"load_midi failed: {e}"})
+
+    def cmd_export_sheet(self, msg):
+        """Write a Virtual Piano sheet next to the MIDI and hand the text back.
+        Always uses the virtualpiano layout: that is what sheets are written
+        in, whatever the user plays with."""
+        try:
+            path = msg["path"]
+            mapping_data, note_to_key = engine.load_mapping(
+                _resolve_mapping(msg.get("mapping") or "virtualpiano"), SCRIPT_DIR)
+            events, unmapped, total, bpm, bpm_guess = engine.parse_midi(
+                path, note_to_key, 1.0, int(msg.get("transpose", 0) or 0),
+                **_play_opts(msg))
+            use_bpm = float(msg.get("bpm") or 0) or bpm
+            text = engine.events_to_sheet(events, use_bpm)
+            out = os.path.splitext(path)[0] + ".vp.txt"
+            header = (f"# {os.path.basename(path)} | {mapping_data.get('name', '')} "
+                      f"| {use_bpm:.0f} BPM | {len(events)} notes"
+                      + (f" | {len(unmapped)} out of range skipped" if unmapped else "")
+                      + "\n\n")
+            with open(out, "w", encoding="utf-8") as f:
+                f.write(header + text)
+            emit({"event": "sheet_exported", "path": out, "text": text,
+                  "notes": len(events), "unmapped": len(unmapped)})
+        except Exception as e:
+            emit({"event": "error", "message": f"export_sheet failed: {e}"})
 
     def cmd_play(self, msg):
         if self.session_thread and self.session_thread.is_alive():
@@ -409,7 +450,8 @@ class Bridge:
             mapping_data, note_to_key = engine.load_mapping(
                 _resolve_mapping(mapping_arg), SCRIPT_DIR)
             events, unmapped, total_dur, bpm, _bpm_guess = engine.parse_midi(
-                midi_path, note_to_key, tempo, int(msg.get("transpose", 0) or 0))
+                midi_path, note_to_key, tempo, int(msg.get("transpose", 0) or 0),
+                **_play_opts(msg))
             if not events:
                 emit({"event": "error", "message": "MIDI has no playable events."})
                 return
@@ -495,7 +537,9 @@ class Bridge:
                     "over_5ms": sum(1 for e in errs if abs(e) > 5),
                 }
 
-            emit({"event": "playback_done", "stats": stats_payload})
+            emit({"event": "playback_done", "stats": stats_payload,
+                  "sent": self.session_state.played_count,
+                  "total": len(events)})
 
         except Exception:
             emit({"event": "error", "message": traceback.format_exc()})
@@ -548,6 +592,7 @@ DISPATCH = {
     "seek":          "cmd_seek",
     "refocus":       "cmd_refocus",
     "set_hotkeys":   "cmd_set_hotkeys",
+    "export_sheet":  "cmd_export_sheet",
     "shutdown":      "cmd_shutdown",
 }
 

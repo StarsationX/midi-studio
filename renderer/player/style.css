@@ -592,6 +592,10 @@ input[type="range"]:hover::-webkit-slider-thumb { border-color: var(--accent-3);
   color: var(--fg-muted); font-size: 12px;
 }
 .range-controls input[type="text"] { height: 28px; padding: 4px 8px; }
+.range-controls input[type="number"] { height: 28px; width: 58px; padding: 4px 6px; }
+#practice-row { grid-template-columns: auto auto auto 1fr; padding-top: 6px; }
+#practice-row.is-off > label:not(.range-toggle) { opacity: .45; }
+.track-strip #export-sheet { margin-left: auto; }
 .range-toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--fg-2); font-size: 12px; cursor: pointer; }
 .range-toggle input { accent-color: var(--accent); }
 .range-summary {
@@ -989,4 +993,4 @@ input[type=color].is-off { opacity: .45; }
 #tempo-bpm-src { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
 
 #mapping-note { margin-top: 4px; line-height: 1.4; }
-#mapping-note.is-warn { color: var(--warn, #d9a441); }
+#mapping-note.is-warn, #play-report.is-warn { color: var(--warn, #d9a441); }

@@ -140,15 +140,34 @@
             </div>
           </div>
           <div class="field-row">
+            <div class="field">
+              <label>Hands</label>
+              <select id="hand" title="Play only the notes above or below the split">
+                <option value="both">Both hands</option>
+                <option value="right">Right hand only (melody)</option>
+                <option value="left">Left hand only (bass)</option>
+              </select>
+            </div>
+            <div class="field" style="max-width:110px">
+              <label>Split at <span class="muted" id="hand-split-label">C4</span></label>
+              <input id="hand-split" type="number" min="24" max="108" value="60" title="MIDI note; notes below are the left hand"/>
+            </div>
+          </div>
+          <div class="field-row">
             <div class="field" style="max-width:120px">
               <label>Countdown</label>
               <input id="countdown" type="number" min="0" max="10" value="0"/>
+            </div>
+            <div class="field" style="max-width:130px">
+              <label>Chord roll <span class="muted">ms</span></label>
+              <input id="chord-stagger" type="number" min="0" max="30" step="1" value="0" title="Spread each chord's keys by this many ms, lowest first. Fixes chords with dropped notes."/>
             </div>
             <div class="field">
               <label>&nbsp;</label>
               <label class="check"><input id="stats" type="checkbox"/> Timing stats</label>
             </div>
           </div>
+          <div class="muted small" id="play-report"></div>
         </div>
       </section>
 
@@ -242,6 +261,7 @@
         <div class="track-strip is-empty" id="track-strip">
           <span class="track-name" id="track-name">No file loaded</span>
           <span class="track-meta" id="track-meta"></span>
+          <button id="export-sheet" class="btn-mini" type="button" title="Save a Virtual Piano sheet (.vp.txt) next to the MIDI and copy it">VP sheet</button>
         </div>
 
         <div class="range-editor" id="range-editor">
@@ -255,6 +275,12 @@
             <label>Stop <input id="range-end" type="text" placeholder="end" inputmode="decimal"/></label>
             <button id="range-full" class="btn btn-ghost" type="button">Full song</button>
             <span id="range-summary" class="range-summary">Full song</span>
+          </div>
+          <div class="range-controls" id="practice-row">
+            <label class="range-toggle" title="Replay the selection until you stop"><input type="checkbox" id="range-loop"/> Loop selection</label>
+            <label title="Start slower and speed up each pass until the tempo above">Ramp from <input id="ramp-start" type="number" min="25" max="100" step="5" value="100" inputmode="numeric"/>%</label>
+            <label>+<input id="ramp-step" type="number" min="1" max="50" step="1" value="5" inputmode="numeric"/>% per pass</label>
+            <span id="practice-summary" class="range-summary"></span>
           </div>
         </div>
 
