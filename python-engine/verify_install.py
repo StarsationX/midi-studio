@@ -67,7 +67,8 @@ check_import("numpy")
 check_import("transkun")
 check_import("basic_pitch")
 check_import("onnxruntime")
-check_import("PySide6.QtWidgets", attr="QApplication")
+# PySide6 is NOT checked: it is MSST's desktop GUI (~250 MB) and is deliberately
+# left out of requirements.txt. Our UI is Electron; nothing imports it at runtime.
 
 print("\nCUDA:")
 try:
