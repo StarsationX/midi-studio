@@ -1,0 +1,1109 @@
+{
+ "subsystem": "audition (\"Self Midi\", the internal MIDI listener) — renderer/audition/{index.html,audition.js,audition.css} + renderer/soundfonts/player.js + renderer/player/midi-library.js, plus renderer/overlay/* (\"Perch\") as secondary",
+ "features": [
+  {
+   "name": "Tab shell hosting / hand-off entry point",
+   "how_it_works": "audition/index.html is loaded lazily into iframe #frame-audition (renderer/index.html:217, data-src). Shell activates it via tab button data-tab=\"audition\" or Ctrl+4 (shell.js:97, also main-process before-input-event -> studio.onShortcut). shell.js:135-144 openAudition() calls frame.contentWindow.loadAudition(midiPath, projectPath, {play}) — waiting for iframe 'load' if not yet booted. audition.js:627 exports window.loadAudition for exactly this. Document title set to '<song> · Self Midi' (audition.js:85) and shell sets 'MIDI Studio: Self Midi' (shell.js:86).",
+   "must_survive": true,
+   "element_ids": [
+    "frame-audition"
+   ],
+   "backend_calls": [
+    "window.loadAudition (global, called cross-frame by shell)",
+    "parent.postMessage studio:open-audition"
+   ]
+  },
+  {
+   "name": "Prefs persistence + legacy migration",
+   "how_it_works": "localStorage key 'midi-studio.audition.v1' (PREFS_KEY). On boot it first reads the OLD midi-player key 'midi-forge.preview-prefs.v1' and migrates: midiVolume->volume, sound->instrument through SOUND_MIGRATION {soft:grand_piano, bright:synth_lead, pure:electric_piano, chip:music_box}, speed, pitch, sustain (default true), loop, lastMidiPath, lastProjectPath; then overlays the new key on top (audition.js:15-23). Unknown instrument falls back to grand_piano (:24). Persisted fields: volume, instrument, speed, pitch, sustain, loop, autoplay, recent[], lastMidiPath, lastProjectPath. savePrefs() called from every settings listener.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": [
+    "localStorage"
+   ]
+  },
+  {
+   "name": "Session restore (last opened MIDI/project)",
+   "how_it_works": "audition.js:628 — on boot, if prefs.lastProjectPath || prefs.lastMidiPath, calls loadAudition(lastMidiPath, lastProjectPath, {play:false}). Never autoplays on restore even if autoplay is on.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": [
+    "review.load"
+   ]
+  },
+  {
+   "name": "Open MIDI via file picker",
+   "how_it_works": "openPicker() -> api.pickMidi() (dialog:openMidi, multi-select allowed, filters mid/midi) and loads files[0] with {play: prefs.autoplay}. Wired to BOTH #open-midi and the empty-state #empty-open (audition.js:542-547).",
+   "must_survive": true,
+   "element_ids": [
+    "open-midi",
+    "empty-open"
+   ],
+   "backend_calls": [
+    "api.pickMidi -> ipc dialog:openMidi"
+   ]
+  },
+  {
+   "name": "Drag-and-drop load with full-window overlay",
+   "how_it_works": "document-level dragenter/dragover/dragleave/drop. dragDepth counter (audition.js:615-625) prevents flicker from child dragleave; #drop-overlay gets .is-active. Path resolved via review.getDroppedFilePath(file) (webUtils.getPathForFile). '.mid/.midi' -> loadAudition(path,''); '.midstudio.json' -> loadAudition('', path). Honors prefs.autoplay.",
+   "must_survive": true,
+   "element_ids": [
+    "drop-overlay"
+   ],
+   "backend_calls": [
+    "review.getDroppedFilePath"
+   ]
+  },
+  {
+   "name": "MIDI/project loading with token cancellation",
+   "how_it_works": "loadAudition(midiPath, projectPath, options): ++player.token guards against out-of-order async completion; stop(); clears documents; shows #loading with 'Loading MIDI...'; hides #empty; disables transport. Loads via review.load(projectPath || midiPath) -> ipc 'review:load' -> loadReviewFile (main.js:181). For a plain .mid the main process synthesises project {name, selectedCandidate:'clean', candidates:{clean:path}} and documents {clean}. For a .midstudio.json it loads every existing candidate. Errors/empty -> setLoading(error message) and #empty shown again. On success: populates #candidate options (capitalised names), #candidate-field hidden when <2 candidates, selects project.selectedCandidate if present else first, setCandidate(), enableTransport(true), stores prefs.lastMidiPath/lastProjectPath, addRecent(), savePrefs(), updateSongUI(), renderLibrary(), and autoplays if options.play===true or (options.play!==false && prefs.autoplay).",
+   "must_survive": true,
+   "element_ids": [
+    "loading",
+    "loading-text",
+    "empty",
+    "candidate",
+    "candidate-field"
+   ],
+   "backend_calls": [
+    "review.load -> ipc review:load"
+   ]
+  },
+  {
+   "name": "Version (candidate) picker",
+   "how_it_works": "#candidate <select> switches between candidate documents of the same song (clean/balanced/detailed). setCandidate(name) pauses, sets player.candidate, recomputes duration = doc.duration || max(note.end), resets position/cursor, resets zoom view {span:0,start:0}, invalidates the loaded instrument, redraws. The field is hidden entirely when there is only one candidate.",
+   "must_survive": true,
+   "element_ids": [
+    "candidate",
+    "candidate-field"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "MIDI library rail (browse every MIDI you own)",
+   "how_it_works": "Left rail #library lists files from ipc 'library:list' (electron/library.js): scans the Forge output dir + user-added dirs, depth<=4, cap 4000 files, skips node_modules/.git/forge-env/'MIDI Studio Forge'/pip-cache/__pycache__ and dotdirs, dedupes by lowercased path, and FOLDS _balanced/_detailed siblings into their primary (they are versions, not songs) unless orphaned. Returns {files:[{path,name,dir,size,modified}], truncated, dirs, extra}. refreshLibrary() stores libraryFiles + libraryTruncated and renders. Rows are <button> with bold name and a small line '<relative time> · <last two path segments>'. Click loads with {play:true} (always plays, regardless of autoplay). Right-click reveals in Explorer via library.reveal. Active row gets .is-active by comparing lowercased currentPath(). #library-count shows 'shown/total' plus '+' when truncated, or '0'.",
+   "must_survive": true,
+   "element_ids": [
+    "library",
+    "library-list",
+    "library-count",
+    "library-empty (class)"
+   ],
+   "backend_calls": [
+    "library.list -> ipc library:list",
+    "library.reveal -> ipc library:reveal",
+    "library.onChanged <- 'library-changed'"
+   ]
+  },
+  {
+   "name": "Library search (multi-term AND)",
+   "how_it_works": "#library-search value lowercased, split on whitespace; every term must appear in '<name> <dir>'. Re-renders on every 'input' event (no debounce).",
+   "must_survive": true,
+   "element_ids": [
+    "library-search"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Library sort",
+   "how_it_works": "#library-sort: 'recent' (default, modified desc), 'name' (localeCompare), 'folder' (dir then name). Re-renders on change.",
+   "must_survive": true,
+   "element_ids": [
+    "library-sort"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Library virtualised/incremental rendering",
+   "how_it_works": "renderLibrary() renders the first 300 rows, then host.onscroll appends another 300 whenever scrollTop+clientHeight > scrollHeight-200. Comment at audition.js:145 says building the whole list up front was the problem.",
+   "must_survive": true,
+   "element_ids": [
+    "library-list"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Relative-time labels in the library",
+   "how_it_works": "whenLabel(ms) (audition.js:115-126): <1h 'just now', <1d 'N h ago', <7d 'N d ago', else toLocaleDateString with month/day (year added when not the current year). Comment states newest-first is meaningless without a readable date.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "Add / rescan library folders",
+   "how_it_works": "#library-add -> library.addFolder() (native directory dialog, appended to settings library.dirs, deduped case-insensitively) then refreshLibrary on ok. #library-refresh -> refreshLibrary(). library.onChanged (broadcast 'library-changed', fired by main after a Forge job or an editor export writes a MIDI) auto-refreshes. library.removeFolder exists in the preload but is NOT used by this UI.",
+   "must_survive": true,
+   "element_ids": [
+    "library-add",
+    "library-refresh"
+   ],
+   "backend_calls": [
+    "library.addFolder -> ipc library:addFolder",
+    "library.onChanged",
+    "(unused) library.removeFolder"
+   ]
+  },
+  {
+   "name": "Resizable library rail",
+   "how_it_works": ".layout[data-split=\"audition\"] grid-template-columns: var(--side,264px) 7px 1fr. <i class=\"grip-h\" data-resize=\"side\" data-min=180 data-max=520> is driven by shared/resize.js: pointer drag, ArrowLeft/Right keyboard (shift = 40px step), double-click resets, size persisted per-divider under localStorage 'midi-studio:splits' key 'audition:side'. Every commit dispatches a synthetic window 'resize' so canvases redraw. Responsive defaults: 232px <=1240px, 208px <=1080px, 190px <=1000px.",
+   "must_survive": true,
+   "element_ids": [
+    "library"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Soundfont instrument selection (8 presets)",
+   "how_it_works": "#instrument select maps to MidiStudioSoundfonts.presets: grand_piano(acoustic_grand_piano, gain .72, attack .004, release .45), bright_piano(bright_acoustic_piano .62/.003/.38), electric_piano(electric_piano_1 .72/.006/.55), music_box(.58/.002/.7), vibraphone(.65/.004/.8), strings(string_ensemble_1 .52/.08/.7), synth_lead(lead_2_sawtooth .5/.008/.25), synth_drum(.62/.002/.2). Changing it pauses, saves the pref, invalidates the current instrument, and re-prepares immediately if an audio context and a document already exist.",
+   "must_survive": true,
+   "element_ids": [
+    "instrument",
+    "instrument-status"
+   ],
+   "backend_calls": [
+    "MidiStudioSoundfonts.presets"
+   ]
+  },
+  {
+   "name": "Lazy soundfont loading (script tag + per-pitch decode) with progress",
+   "how_it_works": "soundfonts/player.js: loadScript() injects '../soundfonts/FluidR3_GM/<file>-mp3.js' into document.head, which defines window.MIDI.Soundfont[file] = {NoteName: 'data:audio/mp3;base64,...'}; in-flight promises deduped in scriptLoads Map. prepare(context,key,pitches,onProgress) computes the DISTINCT set of pitches the song actually needs (clamped 0..127), maps each to the nearest available sample name (sampleForPitch, exact match first), then decodeAudioData's only those, caching per-instrument in a `decoded` Map. onProgress(ready,total) drives '#instrument-status = Loading <label>... n/m'. Returns {key,label,samples}.",
+   "must_survive": true,
+   "element_ids": [
+    "instrument-status"
+   ],
+   "backend_calls": [
+    "MidiStudioSoundfonts.prepare"
+   ]
+  },
+  {
+   "name": "Decoded-sample LRU (2 instruments)",
+   "how_it_works": "player.js:95-98 — decoded audio is far larger than the mp3 source, so after each prepare the key is deleted and re-set (moving it to the end of the Map insertion order) and `while (decoded.size > 2) decoded.delete(first key)`. Only the two most recently used instruments stay in memory.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "Instrument prepared on demand at play time, with cancellation",
+   "how_it_works": "invalidateInstrument() bumps player.instrumentToken, clears instrumentReady/instrumentFailed, clears #instrument dataset.ready and shows '<label> · Loads on play'. prepareInstrument() is awaited inside togglePlay(): disables #play, shows progress, and on success sets instrumentReady + dataset.ready=key + '<label> · Ready'. Stale tokens or an instrument changed mid-load abort. Failure sets instrumentFailed and shows '<label> unavailable · Basic fallback'. finally re-enables #play.",
+   "must_survive": true,
+   "element_ids": [
+    "play",
+    "instrument",
+    "instrument-status"
+   ],
+   "backend_calls": [
+    "MidiStudioSoundfonts.prepare"
+   ]
+  },
+  {
+   "name": "Oscillator fallback synth (incl. drum kit synthesis)",
+   "how_it_works": "playFallback() used whenever instrumentReady !== current instrument (load failed or not yet ready). Melodic: triangle osc at 440*2^((pitch-69)/12), peak 0.11*velocity/127, 8ms attack, exponential decay to note length. Drums (channel 9 OR instrument===synth_drum): length 0.08s for pitches 42/44/46/49/51, 0.18s for <=36, else 0.12s; waveform sine (<=36), sawtooth (38/40), else square; frequency sweep 120->45 Hz (<=36), 190->90 (<=40), 3200->900 Hz otherwise; peak 0.09*velocity.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "Sample playback envelope",
+   "how_it_works": "player.js play(): BufferSource with playbackRate = 2^((pitch - samplePitch)/12) for pitches without their own sample; gain peak = preset.gain * (velocity/127)^1.25; ramp from 0.0001 over preset.attack, hold until startTime+max(0.06,duration), then exponential release over preset.release; source.stop at releaseAt+release+0.05. Returns null when the buffer is not decoded (caller then falls back).",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": [
+    "MidiStudioSoundfonts.play"
+   ]
+  },
+  {
+   "name": "Lookahead scheduler (background-proof playback)",
+   "how_it_works": "LOOKAHEAD=1.5s, SCHED_MS=120ms setInterval. scheduleAhead() queues every note whose start <= (currentTime + LOOKAHEAD - audioStart)*speed at absolute audio-clock time audioStart + note.start/speed, advancing player.cursor. Because notes are pinned to the Web Audio clock, a throttled or late wake-up costs nothing as long as it lands within LOOKAHEAD (comment audition.js:27,333).",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "Play / pause",
+   "how_it_works": "#play or Space. togglePlay(): no-op without a document or duration; if at the end (>= duration-0.01) it seeks to 0 first; ensureAudio(); await context.resume(); await prepareInstrument(); bails if the instrument token changed and the instrument isn't ready and didn't fail; sets audioStart = currentTime - position/speed, cursor = cursorFor(position), swaps the icon to Icon.svg('pause',13) and aria-label to 'Pause', primes scheduleAhead(), starts the 120ms interval and the rAF tick(). pause() captures songTime() into player.position, cancels rAF, clears the interval, clearVoices() (hard-stops every sounding voice), restores the play icon/aria-label.",
+   "must_survive": true,
+   "element_ids": [
+    "play"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Stop",
+   "how_it_works": "#stop, or the Home key. stop() = pause() then seek(0).",
+   "must_survive": true,
+   "element_ids": [
+    "stop"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Skip back / forward 5 seconds",
+   "how_it_works": "#back (label '−5') and #forward ('+5'), plus ArrowLeft / ArrowRight. Both call seek(position ±5).",
+   "must_survive": true,
+   "element_ids": [
+    "back",
+    "forward"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Seek bar",
+   "how_it_works": "#seek is a range 0..1000 (thousandths of the song). On 'input' -> seek(value/1000*duration). seek() clamps to [0,duration], recomputes the scheduler cursor with cursorFor(), re-bases audioStart against the audio clock so playback continues from the new spot, clearVoices() to kill already-queued notes, and redraws. updateSongUI() writes the slider position back every frame.",
+   "must_survive": true,
+   "element_ids": [
+    "seek"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Click-to-seek on the piano roll",
+   "how_it_works": "#note-roll pointerdown -> seek(viewStart() + (clientX-rect.left)/rect.width * viewSpan()), i.e. seek is zoom-aware.",
+   "must_survive": true,
+   "element_ids": [
+    "note-roll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Playback speed 0.5x–2x",
+   "how_it_works": "#speed select (0.5/0.75/1/1.25/1.5/2). Speed divides all audio-clock math (songTime multiplies elapsed by speed; note times divided by speed; sustain extension divided by speed; note duration divided by speed). Changing it saves the pref and re-seeks to the current position so audioStart is re-based without a glitch; it does NOT reload the instrument.",
+   "must_survive": true,
+   "element_ids": [
+    "speed"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Transpose / pitch shift (−1 / 0 / +1 octave)",
+   "how_it_works": "#pitch select values -12 / 0 / 12 semitones. Applied to the pitch passed to soundfonts.play and to the fallback oscillator frequency. Changing it pauses, invalidates the instrument (the required sample set changes) and re-prepares, since prepareInstrument computes pitches as note.pitch + transpose.",
+   "must_survive": true,
+   "element_ids": [
+    "pitch"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Volume with live master gain",
+   "how_it_works": "#volume range 0..100 (default 65) with #volume-value output showing '<n>%'. ensureAudio() sets master.gain = value/100; the input listener updates master.gain live without restarting playback. playNote() returns early when volume <= 0 (no voices scheduled at all).",
+   "must_survive": true,
+   "element_ids": [
+    "volume",
+    "volume-value"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Sustain toggle",
+   "how_it_works": "#sustain checkbox (default checked). When on, non-drum note duration is extended by 1.25/speed seconds, clamped to [0.2,5]. Toggling it clears currently sounding voices so the change is audible immediately, and saves the pref.",
+   "must_survive": true,
+   "element_ids": [
+    "sustain"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Seamless loop",
+   "how_it_works": "#loop checkbox. In scheduleAhead(), when currentTime >= audioStart + duration/speed and loop is checked and duration>0, it rolls audioStart FORWARD to that end time and resets cursor to 0, then recurses — deliberately not a seek, so the loop has no gap (comment audition.js:347). Loop off -> stop().",
+   "must_survive": true,
+   "element_ids": [
+    "loop"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Autoplay toggle",
+   "how_it_works": "#autoplay checkbox in the toolbar, persisted. Governs whether picker-opened and drag-dropped files start playing. Library-row clicks pass {play:true} and always play. Session restore passes {play:false} and never plays.",
+   "must_survive": true,
+   "element_ids": [
+    "autoplay"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Note-roll preview visualizer (canvas)",
+   "how_it_works": "drawRoll() on #note-roll: DPR-aware backing store resized ONLY when the size actually changed; background #0f1013; pitch grid rows over range = max(12, high-low+3) with octave lines (#3a3d45) brighter than semitone lines (#22242a); vertical time grid at 30/10/5/1/0.5s depending on span, labelled with formatTime in 11px JetBrains Mono using --text-3; note rectangles in --accent at globalAlpha .82, min width 2px, min height 3px, culled to the visible time window; white 1px playhead at the current position.",
+   "must_survive": true,
+   "element_ids": [
+    "note-roll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Roll zoom / pan / reset",
+   "how_it_works": "view = {start, span} in seconds; span 0 means 'whole song'. Wheel zooms around the pointer: next = clamp(span*exp(deltaY*0.0016), 1, duration), span set to 0 when it reaches the full duration, start re-anchored so the point under the cursor stays put. Shift+wheel pans (start += deltaY/width*span). Double-click resets to the full song. Listener registered with {passive:false} and preventDefault.",
+   "must_survive": true,
+   "element_ids": [
+    "note-roll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Song stats strip",
+   "how_it_works": "#file-name (doc name / project name / 'Self Midi'), #file-path (full path or 'No MIDI loaded'), #stat-notes (note count), #stat-bpm (rounded doc.bpm, default 120), #stat-length (formatted duration), #time ('mm:ss / mm:ss', with an hh: segment when over an hour).",
+   "must_survive": true,
+   "element_ids": [
+    "file-name",
+    "file-path",
+    "stat-notes",
+    "stat-bpm",
+    "stat-length",
+    "time",
+    "song-stats"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Frame-budget-aware repaint",
+   "how_it_works": "tick() runs a rAF loop while playing but only repaints when performance.now()-lastDraw >= drawBudgetMs(): Infinity when document.hidden (minimised: never draw), Infinity when documentElement.dataset.onscreen==='0' (another tab is showing — audio keeps running with no viewer), else Number(dataset.drawms)||33 when focused and max(250, base*8) when unfocused. The shell writes data-drawms from the user's 'use at most N%' performance setting (shell.js:44-56, tripled while a game is in the foreground) and data-onscreen per iframe (shell.js:64-73). Catch-up redraws on 'visibilitychange' and on the custom 'midi-studio:onscreen' event the shell dispatches into the frame.",
+   "must_survive": true,
+   "element_ids": [
+    "note-roll"
+   ],
+   "backend_calls": [
+    "documentElement.dataset.drawms",
+    "documentElement.dataset.onscreen",
+    "window 'midi-studio:onscreen'"
+   ]
+  },
+  {
+   "name": "Automatic drum-kit detection",
+   "how_it_works": "After a load, if more than 60% of notes are on channel 9 and the saved instrument is still grand_piano, the instrument is switched to synth_drum, the select updated, and the instrument invalidated (audition.js:451-454).",
+   "must_survive": true,
+   "element_ids": [
+    "instrument"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Recent list (data kept, UI removed)",
+   "how_it_works": "addRecent(midiPath, projectPath, label) maintains prefs.recent as a max-10 MRU of {midiPath, projectPath, label}, keyed on projectPath||midiPath, and is called on every successful load; it is persisted. renderRecent() is an empty stub (audition.js:183) and the #recent select no longer exists in the HTML, though audition.css still styles #recent and .recent-field (lines 7,9,46). The stored data survives — the UI to show it does not.",
+   "must_survive": false,
+   "element_ids": [
+    "recent (absent, styled only)"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Reveal in Explorer",
+   "how_it_works": "#show-file -> review.showItem(currentPath()) -> ipc 'shell:showItem'. Library rows have their own right-click reveal through library.reveal.",
+   "must_survive": true,
+   "element_ids": [
+    "show-file"
+   ],
+   "backend_calls": [
+    "review.showItem -> ipc shell:showItem",
+    "library.reveal"
+   ]
+  },
+  {
+   "name": "Send to Midi Player",
+   "how_it_works": "#to-player -> parent.postMessage({type:'studio:open-player', midiPath: currentPath()}, '*'). shell.js openPlayer() ensures the lazily-loaded player frame exists, then calls its setMidiFile() or falls back to api.send({cmd:'load_midi', path, mapping:'roblox', tempo:1.0}) after a 120ms delay, and activates the Player tab.",
+   "must_survive": true,
+   "element_ids": [
+    "to-player"
+   ],
+   "backend_calls": [
+    "postMessage studio:open-player",
+    "(shell) setMidiFile / api.send load_midi"
+   ]
+  },
+  {
+   "name": "Send to Midi Editor",
+   "how_it_works": "#to-editor (title 'Fix a wrong note in the Midi Editor') -> parent.postMessage({type:'studio:open-review', projectPath: player.projectPath || currentPath()}). shell.js openReview() calls the review frame's openReviewProject().",
+   "must_survive": true,
+   "element_ids": [
+    "to-editor"
+   ],
+   "backend_calls": [
+    "postMessage studio:open-review"
+   ]
+  },
+  {
+   "name": "Transport enable/disable gating",
+   "how_it_works": "enableTransport(bool) toggles disabled on play, stop, back, forward, seek, show-file, to-player, to-editor together. All eight start disabled in the markup; enabled only after a successful load.",
+   "must_survive": true,
+   "element_ids": [
+    "play",
+    "stop",
+    "back",
+    "forward",
+    "seek",
+    "show-file",
+    "to-player",
+    "to-editor"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Keyboard shortcuts",
+   "how_it_works": "window keydown, ignored when the target is INPUT/SELECT/BUTTON/TEXTAREA or any of Ctrl/Alt/Meta is held: Space = play/pause, ArrowLeft = -5s, ArrowRight = +5s, Home = stop. All preventDefault. Ctrl+1..4 tab switching is handled by the shell/main process, not here.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "Empty state and loading state",
+   "how_it_works": "#empty ('Open or drop a MIDI file' + #empty-open button) covers the roll until a file loads and reappears on a load failure. #loading holds an animated .loading-bar (CSS keyframes 'loading', 1s linear infinite translateX) and #loading-text, which doubles as the error message surface via setLoading(msg).",
+   "must_survive": true,
+   "element_ids": [
+    "empty",
+    "empty-open",
+    "loading",
+    "loading-text"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "SVG icon upgrade",
+   "how_it_works": "shared/icons.js replaces every <i data-icon=\"...\" data-icon-size> on load and exposes Icon.svg(name,size), used to swap the #play button between 'play' 14px and 'pause' 13px. #stop uses data-icon=\"stop\" 13px.",
+   "must_survive": true,
+   "element_ids": [
+    "play",
+    "stop"
+   ],
+   "backend_calls": [
+    "Icon.svg",
+    "Icon.apply"
+   ]
+  },
+  {
+   "name": "Responsive/clipping CSS rules",
+   "how_it_works": "audition.css: toolbar/file-strip/transport-row/settings-row all flex-wrap with row-gap 8px and min-height 52px on the two transport rows; #instrument-status is hidden below 1080px and 1000px; settings labels stack vertically below 1080px; the library rail forces min-width:0 on every descendant and nowrap tools so the rail can shrink; .library grid rows are 40px / auto / 1fr / 46px.",
+   "must_survive": false,
+   "element_ids": [
+    "instrument-status"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "NOT PRESENT in audition: favorites, playlists, queue, ratings, tags",
+   "how_it_works": "Nothing in audition/*.{html,js,css} implements favorites, a playlist, or a play queue. The only ordering features are the library sort and search, and prefs.recent (a 10-item MRU with no UI). Queue/playlist logic lives entirely in the Player tab; the overlay's next/prev buttons reach it via synthetic hotkeys (electron/main.js:691).",
+   "must_survive": false,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "SECONDARY — Player tab's 'Transcribed songs' folder picker (midi-library.js)",
+   "how_it_works": "Separate subsystem injected into the PLAYER tab, not audition. Loaded after app.js in the same frame; bails unless window.studio, a global setMidiFile function, and studio.listMidis all exist. Self-applies the saved theme via studio.getUi().theme onto documentElement.dataset.theme. Builds a .field and insertBefore's it as the first child of .section[data-section=\"source\"] .section-body containing #lib-count (label suffix), #lib-search (hidden until >6 files), #lib-select, #lib-refresh (↻), #lib-browse (📁). render() filters by basename substring, rewrites the <select>, and re-selects the localStorage 'midi-studio.lib.last' entry; the head option reads 'No MIDIs here' / 'N MIDIs' / 'N matches' / 'No matches'. Selecting an option stores it as last and calls setMidiFile(path). #lib-browse -> studio.pickFolder() then studio.setLibraryDir(d). syncDir() resolves the default folder via studio.getLibraryDir() (manual pick > last transcription's folder > Forge output) and re-runs on studio.onLibraryChanged. Also appends a #mapping-folder button after #mapping-browse that calls studio.openMappingsDir() (persistent AppData mappings folder).",
+   "must_survive": true,
+   "element_ids": [
+    "lib-count",
+    "lib-search",
+    "lib-select",
+    "lib-refresh",
+    "lib-browse",
+    "mapping-folder",
+    "mapping-browse"
+   ],
+   "backend_calls": [
+    "studio.listMidis -> ipc app:listMidis",
+    "studio.getLibraryDir/setLibraryDir",
+    "studio.pickFolder -> ipc app:pickFolder",
+    "studio.onLibraryChanged <- 'library-changed'",
+    "studio.openMappingsDir",
+    "studio.getUi",
+    "global setMidiFile"
+   ]
+  },
+  {
+   "name": "SECONDARY — Perch overlay: what it shows",
+   "how_it_works": "Frameless, transparent, alwaysOnTop('screen-saver'), skipTaskbar, visible-on-all-workspaces window (renderer/overlay/*). Shows: a full-bleed top progress #meter (#meter-fill width %) that reads as the song position; a head rail (#head, -webkit-app-region: drag) with a state dot #sig, song name #song ('NO FILE' until a now_playing event), #clock ('m:ss / m:ss' or just elapsed when duration unknown), #btn-menu (gear) and #btn-close; a piano roll #roll containing #viz driven by the shared player/visualizer.js, a #veil 'NO FOCUS / Click the game window' halt notice, and a 3-2-1 #count countdown; a #strip readout (#strip-time, #strip-note '<played>/<total> notes' or 'no file'); a #transport deck (#t-prev/#t-play/#t-stop/#t-next and #t-count 'played/total'); a settings #panel; a 'PERCH' plate; and a manual resize #grip. Four visual states on #card[data-state]: idle / playing / paused / blocked, where 'blocked' means focus was lost mid-song (accent vs warn colour, blinking dot). Three sizes via html[data-mode]: full (roll+deck), slim (roll hidden, strip shown, clock hidden), mini (roll+deck+labels hidden, strip only) — window sizes full 460x300 min 260x170, slim 420x96 min 240x72, mini 168x64 min 120x52, each remembering its own bounds.",
+   "must_survive": true,
+   "element_ids": [
+    "card",
+    "meter-fill",
+    "head",
+    "sig",
+    "song",
+    "clock",
+    "btn-menu",
+    "btn-close",
+    "roll",
+    "viz",
+    "veil",
+    "count",
+    "strip",
+    "strip-time",
+    "strip-note",
+    "transport",
+    "t-prev",
+    "t-play",
+    "t-stop",
+    "t-next",
+    "t-count",
+    "menu",
+    "grip"
+   ],
+   "backend_calls": [
+    "perch.onEngineEvent",
+    "perch.onConfig",
+    "Visualizer (renderer/player/visualizer.js)"
+   ]
+  },
+  {
+   "name": "SECONDARY — Perch overlay: settings sheet",
+   "how_it_works": "#menu toggled by #btn-menu (aria-expanded kept in sync), closed by any outside mousedown or Escape. Controls: SIZE radiogroup #m-mode (full/slim/mini); FADE #m-opacity 20..100 step 5 with #m-opacity-val; AHEAD #m-lookahead 1..10 step .5 seconds with #m-lookahead-val, converted at the boundary to the visualizer's speed multiplier 3/lookahead; PARK #m-snap 3x3 pad of nine corner buttons (top/middle/bottom × left/center/right, 24px pad, on the display the window currently sits on); and switches #m-click (Click through, Ctrl+Alt+P), #m-lock (Lock — disables move/resize and hides the grip), #m-keys (Keyboard, i.e. draw the piano keys), #m-transport (Buttons, hides the deck), #m-autoshow (Open on play), #m-autohide (Hide on finish). Every control calls push(patch) = local applyConfig + perch.apply(patch), which persists into settings 'overlay' and echoes back on the 'overlay-config' channel.",
+   "must_survive": true,
+   "element_ids": [
+    "menu",
+    "m-mode",
+    "m-opacity",
+    "m-opacity-val",
+    "m-lookahead",
+    "m-lookahead-val",
+    "m-snap",
+    "m-click",
+    "m-lock",
+    "m-keys",
+    "m-transport",
+    "m-autoshow",
+    "m-autohide"
+   ],
+   "backend_calls": [
+    "perch.apply -> ipc overlay:apply",
+    "perch.snap -> ipc overlay:snap"
+   ]
+  },
+  {
+   "name": "SECONDARY — Perch overlay: engine event handling",
+   "how_it_works": "onEngineEvent switch on evt.event: midi_loaded -> viz.load(evt.events, evt.note_to_key), totalDuration=evt.duration, totalNotes=events.length, playedCount=0; now_playing -> songName (synthesised by the main process from the load_midi/play command, since the engine never reports the filename); countdown -> show #count with evt.i; playback_started -> hide count, playing=true, viz.startClock(totalDuration, evt.start_elapsed); progress -> viz.clockSet({elapsed, frozen_elapsed}), playedCount=evt.played, totalNotes=evt.total_notes, repaint chrome only when evt.focus_lost or evt.user_paused actually changed; playback_done -> hide count, reset flags, viz.stopClock(), and close the window when autoHide is on. Own 30fps rAF loop (skip if now-lastFrameAt<32) renders the viz only in full mode and updates clock/strip/meter every frame.",
+   "must_survive": true,
+   "element_ids": [
+    "count",
+    "veil",
+    "clock",
+    "strip-time",
+    "strip-note",
+    "meter-fill",
+    "t-count",
+    "t-play"
+   ],
+   "backend_calls": [
+    "perch.onEngineEvent <- 'engine-event'"
+   ]
+  },
+  {
+   "name": "SECONDARY — Perch overlay: transport, hotkeys, resize, lifecycle",
+   "how_it_works": "Transport buttons send perch.command(name) -> ipc 'overlay:command', which the main process re-broadcasts as {event:'hotkey', name} on 'engine-event' — deliberately replaying it as the hotkey the Player tab already handles so the queue/playlist/tempo stay in one place (allowed list: play, stop, pause, next_track, prev_track, seek_fwd, seek_back). #btn-close -> perch.close -> ipc 'overlay:close'. #grip drag-resize computes from screenX/screenY deltas against window.outerWidth/Height and sends perch.resize(w,h) -> ipc 'overlay:resize' (main clamps w>=100, h>=40; the renderer clamps 120x52); suppressed while locked. perch.ready() -> ipc 'overlay:ready' makes main flush queued events after first pushing the saved 'overlay-config'. Global shortcuts (electron/main.js): Ctrl+Alt+O opens/closes, Ctrl+Alt+P opens it, or toggles click-through when already open. 'overlay:toggle'/'overlay:state' expose it to the shell and Player; 'overlay-state' is broadcast on every change. Opened mid-song, the window is empty, so main broadcasts 'overlay-wants-state' and the Player tab answers with api.replayToOverlay -> 'overlay:replay', which forwards ONLY midi_loaded / playback_started / progress.",
+   "must_survive": true,
+   "element_ids": [
+    "t-play",
+    "t-stop",
+    "t-next",
+    "t-prev",
+    "btn-close",
+    "grip"
+   ],
+   "backend_calls": [
+    "perch.command -> ipc overlay:command",
+    "perch.close -> ipc overlay:close",
+    "perch.resize -> ipc overlay:resize",
+    "perch.ready -> ipc overlay:ready",
+    "api.replayToOverlay -> ipc overlay:replay",
+    "api.overlayState/toggleOverlay/onOverlayState",
+    "studio.overlayState/toggleOverlay/setOverlay/onOverlayState"
+   ]
+  }
+ ],
+ "element_ids": [
+  "library",
+  "library-count",
+  "library-search",
+  "library-sort",
+  "library-list",
+  "library-add",
+  "library-refresh",
+  "audition",
+  "open-midi",
+  "autoplay",
+  "show-file",
+  "to-editor",
+  "to-player",
+  "file-name",
+  "file-path",
+  "candidate-field",
+  "candidate",
+  "song-stats",
+  "stat-notes",
+  "stat-bpm",
+  "stat-length",
+  "roll-section",
+  "note-roll",
+  "empty",
+  "empty-open",
+  "loading",
+  "loading-text",
+  "play",
+  "stop",
+  "back",
+  "forward",
+  "seek",
+  "time",
+  "instrument",
+  "speed",
+  "pitch",
+  "volume",
+  "volume-value",
+  "sustain",
+  "loop",
+  "instrument-status",
+  "drop-overlay",
+  "recent (referenced by audition.css only; element deleted, renderRecent() is a no-op stub)",
+  "frame-audition (shell-side iframe that hosts this page)",
+  "lib-count",
+  "lib-search",
+  "lib-select",
+  "lib-refresh",
+  "lib-browse",
+  "mapping-browse",
+  "mapping-folder",
+  "card",
+  "meter-fill",
+  "head",
+  "sig",
+  "song",
+  "clock",
+  "btn-menu",
+  "btn-close",
+  "roll",
+  "viz",
+  "veil",
+  "count",
+  "strip",
+  "strip-time",
+  "strip-note",
+  "transport",
+  "t-prev",
+  "t-play",
+  "t-stop",
+  "t-next",
+  "t-count",
+  "menu",
+  "m-mode",
+  "m-opacity",
+  "m-opacity-val",
+  "m-lookahead",
+  "m-lookahead-val",
+  "m-snap",
+  "m-click",
+  "m-lock",
+  "m-keys",
+  "m-transport",
+  "m-autoshow",
+  "m-autohide",
+  "grip"
+ ],
+ "listeners": [
+  "audition.js:159 library row button 'click' -> loadAudition(file.path, '', {play:true}) — attached PER ROW, up to 300 per render chunk",
+  "audition.js:160 library row button 'contextmenu' -> preventDefault + library.reveal(file.path) — attached PER ROW",
+  "audition.js:169 #library-list host.onscroll (property assignment, replaced every render) -> append next 300 rows when within 200px of the bottom",
+  "audition.js:200 each voice (OscillatorNode/AudioBufferSourceNode) 'ended' {once:true} -> player.voices.delete(voice)",
+  "audition.js:375 document 'visibilitychange' -> lastDraw=0 + updateSongUI() when becoming visible",
+  "audition.js:378 window 'midi-studio:onscreen' (custom, dispatched into the iframe by shell.js:71) -> lastDraw=0 + updateSongUI()",
+  "audition.js:546 #open-midi 'click' -> openPicker()",
+  "audition.js:547 #empty-open 'click' -> openPicker()",
+  "audition.js:548 #play 'click' -> togglePlay()",
+  "audition.js:549 #stop 'click' -> stop()",
+  "audition.js:550 #back 'click' -> seek(position-5)",
+  "audition.js:551 #forward 'click' -> seek(position+5)",
+  "audition.js:552 #seek 'input' -> seek(value/1000*duration)",
+  "audition.js:553 #candidate 'change' -> setCandidate(value)",
+  "audition.js:554 #volume 'input' -> prefs.volume, update #volume-value, live master.gain, savePrefs",
+  "audition.js:559 #instrument 'change' -> pause, save, invalidateInstrument, await prepareInstrument when a context+doc exist",
+  "audition.js:563 #pitch 'change' -> pause, save, invalidateInstrument, await prepareInstrument",
+  "audition.js:567 #speed 'change' -> save, seek(current position) to re-base audioStart",
+  "audition.js:568 #sustain 'change' -> save, clearVoices()",
+  "audition.js:569 #loop 'change' -> save",
+  "audition.js:570 #autoplay 'change' -> save",
+  "audition.js:571 #show-file 'click' -> review.showItem(currentPath())",
+  "audition.js:572 #to-player 'click' -> postMessage studio:open-player",
+  "audition.js:573 #to-editor 'click' -> postMessage studio:open-review with projectPath||currentPath()",
+  "audition.js:577 #library-search 'input' -> renderLibrary() (undebounced full re-render)",
+  "audition.js:578 #library-sort 'change' -> renderLibrary()",
+  "audition.js:579 #library-refresh 'click' -> refreshLibrary()",
+  "audition.js:580 #library-add 'click' -> library.addFolder() then refreshLibrary on ok",
+  "audition.js:585 library.onChanged (ipc 'library-changed') -> refreshLibrary()",
+  "audition.js:586 #note-roll 'pointerdown' -> zoom-aware seek",
+  "audition.js:592 #note-roll 'wheel' {passive:false} -> zoom around pointer / shift = pan, preventDefault, drawRoll",
+  "audition.js:605 #note-roll 'dblclick' -> reset zoom (view.span=0, view.start=0), drawRoll",
+  "audition.js:606 window 'resize' -> drawRoll() (undebounced; also fired synthetically by resize.js after every divider commit)",
+  "audition.js:607 window 'keydown' -> Space play/pause, ArrowLeft -5s, ArrowRight +5s, Home stop (skipped inside form controls or with Ctrl/Alt/Meta)",
+  "audition.js:616 document 'dragenter' -> dragDepth++, show #drop-overlay",
+  "audition.js:617 document 'dragover' -> preventDefault",
+  "audition.js:618 document 'dragleave' -> dragDepth--, hide overlay at 0",
+  "audition.js:619 document 'drop' -> resolve dropped path, load .mid/.midi or .midstudio.json",
+  "audition.js:396 setInterval(scheduleAhead, 120ms) — started in togglePlay, cleared in pause()",
+  "audition.js:374 requestAnimationFrame(tick) self-perpetuating loop while playing — cancelled in pause()",
+  "player.js:44/49 dynamically injected <script> 'onload'/'onerror' per soundfont bank file",
+  "resize.js:109 .grip-h 'pointerdown' + window 'pointermove'/'pointerup' (added/removed per drag) -> resize the --side track",
+  "resize.js:120 .grip-h 'keydown' ArrowLeft/ArrowRight (shift = 40px step)",
+  "resize.js:132 .grip-h 'dblclick' -> reset the track and forget the stored size",
+  "resize.js:147 document 'DOMContentLoaded' -> Resize.apply()",
+  "midi-library.js:65 #lib-search 'input' -> render()",
+  "midi-library.js:66 #lib-select 'change' -> persist 'midi-studio.lib.last' + setMidiFile(value)",
+  "midi-library.js:67 #lib-refresh 'click' -> refresh()",
+  "midi-library.js:68 #lib-browse 'click' -> studio.pickFolder + studio.setLibraryDir + refresh",
+  "midi-library.js:78 studio.onLibraryChanged -> syncDir()",
+  "midi-library.js:90 #mapping-folder 'click' -> studio.openMappingsDir()",
+  "overlay.js:83 requestAnimationFrame(frame) permanent loop, self-throttled to ~30fps (skip when now-lastFrameAt<32)",
+  "overlay.js:173 perch.onEngineEvent (ipc 'engine-event') -> onEngineEvent()",
+  "overlay.js:174 perch.onConfig (ipc 'overlay-config') -> applyConfig()",
+  "overlay.js:184 #t-play 'click' -> command('pause'|'play')",
+  "overlay.js:185 #t-stop 'click' -> command('stop')",
+  "overlay.js:186 #t-next 'click' -> command('next_track')",
+  "overlay.js:187 #t-prev 'click' -> command('prev_track')",
+  "overlay.js:188 #btn-close 'click' -> perch.close()",
+  "overlay.js:191 #btn-menu 'click' -> toggle #menu + aria-expanded",
+  "overlay.js:196 document 'mousedown' -> close the menu on any outside click",
+  "overlay.js:202 document 'keydown' -> Escape closes the menu",
+  "overlay.js:209 #m-mode 'click' (delegated to button[data-mode]) -> push({mode})",
+  "overlay.js:213 #m-snap 'click' (delegated to button[data-snap]) -> perch.snap(where)",
+  "overlay.js:217 #m-opacity 'input' -> push({opacity: n/100})",
+  "overlay.js:218 #m-lookahead 'input' -> push({lookahead})",
+  "overlay.js:219 #m-click 'change' -> push({clickThrough})",
+  "overlay.js:220 #m-lock 'change' -> push({locked})",
+  "overlay.js:221 #m-keys 'change' -> push({showKeys})",
+  "overlay.js:222 #m-transport 'change' -> push({showTransport})",
+  "overlay.js:223 #m-autoshow 'change' -> push({autoShow})",
+  "overlay.js:224 #m-autohide 'change' -> push({autoHide})",
+  "overlay.js:231 #grip 'mousedown' -> begin manual resize (ignored while locked)",
+  "overlay.js:236 window 'mousemove' -> perch.resize(w,h) on every move while dragging the grip",
+  "overlay.js:242 window 'mouseup' -> end grip drag",
+  "shell.js:169 window 'message' (parent side) -> studio:open-player / studio:open-audition / studio:open-review",
+  "shell.js:141 iframe 'load' {once:true} -> deferred loadAudition delivery when the frame was not yet booted"
+ ],
+ "data_structures": "\"prefs (localStorage 'midi-studio.audition.v1'): {volume:65, instrument:'grand_piano', speed:1, pitch:0, sustain:true, loop:false, autoplay:false, recent:[{midiPath,projectPath,label}] max 10, lastMidiPath:'', lastProjectPath:''}. Legacy source key 'midi-forge.preview-prefs.v1': {midiVolume, sound, speed, pitch, sustain, loop, lastMidiPath, lastProjectPath} with SOUND_MIGRATION {soft->grand_piano, bright->synth_lead, pure->electric_piano, chip->music_box}.\\nplayer (module-level singleton, audition.js:32): {token:number (load-cancellation), documents:{[candidateName]:doc}, candidate:string, project:object|null, midiPath, projectPath, duration, position, playing:bool, frame:rAF id, audioStart:number (audio-clock origin), cursor:number (index of next unscheduled note), timer:interval id, context:AudioContext|null, master:GainNode|null, voices:Set<AudioNode>, instrumentToken:number, instrumentReady:string, instrumentFailed:bool}.\\nview: {start:seconds, span:seconds — 0 means 'whole song'}.\\ndoc (from ipc review:load): {name, bpm, duration, notes:[{start, end, pitch, velocity, channel}]} — notes assumed sorted by start (the scheduler and cursorFor both walk forward).\\nreview:load result: {ok, data:{projectPath, project:{format:'midi-studio-project', version, name, sourceAudio, selectedCandidate, candidates:{name->midiPath}}, documents:{name->doc}}}.\\nlibrary:list result: {files:[{path, name (extension stripped), dir, size, modified:mtimeMs}], truncated:bool, dirs, extra}. Module state: libraryFiles[], libraryTruncated, plus `shown` counter closed over per render.\\nsoundfonts: PRESETS (frozen) {key->{label, file, gain, attack, release}}; scriptLoads Map<file, Promise<bank>>; decoded Map<presetKey, Map<sampleName, AudioBuffer>> used as a 2-entry LRU; bank = {NoteName -> 'data:audio/mp3;base64,...'}.\\noverlay cfg (renderer copy, mirrored from settings 'overlay'): {mode:'full'|'slim'|'mini', opacity:0.92, clickThrough:false, locked:false, autoShow:true, autoHide:true, lookahead:3, showKeys:true, showTransport:true, bounds:{[mode]:{x,y,width,height}}}. Overlay renderer locals: totalDuration, playing, paused, focusLost, playedCount, totalNotes, songName.\\nmidi-library.js: dir:string, allFiles:string[] (full paths), localStorage 'midi-studio.lib.last'.\\nresize.js: localStorage 'midi-studio:splits' = {'audition:side': px, ...} (merged read-modify-write).\"",
+ "ipc_contracts": [
+  {
+   "channel": "review:load",
+   "direction": "renderer(audition) -> main, invoke",
+   "args": "filePath (a .mid/.midi or a .midstudio.json)",
+   "returns": "{ok:true, data:{projectPath, project, documents}} | {ok:false, error}"
+  },
+  {
+   "channel": "shell:showItem",
+   "direction": "renderer -> main, invoke (via review.showItem)",
+   "args": "path",
+   "returns": "reveal in file manager"
+  },
+  {
+   "channel": "dialog:openMidi",
+   "direction": "renderer -> main, invoke (via api.pickMidi)",
+   "args": "none",
+   "returns": "string[] of selected paths ([] when cancelled)"
+  },
+  {
+   "channel": "library:list",
+   "direction": "renderer -> main, invoke",
+   "args": "none",
+   "returns": "{dirs, extra, files[], truncated}"
+  },
+  {
+   "channel": "library:addFolder",
+   "direction": "renderer -> main, invoke",
+   "args": "none",
+   "returns": "{ok:true, dir} | {ok:false, canceled:true}"
+  },
+  {
+   "channel": "library:removeFolder",
+   "direction": "renderer -> main, invoke",
+   "args": "dir",
+   "returns": "exposed in preload, NOT used by the audition UI"
+  },
+  {
+   "channel": "library:reveal",
+   "direction": "renderer -> main, invoke",
+   "args": "path",
+   "returns": "reveal in Explorer (library row right-click)"
+  },
+  {
+   "channel": "library-changed",
+   "direction": "main -> all frames + overlay, broadcast",
+   "args": "changed directory path",
+   "returns": "audition calls refreshLibrary(); player's midi-library.js re-resolves its folder"
+  },
+  {
+   "channel": "engine-event",
+   "direction": "main -> all frames + overlay window, broadcast",
+   "args": "{event:'midi_loaded'|'now_playing'|'countdown'|'playback_started'|'progress'|'playback_done'|'hotkey'|'log', ...}",
+   "returns": "consumed by the overlay (and the Player tab); audition does NOT listen"
+  },
+  {
+   "channel": "overlay-config",
+   "direction": "main -> overlay window",
+   "args": "full overlay cfg object",
+   "returns": "applyConfig(); sent FIRST on markReady before any queued events"
+  },
+  {
+   "channel": "overlay:ready",
+   "direction": "overlay -> main, send",
+   "args": "none",
+   "returns": "flushes pending events and rebroadcasts overlay-wants-state"
+  },
+  {
+   "channel": "overlay:close",
+   "direction": "overlay -> main, send",
+   "args": "none",
+   "returns": "closes the window, saves bounds, broadcasts overlay-state"
+  },
+  {
+   "channel": "overlay:apply",
+   "direction": "overlay/shell -> main, invoke",
+   "args": "patch subset of cfg",
+   "returns": "the new cfg; persists into settings 'overlay'"
+  },
+  {
+   "channel": "overlay:snap",
+   "direction": "overlay -> main, invoke",
+   "args": "'top-left'..'bottom-right'",
+   "returns": "cfg; repositions on the display the window currently matches, 24px pad"
+  },
+  {
+   "channel": "overlay:resize",
+   "direction": "overlay -> main, send",
+   "args": "{width,height}",
+   "returns": "setBounds; ignored when w<100 or h<40"
+  },
+  {
+   "channel": "overlay:command",
+   "direction": "overlay -> main, send",
+   "args": "one of play|stop|pause|next_track|prev_track|seek_fwd|seek_back",
+   "returns": "re-broadcast as engine-event {event:'hotkey', name} so the Player tab handles it"
+  },
+  {
+   "channel": "overlay:state",
+   "direction": "shell/player -> main, invoke",
+   "args": "none",
+   "returns": "{open, ...cfg}"
+  },
+  {
+   "channel": "overlay:toggle",
+   "direction": "shell/player -> main, invoke",
+   "args": "none",
+   "returns": "{open, ...cfg}"
+  },
+  {
+   "channel": "overlay-state",
+   "direction": "main -> all frames + overlay, broadcast",
+   "args": "{open, ...cfg}",
+   "returns": "keeps the shell's overlay toggle in sync"
+  },
+  {
+   "channel": "overlay-wants-state",
+   "direction": "main -> all frames",
+   "args": "{}",
+   "returns": "the Player tab replies with api.replayToOverlay(payload)"
+  },
+  {
+   "channel": "overlay:replay",
+   "direction": "player frame -> main, send",
+   "args": "an engine-event payload",
+   "returns": "forwarded to the overlay ONLY when event is midi_loaded | playback_started | progress"
+  },
+  {
+   "channel": "app:listMidis / app:getLibraryDir / app:setLibraryDir / app:pickFolder / app:openMappingsDir / app:getUi",
+   "direction": "player frame -> main, invoke (midi-library.js)",
+   "args": "dir / none / dir / none / none / none",
+   "returns": "MIDI path list, resolved default folder, ack, picked folder, opens folder, ui settings"
+  },
+  {
+   "channel": "engine:send (cmd load_midi/play)",
+   "direction": "player frame -> main, invoke",
+   "args": "{cmd, path|midi_path, mapping, tempo}",
+   "returns": "main sniffs it to synthesise the overlay's now_playing name and to auto-open Perch when autoShow is on"
+  },
+  {
+   "channel": "postMessage studio:open-player / studio:open-review / studio:open-audition",
+   "direction": "iframe -> shell (window.postMessage, not IPC)",
+   "args": "{type, midiPath|projectPath, play?}",
+   "returns": "shell activates the tab and calls setMidiFile / openReviewProject / loadAudition in the target frame"
+  }
+ ],
+ "perf_findings": [
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 489,
+   "issue": "drawRoll() rebuilds a full pitch array (doc.notes.map) and then does Math.min(...pitches)/Math.max(...pitches) with argument spread on EVERY draw",
+   "why_it_costs": "One allocation the size of the note count per repaint, plus two O(n) spreads. Spreading a large array as function arguments also risks 'Maximum call stack size exceeded' on very dense MIDI (tens of thousands of notes). Repaints happen up to every 33ms while playing.",
+   "fix": "Compute low/high once in setCandidate() and cache them on the document (alongside duration), with a plain for-loop instead of spread."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 512,
+   "issue": "The note-drawing loop iterates every note in the document on every repaint and culls with an if-continue, with no index into the sorted note list",
+   "why_it_costs": "When zoomed into a 1-second window of a 10-minute song, 99.9% of loop iterations do nothing but two Number() coercions and two comparisons — full O(total notes) work per frame at ~30fps.",
+   "fix": "Notes are already start-ordered (cursorFor relies on it): binary-search the first visible index and break out once note.start > from+span."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 503,
+   "issue": "getComputedStyle(document.documentElement) is called twice per drawRoll (once for --text-3, once for --accent)",
+   "why_it_costs": "Each call forces a style resolution on the root element inside the paint path, once per frame, purely to read two custom properties that only change on a theme switch.",
+   "fix": "Read both tokens once at boot and re-read on the shell's theme push, caching them in module scope."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 494,
+   "issue": "Pitch grid drawn as one beginPath/moveTo/lineTo/stroke per semitone line",
+   "why_it_costs": "range is at least 12 and is high-low+3 for a wide song (can exceed 60), so 60+ separate stroke() calls per frame instead of two batched paths.",
+   "fix": "Accumulate the octave lines into one path and the semitone lines into another, stroking each once."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 75,
+   "issue": "updateSongUI() runs on every repaint and writes seven DOM values including document.title, even when only the playhead moved",
+   "why_it_costs": "file-name, file-path, stat-notes, stat-bpm, stat-length and document.title cannot change between frames of the same song, yet each is a per-frame DOM write. Writing document.title every frame also pokes the window/tab title machinery.",
+   "fix": "Split it: a setSongMeta() called on load/candidate change, and a light setClock() that only touches #seek, #time and the canvas."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 83,
+   "issue": "updateSongUI() assigns $('seek').value every repaint, and the same element's 'input' handler calls seek()",
+   "why_it_costs": "While the user is dragging the seek bar during playback the per-frame write fights the thumb position, and each 'input' event triggers a full seek() -> cursorFor() -> clearVoices() -> updateSongUI() -> drawRoll() chain.",
+   "fix": "Skip the write while the slider has pointer capture/focus, and only recompute the cursor on pointerup (or via binary search)."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 225,
+   "issue": "cursorFor() is a linear scan from index 0 through the note list",
+   "why_it_costs": "Called from every seek(), i.e. from every 'input' event of the seek slider and from every ±5s press. Dragging the slider across a dense song is O(notes) per input event, on the main thread, while audio is being scheduled.",
+   "fix": "Binary search the sorted note list."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 128,
+   "issue": "renderLibrary() destroys and rebuilds up to 300 DOM rows on every single keystroke in #library-search (listener at :577 is undebounced)",
+   "why_it_costs": "Per keystroke: a filter pass plus an array copy and a full sort of libraryFiles (up to 4000 entries, localeCompare for name/folder sort), then 300 createElement + innerHTML parse + 2 querySelector + 2 addEventListener. Typing a 10-character query does that ten times.",
+   "fix": "Debounce the search ~120ms, and reuse existing row nodes instead of clearing the host."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 155,
+   "issue": "Each library row is built with item.innerHTML = '<b></b><small></small>' followed by two querySelector calls",
+   "why_it_costs": "300 HTML-parser invocations plus 600 selector queries per chunk, where two createElement/appendChild pairs and direct references would do the same work without the parser or the queries.",
+   "fix": "Create the <b> and <small> nodes directly and keep the references."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 159,
+   "issue": "Two closures (click + contextmenu) are attached per library row",
+   "why_it_costs": "Up to 600 listener registrations per render chunk, all discarded on the next keystroke; with the undebounced search this is thousands of listener allocations while typing.",
+   "fix": "One delegated click and one delegated contextmenu on #library-list, resolving the row from event.target.closest and a data-path attribute."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 317,
+   "issue": "playNote() reads four DOM controls per note — $('volume').value, $('sustain').checked, $('pitch').value, $('instrument').value (and playFallback reads $('instrument') again at :294)",
+   "why_it_costs": "getElementById plus a property read per note, executed inside the scheduler on the main thread; a dense passage queues hundreds of notes per 120ms tick, so this is hundreds of redundant DOM reads in the audio-critical path.",
+   "fix": "Mirror those four values into module variables kept current by their existing change/input listeners."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 368,
+   "issue": "tick() keeps a self-perpetuating requestAnimationFrame loop running at full rate even when drawBudgetMs() returns Infinity (hidden window or off-screen tab)",
+   "why_it_costs": "The app disables backgrounding and renderer throttling app-wide (main.js:32-33), so rAF is NOT slowed while occluded: the loop still wakes ~60x/second to call songTime() and compare timestamps for a frame it will never draw.",
+   "fix": "When the budget is Infinity, park the position update on the existing 120ms scheduler interval and stop re-arming rAF until the onscreen/visibilitychange event fires."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 606,
+   "issue": "window 'resize' -> drawRoll() with no throttle",
+   "why_it_costs": "A window drag-resize fires resize continuously, and each one runs the full draw including the O(n) note loop, the two getComputedStyle calls and (because the box really changed) a canvas backing-store reallocation. resize.js:107 also dispatches a synthetic resize after every divider drag commit.",
+   "fix": "Coalesce into a single requestAnimationFrame-scheduled redraw."
+  },
+  {
+   "file": "renderer/soundfonts/player.js",
+   "line": 65,
+   "issue": "sampleForPitch() does Object.keys(bank) and a full linear scan over every sample name whenever the exact note name is missing — and it is called from play() on EVERY note",
+   "why_it_costs": "A soundfont bank has dozens of keys; this allocates a fresh key array and scans it per note played, inside the scheduler. Notes needing playbackRate shifting (any pitch without its own sample, which is most of them once transpose is applied) pay this every time.",
+   "fix": "Build a 128-entry pitch->sample lookup table once per bank in prepare() and index it in play()."
+  },
+  {
+   "file": "renderer/soundfonts/player.js",
+   "line": 56,
+   "issue": "dataUriBuffer() decodes the base64 with atob() and then copies byte-by-byte in a JS for-loop into a Uint8Array",
+   "why_it_costs": "Each sample is a whole mp3 (tens to hundreds of KB); a piano needs dozens of samples, so this is multiple megabytes copied one charCodeAt at a time on the main thread during the 'Loading <instrument>...' phase, blocking the UI.",
+   "fix": "Use fetch(dataUri).then(r => r.arrayBuffer()) (or a typed-array bulk conversion) instead of the per-character loop."
+  },
+  {
+   "file": "renderer/soundfonts/player.js",
+   "line": 88,
+   "issue": "The decode loop awaits context.decodeAudioData one sample at a time",
+   "why_it_costs": "Fully serialises what is an off-thread, parallelisable operation; total prepare time is the sum of every sample's decode rather than the max, which is the entire 'Loading … n/m' wait before the first play.",
+   "fix": "Kick off all decodes and await Promise.all, reporting progress as each settles."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 198,
+   "issue": "registerVoice() adds every scheduled note's AudioNode to player.voices and attaches an 'ended' listener to each",
+   "why_it_costs": "One Set entry plus one listener allocation per note played for the entire song; clearVoices() (called on pause, seek, and every sustain toggle) iterates the whole set calling stop() inside a try/catch per voice. Nodes whose 'ended' never fires (e.g. context suspended) are retained.",
+   "fix": "Bound the set to the lookahead window, or drop the per-node listener and prune on the existing 120ms scheduler tick."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 265,
+   "issue": "prepareInstrument() builds a full transposed pitch array with doc.notes.map before handing it to prepare(), which immediately reduces it to a Set",
+   "why_it_costs": "An allocation the size of the note count on every instrument or pitch change, discarded after de-duplication.",
+   "fix": "Build the Set of distinct transposed pitches directly."
+  },
+  {
+   "file": "renderer/overlay/overlay.js",
+   "line": 76,
+   "issue": "The overlay's 30fps rAF loop writes #clock, #strip-time and #meter-fill.style.width every frame regardless of mode or whether the value changed",
+   "why_it_costs": "In slim/mini mode the canvas render is skipped but these three DOM writes still run 30x/second, and #meter-fill.style.width is a layout-affecting inline-style write each time, on a window deliberately sharing the frame budget with a fullscreen game.",
+   "fix": "Only write when the formatted string / rounded percentage actually changes, and skip the hidden elements per mode."
+  },
+  {
+   "file": "renderer/overlay/overlay.js",
+   "line": 236,
+   "issue": "window 'mousemove' fires perch.resize() — a synchronous ipcRenderer.send plus a main-process setBounds — on every mouse move while the grip is held",
+   "why_it_costs": "Hundreds of IPC messages and window setBounds calls per second during a resize drag; main.js also has each 'move'/'resize' schedule a 400ms-debounced settings write.",
+   "fix": "Coalesce the resize sends to one per animation frame."
+  },
+  {
+   "file": "renderer/audition/audition.js",
+   "line": 335,
+   "issue": "scheduleAhead() recurses into itself after a loop wrap (:350) instead of returning to the loop",
+   "why_it_costs": "Not hot in practice, but for a very short looped clip (duration well under the 1.5s LOOKAHEAD) each wrap recurses again immediately, so one tick can nest as many frames as loop iterations fit in the lookahead window.",
+   "fix": "Wrap the body in a while-loop instead of recursing."
+  }
+ ],
+ "gotchas": [
+  "electron/main.js:30-33 (comment) — 'backgroundThrottling:false alone is not enough: Chromium also backgrounds renderers whose window is occluded, which stalls timers and audio scheduling.' Both app.commandLine switches disable-backgrounding-occluded-windows AND disable-renderer-backgrounding are required for Self Midi / the Editor to keep playing behind a game window. Do not remove either.",
+  "electron/main.js:110-113 (comment) — 'webContents.send only reaches the main frame, so engine/forge events must be fanned out to subframes or the player + forge tabs never receive anything.' broadcast() walks mainFrame.framesInSubtree and sends to every subframe, then separately to the Perch window (which the frame walk cannot reach). Any new event channel must go through broadcast(), not win.webContents.send.",
+  "audition.js:27-29 and 333-334 (comments) — notes are queued onto the Web Audio clock LOOKAHEAD=1.5s ahead at absolute times, deliberately so playback survives background/throttled timers. A late or throttled scheduler wake-up costs nothing as long as it lands inside the lookahead window. Do not convert playback to per-frame note firing.",
+  "audition.js:480-482 (comment) — 'Only resize when it actually changed - reassigning width/height every animation frame reallocates the backing store and stalls playback.' The canvas width/height assignment MUST stay behind the wantW/wantH comparison.",
+  "audition.js:355-367 (comments) — background throttling is off app-wide, so without an explicit frame budget the roll would repaint at full rate forever. Rules: document.hidden (minimised) = do not draw at all; documentElement.dataset.onscreen==='0' (a different tab is showing) = do not draw; unfocused = at least 250ms or 8x the base budget. An iframe CANNOT detect that it is off-screen on its own (document.hidden only tracks the window), which is why the shell stamps data-onscreen and dispatches the custom 'midi-studio:onscreen' event (shell.js:59-73).",
+  "audition.js:346-348 (comment) — the loop rolls player.audioStart forward to the previous end time and resets the cursor rather than calling seek(), specifically so the loop is seamless. A seek-based loop reintroduces the gap.",
+  "audition.js:145-147 (comment) — 'Rows are cheap; a few thousand of them are not.' The 300-row chunked/scroll-grown library render exists because building the whole list up front was the bug (library:list caps at 4000 files).",
+  "renderer/shared/resize.js:31-34 (comment) — every tab is a separate frame with its own copy of resize.js sharing ONE localStorage; writing a whole snapshot back erased the other tabs' saved sizes so only the last pane touched survived a reload. remember()/forget() must stay read-modify-write on 'midi-studio:splits'.",
+  "renderer/shared/resize.js:105-107 (comment) — a divider commit dispatches a synthetic window 'resize' because several canvases (including #note-roll) only redraw on that event. Whatever replaces the roll must still listen for 'resize'.",
+  "renderer/soundfonts/player.js:95-98 (comment) — decoded audio is far larger than the mp3 source, so the `decoded` map is deliberately an LRU of only the two most recently used instruments. Removing the eviction leaks tens of MB per instrument tried.",
+  "renderer/soundfonts/player.js:33-54 — bank scripts are loaded by injecting a <script> that assigns window.MIDI.Soundfont[file]. In-flight promises are cached in scriptLoads so two rapid instrument changes cannot double-inject. Note overlay.html has a strict CSP (script-src 'self') — audition/index.html deliberately does not, because this dynamic script injection needs to work.",
+  "audition.js:15-24 — the legacy 'midi-forge.preview-prefs.v1' key is read FIRST and the new key layered on top, and unknown/renamed instruments are remapped through SOUND_MIGRATION. Dropping the migration silently resets returning users' volume/instrument/sustain.",
+  "audition.js:388 — togglePlay() re-checks player.instrumentToken after awaiting prepareInstrument() and bails if the token moved and the instrument neither loaded nor failed. This is the guard against a play started while the user was switching instrument/pitch; prepareInstrument() has the mirror-image token checks at :272 and :279.",
+  "audition.js:451-454 — a MIDI with >60% channel-9 notes auto-switches the instrument to synth_drum, but ONLY while the saved instrument is still the grand_piano default, so it never overrides a deliberate user choice.",
+  "audition.js:461 — the tri-state autoplay contract: options.play===true always plays (library click), options.play===false never plays (session restore), undefined defers to prefs.autoplay (picker/drop). Collapsing it to a boolean breaks restore-on-launch, which must be silent.",
+  "audition.js:183 — renderRecent() is an intentional no-op stub and #recent no longer exists in the markup, but addRecent() still maintains and persists prefs.recent (max 10). The data is live even though the UI is gone; audition.css:7,9,46 still carries the dead #recent / .recent-field rules.",
+  "electron/library.js:48-51 (comment) — X_melody_balanced.mid and X_melody_detailed.mid are VERSIONS of one song, not three songs; the library folds them into their primary and the #candidate Version picker switches between them after the primary is open. An orphaned candidate (no primary present) is still listed.",
+  "electron/main.js:763-766 (comment) — opening a plain .mid points project.candidates.clean at that very file; reusing it as a save target would overwrite the user's original, which is why review:saveProject distinguishes fromProject.",
+  "electron/overlay.js:110-112 (comment) — the overlay must use setAlwaysOnTop(true,'screen-saver'); plain alwaysOnTop loses to a borderless-fullscreen game.",
+  "electron/overlay.js:128-131 (comment) — the overlay opens with showInactive(), never show(): taking focus off the game mid-song pauses playback, which is the exact failure the window exists to explain.",
+  "electron/overlay.js:174-181 (comment) — markReady() sends 'overlay-config' BEFORE flushing queued events, because the page boots on the markup's defaults; without it a user who chose Mini at 40% opacity reopens at Full.",
+  "electron/overlay.js:212-215 (comment) — setMode() saves the outgoing mode's bounds before resizing, otherwise the modes slowly overwrite each other's remembered dimensions.",
+  "electron/overlay.js:66-93 (comment) — a remembered position on an unplugged monitor leaves the window off-screen with no way to grab it, so saved bounds are re-validated against the current displays with a deliberately loose overlap test (a deliberate hang off the screen edge must still be honoured).",
+  "electron/main.js:657-673 (comments) — two GLOBAL shortcuts are mandatory: once click-through is on the window stops accepting clicks entirely, so Ctrl+Alt+P is the only way to turn it back off, and Ctrl+Alt+O is the only way to show/hide it while the game has focus.",
+  "electron/main.js:711-714 (comment) — 'overlay:replay' forwards ONLY midi_loaded / playback_started / progress, deliberately, so a compromised frame cannot use it as a general channel into the always-on-top window.",
+  "electron/main.js:648-652 and 679 (comments) — Perch opened mid-song has an empty roll because midi_loaded is long past; opening (and overlay:ready) broadcast 'overlay-wants-state' so the Player tab, the only frame that kept the payload, replays it.",
+  "electron/main.js:722-733 (comment) — the engine never reports the filename, so main sniffs load_midi/play commands going through engine:send to synthesise the overlay's now_playing name, and to open Perch BEFORE the countdown rather than after.",
+  "renderer/overlay/overlay.js:1-5 and 180-182 (comments) — Perch owns NO playback state: it listens to the same engine-event stream as the Player tab so there is exactly one clock, and its transport goes out as a synthetic hotkey so queue/playlist logic stays in one place instead of a second slightly-different copy.",
+  "renderer/overlay/overlay.js:38-46 and overlay.html:27-28 (comments) — 'blocked' (focus lost) must look different from a user pause; playback stopping with no visible reason is the single most confusing thing that happens mid-song because the app is behind the game. Hence #veil 'NO FOCUS'.",
+  "renderer/overlay/overlay.js:59-61 (comment) — #strip-note is the ENTIRE readout in slim mode, so it must not sit on an em dash until the first note lands ('no file' instead).",
+  "renderer/overlay/overlay.js:68-70 (comment) — the overlay caps itself at ~30fps on purpose, to leave the frame budget to the game underneath, which is the thing actually being looked at.",
+  "renderer/overlay/overlay.js:94-97 (comment) — the user's AHEAD setting is in seconds of music but the visualizer takes a speed multiplier off a 3-second baseline; the conversion 3/lookahead happens at the boundary only.",
+  "renderer/overlay/overlay.js:226-230 (comment) — the frameless window has only a few pixels of OS resize border, so the visible #grip drives the resize by hand; it is suppressed while locked and .grip is display:none in the locked state.",
+  "renderer/player/midi-library.js:1-9 (comment) — this file is a bolt-on loaded after app.js in the same frame, reusing the player's global setMidiFile(); app.js itself is deliberately untouched. It bails silently if window.studio, setMidiFile or studio.listMidis is missing.",
+  "renderer/player/midi-library.js:80-82 (comment) — the #mapping-folder shortcut exists because custom mapping .json files must live in the persistent AppData mappings folder to survive relaunch/update.",
+  "renderer/index.html:217 + shell.js:135-144 — the audition frame is lazily loaded (data-src, not src), so a hand-off must fall back to waiting on the iframe 'load' event; reaching into contentWindow.loadAudition immediately will hit an empty frame. window.loadAudition (audition.js:627) is a public cross-frame contract."
+ ]
+}

@@ -1,0 +1,2052 @@
+{
+ "invariants": [
+  "Off-screen draw suppression must survive. Today the shell stamps data-onscreen on each iframe's <html> and dispatches 'midi-studio:onscreen'; an iframe cannot detect occlusion itself (document.hidden tracks only the window) and backgroundThrottling:false + disable-backgrounding-occluded-windows + disable-renderer-backgrounding mean the platform never throttles a hidden panel. If iframes become in-document panels, replace it with one visibility scheduler every canvas loop subscribes to. Drop it and every hidden tab burns GPU forever.",
+  "The draw budget (data-drawms), the 'game is running' multiplier and the 'window unfocused' penalty must stay three separate inputs. A past bug folded user preference and gameActive into one flag and latched the limit on permanently the first time Roblox was seen. A game may RAISE the budget (x3), never lower or overwrite the user's percent. The three must never compound (that landed at 5fps and made the roll teleport).",
+  "While playback is live the Player's budget is floored at >=30fps (min(base,33)). Playing into a game means this window is normally NOT focused, so unfocused is the usual case and never a reason to go choppy.",
+  "Ctrl+1..N tab switching must be caught in the MAIN process via before-input-event as well as in the shell. The stage covers almost the whole window and swallows keydowns once focus is inside a tab. Extend both maps to 5 tabs together or they disagree.",
+  "webContents.send reaches only the main frame. engine-event/engine-error/forge:status/library-changed/game-active/overlay-state/overlay-wants-state must go through broadcast() (walk mainFrame.framesInSubtree, then send separately to the Perch window, which the frame walk cannot reach). update-status/shell-shortcut/open-midi must stay main-frame-only so exactly one update banner exists.",
+  "Playback ALWAYS backgrounds Forge (a late keypress is audibly wrong and cannot be caught up); a detected game only backgrounds Forge when whenGaming!=='nothing'. playbackActive and gameUp stay separate flags so one ending does not cancel the other. OMP_WAIT_POLICY=PASSIVE + KMP_BLOCKTIME=0 + OMP_NUM_THREADS are what make 'go easy' mean anything, because Torch's OpenMP pool spin-waits and never yields.",
+  "The Forge pipeline output pump must split on \\r as well as \\n. MSST tqdm and yt-dlp rewrite one line with \\r and never send \\n; newline-only splitting showed nothing for the longest part of a run. Progress percent stays monotonic (peak = Math.max) and the keyword fallback must keep skipping lines starting with 'input:' (the 'Input: song.mp3' echo jumped the bar to 90%).",
+  "collectAdvanced() must send ALL 23 advanced keys on every write: main deep-merges, so an omitted key keeps its old on-disk value. Empty string means 'engine default'. LEGACY_DEFAULTS (MIN_NOTE_SEC '0.05', MELODY_MIN_NOTE_MS '45') must keep being treated as unset.",
+  "selectScript must test pipeline==='fast' BEFORE skipSeparation, or Fast silently routes to Transkun.",
+  "forge.run gates on forgeEnvReady (site-packages/torch AND a .ready marker), not merely 'python.exe exists'. A cancelled setup otherwise dies on import.",
+  "Orphan-job reaping must stay: a Forge job is a separate python.exe holding the GPU, and a hard kill of the app leaves it transcribing forever. forge-jobs.json also tracks the PLAYER sidecar pid, because a leftover copy inside the install folder makes the next installer refuse to update.",
+  "The sidecar must always emit {event:'playback_done',crashed:true} on exit, or Play stays disabled and the queue stays locked until the app restarts. PYTHONPATH=engineDir and MIDI_STUDIO_MAPPINGS_DIR must be set before it spawns.",
+  "Empty means UNBOUND for all ten Player hotkeys, including play/pause/stop, so those keys can be freed for the game. Focusing a capture box must suspend global hotkeys or the key being rebound fires its old action.",
+  "hand / hand_split / chord_stagger_ms change WHICH notes exist and WHEN they fire, so they must ship with every load_midi, play AND export_sheet or the visualizer, the keys sent and the VP sheet disagree.",
+  "A user Stop must always send {cmd:'stop'} even when the UI thinks nothing is playing, so a just-dispatched tempo-restart session dies. userStopped suppresses the queue advance, the sent/dropped summary and the practice loop.",
+  "Live tempo change must stop-and-restart at the equivalent musical position (pendingRestartAt = elapsed*prev/next), never just reload the visualizer while the engine keeps the old timeline. When paused it must pre-seek and never auto-resume.",
+  "Loading a track is not playing it: starting the engine also focuses the game window, so playback only ever starts on an explicit ask (Play, a row's play button, a hotkey, or the natural end of the previous track).",
+  "The visualizer's local extrapolating clock (elapsed = serverSync + wall delta) must stay, or notes teleport between progress packets. Drag-lock must ignore incoming progress packets during a scrub and release only ~250ms after the final seek. A backwards jump >0.2s must reset the cull cursor or notes behind the playhead never reappear.",
+  "The editor's roll canvas must stay viewport-sized with a scroll wrapper supplying the extent. A five-minute song at default zoom is ~24,000px, past Chromium's 16,384px limit and 60+MB of pixels, so the tail of a long song simply never drew. Pointer x must be converted back into content space, and the pinned key strip must be drawn last, outside the clip.",
+  "The note resize-edge hit zone stays proportional (width>14 && right-x < min(8, width*0.3)). A fixed 8px zone made almost every 1/16 note resize instead of move.",
+  "A plain click must never dirty the project or push an undo entry: the checkpoint is deferred to the first >=2px move and confirmed by a real start/end/pitch diff on release.",
+  "Undo/redo is keyed by note id (loader 'n1..nN', editor 'add<n>'), never by array index, and note ids must stay stable across clone/restore. The loader's `unterminated:true` flag must round-trip; a fixed-field note constructor silently drops it.",
+  "doc.bpm may be an onset-derived guess flagged bpmEstimated, because transcriptions carry no tempo track and mido reports 120 for everything. Quantize snapping to a wrong 120 grid moves every note on a 174 BPM song, so bpm/bpmEstimated must survive save and should now be surfaced with an override.",
+  "Opening a plain .mid must leave projectPath empty and must never be saved in place: candidates.clean points at the user's own file. candidateTarget()'s fromProject gate is the protection.",
+  "Renaming a project must clear project.candidates so the next save writes new files instead of overwriting the ones the old name pointed at.",
+  "Self MIDI playback must stay a lookahead scheduler (notes pinned to the Web Audio clock ~1.5s ahead). A late or throttled wake-up then costs nothing. Never convert it to per-frame note firing. The seamless loop must roll audioStart forward, not call seek().",
+  "Canvas backing stores may only be reallocated when the pixel size actually changed; reassigning width/height per frame reallocates and clears the surface and stalls playback.",
+  "Split sizes in localStorage 'midi-studio:splits' must be read-merge-written per divider key. Every tab shares one localStorage and a whole-object write erased what the other panes had saved. A divider commit must dispatch a synthetic window 'resize' because several canvases only re-measure on that event.",
+  "[hidden]{display:none !important} must stay in the token layer: component display rules (.spane.is-active{display:flex}, .modal-scrim{display:flex}) otherwise beat the hidden attribute and every modal/banner/disclosure breaks at once. button[role=radio|checkbox|switch|tab] must keep appearance:none or Chromium paints a native radio through the label.",
+  "Fonts stay bundled woff2 served locally: the page CSP (default-src 'self', script-src 'self') blocks remote anything. No CDN, no inline event handlers. Self MIDI is the one page that deliberately has no strict script-src because soundfont banks are loaded by injecting a <script>.",
+  "--text-3 (#868a92) is the AA contrast floor (5.27 on --bg, 4.82 on --surface) and the type scale bottoms out at 12px on purpose; an older 8.5-11.5px band was unreadable at 100% on 1080p. The 9px keyboard label font in the visualizer is the one sanctioned exception.",
+  "will-prevent-unload has inverted semantics: preventDefault() means proceed with the close. The Editor's dirty-state beforeunload must keep going through that dialog, or the window silently refuses to close with no escape but Task Manager.",
+  "window-all-closed must keep the forced app.exit(0) after 4s, and second-instance must not show a window that has not painted (that white rectangle is what 'it opens white and never loads' was) and must be able to recreate a lost window instead of exiting.",
+  "Perch must use setAlwaysOnTop(true,'screen-saver') and showInactive(), never show(): plain alwaysOnTop loses to a borderless-fullscreen game, and taking focus mid-song pauses playback. It must be closed with the main window and in cleanup(), its saved bounds re-validated against the displays that exist now, and overlay-config sent before any queued events.",
+  "overlay:replay stays allowlisted to midi_loaded|playback_started|progress, and overlay:command stays allowlisted to the seven transport names, so a compromised frame cannot drive the always-on-top window. Perch owns no playback state: its transport is replayed as a synthetic hotkey so queue/tempo logic lives in exactly one place.",
+  "The updater must never pass /S to the NSIS installer (silent mode re-decided the install dir and re-ran the old uninstaller) and on Windows must launch it via Start-Process, never a direct spawn (detached:true does not detach, so the installer taskkilled its own parent tree). Elevate with -Verb RunAs when the install dir is not writable. An absent digest falls back to opening the release page; a digest MISMATCH throws.",
+  "adoptInstallerForgePath must never trade a provisioned env for an empty one (the 2.20.0 bug), and recoverForgeEnv must keep repointing at a ready env found elsewhere. cleanReinstall and changeForgeStorage only ever touch our managed env (marker file or default path), never an adopted legacy midi-forge.",
+  "Settings deepMerge REPLACES arrays. library.dirs and any new array setting must be written whole.",
+  "app:setPerformance must write explicit nulls for advanced.threads/batch when percent is set (deep-merge would keep a hand-set value), and the cleared-override test must check the value, not Number(v), because Number(null)===0 is finite and clearing used to set it to 1.",
+  "Fix, do not reproduce: 'HKCU\\\\Software\\\\StarsationX\\\\MIDI Studio' (main.js:522) and 'C:\\\\Windows' (main.js:500) are written with single backslashes in ordinary string literals, so the escapes collapse and the reg QUERY targets a key that cannot exist while the reg ADD (correctly escaped) writes the real one. Installer-chosen Forge storage is therefore never adopted.",
+  "The five-tab nav, the activity strip and the bottom transport are one document's chrome; the bottom transport must have a single explicit owner at a time (Player engine, Self MIDI synth, or Editor preview) with the other two parked, or two clocks and two Space handlers fight.",
+  "The postMessage/hand-off router currently does no origin check. All frames are 'self' under the CSP today; if any remote content ever loads, tab switching and file loading become an injection surface."
+ ],
+ "shared_primitives": [
+  "Design token layer (tokens.css successor): the ~60 custom properties, 4 accent presets + derived-custom-accent overrides, bundled woff2 faces, global reset incl. [hidden]{display:none!important} and appearance:none for button[role=radio|checkbox|switch|tab], :focus-visible ring, prefers-reduced-motion kill switch, webkit scrollbars.",
+  "Token cache with invalidation: one module that reads --accent/--text-3/--bg-2 etc once and re-reads on a theme/accent change event. Kills getComputedStyle from every canvas paint loop (forge css(), review drawRoll, audition drawRoll, player drawRangeOverview).",
+  "Theme/accent engine: applyTheme(preset) + deriveAccent(hex)->7 vars, applied once per document, rAF-coalesced, persisted on 'change' not 'input'.",
+  "Icon set (icons.js): 16-unit grid, stroke 1.6, square caps, stroke set + filled transport set + generated gear; Icon.svg(name,size) and an idempotent Icon.apply(root).",
+  "Draw scheduler: single module owning panel visibility, data-drawms budget, focus penalty, playback floor, and a rAF/timeout latch per consumer with separate handle spaces. Consumers register a draw fn and a 'dirty' flag instead of running their own loops.",
+  "Canvas layer cache: offscreen static layer (background, grid, peaks, note bars, onset ticks) keyed by (data version, zoom window, css size, dpr) + per-frame blit + moving overlay (playhead, selection, active keys). Needed by forge waveform, editor roll + waveform, player song map + visualizer, self-MIDI roll, library grid sparkline.",
+  "HiDPI canvas helper: dpr = min(devicePixelRatio,2) re-read per resize, setTransform, and reallocate the backing store only when pixel size actually changed.",
+  "Timeline zoom/pan (timeline-zoom.js): {start,span} window, span 0 = whole song, pointer-anchored wheel zoom, shift-wheel pan, dblclick reset, follow(time), rAF-coalesced onChange. Shared by Forge waveform, Editor waveform, Player song map, Self MIDI roll, Library preview.",
+  "Range/loop selection widget: proportional edge hit-testing, handle drag, drag-select with a 3px deadzone, unmoved click = seek, keyboard nudge, mm:ss(.mmm) parse/format. Shared by Forge time range, Editor loop, Player playback range, Self MIDI Loop A/B.",
+  "Split-pane primitive (resize.js): [data-split] owner + grip driving one CSS custom property, pointer/keyboard/dblclick, read-merge-write persistence in 'midi-studio:splits', debounced persist + one synthetic window 'resize' per gesture.",
+  "Virtualised list: windowed rows with reuse, one delegated click + one delegated contextmenu, keyed by data-path. Shared by Library table, Self MIDI library nav, Player queue, Forge queue, Editor track list.",
+  "Debounced persistence layer: one dirty-flag store for settings IPC and one for localStorage, coalescing continuous inputs (sliders, colour picker, divider drag, overlay drag) into a single trailing write.",
+  "Transport bus: single owner registry (player engine | self-MIDI synth | editor preview), exposing play/pause/stop/seek/rate/position + a status enum (idle/playing/paused/blocked/counting) that the bottom transport, the activity strip and every tab render from.",
+  "Command registry for the palette (Ctrl+K): every action registers id/label/keywords/scope/handler/enabled, so the palette, the hotkey binder and the menus read one list.",
+  "Global search index: files (library scan), commands, settings panes, recent items; one debounced multi-term AND matcher.",
+  "Toast + activity-strip channel: severity, dedupe, edge-triggering, auto-dismiss with an out-class, and the regex filter that keeps ordinary sidecar chatter from toasting.",
+  "Status pill / dot component: idle/ok/warn/err/blocked with the blinking-paused and pulsing-blocked treatments.",
+  "Progress bar: determinate + indeterminate, animated with transform:translateX (not margin-left), monotonic percent clamp, and an integer-percent write guard.",
+  "Segmented control / tab strip: button[role=radio|tab] with appearance:none, is-active + aria-checked/selected, roving arrow-key navigation with wrap.",
+  "Modal / sheet primitive: scrim, aria-modal, Escape precedence, body scroll lock, and (while iframes remain) the sibling-panel visibility trick because an iframe composites above a fixed overlay.",
+  "Disclosure/collapsible section: aria-expanded + caret swap + persisted open state (Advanced Options, song map, log drawer, left/right column collapse).",
+  "Drop overlay: window-level dragenter/over/leave/drop with a depth counter, extension routing (audio vs .mid vs .json vs .midstudio.json), and webUtils.getPathForFile resolution.",
+  "Empty / loading / error state block: icon + headline + action button + inline error surface, one component for all five tabs.",
+  "File-path chip: basename + full-path title + ellipsis + reveal-in-folder affordance.",
+  "Hotkey capture widget: readonly input + .hk-slot + visible clear button, e.code-based unshifted resolution, pynput syntax builder, human label renderer, and suspend-global-hotkeys-on-focus.",
+  "Time formatting helpers: fmtClock (mm:ss / hh:mm:ss / 3-digit ms), whenLabel relative dates, fmtMs signed, byte/GB formatting.",
+  "Audio preview engine: one AudioContext owner, soundfont prepare with per-pitch decode + progress + 2-instrument LRU, oscillator fallback incl. drum synthesis, envelope, voice pool. Shared by Editor preview and Self MIDI.",
+  "Peak extraction worker: decode + min/max bucketing off the main thread, returning a fixed bucket array. Shared by Forge waveform and Editor waveform.",
+  "Frame-safe drag helper: pointer capture, cached bounding rect for the gesture duration, rAF-coalesced updates, body.is-resizing global suppression."
+ ],
+ "orphans": [
+  "Forge layout picker + layout engine + the four layouts (classic/cards/bench/console, forge.js collectBlocks/applyLayout, shell Settings 'Forge layout' radiogroup): REMOVED as a feature. Proposed replacement: the single 3-column grid, with the left and right columns collapsible to icon rails (chevron in each column header, state persisted in settings.ui.forgeColumns) and two dividers persisted as forge:rail / forge:insp in 'midi-studio:splits'. Add Settings > Appearance > Density (comfortable/compact) to serve the users who picked Cards, and keep the existing responsive collapse (<1180px inspector drops below the canvas, <900px single column). Delete the block-moving engine entirely - a CSS-only grid removes the DOM churn and the Resize re-wiring.",
+  "VP (virtualpiano) sheet export (#export-sheet, cmd export_sheet, clipboard copy of evt.text): Player right rail > Tools > 'Copy VP sheet' with a toast reporting notes copied and skipped-out-of-range, plus a command-palette entry 'Export VirtualPiano sheet'. It always forces mapping 'virtualpiano' regardless of the selected mapping and must still ship playOpts (hand/hand_split/chord_stagger_ms).",
+  "Drop report / ghosting pre-play warning (showReport, report{big_chords, ghost_limit, max_chord, short_notes}): Player right rail > Mapping Status as a warning row above the mapping description - 'N chords over 6 keys (widest M)', 'N notes under 30ms', and the actionable 'Set Chord roll to 5-10ms' hint when chord stagger is still 0. It must render BEFORE Play, not after, and sits next to the collapsed-sharps note which belongs in the same panel.",
+  "Collapsed-sharps mapping warning (36-key roblox layout silently plays every sharp as the white key below): Player right rail > Mapping Status, as a distinct warn row from the drop report. It can never appear as 'out of range' because those notes are technically mapped, so without the explicit note a first-timer blames the transcription.",
+  "Perch overlay (renderer/overlay/*, electron/overlay.js, 9 IPC channels, Ctrl+Alt+O / Ctrl+Alt+P): NOT a tab. Stays a separate frameless always-on-top window. Proposed placement: (1) a 'Perch' toggle button at the right end of the persistent bottom transport, aria-pressed driven by overlay-state, (2) a new Settings > Overlay pane hosting the full settings sheet (size full/slim/mini, fade, ahead seconds, 3x3 park pad, click-through, lock, keyboard, buttons, open-on-play, hide-on-finish), (3) the overlay keeps its own in-window sheet because the app window is behind a game exactly when the user needs it, (4) both global shortcuts stay registered in main.",
+  "Clean reinstall of the Forge environment (#s-clean, app:cleanReinstall): Settings > Forge engine > 'Danger zone' block at the bottom, next to 'Open setup log', keeping the window.confirm gate and the 'never touches a separate Midi-Forge install' wording, and keeping the refusal when the directory is not our managed env.",
+  "Forge storage relocate / reset (#s-changeforge, #s-resetforge, app:changeForgeFolder/resetForgeFolder): Settings > Forge engine > Storage row, with the busy-state label swap, both buttons disabled during the move, and the post-move refresh of the Forge tab's env probe.",
+  "Setup / provisioning panel (section#setup, 7 provisioning events, 12s silence watchdog, elapsed clock, log copy): full-width modal 'First-time setup' launched from the Forge tab's env banner and from Settings > Forge engine. It must not live inside the Forge left column - it is a one-time multi-GB blocking flow that needs the whole width, and the log/copy/open-log affordances must stay reachable from inside it.",
+  "Forge env status bar (#envbar, cached localStorage verdict painted first then confirmed): the persistent activity strip, as a left-aligned engine chip (Ready + GPU / CPU mode / Not set up + missing list) that is clickable to open the setup modal. It must keep painting the cached verdict synchronously because probing imports torch and takes tens of seconds.",
+  "Player log panel + Forge log pane + provisioning log: one Activity strip > Log drawer (collapsible, persisted, capped line count, level colouring, auto-expand on error, Clear). Forge additionally keeps its per-run Log tab in the centre Progress|Log group, but both write to the same ring buffer so 'copy log' is one action.",
+  "Forge activity indicator (#forge-activity in the Player tab, forge.progress/forge.done job set): becomes the canonical activity strip content - a job chip per running Forge/yt job with stage and percent, visible from every tab, and the finished-MIDI auto-queue behaviour moves to a strip action ('Added X to the Player queue').",
+  "Updater version badge + 8-state update banner (two competing copies today: shell + Player): one Activity strip update row (checking / available / downloading with progress / verifying / ready / manual / updated / none / error, with the apply button doubling as Retry when nothing is staged), plus the version chip in the custom titlebar and Settings > Updates. Delete the Player's duplicate updater entirely; update-status stays main-frame-only.",
+  "Game-detected reaction and toasts ('Roblox detected, going easy on the GPU'): Activity strip chip driven by game-active, edge-triggered so repeated broadcasts do not spam, with the .exe suffix stripped. The whenGaming policy select stays in Settings > Performance.",
+  "Editor candidate tabs (clean/balanced/detailed takes of one transcription): Editor right rail > Properties > 'MIDI Source' list (the mockup's MIDI Source panel). They are alternate takes, not tracks, so they must NOT go into the left Tracks panel; per-source undo/redo stacks follow them into the right rail History tab.",
+  "Editor left panel Tracks (colour + M/S + note counts): derived from doc.programs and the distinct note channels, since the document model has no track concept. Mute/solo are NEW behaviour and need both a render filter and a triggerNotes filter. Markers has no data source at all - ship it as an empty state seeded from the loop range and Self MIDI bookmarks rather than inventing a format.",
+  "Editor automation lane (Velocity/Modulation/Expression/Sustain/Pan): only Velocity has data today (note.velocity). The other four require CC read/write in python-engine/midi_document.py. Proposed placement: ship the lane with Velocity live and the other four visible-but-disabled with a 'not captured by transcription yet' note, or implement CC round-trip first. Do not silently drop CCs on save.",
+  "Self MIDI Playlists and Favorites left-nav sections: no data model exists. Proposed placement: Playlists reads the Player's existing settings.playlist plus new named lists in settings; Favorites is a new boolean set in settings shared with the Library tab's Favorites filter (they must be one store, not two).",
+  "Self MIDI Bookmarks and Loop A/B: Bookmarks are new (persist per file path in prefs alongside recent). Loop A/B reuses the shared range-selection widget over the roll rather than the current whole-song loop checkbox, and the existing seamless-loop scheduler behaviour must drive it.",
+  "Self MIDI recent list (prefs.recent, 10-item MRU still written but with no UI since renderRecent() became a stub): Self MIDI right rail > 'Recently Played'. The data is already there; only the UI was lost.",
+  "Player accordion sidebar (one section open at a time, settings.openSection with the legacy 'hotkeys' remap): replaced by the fixed left column with a Song|Target|Playback|Preferences tab group. Keep migrating the legacy stored value so returning users do not land on a blank panel.",
+  "Player song-map collapse (#map-toggle, dispatches a synthetic window resize): Player centre > timeline overview header chevron, persisted, still dispatching the resize so the canvases re-measure.",
+  "Track strip live note counter (#track-notes, created by innerHTML so it only exists after updateTrackStrip): Player centre > stat strip as a first-class element, not an innerHTML child - both the progress handler and playback_done currently have to null-guard it.",
+  "Forge dropzone hero + .dropzone.drag dead CSS: the left column Input tab's drop target. The .drag highlight class is defined but never applied today - wire it (or delete it) rather than porting dead CSS.",
+  "Forge 'Skip separation' toggle, quality preset and the 6 advanced groups: left column Settings tab > Advanced Options (collapsed) for the always-visible Sound cleanup group, with the five per-pipeline groups shown by data-group as they are today. The Model/Quality/Stems/Time Range cards in the centre are the friendly face of the same values and must write through to the same fields, with any manual edit flipping Quality to Custom.",
+  "Forge queue Undo (single-level swap snapshot, doubles as Redo) and Player queue Undo: keep as an inline 'Undo' link in each queue header, plus a command-palette entry. Cancel must keep clearing the queue AND leaving it recoverable.",
+  "Shell 'Forge layout' Settings section, brand logo, tab hint chips and the frameless drag region: fold into the new custom titlebar - logo left, version chip and settings gear right, -webkit-app-region:drag on the bar with no-drag on every interactive child, and the ^1..^5 hint chips on the nav items.",
+  "Player 'Transcribed songs' folder picker (renderer/player/midi-library.js, injected after app.js, depends on the global setMidiFile): superseded by the Library tab. Its persistent-mappings-folder button (#mapping-folder -> studio.openMappingsDir) must be re-homed to Player left column > Playback settings > Mapping, next to the custom-mapping browse button, or custom mappings stop surviving updates.",
+  "Orphaned Forge job reaping notice and setup-log/boot-log affordances: Settings > Forge engine > Diagnostics ('Open setup log', 'Open boot log', 'Stopped N leftover Forge jobs' as an activity-strip line on launch)."
+ ],
+ "top_perf_items": [
+  {
+   "rank": 1,
+   "area": "Player - full-song overview redraw during playback (renderer/player/app.js:2020, drawRangeOverview)",
+   "issue": "Called from the render loop every 80ms while notes are playing and redraws the entire song: up to 6000 fillRect calls plus a getComputedStyle(documentElement) read for --accent per draw. Only the playhead and the range shading actually move.",
+   "fix": "Cache the note bars to an offscreen canvas keyed by (events, zoom window, css size, dpr); per frame blit it and draw the playhead + range only. Cache --accent in the token module and invalidate on theme change.",
+   "risk": "Low. Pure render refactor behind the existing draw call; the zoom window is already an explicit key."
+  },
+  {
+   "rank": 2,
+   "area": "Player - per-note allocation in the visualizer render loop (renderer/player/visualizer.js:229, 233, 88)",
+   "issue": "createLinearGradient plus colour-string concatenation per visible note per frame, a beginPath/4x arcTo/fill path per note, a per-key strokeRect for the keybed, and fresh [0,2,4,5,7,9,11] / [1,3,6,8,10] array literals allocated inside _noteGeom which runs per note per frame. Hundreds of allocations per frame feeding a GC that runs on the same thread that must service progress packets and dispatch keypresses.",
+   "fix": "Precompute two gradients per channel colour at load/setStyle time (or flat fills below a size threshold), fillRect for small notes, one batched path for all keybed separators, and hoist the pitch-class tests to module-level lookup tables.",
+   "risk": "Low-medium. Visual output must stay identical; the gradient is described in-code as subtle, so a flat fill is an acceptable fallback if the precomputed gradients look off."
+  },
+  {
+   "rank": 3,
+   "area": "Editor - refresh() reallocates both canvases and repaints everything on every edit (renderer/review/review.js:275-278, 139)",
+   "issue": "Every velocity change, delete, nudge or transpose runs Math.max(...notes.map(n=>n.end)) plus resizeRoll() and resizeWave(), each of which reassigns canvas.width/height (a fresh cleared surface) and does an O(all notes) repaint. The #zoom slider fires this per pixel of travel. The spread of every note end / every pitch also throws RangeError past ~100k arguments, so a very large transcription hard-fails on its first refresh.",
+   "fix": "Split geometry-invalidating refresh from repaint-only (the drag path already proves the cheap path works); track maxEnd incrementally with a loop, never a spread; reallocate the backing store only when the pixel size changed; rAF-coalesce the scroll and zoom repaints.",
+   "risk": "Medium. Touching the central refresh path; needs care that duration widening, bounds recompute and control gating still happen where they must."
+  },
+  {
+   "rank": 4,
+   "area": "Editor - playback note triggering and undo checkpoints (review.js:642, 88, 765)",
+   "issue": "triggerNotes() walks the ENTIRE note array every rAF tick (~60/s) although only a ~16ms window can match, and it is deliberately outside the draw throttle - 600k comparisons/second on a 10k-note song. Separately, holding an arrow key pushes one full-document clone onto the undo stack per OS repeat, blowing through the 80-entry cap in about two seconds and discarding real history.",
+   "fix": "Keep notes sorted by start and advance a cursor (binary-search on seek); coalesce autorepeat nudges into one checkpoint per key-hold using the same dirtied-flag trick as the drag path; move to inverse-operation patches instead of whole-array snapshots.",
+   "risk": "Medium. Undo semantics are user-visible; the id-keyed selection model must keep working across restore."
+  },
+  {
+   "rank": 5,
+   "area": "Main process - IPC fan-out of high-rate log/progress streams (electron/main.js:113 broadcast, forge-runner.js:279, forge-provisioner.js:117, sidecar.js:117)",
+   "issue": "broadcast() rebuilds the subframe list and structured-clone-serialises the payload once per frame for every event. The forge pump splits on \\r, so an MSST tqdm bar or a yt-dlp download emits hundreds to thousands of 'lines' per stage, each becoming one emit -> one broadcast -> N frame sends. pip output during provisioning does the same, plus a synchronous fs.writeSync per chunk. This is the hottest main-thread path exactly while a transcription or a download is running, i.e. while the user may also be playing notes into a game.",
+   "fix": "Cache the frame list (invalidate on frame-created/destroyed), batch log lines on a ~100ms timer into one array payload, throttle progress to ~10-20Hz, drop lines that differ only in a percentage, and tee the provisioner log through a write stream.",
+   "risk": "Low. The renderer already appends lines in order; batching preserves order and the monotonic percent clamp is unaffected."
+  },
+  {
+   "rank": 6,
+   "area": "Library scanning blocking the main process (electron/library.js:26, main.js:130 listMidis)",
+   "issue": "A recursive synchronous directory walk with one fs.statSync per file, up to 4000 files, executed directly inside the library:list IPC handler - and a second, differently-ruled synchronous scanner for app:listMidis. The whole app (all IPC, all window input) freezes for the duration, on a cold cache or a slow disk that is seconds. library-changed fires after every finished Forge job and every Editor export, and the renderer re-lists on it.",
+   "fix": "One async scanner (fs.promises + withFileTypes, batched stats), cached per root and invalidated by mtime/library-changed, feeding both the Library tab and the Player picker. Return incrementally so the list paints as it fills.",
+   "risk": "Low-medium. Must preserve the melody-sibling folding (_balanced/_detailed into their primary, orphans kept), the skip set, the depth/file caps and the truncated flag."
+  },
+  {
+   "rank": 7,
+   "area": "Whole-app synchronous persistence (electron/settings.js:69, renderer/player/app.js:164, shell.js:282, overlay.js:139)",
+   "issue": "settings.merge() stringifies and writes the entire settings file synchronously and then returns a full JSON round-trip deep clone; callers include overlay move/resize (every 400ms of dragging Perch, with config() rebuilt twice per save), app:setUi, app:setPerformance and the forge-path paths. In the renderer, saveSettings() stringifies the whole object (playlist up to 200 entries) to localStorage from ~30 handlers including #tempo 'input', #note-color 'input' and #fall-speed 'input' - a synchronous write per pointermove - and the shell's colour picker fires deriveAccent + 35 cross-document setProperty writes + one IPC invoke per input event.",
+   "fix": "Dirty-flag both stores and flush once per ~1s and on quit (temp+rename async write); return the live object or a shallow snapshot; split continuous inputs so the visual change happens on 'input' (rAF-coalesced) and persistence happens on 'change', which the percent slider already does correctly.",
+   "risk": "Low. Needs a guaranteed flush on before-quit and on window close so nothing is lost."
+  },
+  {
+   "rank": 8,
+   "area": "Forge - whole-file decode and main-thread peak scan per input (renderer/forge/forge.js:365, 379)",
+   "issue": "Every setInput fetches the entire audio file into an ArrayBuffer, decodeAudioData's it, and then linearly scans channel 0 into 4096 buckets on the main thread - ~80M samples for a 30-minute file. This runs on every automatic queue advance, so a long batch repeats whole-file I/O plus a transient decoded buffer several times the file size, freezing the UI between jobs. The AudioContext is never released.",
+   "fix": "Move decode + bucketing into a Worker (or OfflineAudioContext downsampling) posting back only the peak pairs; skip the load entirely while a batch is auto-advancing or the preview panel is collapsed; suspend/close the context when idle.",
+   "risk": "Low. waveToken already guards stale completions, so an async worker fits the existing model."
+  },
+  {
+   "rank": 9,
+   "area": "Forge - waveform repaint on every playback tick and every drag move (forge.js:736, 752, 783, 217)",
+   "issue": "#preview-audio 'timeupdate' (4-15Hz) runs the full drawWaveform - background, axis, up to 12 grid columns with fillText, a per-CSS-pixel peak path, selection overlay, playhead - just to move a 1px line, and calls css() (getComputedStyle on documentElement) 6-8 times per repaint. Range-drag pointermove additionally writes both time inputs, revalidates and repaints per event, and window 'resize' is bound straight to drawWaveform with no throttle.",
+   "fix": "Static layers offscreen + blit; rAF-coalesce the drag (store the pending range, apply once per frame); cached tokens; ResizeObserver on the wave shell instead of a raw window resize handler. Also fix the peak indexing so a zoomed-out view aggregates min/max across covered buckets instead of skipping them.",
+   "risk": "Low. The bucket-aggregation change is a visual improvement (real peaks stop being dropped)."
+  },
+  {
+   "rank": 10,
+   "area": "Self MIDI - library list rebuild per keystroke (renderer/audition/audition.js:128, 155, 159, 577)",
+   "issue": "The search input is undebounced, so every keystroke filters, copies and fully re-sorts up to 4000 entries (localeCompare for name/folder), then tears down and rebuilds 300 rows - each row an innerHTML parse plus two querySelector calls plus two listener closures, i.e. ~600 listener allocations discarded on the next keypress.",
+   "fix": "Debounce ~120ms, sort once per sort-order change rather than per render, reuse row nodes, build the two child nodes directly, and use one delegated click + one delegated contextmenu on the host reading data-path. This is the same virtualised-list primitive the new Library tab needs anyway.",
+   "risk": "Low."
+  },
+  {
+   "rank": 11,
+   "area": "Self MIDI + Player - per-note DOM reads and linear seek scans (audition.js:317, 225; app.js:1856)",
+   "issue": "playNote() reads four DOM controls (volume, sustain, pitch, instrument) per scheduled note inside the audio scheduler, so a dense passage does hundreds of getElementById+property reads per 120ms tick. cursorFor() is a linear scan from index 0 and runs on every seek-slider 'input' event. In the Player, viz.seek() resets the cull cursor to 0, so each mousemove of a scrubber drag forces the next render to walk the whole event array from the start, on top of 30Hz seek IPC.",
+   "fix": "Mirror the four control values into module variables maintained by their existing change handlers; binary-search the cursor in both players; coalesce drag seeks to the render loop instead of to every mousemove.",
+   "risk": "Low. Mirrored state must be initialised from the restored prefs at boot, or the first note plays at the wrong volume."
+  },
+  {
+   "rank": 12,
+   "area": "Soundfont loading blocks the UI (renderer/soundfonts/player.js:56, 88, 65)",
+   "issue": "dataUriBuffer() decodes base64 with atob and then copies byte-by-byte in a JS loop - multiple megabytes per instrument copied one charCodeAt at a time on the main thread during 'Loading <instrument>...'. Decodes are awaited one sample at a time, serialising an otherwise parallel off-thread operation, so total wait is the sum rather than the max. sampleForPitch() then does Object.keys(bank) plus a linear scan per note played.",
+   "fix": "fetch(dataUri).arrayBuffer() (or a bulk typed-array conversion), Promise.all the decodes with progress reported as each settles, and build a 128-entry pitch->sample table once per bank in prepare().",
+   "risk": "Low. Keep the 2-instrument LRU eviction and the token-based cancellation exactly as they are."
+  },
+  {
+   "rank": 13,
+   "area": "rAF loops that keep waking when they will not draw (audition.js:368, player/app.js:1966, review.js:651)",
+   "issue": "Because renderer backgrounding is disabled app-wide, rAF is not slowed when the window is occluded. Self MIDI's tick() re-arms itself at full rate even when the budget is Infinity (hidden or off-screen), and the Player's drawBudgetMs() re-reads two dataset attributes plus a Number() on every wakeup - the code itself measured ~500 wakeups/sec. The Editor reads dataset.onscreen but never listens for the 'midi-studio:onscreen' event, so returning to the tab shows a stale, possibly wrongly-sized canvas until the playhead moves a pixel.",
+   "fix": "Park the loop entirely when the budget is Infinity (drive position updates off the existing 120ms scheduler) and resume from the onscreen/visibilitychange events; cache the budget and invalidate it from those events plus a MutationObserver on data-drawms; give the Editor the same onscreen listener plus a resize+repaint on wake.",
+   "risk": "Low, but the wake path must be exercised: a parked loop that never resumes is a frozen tab."
+  },
+  {
+   "rank": 14,
+   "area": "Settings modal keeps the active tab's draw loop alive (renderer/shell/shell.css:105)",
+   "issue": "body.modal-open .tabframe uses visibility:hidden, which keeps the iframe laid out, composited and running, and does NOT flip data-onscreen (markVisibility keys only off .is-active). With backgroundThrottling off, an Editor or Self MIDI piano roll keeps producing frames nobody can see for as long as Settings is open.",
+   "fix": "Have the settings open/close path stamp data-onscreen='0'/'1' (or fold modal-open into the visibility scheduler) so covered panels park their loops.",
+   "risk": "Low. Must still repaint on close, via the same wake event as a tab switch."
+  },
+  {
+   "rank": 15,
+   "area": "Per-frame style reads and layout thrash in paint and drag paths (review.js:207, 403; audition.js:503, 489; tokens.css:218; resize.js:128)",
+   "issue": "The Editor reads getComputedStyle --accent inside the per-note draw loop (thousands of style resolutions/second with a large selection) and calls getBoundingClientRect twice per pointermove during note drags, interleaved with canvas writes. Self MIDI spreads a fresh pitch array through Math.min/Math.max per draw and strokes each grid line separately. The indeterminate progress bar animates margin-left (a layout property, ignoring the draw budget entirely). The divider's keyboard nudge does a full localStorage read-parse-stringify-write plus a synthetic global 'resize' per autorepeat tick - a redraw storm by construction.",
+   "fix": "Cached tokens; cache the rect on pointerdown for the gesture; precompute low/high at load; batch grid lines into two paths; animate transform:translateX with will-change; debounce the nudge's persist and resize dispatch to one trailing call.",
+   "risk": "Low. All local, all mechanical."
+  }
+ ],
+ "migration_map": [
+  {
+   "feature": "Top-bar tab nav (4 tabs -> 5)",
+   "current_location": "renderer/index.html:16-21 nav#tabs, shell.js:75-90 activate()",
+   "new_location": "App shell > titlebar nav: Forge, Editor, Player, Self MIDI, Library",
+   "notes": "Order changes and 'review'->Editor, 'audition'->Self MIDI. Keep the internal ids or migrate settings.ui.lastTab; titles map and document.title per tab stay."
+  },
+  {
+   "feature": "Lazy panel loading (data-src iframes)",
+   "current_location": "index.html:214-217, shell.js:8-12 ensureFrame",
+   "new_location": "Shell panel loader - lazy per tab, Forge eager",
+   "notes": "If iframes are dropped, hand-offs no longer need the 'load' wait + 120ms delay; if kept, all five need it."
+  },
+  {
+   "feature": "data-onscreen off-screen draw suppression",
+   "current_location": "shell.js:63-74 markVisibility + 'midi-studio:onscreen'",
+   "new_location": "Shared draw scheduler (shared primitive), driven by the shell's active-tab state and the settings modal",
+   "notes": "Must also cover the settings modal, which today only sets visibility:hidden."
+  },
+  {
+   "feature": "data-drawms frame-budget push-down",
+   "current_location": "shell.js:44-57 applyPerf/effectiveDrawMs",
+   "new_location": "Shared draw scheduler; value from Settings > Performance, x3 while a game is up",
+   "notes": "Add an equality guard before writing; fold the two frame walks into one."
+  },
+  {
+   "feature": "Theme application across shell + all panels",
+   "current_location": "shell.js:15-35 skin/applySkin/applyTheme, tokens.css:88-103",
+   "new_location": "Shell theme engine + token layer; control in Settings > Appearance",
+   "notes": "Skip unloaded panels instead of relying on try/catch per throw."
+  },
+  {
+   "feature": "Custom accent derivation from one hex",
+   "current_location": "shell.js:17-26 deriveAccent, applyAccent",
+   "new_location": "Shell theme engine; Settings > Appearance > Custom colour",
+   "notes": "Apply rAF-coalesced on 'input', persist on 'change'."
+  },
+  {
+   "feature": "Settings modal open/close",
+   "current_location": "index.html:28, shell.js:263-277",
+   "new_location": "Shell > Settings sheet (gear in titlebar, Ctrl+, and command palette)",
+   "notes": "Escape precedence and the iframe-composites-above-overlay workaround must survive while iframes remain."
+  },
+  {
+   "feature": "Settings section nav (two-pane)",
+   "current_location": "index.html:36-42 nav#snav, shell.js:101-109",
+   "new_location": "Settings sheet left nav: Appearance, Performance, Forge engine, Player, Overlay, Library, Updates, About",
+   "notes": "Deliberately two-pane; the old flat list put the accent picker next to Clean reinstall."
+  },
+  {
+   "feature": "Forge layout chooser (classic/cards/bench/console)",
+   "current_location": "index.html:52-73 #s-forge-layout, shell.js:113-131",
+   "new_location": "REMOVED - see orphans; replaced by Settings > Appearance > Density + collapsible Forge columns",
+   "notes": "settings.ui.forgeLayout becomes dead; migrate 'cards' users to compact density."
+  },
+  {
+   "feature": "Accent preset select (lime/cyan/indigo/magenta/amber)",
+   "current_location": "index.html:80-86 #s-theme, shell.js:280-281",
+   "new_location": "Settings > Appearance > Accent",
+   "notes": "Choosing a preset must still clear the custom hex and resync the picker swatch from the computed --accent."
+  },
+  {
+   "feature": "Custom accent colour picker",
+   "current_location": "index.html:90 #s-accent, shell.js:282",
+   "new_location": "Settings > Appearance > Custom colour",
+   "notes": "Debounce/rAF the visual apply; move the setUi persist to 'change'."
+  },
+  {
+   "feature": "Always-on-top toggle",
+   "current_location": "index.html:98 #s-ontop, shell.js:279, main.js:212/862",
+   "new_location": "Settings > Appearance > Window (on by default)",
+   "notes": "Live win.setAlwaysOnTop path stays."
+  },
+  {
+   "feature": "Performance percent slider",
+   "current_location": "index.html:113-114, shell.js:301-304",
+   "new_location": "Settings > Performance > 'Use at most N%'",
+   "notes": "input updates the label only; change sends IPC."
+  },
+  {
+   "feature": "Performance derived-values explainer",
+   "current_location": "index.html:116 #s-perf-explain, shell.js:284-297",
+   "new_location": "Settings > Performance, under the slider",
+   "notes": "Keep the 'threads of cores, GPU batch, fps, low priority, set by hand' sentence - a bare percentage means nothing."
+  },
+  {
+   "feature": "Performance advanced exact numbers (threads/batch/auto)",
+   "current_location": "index.html:117-122, shell.js:306-315",
+   "new_location": "Settings > Performance > 'Set exact numbers' disclosure",
+   "notes": "'Back to automatic' resends percent to clear hand-set values."
+  },
+  {
+   "feature": "While-gaming policy select",
+   "current_location": "index.html:133-137 #s-perf-gaming, shell.js:305",
+   "new_location": "Settings > Performance > While gaming",
+   "notes": "Keep the note that the Player always wins over Forge regardless."
+  },
+  {
+   "feature": "Game-detected reaction + toasts",
+   "current_location": "shell.js:183-189 onGameActive",
+   "new_location": "Activity strip game chip + edge-triggered toast",
+   "notes": "See orphans."
+  },
+  {
+   "feature": "Forge engine status + storage location pane",
+   "current_location": "index.html:147-156, shell.js:252-259 showForgeInfo",
+   "new_location": "Settings > Forge engine (Ready/Not set up, storage path, free space, Open folder)",
+   "notes": "Also mirrored as the activity-strip engine chip."
+  },
+  {
+   "feature": "Forge storage relocate / reset",
+   "current_location": "shell.js:317-334 relocateForge",
+   "new_location": "Settings > Forge engine > Storage",
+   "notes": "See orphans; busy-state and post-move Forge-panel refresh must survive."
+  },
+  {
+   "feature": "Open setup log",
+   "current_location": "index.html:169 #s-setuplog, shell.js:336-339",
+   "new_location": "Settings > Forge engine > Diagnostics",
+   "notes": "Also inside the setup modal."
+  },
+  {
+   "feature": "Clean reinstall (confirm-gated)",
+   "current_location": "index.html:170 #s-clean, shell.js:341-349",
+   "new_location": "Settings > Forge engine > Danger zone",
+   "notes": "See orphans."
+  },
+  {
+   "feature": "Auto-check-updates toggle",
+   "current_location": "index.html:182 #s-autoupdate, shell.js:278",
+   "new_location": "Settings > Updates",
+   "notes": "Default on."
+  },
+  {
+   "feature": "Check-now button",
+   "current_location": "index.html:184 #s-recheck, shell.js:335",
+   "new_location": "Settings > Updates > Check now (closes the sheet so the strip is visible)",
+   "notes": ""
+  },
+  {
+   "feature": "About pane (version + repo link)",
+   "current_location": "index.html:193-194, shell.js:340",
+   "new_location": "Settings > About",
+   "notes": "Repo opens in the OS browser via openExternal, never in-app."
+  },
+  {
+   "feature": "Version badge / manual update check",
+   "current_location": "index.html:24 #version-badge, shell.js:196-198",
+   "new_location": "Titlebar right > version chip (click = check)",
+   "notes": ""
+  },
+  {
+   "feature": "Update banner 8-state machine",
+   "current_location": "index.html:202-211, shell.js:210-243",
+   "new_location": "Activity strip > update row",
+   "notes": "One copy only; delete the Player's duplicate. Cache element refs and only write the progress width on integer-percent change."
+  },
+  {
+   "feature": "Update apply / dismiss (apply doubles as Retry)",
+   "current_location": "shell.js:214-218",
+   "new_location": "Activity strip > update row buttons",
+   "notes": "The `staged` flag is the only thing distinguishing apply from re-check."
+  },
+  {
+   "feature": "Toast system",
+   "current_location": "shell.js:201-207, shell.css:130-142",
+   "new_location": "Shared toast channel, bottom-right above the transport",
+   "notes": ""
+  },
+  {
+   "feature": "Hand-off: open Player with a file",
+   "current_location": "shell.js:158-168 openPlayer",
+   "new_location": "Shell hand-off router -> Player tab",
+   "notes": "Keep the load-wait + setMidiFile/load_midi fallback while panels are lazy."
+  },
+  {
+   "feature": "Hand-off: open Self MIDI",
+   "current_location": "shell.js:134-145 openAudition",
+   "new_location": "Shell hand-off router -> Self MIDI tab",
+   "notes": "Carries midiPath, projectPath and the tri-state play flag."
+  },
+  {
+   "feature": "Hand-off: open Editor",
+   "current_location": "shell.js:146-155 openReview",
+   "new_location": "Shell hand-off router -> Editor tab",
+   "notes": "projectPath || midiPath."
+  },
+  {
+   "feature": "postMessage router from child panels",
+   "current_location": "shell.js:170-174",
+   "new_location": "Shell hand-off router (direct calls if panels stop being iframes)",
+   "notes": "Add an origin/source check if any remote content is ever introduced."
+  },
+  {
+   "feature": "Ctrl+1..4 tab shortcuts (shell + main-process paths)",
+   "current_location": "shell.js:92-98 and :177, main.js:285-292",
+   "new_location": "Ctrl+1..5 in both the shell handler and main's before-input-event",
+   "notes": "Both paths mandatory; hint chips ^1..^5 on the nav items."
+  },
+  {
+   "feature": "Escape precedence (modal, then banner)",
+   "current_location": "shell.js:352-353",
+   "new_location": "Shell key handler: command palette > settings sheet > activity-strip banner",
+   "notes": "One Escape affects one thing."
+  },
+  {
+   "feature": "Arrow-key tab navigation with wrap",
+   "current_location": "shell.js:354-359",
+   "new_location": "Titlebar nav roving tabindex, 5-item wrap",
+   "notes": ""
+  },
+  {
+   "feature": "Windows file association / Open with .mid",
+   "current_location": "shell.js:178-180 onOpenMidi, main.js:82-95/236",
+   "new_location": "Shell hand-off router -> Player tab",
+   "notes": "600ms post-load delay stays while the Player panel is lazy."
+  },
+  {
+   "feature": "Engine-error surfacing from any tab",
+   "current_location": "shell.js:246-248 onEngineError",
+   "new_location": "Activity strip + toast (regex-filtered, 120-char truncation)",
+   "notes": "Filter keeps ordinary sidecar chatter silent."
+  },
+  {
+   "feature": "Session restore on boot (lastTab/theme/accent/perf)",
+   "current_location": "shell.js:192-193",
+   "new_location": "Shell boot orchestrator",
+   "notes": "Restore with persist=false; migrate lastTab 'review'->'editor', 'audition'->'selfmidi'."
+  },
+  {
+   "feature": "Frameless-window drag region",
+   "current_location": "shell.css:14 + no-drag on brand/tabs/right",
+   "new_location": "Custom titlebar (drag) with no-drag on every interactive child",
+   "notes": "The rewrite makes the titlebar custom, so this becomes load-bearing everywhere in the bar."
+  },
+  {
+   "feature": "Brand logo",
+   "current_location": "index.html:13-15 .brand-logo",
+   "new_location": "Titlebar left",
+   "notes": ""
+  },
+  {
+   "feature": "Content Security Policy",
+   "current_location": "index.html:5-6 and per-tab meta CSP",
+   "new_location": "Every shell/panel document keeps its meta CSP",
+   "notes": "No CDN. Self MIDI keeps its looser script-src for soundfont bank injection."
+  },
+  {
+   "feature": "Inline SVG icon system",
+   "current_location": "renderer/shared/icons.js",
+   "new_location": "Shared primitive: Icon.svg/apply",
+   "notes": "The Editor still uses raw font glyphs and must be migrated in the rewrite."
+  },
+  {
+   "feature": "Draggable split dividers",
+   "current_location": "renderer/shared/resize.js",
+   "new_location": "Shared split-pane primitive, used by all five tabs",
+   "notes": "Read-merge-write persistence + synthetic resize; debounce the keyboard nudge."
+  },
+  {
+   "feature": "Shared wheel/zoom for time axes",
+   "current_location": "renderer/shared/timeline-zoom.js",
+   "new_location": "Shared timeline-zoom primitive (Forge, Editor x2, Player, Self MIDI, Library preview)",
+   "notes": "rAF-coalesce onChange; dblclick is reserved by it, so consumers cannot use dblclick."
+  },
+  {
+   "feature": "Tab hint chips + active-tab underline",
+   "current_location": "shell.css:22-46",
+   "new_location": "Titlebar nav styling",
+   "notes": ""
+  },
+  {
+   "feature": "Design token system",
+   "current_location": "renderer/shared/tokens.css",
+   "new_location": "Shared token layer (primitive)",
+   "notes": "Keep the AA floor, the 4-step type scale, [hidden] !important and the appearance:none reset."
+  },
+  {
+   "feature": "Forge env status bar + cached verdict",
+   "current_location": "forge/index.html #envbar, forge.js refreshEnv (exposed as window.refreshForgeEnvironment)",
+   "new_location": "Activity strip engine chip + Settings > Forge engine",
+   "notes": "See orphans. Cached localStorage verdict painted first; #work must stay usable pre-setup."
+  },
+  {
+   "feature": "Setup / provisioning panel",
+   "current_location": "forge/index.html section#setup, forge.js setup-* handlers",
+   "new_location": "Full-width 'First-time setup' modal",
+   "notes": "See orphans. Keeps free-space pre-flight, 12s silence watchdog, elapsed clock, cancel, copy log, open log, retry."
+  },
+  {
+   "feature": "Provisioning status events (7 events)",
+   "current_location": "forge.js F.onStatus forge.provision.*",
+   "new_location": "Setup modal + Activity strip > Log drawer",
+   "notes": "Batch provision.log lines."
+  },
+  {
+   "feature": "Input: file browse (replace)",
+   "current_location": "forge.js #browse -> F.pickInput",
+   "new_location": "Forge left column > Input tab > Browse",
+   "notes": "First path becomes current, rest queue."
+  },
+  {
+   "feature": "Input: add to queue",
+   "current_location": "forge.js #queue-add",
+   "new_location": "Forge left column > Queue tab > Add files",
+   "notes": "Non-destructive; auto-expands the queue."
+  },
+  {
+   "feature": "Input: whole-window drag & drop + overlay",
+   "current_location": "forge.js window drag handlers, #drop-overlay",
+   "new_location": "Shared drop overlay, routed to Forge left column > Input",
+   "notes": "Dropped MIDIs are never forged - they route to Self MIDI. Extension-less paths are treated as audio."
+  },
+  {
+   "feature": "Input: URL fetch (yt-dlp)",
+   "current_location": "forge.js #url/#fetch, doFetch",
+   "new_location": "Forge left column > Input tab > 'Paste a link'",
+   "notes": "Enter submits; result loads as the current input."
+  },
+  {
+   "feature": "Dropzone hero UI",
+   "current_location": "forge/index.html .dropzone, #input-path",
+   "new_location": "Forge left column > Input tab drop target",
+   "notes": "See orphans re: the unused .dropzone.drag class."
+  },
+  {
+   "feature": "Queue (serial batch conversion)",
+   "current_location": "forge.js queue[], renderQueue, localStorage midi-forge.queue.v1",
+   "new_location": "Forge left column > Queue tab",
+   "notes": "Strictly serial by design. Rebuild as a keyed virtualised list with one delegated listener; debounce the localStorage write."
+  },
+  {
+   "feature": "Queue rows + per-row actions (skip/remove/move/promote)",
+   "current_location": "forge.js queueItem",
+   "new_location": "Forge left column > Queue tab rows; overflow menu for move/remove",
+   "notes": "Active row shows Skip while busy, Remove otherwise."
+  },
+  {
+   "feature": "Queue auto-continue",
+   "current_location": "forge.js #queue-auto",
+   "new_location": "Forge left column > Queue tab header toggle",
+   "notes": "A failure must not strand the rest of the batch."
+  },
+  {
+   "feature": "Queue clear waiting + Undo",
+   "current_location": "forge.js #queue-clear/#queue-undo",
+   "new_location": "Forge left column > Queue tab header",
+   "notes": "See orphans; Cancel clears the queue but leaves it recoverable."
+  },
+  {
+   "feature": "Skip current job",
+   "current_location": "forge.js skipCurrent",
+   "new_location": "Forge left column > Queue active row + bottom transport secondary action while a job runs",
+   "notes": "Logs 'Skipped.' instead of an error."
+  },
+  {
+   "feature": "Output filename override",
+   "current_location": "forge.js #out-name, outputName()",
+   "new_location": "Forge left column > Input tab > Save as",
+   "notes": "Strips Windows-illegal chars, 120-char cap, cleared after every Start."
+  },
+  {
+   "feature": "Output folder override",
+   "current_location": "forge.js #out-dir/#pick-out/#clear-out",
+   "new_location": "Forge left column > Input tab > Output folder (Change/Reset)",
+   "notes": "Also passed as outDir to the URL fetch."
+  },
+  {
+   "feature": "Pipeline picker (melody/piano/general/fast/drums)",
+   "current_location": "forge.js #pipeline .seg + PIPELINE_HINT",
+   "new_location": "Forge left column > vertical pipeline picker, mirrored by the centre 'Model' card",
+   "notes": "Exact ids go to the backend. Selecting one shows only that pipeline's advanced group."
+  },
+  {
+   "feature": "Skip separation toggle",
+   "current_location": "forge.js #skipsep",
+   "new_location": "Forge centre > Transcription Settings > Stems card",
+   "notes": "Also appended to the start log line."
+  },
+  {
+   "feature": "Quality preset (balanced/best/custom)",
+   "current_location": "forge.js #quality, QUALITY table, detectQuality",
+   "new_location": "Forge centre > Transcription Settings > Quality card",
+   "notes": "Writes real advanced values; any manual advanced edit flips it to Custom."
+  },
+  {
+   "feature": "Advanced panel disclosure + reset",
+   "current_location": "forge.js #adv-toggle/#adv-reset",
+   "new_location": "Forge left column > Settings tab > Advanced Options (collapsed)",
+   "notes": "'Reset tuning' flashes confirmation for 1200ms."
+  },
+  {
+   "feature": "Advanced: Sound cleanup group (5 fields)",
+   "current_location": "forge/index.html LOUDNESS_NORM, VELOCITY_GAMMA, MIN_NOTE_SEC, MIN_VELOCITY, MAX_POLYPHONY",
+   "new_location": "Forge left column > Advanced Options > Sound cleanup (always visible)",
+   "notes": ""
+  },
+  {
+   "feature": "Advanced: Piano group (5 fields)",
+   "current_location": "USE_TTA, BIGSHIFTS, SEGMENT_HOP, PIANO_MIN_PITCH, PIANO_MAX_PITCH",
+   "new_location": "Forge left column > Advanced Options > Piano (data-group=piano)",
+   "notes": "USE_TTA/BIGSHIFTS/SEGMENT_HOP are also driven by the Quality card."
+  },
+  {
+   "feature": "Advanced: Full-song group (EXCLUDE_VOCALS)",
+   "current_location": "forge/index.html EXCLUDE_VOCALS",
+   "new_location": "Forge left column > Advanced Options > Full song",
+   "notes": ""
+  },
+  {
+   "feature": "Advanced: Lead melody group (6 fields)",
+   "current_location": "MELODY_MIN_PITCH/MAX_PITCH/ONSET_THRESHOLD/MIN_NOTE_MS/DENSITY/FOLD",
+   "new_location": "Forge left column > Advanced Options > Lead melody",
+   "notes": ""
+  },
+  {
+   "feature": "Advanced: Drum group (ONSET_DELTA, DRUM_MIN_GAP_MS)",
+   "current_location": "forge/index.html drums group",
+   "new_location": "Forge left column > Advanced Options > Drums",
+   "notes": ""
+  },
+  {
+   "feature": "Advanced: Fast group (4 fields)",
+   "current_location": "BP_ONSET_THRESHOLD, BP_FRAME_THRESHOLD, BP_MIN_NOTE_MS, OCTAVE_FOLD",
+   "new_location": "Forge left column > Advanced Options > Fast",
+   "notes": ""
+  },
+  {
+   "feature": "Waveform preview canvas",
+   "current_location": "forge.js #waveform, loadWaveform/buildPeaks/drawWaveform",
+   "new_location": "Forge centre > waveform panel",
+   "notes": "Peaks to a worker; static layers offscreen."
+  },
+  {
+   "feature": "Waveform wheel zoom / pan / dblclick reset",
+   "current_location": "forge.js TimelineZoom(#wave-shell)",
+   "new_location": "Forge centre > waveform (shared timeline-zoom)",
+   "notes": ""
+  },
+  {
+   "feature": "Waveform range select + scrub",
+   "current_location": "forge.js #waveform pointer handlers",
+   "new_location": "Forge centre > waveform (shared range-selection widget)",
+   "notes": "Unmoved click scrubs; >3px drag selects; 10px edge grab."
+  },
+  {
+   "feature": "Waveform keyboard navigation",
+   "current_location": "forge.js #waveform keydown",
+   "new_location": "Forge centre > waveform (role=slider, arrows/Home/End)",
+   "notes": ""
+  },
+  {
+   "feature": "Custom time range + validation",
+   "current_location": "forge.js #time-enabled/#time-start/#time-end/#time-hint",
+   "new_location": "Forge centre > Transcription Settings > Time Range card",
+   "notes": "Start is disabled while the range is invalid; raw strings persisted separately."
+  },
+  {
+   "feature": "Time range presets (Start here / Stop here / Full song)",
+   "current_location": "forge.js #time-from-playhead/#time-to-playhead/#time-reset",
+   "new_location": "Forge centre > Time Range card buttons",
+   "notes": ""
+  },
+  {
+   "feature": "Audio preview playback",
+   "current_location": "forge.js #preview/#preview-stop/#preview-audio",
+   "new_location": "Forge centre > waveform transport (local, not the global bottom transport)",
+   "notes": "Stops at the range end via an 80ms watch; disabled while busy. Consider routing through the shared transport bus as a third owner."
+  },
+  {
+   "feature": "Preview volume + time readout",
+   "current_location": "forge.js #preview-volume, #time-readout",
+   "new_location": "Forge centre > waveform footer",
+   "notes": "Persisted in midi-forge.preview-prefs.v1."
+  },
+  {
+   "feature": "Start / Run (Forge MIDI)",
+   "current_location": "forge.js #start, startJob()",
+   "new_location": "Forge left column footer > 'Forge MIDI' primary button",
+   "notes": "Enabled only when env ready + input + not busy + timing valid."
+  },
+  {
+   "feature": "Run info readout (pipeline / output)",
+   "current_location": "forge.js .run-info",
+   "new_location": "Forge left column footer, under the primary button",
+   "notes": ""
+  },
+  {
+   "feature": "Pause / Resume a running job",
+   "current_location": "forge.js #pause, F.pause",
+   "new_location": "Forge centre > Progress tab header + bottom transport secondary action",
+   "notes": "setPausedUi must restore lastStage, never re-read the label."
+  },
+  {
+   "feature": "Cancel a job (abandons the batch)",
+   "current_location": "forge.js #cancel",
+   "new_location": "Forge centre > Progress tab header",
+   "notes": "Clears the queue with an undo snapshot."
+  },
+  {
+   "feature": "Job progress + elapsed clock + stage",
+   "current_location": "forge.js #job-prog/#job-stage/#job-elapsed/#job-pct/#job-bar",
+   "new_location": "Forge centre > Progress tab (7-stage checklist) + Activity strip job chip",
+   "notes": "The checklist is the new face of STAGES_2/3/4; percent stays monotonic and indeterminate when null."
+  },
+  {
+   "feature": "Forge log pane + clear",
+   "current_location": "forge.js #log/#log-clear",
+   "new_location": "Forge centre > Log tab (writing to the shared ring buffer)",
+   "notes": "Append text nodes, cap lines; also the source for 'copy log'."
+  },
+  {
+   "feature": "Result handling + 4 hand-off actions",
+   "current_location": "forge.js #output/#output-open/#output-listen/#output-review/#output-toplayer",
+   "new_location": "Forge right column > Selected Result panel: Open in Editor / Send to Player / Listen (Self MIDI) / Show in Folder",
+   "notes": "Only the melody pipeline writes a project file; the others open the raw .mid."
+  },
+  {
+   "feature": "Error card",
+   "current_location": "forge.js #errcard/#err-msg/#err-dismiss",
+   "new_location": "Forge centre > Progress tab inline error + Activity strip",
+   "notes": ""
+  },
+  {
+   "feature": "Forge settings persistence (deep-merged)",
+   "current_location": "forge.js F.getSettings/setSettings, collectAdvanced/restoreAdvanced",
+   "new_location": "Unchanged IPC; written from the left column and the centre cards",
+   "notes": "All 23 advanced keys every time; LEGACY_DEFAULTS still treated as unset."
+  },
+  {
+   "feature": "Panel self-applies the saved theme",
+   "current_location": "forge.js studio.getUi -> dataset.theme (same in review/audition/midi-library)",
+   "new_location": "Shell theme engine only (single owner)",
+   "notes": "Per-panel self-application can go once the shell owns one document, but must stay while panels are separate documents."
+  },
+  {
+   "feature": "Forge layout picker (4 buttons) + window.setForgeLayout",
+   "current_location": "forge/index.html #layout-picker, forge.js setLayout",
+   "new_location": "REMOVED - see orphans",
+   "notes": ""
+  },
+  {
+   "feature": "Layout engine: block moving without rebuild",
+   "current_location": "forge.js collectBlocks/applyLayout",
+   "new_location": "REMOVED - single CSS grid, no DOM churn, no Resize re-wiring",
+   "notes": "This also removes the lane/divider/.lbl sweep gotchas and the forced full reflow per switch."
+  },
+  {
+   "feature": "Layout: classic (default DOM order)",
+   "current_location": "forge.js applyLayout('classic')",
+   "new_location": "REMOVED - superseded by the 3-column grid",
+   "notes": "Numbered .lbl rails go with it."
+  },
+  {
+   "feature": "Layout: cards",
+   "current_location": "forge.js applyLayout('cards')",
+   "new_location": "REMOVED - covered by the <900px single-column responsive collapse + compact density",
+   "notes": ""
+  },
+  {
+   "feature": "Layout: bench",
+   "current_location": "forge.js applyLayout('bench')",
+   "new_location": "REMOVED",
+   "notes": ""
+  },
+  {
+   "feature": "Layout: console (rail/canvas/inspector)",
+   "current_location": "forge.js applyLayout('console')",
+   "new_location": "Becomes THE layout (left column / centre / right column) with the same two dividers and responsive breakpoints",
+   "notes": "Persist as forge:rail and forge:insp."
+  },
+  {
+   "feature": "Narrow-column responsive rules",
+   "current_location": "forge.css lane wrapping rules",
+   "new_location": "Forge grid responsive rules (<1180px inspector below, <900px single column)",
+   "notes": "Keeps the fixes for the 2-of-5 pipeline picker and Fetch overlapping Start."
+  },
+  {
+   "feature": "Editor: open file (button + empty state + picker)",
+   "current_location": "review.js chooseFile/openPath, review:pick/review:load",
+   "new_location": "Editor toolbar > Open + Editor empty state + command palette",
+   "notes": "Dirty confirm before discarding."
+  },
+  {
+   "feature": "Editor: drag-and-drop open",
+   "current_location": "review.js #drop-zone handlers",
+   "new_location": "Shared drop overlay -> Editor",
+   "notes": ""
+  },
+  {
+   "feature": "Editor: external open via shell",
+   "current_location": "window.openReviewProject",
+   "new_location": "Shell hand-off router -> Editor",
+   "notes": "Public cross-frame contract; keep the name or update every caller."
+  },
+  {
+   "feature": "Editor: save project",
+   "current_location": "review.js saveAll, review:saveProject",
+   "new_location": "Editor toolbar > Save (Ctrl+S) + bottom transport dirty indicator",
+   "notes": "No projectPath -> Save dialog; never overwrite a plain opened .mid."
+  },
+  {
+   "feature": "Editor: export MIDI",
+   "current_location": "review.js exportMidi, review:exportMidi",
+   "new_location": "Editor toolbar > Export",
+   "notes": "Broadcasts library-changed so the Library tab refreshes."
+  },
+  {
+   "feature": "Editor: candidate tabs (takes)",
+   "current_location": "review.js renderCandidates/switchCandidate",
+   "new_location": "Editor right rail > Properties > MIDI Source list",
+   "notes": "See orphans. Update the count text in place instead of innerHTML rebuilds."
+  },
+  {
+   "feature": "Editor: per-candidate undo/redo (80 deep)",
+   "current_location": "review.js histories/futures/checkpoint",
+   "new_location": "Editor right rail > History tab, keyed per source; toolbar undo/redo + Ctrl+Z/Y",
+   "notes": "Move to patches; coalesce autorepeat."
+  },
+  {
+   "feature": "Editor: piano roll rendering",
+   "current_location": "review.js drawRoll, #piano-roll + #roll-wrap",
+   "new_location": "Editor centre > piano roll",
+   "notes": "Viewport-sized canvas + scroll wrapper + sticky key strip drawn last, outside the clip."
+  },
+  {
+   "feature": "Editor: note rendering style",
+   "current_location": "review.js note draw loop",
+   "new_location": "Editor centre > piano roll",
+   "notes": "Cache --accent; batch small notes as fillRect; keep the right-edge resize grip tick."
+  },
+  {
+   "feature": "Editor: auto pitch range",
+   "current_location": "review.js calculateBounds",
+   "new_location": "Editor centre > piano roll vertical extent",
+   "notes": "Min 36 rows; replace the Math.min(...spread) with a loop."
+  },
+  {
+   "feature": "Editor: HiDPI canvas sizing",
+   "current_location": "review.js resizeRoll/resizeWave",
+   "new_location": "Shared HiDPI canvas helper",
+   "notes": "Reallocate only on real pixel-size change."
+  },
+  {
+   "feature": "Editor: selection (click, shift-toggle, marquee, Ctrl+A)",
+   "current_location": "review.js pointerdown/pointermove, selected Set",
+   "new_location": "Editor centre > piano roll; count in the right rail Selection tab",
+   "notes": "Marquee coords in content space; id-keyed Set."
+  },
+  {
+   "feature": "Editor: click empty space = seek",
+   "current_location": "review.js endPointer marquee-not-moved",
+   "new_location": "Editor centre > piano roll",
+   "notes": ""
+  },
+  {
+   "feature": "Editor: drag notes (time + pitch) with snap",
+   "current_location": "review.js drag originals path",
+   "new_location": "Editor centre > piano roll",
+   "notes": "Deferred 2px checkpoint; length preserved; cache the rect for the gesture."
+  },
+  {
+   "feature": "Editor: resize note right edge",
+   "current_location": "review.js hitNote edge branch",
+   "new_location": "Editor centre > piano roll",
+   "notes": "Proportional edge zone is mandatory."
+  },
+  {
+   "feature": "Editor: drag end / no-op detection",
+   "current_location": "review.js endPointer changed test",
+   "new_location": "Editor centre > piano roll",
+   "notes": "A click must not dirty or push history."
+  },
+  {
+   "feature": "Editor: double-click to add a note",
+   "current_location": "review.js dblclick handler",
+   "new_location": "Editor centre > piano roll (grid-derived length, velocity 96)",
+   "notes": "Auditions the new note."
+  },
+  {
+   "feature": "Editor: delete selected",
+   "current_location": "review.js deleteSelected",
+   "new_location": "Editor toolbar + Delete/Backspace + right rail Cleanup & Tools",
+   "notes": ""
+  },
+  {
+   "feature": "Editor: copy / cut / paste (internal clipboard)",
+   "current_location": "review.js copySelected/pasteClipboard",
+   "new_location": "Editor toolbar overflow + Ctrl+C/X/V + command palette",
+   "notes": "Not the OS clipboard; loop-based min/max instead of spreads."
+  },
+  {
+   "feature": "Editor: duplicate selection",
+   "current_location": "review.js duplicateSelection (Ctrl+D)",
+   "new_location": "Editor right rail > Transform > Duplicate",
+   "notes": "It overwrites the internal clipboard as a side effect - worth making explicit."
+  },
+  {
+   "feature": "Editor: transpose (octave buttons, arrows)",
+   "current_location": "review.js transpose(), #oct-down/#oct-up",
+   "new_location": "Editor right rail > Transform > Transpose (+/-1, +/-12)",
+   "notes": ""
+  },
+  {
+   "feature": "Editor: nudge in time (fine/grid)",
+   "current_location": "review.js nudgeTime",
+   "new_location": "Editor right rail > Quantize & Timing > Nudge; Arrow Left/Right",
+   "notes": "Raw offset, not a snap; Shift = 1ms."
+  },
+  {
+   "feature": "Editor: snap / grid division",
+   "current_location": "review.js #quantize select, snapSeconds",
+   "new_location": "Editor toolbar > Grid (Off/4/8/16/32)",
+   "notes": "Live read; drives drag/add/paste/nudge."
+  },
+  {
+   "feature": "Editor: quantize command",
+   "current_location": "review.js quantize(), #apply-quantize",
+   "new_location": "Editor right rail > Quantize & Timing > Apply",
+   "notes": "Selection if any, else all notes; lengths preserved."
+  },
+  {
+   "feature": "Editor: velocity slider for selection",
+   "current_location": "review.js #velocity",
+   "new_location": "Editor right rail > Note Properties > Velocity, mirrored by the automation lane's Velocity mode",
+   "notes": "Commits on 'change'; reflects the first selected note."
+  },
+  {
+   "feature": "Editor: zoom slider",
+   "current_location": "review.js #zoom",
+   "new_location": "Editor toolbar > zoom control",
+   "notes": "Must stop reallocating the canvas per input event."
+  },
+  {
+   "feature": "Editor: pointer-anchored wheel zoom",
+   "current_location": "review.js #roll-scroll wheel handler",
+   "new_location": "Editor centre > piano roll",
+   "notes": "Keeps the anchor time under the cursor; shift+wheel = horizontal scroll."
+  },
+  {
+   "feature": "Editor: horizontal scroll redraw",
+   "current_location": "review.js scroll listener",
+   "new_location": "Editor centre > piano roll",
+   "notes": "Required because the canvas is sticky; rAF-coalesce it."
+  },
+  {
+   "feature": "Editor: waveform with note onset ticks",
+   "current_location": "review.js drawWave",
+   "new_location": "Editor centre > waveform overview (top row)",
+   "notes": "Cache the tick strip offscreen and cull to the zoom window."
+  },
+  {
+   "feature": "Editor: waveform peak extraction from source audio",
+   "current_location": "review.js loadAudioWave",
+   "new_location": "Shared peak-extraction worker, feeding the Editor overview",
+   "notes": "audioOffset = project.timing.start; MIDI time 0 is not audio time 0."
+  },
+  {
+   "feature": "Editor: waveform timeline zoom",
+   "current_location": "review.js TimelineZoom(wave)",
+   "new_location": "Editor centre > waveform overview (shared primitive)",
+   "notes": "dblclick belongs to zoom reset, not to the loop."
+  },
+  {
+   "feature": "Editor: waveform seek + loop-range drag",
+   "current_location": "review.js waveDrag",
+   "new_location": "Editor centre > waveform overview (shared range widget)",
+   "notes": "Drag force-checks Loop; <4px is a seek."
+  },
+  {
+   "feature": "Editor: transport play/pause/stop + Space",
+   "current_location": "review.js playPause/pause/stop",
+   "new_location": "Persistent bottom transport (Editor as the transport owner)",
+   "notes": "Space must be ignored inside form fields."
+  },
+  {
+   "feature": "Editor: playback clock + note triggering",
+   "current_location": "review.js tick/triggerNotes",
+   "new_location": "Editor preview engine behind the transport bus",
+   "notes": "Audio is the master clock when original audio is on; cursor-advance instead of a full scan."
+  },
+  {
+   "feature": "Editor: loop selection toggle",
+   "current_location": "review.js #loop-on",
+   "new_location": "Bottom transport > Loop toggle (Editor scope)",
+   "notes": ""
+  },
+  {
+   "feature": "Editor: original-audio / MIDI-preview toggles",
+   "current_location": "review.js #audio-on/#midi-on",
+   "new_location": "Editor centre > waveform header (Audio) and toolbar (MIDI preview)",
+   "notes": "Audio is force-disabled when the project has no source audio."
+  },
+  {
+   "feature": "Editor: follow playhead",
+   "current_location": "review.js followPlayhead, #follow-on",
+   "new_location": "Editor toolbar > Follow toggle (on by default, never disabled)",
+   "notes": "Margin-band scrolling."
+  },
+  {
+   "feature": "Editor: time readouts",
+   "current_location": "review.js updateTime, #time/#range-readout",
+   "new_location": "Bottom transport time display + Editor loop readout",
+   "notes": "mm:ss.mmm."
+  },
+  {
+   "feature": "Editor: sampled piano preview + oscillator fallback",
+   "current_location": "review.js ensureSamples/playSynthNote",
+   "new_location": "Shared audio preview engine (with Self MIDI)",
+   "notes": "Never await samples on the audition path; the editor must never be silent."
+  },
+  {
+   "feature": "Editor: adaptive repaint throttle",
+   "current_location": "review.js shouldDraw",
+   "new_location": "Shared draw scheduler",
+   "notes": "Add the missing 'midi-studio:onscreen' wake listener."
+  },
+  {
+   "feature": "Editor: project rename",
+   "current_location": "review.js #project-name",
+   "new_location": "Editor toolbar > project name field (or right rail Properties > Name)",
+   "notes": "Must clear project.candidates; the sanitizer currently also strips spaces and hyphens - decide deliberately."
+  },
+  {
+   "feature": "Editor: send to Self MIDI (Listen)",
+   "current_location": "review.js #to-audition",
+   "new_location": "Editor toolbar > Listen (saves first when dirty)",
+   "notes": "postMessage studio:open-audition with play:true."
+  },
+  {
+   "feature": "Editor: send to Player",
+   "current_location": "review.js #to-player",
+   "new_location": "Editor toolbar > Send to Player",
+   "notes": "Force-saves when there is no projectPath."
+  },
+  {
+   "feature": "Editor: unsaved-changes handling (3 layers)",
+   "current_location": "review.js setDirty, openPath confirm, beforeunload",
+   "new_location": "Bottom transport dirty badge + open confirm + window close dialog",
+   "notes": "will-prevent-unload semantics are inverted; keep the main-process dialog."
+  },
+  {
+   "feature": "Editor: status line + transport note",
+   "current_location": "review.js #status/#transport-note",
+   "new_location": "Bottom transport status area + Activity strip for errors",
+   "notes": "READY/LOADING/SAVING/EXPORTED/UNSAVED/SAVED and the failure variants."
+  },
+  {
+   "feature": "Editor: control enable/disable gating",
+   "current_location": "review.js updateControls",
+   "new_location": "Editor view-model gating across toolbar, rails and the transport",
+   "notes": "Selection-dependent vs loaded-dependent vs audio-dependent."
+  },
+  {
+   "feature": "Editor: resizable waveform pane",
+   "current_location": "review/index.html grip-v data-resize=wave",
+   "new_location": "Editor grid divider between overview and roll (editor:wave)",
+   "notes": ""
+  },
+  {
+   "feature": "Editor: responsive layout <1120px",
+   "current_location": "review.css media query",
+   "new_location": "Editor grid responsive rules",
+   "notes": ""
+  },
+  {
+   "feature": "Editor: empty state",
+   "current_location": "review/index.html #empty",
+   "new_location": "Editor centre empty state (shared component)",
+   "notes": ""
+  },
+  {
+   "feature": "Editor: window resize handling",
+   "current_location": "review.js window resize -> resizeWave+resizeRoll",
+   "new_location": "Shared resize/ResizeObserver plumbing",
+   "notes": "The divider drag relies on the synthetic resize event."
+  },
+  {
+   "feature": "Editor: CSP (file:/blob: media)",
+   "current_location": "review/index.html meta CSP",
+   "new_location": "Editor panel CSP",
+   "notes": "Needed for the <audio> file:// src and the peak fetch."
+  },
+  {
+   "feature": "Player: MIDI load (browse + path box)",
+   "current_location": "player/app.js setMidiFile/loadMidi, #midi-browse",
+   "new_location": "Player left column > Song section (Browse) + path chip",
+   "notes": "window.setMidiFile is a public hand-off contract."
+  },
+  {
+   "feature": "Player: midi_loaded ingest (viz, duration, notes, bpm, unmapped, report, auto-transpose)",
+   "current_location": "app.js midi_loaded branch",
+   "new_location": "Player view-model; feeds centre visualizer, stat strip, Now Playing and Mapping Status",
+   "notes": "lastMidiLoaded must still be retained for a late-opening Perch."
+  },
+  {
+   "feature": "Player: play queue / playlist",
+   "current_location": "app.js tracks[]/curIdx/renderQueue",
+   "new_location": "Player left column > Song section > Queue list",
+   "notes": "A playlist, not a consume-queue. Patch the current-row marker instead of rebuilding; move persistPlaylist out of the render path."
+  },
+  {
+   "feature": "Player: auto-advance at natural end",
+   "current_location": "app.js advanceQueue + queue-loop",
+   "new_location": "Player left column > Queue header > Loop queue toggle",
+   "notes": "Suppressed for user stops, crashes and tempo restarts."
+  },
+  {
+   "feature": "Player: recent files",
+   "current_location": "app.js pushRecent/#recent-select",
+   "new_location": "Player left column > Song section > Recent; also surfaced in Ctrl+K search",
+   "notes": "Max 8, de-duped."
+  },
+  {
+   "feature": "Player: target window selection + auto-pick + refocus",
+   "current_location": "app.js populateWindows/#target-select/#refocus-target",
+   "new_location": "Player left column > Target game window",
+   "notes": "Focus-refresh throttled to 2s and never while playing. Refocus button appears on focus_lost."
+  },
+  {
+   "feature": "Player: mapping presets + custom mapping",
+   "current_location": "app.js #mapping-select/#mapping-browse, __custom__ option",
+   "new_location": "Player left column > Playback settings > Mapping",
+   "notes": "The injected 'open mappings folder' button must come along (see orphans)."
+  },
+  {
+   "feature": "Player: mapping note / collapsed-sharps warning",
+   "current_location": "app.js showMappingNote",
+   "new_location": "Player right rail > Mapping Status",
+   "notes": "See orphans."
+  },
+  {
+   "feature": "Player: tempo multiplier with live restart",
+   "current_location": "app.js #tempo/setTempo",
+   "new_location": "Player left column > Playback settings > Tempo; live value echoed in the bottom transport",
+   "notes": "Stop-and-restart at the equivalent musical position; blur the slider after change."
+  },
+  {
+   "feature": "Player: tempo as BPM (source, 'Sounds like', Original)",
+   "current_location": "app.js showBpm/setBpm/#tempo-bpm-guess",
+   "new_location": "Player left column > Playback settings > BPM row",
+   "notes": "Never rewrite the field while it is focused; warn instead of silently clamping outside 0.25-3x."
+  },
+  {
+   "feature": "Player: transpose (slider, Fit range, Reset, auto)",
+   "current_location": "app.js #transpose/#transpose-fit/applyTranspose",
+   "new_location": "Player left column > Playback settings > Transpose",
+   "notes": "Fit range sends auto_transpose:true; the engine's choice is adopted from midi_loaded."
+  },
+  {
+   "feature": "Player: hand split (both/right/left + split note)",
+   "current_location": "app.js #hand/#hand-split",
+   "new_location": "Player left column > Playback settings > Hands",
+   "notes": "Ships in every load_midi/play/export_sheet."
+  },
+  {
+   "feature": "Player: chord roll (stagger ms)",
+   "current_location": "app.js #chord-stagger",
+   "new_location": "Player left column > Playback settings > Chord roll",
+   "notes": "Referenced by the drop report's hint."
+  },
+  {
+   "feature": "Player: sustain toggle",
+   "current_location": "app.js #sustain",
+   "new_location": "Player left column > Playback settings > Sustain",
+   "notes": "Sent with play only."
+  },
+  {
+   "feature": "Player: countdown seconds",
+   "current_location": "app.js #countdown",
+   "new_location": "Player left column > Playback settings > Countdown",
+   "notes": "Tempo restarts and practice passes deliberately pass 0."
+  },
+  {
+   "feature": "Player: timing stats",
+   "current_location": "app.js #stats + playback_done stats log",
+   "new_location": "Player left column > Preferences > Timing stats; results in the Log drawer",
+   "notes": ""
+  },
+  {
+   "feature": "Player: drop report (ghosting warning)",
+   "current_location": "app.js showReport/#play-report",
+   "new_location": "Player right rail > Mapping Status warning rows",
+   "notes": "See orphans."
+  },
+  {
+   "feature": "Player: transport play/pause/stop + gating",
+   "current_location": "app.js doPlay/doTogglePause/doStop, #play/#pause/#stop",
+   "new_location": "Persistent bottom transport (Player as owner) + Player centre transport row",
+   "notes": "Icon swap and disabled states driven by playback_started/playback_done."
+  },
+  {
+   "feature": "Player: sendPlay guard rails",
+   "current_location": "app.js sendPlay",
+   "new_location": "Player engine adapter behind the transport bus",
+   "notes": "Refuses without a path, a target window, or a valid range; clamps into the range."
+  },
+  {
+   "feature": "Player: status pill (idle/playing/paused/blocked) + focus-lost",
+   "current_location": "app.js setStatus/#header-status",
+   "new_location": "Bottom transport status pill + Activity strip when blocked",
+   "notes": "'Waiting for target' must look different from a user pause."
+  },
+  {
+   "feature": "Player: track strip (name/duration/BPM/live note counter)",
+   "current_location": "app.js updateTrackStrip/#track-notes",
+   "new_location": "Player centre > stat strip",
+   "notes": "See orphans re: #track-notes being innerHTML-created."
+  },
+  {
+   "feature": "Player: VP sheet export",
+   "current_location": "app.js #export-sheet, sheet_exported",
+   "new_location": "Player right rail > Tools > Copy VP sheet",
+   "notes": "See orphans."
+  },
+  {
+   "feature": "Player: scrubber (hover preview, click, drag, keys)",
+   "current_location": "app.js #scrubber + window mouse handlers",
+   "new_location": "Player centre > timeline (and mirrored in the bottom transport)",
+   "notes": "Drag-lock the visualizer clock; release 250ms after the final seek."
+  },
+  {
+   "feature": "Player: throttled seek (~30Hz)",
+   "current_location": "app.js requestSeek/flushSeek",
+   "new_location": "Player engine adapter",
+   "notes": "Coalesce drag seeks to the render loop."
+  },
+  {
+   "feature": "Player: song map / range overview canvas",
+   "current_location": "app.js drawRangeOverview/#range-canvas",
+   "new_location": "Player centre > timeline overview (collapsible)",
+   "notes": "Top perf item 1 - offscreen the note bars."
+  },
+  {
+   "feature": "Player: range selection interaction on the song map",
+   "current_location": "app.js rangeDrag pointer handlers",
+   "new_location": "Player centre > timeline overview (shared range widget)",
+   "notes": ""
+  },
+  {
+   "feature": "Player: playback range ('Play selection only')",
+   "current_location": "app.js #range-enabled/#range-start/#range-end/#range-full/#range-summary",
+   "new_location": "Player centre > timeline overview > Range row",
+   "notes": "sendPlay clamps start_at and passes end_at."
+  },
+  {
+   "feature": "Player: wheel-zoom of the song map",
+   "current_location": "app.js overviewZoom = TimelineZoom(#range-overview)",
+   "new_location": "Player centre > timeline overview (shared primitive with identity fallback)",
+   "notes": ""
+  },
+  {
+   "feature": "Player: practice loop (loop selection + tempo ramp)",
+   "current_location": "app.js #range-loop/#ramp-start/#ramp-step/practice",
+   "new_location": "Player centre > timeline overview > Practice row",
+   "notes": "Ramp writes the tempo slider without saving; endPractice restores the user's target."
+  },
+  {
+   "feature": "Player: 10 global hotkeys with pynput capture",
+   "current_location": "app.js hotkey capture boxes, keyEventToPynput, #hotkey-apply/#hotkey-status",
+   "new_location": "Player left column > Preferences > Hotkeys (shared hotkey-capture widget)",
+   "notes": "Empty means unbound for all ten; focus suspends globals; visible clear button."
+  },
+  {
+   "feature": "Player: hotkey dispatch from the engine",
+   "current_location": "app.js 'hotkey' event switch",
+   "new_location": "Player command handlers, registered in the shared command registry",
+   "notes": "Perch's transport arrives on this same path."
+  },
+  {
+   "feature": "Player: tempo step / preset / seek step",
+   "current_location": "app.js #tempo-step/#tempo-preset/#seek-step",
+   "new_location": "Player left column > Preferences > Hotkey amounts",
+   "notes": ""
+  },
+  {
+   "feature": "Player: visualizer render loop with adaptive budget",
+   "current_location": "app.js frame()/drawBudgetMs/repaintNow",
+   "new_location": "Shared draw scheduler driving the Player centre visualizer",
+   "notes": "Separate rAF and timeout handle spaces; >=30fps floor while playing."
+  },
+  {
+   "feature": "Player: visualizer note data + extrapolating clock",
+   "current_location": "renderer/player/visualizer.js load/clock",
+   "new_location": "Shared visualizer module (Player centre + Perch)",
+   "notes": "Local extrapolation, drag-lock, backwards-jump cursor reset."
+  },
+  {
+   "feature": "Player: visualizer draw + culling",
+   "current_location": "visualizer.js render/_drawKeyboard",
+   "new_location": "Player centre > falling-note visualizer + keyboard",
+   "notes": "Top perf item 2 - kill per-note gradients and array literals."
+  },
+  {
+   "feature": "Player: visualizer style (note colour, fall speed)",
+   "current_location": "app.js applyVizStyle, #note-color/#fall-speed",
+   "new_location": "Player left column > Preferences > Visualizer",
+   "notes": "speed -> lookahead = 3.0/speed."
+  },
+  {
+   "feature": "Player: empty visualizer state",
+   "current_location": "player/index.html #viz-empty",
+   "new_location": "Player centre empty state (shared component)",
+   "notes": "The canvas must not draw its own caption too."
+  },
+  {
+   "feature": "Player: Perch overlay integration (toggle + state + replay)",
+   "current_location": "app.js wirePerch, onOverlayWantsState -> replayToOverlay",
+   "new_location": "Bottom transport > Perch toggle; the replay responsibility stays with the Player view-model",
+   "notes": "See orphans. It is the only place holding lastMidiLoaded."
+  },
+  {
+   "feature": "Player: Forge activity indicator + finished-MIDI auto-queue",
+   "current_location": "app.js forge.onStatus, #forge-activity",
+   "new_location": "Activity strip (global) + a strip action that adds the finished MIDI to the Player queue",
+   "notes": "See orphans."
+  },
+  {
+   "feature": "Player: drag-and-drop .mid/.midi/.json",
+   "current_location": "app.js window drag handlers",
+   "new_location": "Shared drop overlay -> Player (MIDI to queue, .json becomes the custom mapping)",
+   "notes": ""
+  },
+  {
+   "feature": "Player: log panel (collapsible, auto-expand on error)",
+   "current_location": "app.js log(), #log-panel/#log-header/#log-clear",
+   "new_location": "Activity strip > Log drawer",
+   "notes": "See orphans. Cap lines; skip the scroll write when scrolled away."
+  },
+  {
+   "feature": "Player: accordion sidebar (one section open)",
+   "current_location": "app.js initAccordion, settings.openSection",
+   "new_location": "Player left column > Song|Target|Playback|Preferences tab group",
+   "notes": "See orphans - migrate the legacy 'hotkeys' value."
+  },
+  {
+   "feature": "Player: song map collapse",
+   "current_location": "app.js #map-toggle",
+   "new_location": "Player centre > timeline overview chevron",
+   "notes": "See orphans."
+  },
+  {
+   "feature": "Player: resizable panes (side/map/logh)",
+   "current_location": "player/index.html three grips",
+   "new_location": "Player grid dividers (player:side, player:map) + the global log drawer height",
+   "notes": "Grips hidden when the panel is collapsed; body.is-resizing kills the log transition."
+  },
+  {
+   "feature": "Player: settings persistence (v3 flat object)",
+   "current_location": "app.js settings + saveSettings/applySettingsToUI",
+   "new_location": "Player view-model, through the debounced persistence layer",
+   "notes": "Debounce; do not write on every slider 'input'. Migrate the key or keep v3."
+  },
+  {
+   "feature": "Player: updater (badge + banner)",
+   "current_location": "app.js initUpdater, #update-banner",
+   "new_location": "DELETED - the Activity strip update row is the single owner",
+   "notes": "See orphans; update-status is main-frame-only by design."
+  },
+  {
+   "feature": "Player: 'Transcribed songs' folder picker",
+   "current_location": "renderer/player/midi-library.js",
+   "new_location": "Superseded by the Library tab; its mappings-folder button moves to Player > Playback settings > Mapping",
+   "notes": "See orphans. Depends today on a global setMidiFile - a module-scoped rewrite silently deletes it."
+  },
+  {
+   "feature": "Player: engine ready / boot sequence",
+   "current_location": "app.js 'ready' -> sendHotkeys + requestWindows + loadMidi",
+   "new_location": "Shell boot orchestrator + Player adapter (idempotent)",
+   "notes": "main re-broadcasts the last 'ready' 60ms after a frame appears."
+  },
+  {
+   "feature": "Player: panic / crash handling",
+   "current_location": "app.js doStop + playback_done crashed branch",
+   "new_location": "Player right rail > Tools > Panic (red) + transport crash reset",
+   "notes": "Crash suppresses rewind, the sent/dropped summary, the queue advance and the practice loop."
+  },
+  {
+   "feature": "Player: dropped-key summary after playback",
+   "current_location": "app.js playback_done evt.sent log",
+   "new_location": "Activity strip > Log drawer + a 'Sent X/Y keys' line in the stat strip",
+   "notes": "Warn level when any were dropped."
+  },
+  {
+   "feature": "Self MIDI: tab hosting + loadAudition hand-off",
+   "current_location": "audition.js:627 window.loadAudition",
+   "new_location": "Shell hand-off router -> Self MIDI tab",
+   "notes": "Public cross-frame contract; tri-state play flag."
+  },
+  {
+   "feature": "Self MIDI: prefs persistence + legacy migration",
+   "current_location": "audition.js PREFS_KEY + SOUND_MIGRATION",
+   "new_location": "Self MIDI view-model, through the debounced persistence layer",
+   "notes": "Keep reading the old midi-forge preview-prefs key first or returning users lose volume/instrument/sustain."
+  },
+  {
+   "feature": "Self MIDI: session restore of the last file",
+   "current_location": "audition.js boot loadAudition(lastMidiPath,...,{play:false})",
+   "new_location": "Self MIDI boot",
+   "notes": "Must never autoplay on restore."
+  },
+  {
+   "feature": "Self MIDI: open via file picker",
+   "current_location": "audition.js openPicker, #open-midi/#empty-open",
+   "new_location": "Self MIDI centre header > Open + empty state",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: drag-and-drop load (.mid/.midstudio.json)",
+   "current_location": "audition.js document drag handlers",
+   "new_location": "Shared drop overlay -> Self MIDI",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: load with token cancellation",
+   "current_location": "audition.js loadAudition + player.token",
+   "new_location": "Self MIDI loader",
+   "notes": "Guards out-of-order async completion."
+  },
+  {
+   "feature": "Self MIDI: version (candidate) picker",
+   "current_location": "audition.js #candidate/#candidate-field",
+   "new_location": "Self MIDI centre > metadata row > Version selector (hidden with <2)",
+   "notes": "Resets zoom, position and the loaded instrument."
+  },
+  {
+   "feature": "Self MIDI: MIDI library rail",
+   "current_location": "audition.js renderLibrary/#library-list, library:list",
+   "new_location": "PRIMARY HOME: the new Library tab (centre table). Self MIDI keeps a slimmer Library|Playlists|Favorites left nav reading the same index.",
+   "notes": "One scanner and one index feed both."
+  },
+  {
+   "feature": "Self MIDI: library search (multi-term AND)",
+   "current_location": "audition.js #library-search",
+   "new_location": "Library centre > search box; also the global Ctrl+K index",
+   "notes": "Debounce ~120ms."
+  },
+  {
+   "feature": "Self MIDI: library sort (recent/name/folder)",
+   "current_location": "audition.js #library-sort",
+   "new_location": "Library centre > sort control (columns Name/Length/Notes/Source/Date Added/Tags)",
+   "notes": "Sort once per order change, not per render."
+  },
+  {
+   "feature": "Self MIDI: chunked/virtualised library rendering",
+   "current_location": "audition.js 300-row chunks + onscroll growth",
+   "new_location": "Shared virtualised list primitive (Library table, Self MIDI nav)",
+   "notes": "Rows are cheap, a few thousand are not."
+  },
+  {
+   "feature": "Self MIDI: relative-time labels",
+   "current_location": "audition.js whenLabel",
+   "new_location": "Shared time helpers; Library 'Date Added' column",
+   "notes": "Newest-first is meaningless without a readable date."
+  },
+  {
+   "feature": "Self MIDI: add / rescan library folders",
+   "current_location": "audition.js #library-add/#library-refresh, library:addFolder, library.onChanged",
+   "new_location": "Library left column > folders + storage section (Add folder / Rescan / Remove)",
+   "notes": "library:removeFolder exists in the preload and is currently unused - wire it here."
+  },
+  {
+   "feature": "Self MIDI: resizable library rail",
+   "current_location": "audition/index.html grip-h data-resize=side",
+   "new_location": "Self MIDI grid divider (selfmidi:side) and Library grid divider (library:side)",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: instrument selection (8 presets)",
+   "current_location": "audition.js #instrument, soundfonts PRESETS",
+   "new_location": "Self MIDI centre > playback controls > Instrument",
+   "notes": "Changing it pauses, invalidates and re-prepares."
+  },
+  {
+   "feature": "Self MIDI: lazy soundfont loading with progress",
+   "current_location": "renderer/soundfonts/player.js loadScript/prepare",
+   "new_location": "Shared audio preview engine; progress in the Self MIDI status line",
+   "notes": "Only the pitches the song needs are decoded. Parallelise the decodes; bulk base64 conversion."
+  },
+  {
+   "feature": "Self MIDI: decoded-sample 2-instrument LRU",
+   "current_location": "soundfonts/player.js decoded Map eviction",
+   "new_location": "Shared audio preview engine",
+   "notes": "Removing eviction leaks tens of MB per instrument tried."
+  },
+  {
+   "feature": "Self MIDI: on-demand instrument prepare with cancellation",
+   "current_location": "audition.js prepareInstrument/invalidateInstrument + instrumentToken",
+   "new_location": "Shared audio preview engine, gated by Play",
+   "notes": "Token re-checks after every await."
+  },
+  {
+   "feature": "Self MIDI: oscillator fallback synth (incl. drums)",
+   "current_location": "audition.js playFallback",
+   "new_location": "Shared audio preview engine",
+   "notes": "Never silent; drum synthesis by pitch class."
+  },
+  {
+   "feature": "Self MIDI: sample playback envelope",
+   "current_location": "soundfonts/player.js play()",
+   "new_location": "Shared audio preview engine",
+   "notes": "playbackRate pitch shift; velocity^1.25; attack/hold/release per preset."
+  },
+  {
+   "feature": "Self MIDI: lookahead scheduler",
+   "current_location": "audition.js scheduleAhead + 120ms interval",
+   "new_location": "Self MIDI engine behind the transport bus",
+   "notes": "Invariant - must stay clock-pinned."
+  },
+  {
+   "feature": "Self MIDI: play / pause",
+   "current_location": "audition.js togglePlay/pause",
+   "new_location": "Persistent bottom transport (Self MIDI as owner)",
+   "notes": "clearVoices on pause; icon and aria-label swap."
+  },
+  {
+   "feature": "Self MIDI: stop",
+   "current_location": "audition.js stop()",
+   "new_location": "Bottom transport > Stop; Home key",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: skip back/forward 5s",
+   "current_location": "audition.js #back/#forward",
+   "new_location": "Bottom transport > -5/+5; Arrow keys",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: seek bar",
+   "current_location": "audition.js #seek (0-1000)",
+   "new_location": "Bottom transport timeline (Self MIDI scope)",
+   "notes": "Skip the per-frame value write while the slider is being dragged; binary-search cursorFor."
+  },
+  {
+   "feature": "Self MIDI: click-to-seek on the roll",
+   "current_location": "audition.js #note-roll pointerdown",
+   "new_location": "Self MIDI centre > piano-roll preview",
+   "notes": "Zoom-aware."
+  },
+  {
+   "feature": "Self MIDI: playback speed 0.5-2x",
+   "current_location": "audition.js #speed",
+   "new_location": "Self MIDI centre > Playback Speed control",
+   "notes": "Re-seeks to re-base audioStart; does not reload the instrument."
+  },
+  {
+   "feature": "Self MIDI: transpose -1/0/+1 octave",
+   "current_location": "audition.js #pitch",
+   "new_location": "Self MIDI centre > Transpose control",
+   "notes": "Changes the required sample set, so it invalidates the instrument."
+  },
+  {
+   "feature": "Self MIDI: volume with live master gain",
+   "current_location": "audition.js #volume/#volume-value",
+   "new_location": "Bottom transport > volume (Self MIDI scope) or Self MIDI centre controls",
+   "notes": "Volume 0 schedules no voices at all."
+  },
+  {
+   "feature": "Self MIDI: sustain toggle",
+   "current_location": "audition.js #sustain",
+   "new_location": "Self MIDI centre > playback controls",
+   "notes": "Toggling clears sounding voices so the change is audible."
+  },
+  {
+   "feature": "Self MIDI: seamless loop",
+   "current_location": "audition.js scheduleAhead loop branch, #loop",
+   "new_location": "Bottom transport > Loop + Self MIDI centre > Loop A/B",
+   "notes": "Must roll audioStart forward, never seek."
+  },
+  {
+   "feature": "Self MIDI: autoplay toggle",
+   "current_location": "audition.js #autoplay",
+   "new_location": "Self MIDI centre header > Autoplay",
+   "notes": "Tri-state contract: library click always plays, restore never plays, picker/drop defer to this."
+  },
+  {
+   "feature": "Self MIDI: note-roll preview visualizer",
+   "current_location": "audition.js drawRoll",
+   "new_location": "Self MIDI centre > piano-roll preview",
+   "notes": "Cache low/high at load; batch grid lines; cache tokens; binary-search visible notes."
+  },
+  {
+   "feature": "Self MIDI: roll zoom / pan / dblclick reset",
+   "current_location": "audition.js #note-roll wheel + dblclick",
+   "new_location": "Self MIDI centre > piano-roll preview (shared timeline-zoom)",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: song stats strip",
+   "current_location": "audition.js updateSongUI, #file-name/#file-path/#stat-*",
+   "new_location": "Self MIDI centre > title, tags and metadata row",
+   "notes": "Split into setSongMeta (on load) and a light per-frame clock update; stop writing document.title per frame."
+  },
+  {
+   "feature": "Self MIDI: frame-budget-aware repaint",
+   "current_location": "audition.js drawBudgetMs/tick",
+   "new_location": "Shared draw scheduler",
+   "notes": "Park the rAF loop when the budget is Infinity."
+  },
+  {
+   "feature": "Self MIDI: automatic drum-kit detection",
+   "current_location": "audition.js >60% channel-9 heuristic",
+   "new_location": "Self MIDI loader",
+   "notes": "Only overrides while the instrument is still the default."
+  },
+  {
+   "feature": "Self MIDI: reveal in Explorer",
+   "current_location": "audition.js #show-file + library row contextmenu",
+   "new_location": "Self MIDI right rail actions + Library row context menu + Library right rail actions",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: send to Player",
+   "current_location": "audition.js #to-player",
+   "new_location": "Self MIDI right rail > hand-off actions",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: send to Editor",
+   "current_location": "audition.js #to-editor",
+   "new_location": "Self MIDI right rail > hand-off actions",
+   "notes": "Prefers projectPath over the raw .mid."
+  },
+  {
+   "feature": "Self MIDI: transport enable/disable gating",
+   "current_location": "audition.js enableTransport (8 controls)",
+   "new_location": "Self MIDI view-model + bottom transport disabled state",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: keyboard shortcuts (Space/arrows/Home)",
+   "current_location": "audition.js window keydown",
+   "new_location": "Shell key router, scoped to the active tab and skipped inside form controls",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: empty + loading states",
+   "current_location": "audition/index.html #empty/#loading/#loading-text",
+   "new_location": "Self MIDI centre states (shared component); loading text doubles as the error surface",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: SVG icon upgrade + play/pause icon swap",
+   "current_location": "audition.js Icon.svg('play'|'pause')",
+   "new_location": "Shared icon primitive + bottom transport",
+   "notes": ""
+  },
+  {
+   "feature": "Self MIDI: recent MRU (data live, UI removed)",
+   "current_location": "audition.js addRecent, prefs.recent",
+   "new_location": "Self MIDI right rail > Recently Played",
+   "notes": "See orphans - renderRecent() is currently a stub."
+  },
+  {
+   "feature": "Perch: what it shows (meter, head, roll, veil, strip, deck, states, 3 sizes)",
+   "current_location": "renderer/overlay/overlay.js + overlay.html",
+   "new_location": "Separate always-on-top window, unchanged; entry point in the bottom transport",
+   "notes": "See orphans. 'Blocked' must look different from a user pause."
+  },
+  {
+   "feature": "Perch: settings sheet (size/fade/ahead/park/click-through/lock/keys/buttons/autoshow/autohide)",
+   "current_location": "overlay.js #menu controls -> perch.apply/perch.snap",
+   "new_location": "Settings > Overlay pane (mirror) + the overlay's own in-window sheet",
+   "notes": "Both write the same settings.overlay object."
+  },
+  {
+   "feature": "Perch: engine event handling (own 30fps loop)",
+   "current_location": "overlay.js onEngineEvent + frame()",
+   "new_location": "Unchanged overlay renderer, using the shared visualizer",
+   "notes": "Only write clock/strip/meter when the formatted value changed."
+  },
+  {
+   "feature": "Perch: transport, global keys, resize, lifecycle",
+   "current_location": "overlay.js command/close/resize/ready + main.js shortcuts",
+   "new_location": "Unchanged; the bottom-transport Perch button drives overlay:toggle",
+   "notes": "Coalesce grip resize sends to one per frame."
+  },
+  {
+   "feature": "Main: single BrowserWindow shell",
+   "current_location": "electron/main.js:203-327 createWindow",
+   "new_location": "Unchanged; add frame:false / titleBarStyle for the custom titlebar",
+   "notes": "nodeIntegrationInSubFrames must stay while panels are iframes."
+  },
+  {
+   "feature": "Main: deferred window show (no white screen)",
+   "current_location": "main.js:225-230 ready-to-show",
+   "new_location": "Unchanged",
+   "notes": ""
+  },
+  {
+   "feature": "Main: Chromium background-throttling switches",
+   "current_location": "main.js:32-33",
+   "new_location": "Unchanged",
+   "notes": "Invariant."
+  },
+  {
+   "feature": "Main: window bounds persistence (debounced)",
+   "current_location": "main.js:313-321",
+   "new_location": "Unchanged, through the debounced settings store",
+   "notes": ""
+  },
+  {
+   "feature": "Main: single-instance lock + second-instance recovery",
+   "current_location": "main.js:97, 977-992",
+   "new_location": "Unchanged",
+   "notes": "Must not show an unpainted window; must recreate a lost one."
+  },
+  {
+   "feature": "Main: .mid file association / open-with",
+   "current_location": "main.js:82-95, 236, package.json fileAssociations",
+   "new_location": "Unchanged -> shell hand-off router -> Player",
+   "notes": ""
+  },
+  {
+   "feature": "Main: broadcast-to-subframes fan-out",
+   "current_location": "main.js:113-126",
+   "new_location": "Unchanged if iframes stay; otherwise one renderer event bus plus the explicit Perch send",
+   "notes": "Cache the frame list; batch high-rate channels."
+  },
+  {
+   "feature": "Main: cached 'ready' replay to late panels",
+   "current_location": "main.js:245-248, 345",
+   "new_location": "Unchanged",
+   "notes": ""
+  },
+  {
+   "feature": "Main: cached update-status replay",
+   "current_location": "main.js:234-241, 1014",
+   "new_location": "Unchanged -> Activity strip",
+   "notes": ""
+  },
+  {
+   "feature": "Main: will-prevent-unload unsaved-notes dialog",
+   "current_location": "main.js:253-264",
+   "new_location": "Unchanged (Editor dirty state)",
+   "notes": "Inverted preventDefault semantics."
+  },
+  {
+   "feature": "Main: close guard while a job or setup runs",
+   "current_location": "main.js:268-280",
+   "new_location": "Unchanged",
+   "notes": ""
+  },
+  {
+   "feature": "Main: Ctrl+1..4 before-input-event",
+   "current_location": "main.js:285-291",
+   "new_location": "Extended to Ctrl+1..5 with the new tab order",
+   "notes": "Mandatory second path."
+  },
+  {
+   "feature": "Main: did-fail-load retry + error box",
+   "current_location": "main.js:298-311",
+   "new_location": "Unchanged",
+   "notes": "Guards the antivirus-scanning-asar blank page."
+  },
+  {
+   "feature": "Main: external-link handling",
+   "current_location": "main.js:326 setWindowOpenHandler",
+   "new_location": "Unchanged",
+   "notes": ""
+  },
+  {
+   "feature": "Main: boot diagnostics log",
+   "current_location": "main.js:25-27 blog()",
+   "new_location": "Unchanged; surfaced as Settings > Forge engine > Diagnostics > Open boot log",
+   "notes": "Rate-limit the error-path appendFileSync."
+  },
+  {
+   "feature": "Main: installer --configure-forge-storage headless mode",
+   "current_location": "main.js:37-40, 954-969",
+   "new_location": "Unchanged",
+   "notes": "No window, no IPC; bypasses the instance lock."
+  },
+  {
+   "feature": "Main: --post-update splash status",
+   "current_location": "main.js:36, 1016",
+   "new_location": "Unchanged -> Activity strip 'Updated to vX'",
+   "notes": ""
+  },
+  {
+   "feature": "Main: automatic update check on launch",
+   "current_location": "main.js:1017-1026",
+   "new_location": "Unchanged; gated by Settings > Updates",
+   "notes": "Timed from ready-to-show."
+  },
+  {
+   "feature": "Main: updater pipeline (release -> semver -> download -> sha256 -> NSIS)",
+   "current_location": "electron/updater.js",
+   "new_location": "Unchanged -> Activity strip update row",
+   "notes": "Never /S; digest mismatch throws; absent digest opens the release page."
+  },
+  {
+   "feature": "Main: installer launch via Start-Process (+ elevation)",
+   "current_location": "updater.js:96-120",
+   "new_location": "Unchanged",
+   "notes": "Invariant."
+  },
+  {
+   "feature": "Main: player sidecar (NDJSON over stdio)",
+   "current_location": "electron/sidecar.js",
+   "new_location": "Unchanged; owned by the Player engine adapter",
+   "notes": "Always emit playback_done crashed:true; batch stderr lines."
+  },
+  {
+   "feature": "Main: persistent user mappings dir + preset seeding",
+   "current_location": "electron/paths.js ensureUserMappings, main.js:335-339",
+   "new_location": "Unchanged; folder opened from Player > Playback settings > Mapping",
+   "notes": "Must run before the sidecar spawns; compare mtime before parsing both files."
+  },
+  {
+   "feature": "Main: playback-active + game-active Forge backgrounding",
+   "current_location": "main.js:44-60, 421-431",
+   "new_location": "Unchanged",
+   "notes": "Invariant - two separate flags."
+  },
+  {
+   "feature": "Main: GameWatch tasklist poller",
+   "current_location": "electron/gamewatch.js",
+   "new_location": "Unchanged -> game-active -> Activity strip",
+   "notes": "One tasklist dump per tick; consider pausing when neither Forge nor playback is active."
+  },
+  {
+   "feature": "Main: Forge job runner (script selection, env, output path)",
+   "current_location": "electron/forge-runner.js run()",
+   "new_location": "Unchanged; driven by the Forge left column",
+   "notes": "fast-before-skipSeparation; forgeEnvReady gate; OMP env."
+  },
+  {
+   "feature": "Main: Forge stdout/stderr parsing + progress protocol",
+   "current_location": "forge-runner.js:209-299",
+   "new_location": "Unchanged -> Forge centre Progress checklist + Log tab",
+   "notes": "Split on \\r; monotonic percent; skip 'input:' lines; batch log emits."
+  },
+  {
+   "feature": "Main: Forge pause/resume (NtSuspendProcess)",
+   "current_location": "forge-runner.js suspendProcess/setPaused",
+   "new_location": "Unchanged -> Forge Pause button",
+   "notes": ""
+  },
+  {
+   "feature": "Main: Forge process priority management",
+   "current_location": "forge-runner.js setBackground",
+   "new_location": "Unchanged",
+   "notes": ""
+  },
+  {
+   "feature": "Main: orphan Forge job reaping",
+   "current_location": "forge-runner.js:104-135, main.js:437-441",
+   "new_location": "Unchanged -> Activity strip notice on launch",
+   "notes": "Single tasklist dump; ideally async after ready-to-show."
+  },
+  {
+   "feature": "Main: Forge capability probe (env_probe.py)",
+   "current_location": "forge-runner.js check()",
+   "new_location": "Unchanged -> Activity strip engine chip + Settings > Forge engine",
+   "notes": ""
+  },
+  {
+   "feature": "Main: yt-dlp download job",
+   "current_location": "forge-runner.js ytDownload",
+   "new_location": "Unchanged -> Forge left column > Input > link field",
+   "notes": "Omit outDir when blank so the script picks a writable default."
+  },
+  {
+   "feature": "Main: Forge job cancel / cancelAll",
+   "current_location": "forge-runner.js cancel",
+   "new_location": "Unchanged -> Forge Cancel button and cleanup()",
+   "notes": ""
+  },
+  {
+   "feature": "Main: Forge provisioner (log-first, fallback dir, watchdog)",
+   "current_location": "electron/forge-provisioner.js",
+   "new_location": "Unchanged -> First-time setup modal",
+   "notes": "Log file opened first; drive-root fallback to the user profile; 45s silence line."
+  },
+  {
+   "feature": "Main: Forge output collection + .midstudio.json sidecar",
+   "current_location": "main.js:365-416 forgeEmit",
+   "new_location": "Unchanged -> Forge right column Results + library-changed",
+   "notes": "uniquePath everywhere; move the file shuffle off the sync path."
+  },
+  {
+   "feature": "Main: programOutputDir resolution",
+   "current_location": "main.js:150-154",
+   "new_location": "Unchanged; shown in Library left column > storage",
+   "notes": ""
+  },
+  {
+   "feature": "Main: review workspace load (project or plain .mid)",
+   "current_location": "main.js:181-201 loadReviewFile",
+   "new_location": "Unchanged -> Editor and Self MIDI",
+   "notes": "A plain .mid yields projectPath '' - the original-file protection depends on it."
+  },
+  {
+   "feature": "Main: runMidiDocument helper (python midi_document.py)",
+   "current_location": "main.js:158-179",
+   "new_location": "Unchanged; extend if the Editor's new CC lanes are implemented",
+   "notes": "bpm/bpmEstimated and `unterminated` must keep round-tripping."
+  },
+  {
+   "feature": "Main: review project save with original-file protection",
+   "current_location": "main.js:757-790, forge-storage.js candidateTarget",
+   "new_location": "Unchanged -> Editor Save",
+   "notes": "Invariant."
+  },
+  {
+   "feature": "Main: review MIDI export",
+   "current_location": "main.js:791-802",
+   "new_location": "Unchanged -> Editor Export",
+   "notes": "Broadcasts library-changed."
+  },
+  {
+   "feature": "Main: Self MIDI library scanning (fold, skip, caps)",
+   "current_location": "electron/library.js",
+   "new_location": "Unchanged contract, async rewrite -> Library tab (primary) + Self MIDI nav",
+   "notes": "Top perf item 6."
+  },
+  {
+   "feature": "Main: listMidis (one-level scanner)",
+   "current_location": "main.js:130-145",
+   "new_location": "Unify with library.js behind one cached async scanner",
+   "notes": "Currently duplicates the walk with different rules."
+  },
+  {
+   "feature": "Main: library folder management (add/remove/reveal)",
+   "current_location": "main.js library:addFolder/removeFolder/reveal",
+   "new_location": "Library left column > folders; row context menu for reveal",
+   "notes": "removeFolder is currently unwired in the UI."
+  },
+  {
+   "feature": "Main: performance model (percent -> threads/batch/drawMs/lowPriority)",
+   "current_location": "main.js:462-494",
+   "new_location": "Unchanged -> Settings > Performance",
+   "notes": "Value-based cleared-override test; explicit nulls when percent is set; 60fps at 100%."
+  },
+  {
+   "feature": "Main: Forge storage location management",
+   "current_location": "main.js:579-637 changeForgeStorage",
+   "new_location": "Unchanged -> Settings > Forge engine > Storage",
+   "notes": "Managed-only, writability check, move/use-existing/start-fresh dialogs."
+  },
+  {
+   "feature": "Main: installer registry path adoption",
+   "current_location": "main.js:517-548",
+   "new_location": "Unchanged in behaviour, with the escaped-backslash bug fixed",
+   "notes": "Never trade a provisioned env for an empty one."
+  },
+  {
+   "feature": "Main: Forge env auto-recovery search",
+   "current_location": "main.js:558-569, paths.js candidateForgeEnvDirs",
+   "new_location": "Unchanged -> Activity strip explanatory line",
+   "notes": "Run it async after the window is shown; do not probe every drive letter synchronously."
+  },
+  {
+   "feature": "Main: Forge readiness definition (.ready marker + torch)",
+   "current_location": "paths.js forgeEnvReady",
+   "new_location": "Unchanged",
+   "notes": "Invariant."
+  },
+  {
+   "feature": "Main: forgeInfo payload (version/ready/dir/free/need/custom)",
+   "current_location": "main.js:505-512",
+   "new_location": "Unchanged -> Settings > Forge engine + setup modal",
+   "notes": "Make freeGb/needGb async and cache the CUDA probe."
+  },
+  {
+   "feature": "Main: clean reinstall of the Forge env",
+   "current_location": "main.js:903-912",
+   "new_location": "Settings > Forge engine > Danger zone",
+   "notes": "See orphans; managed-path refusal must stay."
+  },
+  {
+   "feature": "Main: Perch overlay window (bounds, modes, snap, opacity, click-through)",
+   "current_location": "electron/overlay.js",
+   "new_location": "Unchanged",
+   "notes": "screen-saver level, showInactive, per-mode bounds, display re-validation, config-before-flush."
+  },
+  {
+   "feature": "Main: overlay auto-show on play + song-name tracking",
+   "current_location": "main.js:721-735",
+   "new_location": "Unchanged",
+   "notes": "The engine never echoes the path back, so main must sniff engine:send."
+  },
+  {
+   "feature": "Main: overlay state resync on open",
+   "current_location": "main.js:647-655 openOverlay",
+   "new_location": "Unchanged; the Player view-model answers overlay-wants-state",
+   "notes": ""
+  },
+  {
+   "feature": "Main: global shortcuts Ctrl+Alt+O / Ctrl+Alt+P",
+   "current_location": "main.js:661-676",
+   "new_location": "Unchanged; documented in Settings > Overlay",
+   "notes": "Ctrl+Alt+P is the only escape from click-through."
+  },
+  {
+   "feature": "Main: overlay transport replayed as hotkey events",
+   "current_location": "main.js:691-694",
+   "new_location": "Unchanged -> Player command handlers",
+   "notes": "Allowlisted."
+  },
+  {
+   "feature": "Main: overlay:replay allowlist",
+   "current_location": "main.js:712-717",
+   "new_location": "Unchanged",
+   "notes": "Frame hardening."
+  },
+  {
+   "feature": "Main: settings store (deep-merge JSON file)",
+   "current_location": "electron/settings.js",
+   "new_location": "Unchanged API, debounced async writes, shallow snapshot returns",
+   "notes": "Arrays are replaced, not merged. Add migrations for lastTab renames and the dead forgeLayout key."
+  },
+  {
+   "feature": "Main: alwaysOnTop live toggle",
+   "current_location": "main.js:862-868",
+   "new_location": "Unchanged -> Settings > Appearance > Window",
+   "notes": ""
+  },
+  {
+   "feature": "Main: cleanup / forced exit",
+   "current_location": "main.js:1046-1059, 1030-1040",
+   "new_location": "Unchanged, plus a guaranteed settings flush",
+   "notes": "Overlay close, unregister shortcuts, kill sidecar, cancel jobs, cancel provisioner, 4s app.exit(0)."
+  },
+  {
+   "feature": "Main: process-level error surfacing",
+   "current_location": "main.js:1042-1043",
+   "new_location": "Unchanged -> Activity strip > Log drawer",
+   "notes": ""
+  },
+  {
+   "feature": "Main: preload bridge surfaces (api/forge/review/library/perch/studio)",
+   "current_location": "electron/preload.js",
+   "new_location": "Unchanged shape; add a library:removeFolder caller and any new Editor CC channels",
+   "notes": "window.perch stays deliberately small. onChannel returns an unsubscribe function - use it when panels unmount."
+  }
+ ]
+}

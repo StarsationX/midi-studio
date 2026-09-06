@@ -1,0 +1,1092 @@
+{
+ "subsystem": "forge (Midi Forge tab: renderer/forge/index.html + forge.js + forge.css)",
+ "features": [
+  {
+   "name": "Env status bar (envbar)",
+   "how_it_works": "Full-bleed strip: #env-dot (class 'dot ok|warn|err'), #env-text, #env-recheck button. setEnv(state,text) sets both. refreshEnv() first paints from localStorage cache 'midi-forge.env.v1' ({forgeReady,gpu}) synchronously (because probing imports torch and takes tens of seconds), then awaits F.check() and rewrites cache + text. Text forms: 'Checking Midi Forge…', 'Ready · GPU: <gpu>', 'Ready (CPU mode, slow)', 'Not set up (missing: a, b)'. On ready+no GPU logs a one-time CPU warning (cpuNoticeShown) recommending Fast. Always forces #work opacity=1 / pointerEvents='' so MIDI preview stays usable pre-setup. refreshEnv is exposed as window.refreshForgeEnvironment and auto-run via setTimeout(...,250).",
+   "element_ids": [
+    "envbar",
+    "env-dot",
+    "env-text",
+    "env-recheck",
+    "setup",
+    "work"
+   ],
+   "backend_calls": [
+    "forge.check",
+    "studio.forgeInfo"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Setup / provisioning panel",
+   "how_it_works": "section#setup (hidden when provisioned). Shows title + #setup-version ('v'+studio.getVersion()), a ~3GB one-time download blurb mentioning CUDA + DirectML, storage row (#setup-dir path + title, #setup-free '<N> GB free' with .is-low when <15), #setup-change ('Change folder…' → studio.changeForgeFolder(), button disabled + label 'Moving…' while running, logs new dir and re-runs refreshEnv), #setup-start, #setup-cancel, #setup-log (studio.openSetupLog), #setup-copy (copies #log text to clipboard via navigator.clipboard, falls back to a log line). Progress block #setup-prog: #setup-step, #setup-elapsed (mm:ss elapsed, 1s interval), #setup-pct, bar #setup-bar (class 'bar-fill' / 'bar-fill indet', width=percent%), #setup-msg. setup-start pre-flight: studio.forgeInfo(), if forgeFreeGb < forgeNeedGb (default 15) it logs and window.confirm()s 'Start anyway?'. A 12s silence watchdog (setupSilence) flips to 'Setup did not start' + advice to pick a folder in the user profile if no forge.provision* event arrived. A throw from the handler is caught into 'Setup could not start' + message. setup-cancel confirms ('Setup resumes where it stopped'), shows 'Cancelling…', calls F.cancelProvision().",
+   "element_ids": [
+    "setup",
+    "setup-version",
+    "setup-dir",
+    "setup-free",
+    "setup-change",
+    "setup-start",
+    "setup-cancel",
+    "setup-log",
+    "setup-copy",
+    "setup-prog",
+    "setup-step",
+    "setup-elapsed",
+    "setup-pct",
+    "setup-bar",
+    "setup-msg",
+    "setup-log-btn"
+   ],
+   "backend_calls": [
+    "forge.provision",
+    "forge.cancelProvision",
+    "studio.forgeInfo",
+    "studio.changeForgeFolder",
+    "studio.openSetupLog",
+    "studio.getVersion",
+    "forge.onStatus"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Provisioning status events",
+   "how_it_works": "F.onStatus switch: 'forge.provision.progress' (step/percent/message → setup-prog, indet when percent==null||<0), 'forge.provision.log' → logLine, 'forge.provision.done' (stop timer, msg 'Done!', hide cancel, reset labels, refreshEnv()), 'forge.provision.error' (msg '✖ '+message, setup-start label becomes 'Retry setup' unless the message matches /cancel/i, and for a non-cancel failure it injects a one-off button#setup-log-btn '📄 Open setup log' after #setup-msg). Any event whose name startsWith 'forge.provision' calls noteSetupOutput() to defuse the 12s watchdog.",
+   "element_ids": [
+    "setup-prog",
+    "setup-step",
+    "setup-bar",
+    "setup-pct",
+    "setup-msg",
+    "setup-cancel",
+    "setup-start",
+    "setup-log-btn"
+   ],
+   "backend_calls": [
+    "forge.onStatus",
+    "studio.openSetupLog"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Input mode: file browse (replace)",
+   "how_it_works": "#browse → F.pickInput() (may return array or single), addInputs(paths,'replace'): first path becomes the current input (deduped out of the queue), the rest are appended to the queue.",
+   "element_ids": [
+    "browse",
+    "input-path",
+    "dropzone"
+   ],
+   "backend_calls": [
+    "forge.pickInput"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Input mode: add to queue (non-destructive browse)",
+   "how_it_works": "#queue-add ('+ Add to queue') → F.pickInput() then addInputs(paths,'queue'): nothing replaces the current song; all new unique paths are pushed to the queue and the queue auto-expands.",
+   "element_ids": [
+    "queue-add"
+   ],
+   "backend_calls": [
+    "forge.pickInput"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Input mode: whole-window drag & drop with overlay",
+   "how_it_works": "window dragenter/dragover/dragleave/drop, dragDepth counter to avoid flicker; #drop-overlay gets .show. acceptDrop(): each file path via F.getDroppedFilePath(file) (webUtils.getPathForFile). MIDI files (/\\.midi?$/i) are NOT forged — the first one is posted to the shell as {type:'studio:open-audition', midiPath, projectPath:'', play:false}. Audio (mp3|wav|flac|m4a|ogg|opus|aac|wma) or extension-less paths go to addInputs(ok) in 'smart' mode. Anything else logs 'Ignored (not audio or MIDI): <path|name>'.",
+   "element_ids": [
+    "drop-overlay",
+    "dropzone"
+   ],
+   "backend_calls": [
+    "forge.getDroppedFilePath",
+    "parent.postMessage studio:open-audition"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Input mode: URL fetch (download)",
+   "how_it_works": "#url text field (placeholder lists YouTube, SoundCloud, Bandcamp, direct MP3) + #fetch button; Enter in the field also fires doFetch(). doFetch: hides results, logs '> Fetching <url>', shows #job-prog with stage 'Download' and an indeterminate bar, starts the job timer, setBusy(true), activeState='running', F.yt({url, outDir: outputDir}) → currentJob id (honours a pendingCancel that arrived first). On forge.done with result.downloadedPath the downloaded file is loaded as the current input via addInputs([out],'replace') and logged '✓ Downloaded: <path>'.",
+   "element_ids": [
+    "url",
+    "fetch",
+    "job-prog",
+    "job-stage",
+    "job-bar",
+    "job-pct"
+   ],
+   "backend_calls": [
+    "forge.yt",
+    "forge.cancel"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Dropzone hero UI",
+   "how_it_works": ".dropzone with corner-bracket background gradients, drop icon (data-icon='drop' size 22), readonly #input-path showing the current path ('Drop a song here, or browse…'), .dz-types line 'mp3 · wav · flac · m4a · ogg · up to 30 min', and the two buttons. The path input is pointer-events:none so the zone/buttons own interaction. CSS .dropzone.drag (accent border) exists but JS never sets it — dead.",
+   "element_ids": [
+    "dropzone",
+    "input-path"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Queue (batch conversion)",
+   "how_it_works": "queue = array of paths, strictly serial (comment: each job saturates the GPU). #queue-wrap starts .is-collapsed; #queue-toggle toggles collapse and aria-expanded, shows a caret icon + #queue-count (= waiting + (inputPath?1:0)) and .has-items styling with title '<n> songs waiting' / 'Nothing queued'. #queue-list is rebuilt by renderQueue() (innerHTML='') — the current input is rendered first as i=-1, then each waiting item. Empty state li.qi-empty 'Empty. Drop or browse several files to batch them.' Persisted to localStorage 'midi-forge.queue.v1' as {current (blank when activeState==='done'), waiting: first 100} on every render; restoreQueue() on boot filters to AUDIO_EXT, dedupes case-insensitively, makes the first the current input, logs 'Restored N songs from your last session.'",
+   "element_ids": [
+    "queue-wrap",
+    "queue-toggle",
+    "queue-count",
+    "queue-list",
+    "queue-auto",
+    "queue-undo",
+    "queue-clear",
+    "queue-add"
+   ],
+   "backend_calls": [
+    "localStorage midi-forge.queue.v1"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Queue item rows and per-row actions",
+   "how_it_works": "queueItem(path,i): .qi-name (basename, title=full path) + .qi-state text ('running' when busy else activeState for the active row: ready|done|failed|cancelled; 'queued' for others). Active row li gets 'is-running is-<activeState>'. Active row's single button is .qi-skip (icon 'next', 'Skip this song and continue the queue') while busy, else .qi-x (icon 'close', 'Remove current song'). Waiting rows get .qi-move up (icon 'up', disabled at i===0), .qi-move down (icon 'down', disabled at last), a clickable name ('click to make this the current song' — swaps: current input is unshifted back into the queue) and .qi-x remove. Every mutation calls rememberQueue() first, then renderQueue()+updateStart().",
+   "element_ids": [
+    "queue-list"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Queue: auto-continue",
+   "how_it_works": "#queue-auto checkbox (checked by default, 'When one song finishes, start the next one by itself'). On forge.done, if (runningQueue||wasSkipped) && queue.length && queue-auto.checked → setInput(queue.shift()) and startJob() immediately; comment says one failure must not strand the rest of the batch.",
+   "element_ids": [
+    "queue-auto"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Queue: clear waiting + Undo",
+   "how_it_works": "#queue-clear ('Clear waiting') empties queue (keeps current). #queue-undo (hidden until the first rememberQueue()) restores the previous {inputPath, activeState, queue} snapshot and swaps in the current state so Undo is a toggle/redo; it is a no-op while busy. Cancel also clears the queue and logs 'Queue cleared. Press Undo to get the list back.'",
+   "element_ids": [
+    "queue-clear",
+    "queue-undo"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Skip current job",
+   "how_it_works": "skipCurrent(): when not busy it degrades to removeActive(); when busy it sets skipRequested=true, runningQueue = queue.length>0, cancels the live job (or sets pendingCancel), logs 'Skipping current song…'. On forge.done a wasSkipped run logs 'Skipped.' instead of showing an error, and if nothing else runs setInput('') clears the row.",
+   "element_ids": [
+    "queue-list"
+   ],
+   "backend_calls": [
+    "forge.cancel"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Output filename override",
+   "how_it_works": ".out-row 'Save as' #out-name (placeholder 'same name as the song', spellcheck off) + literal '.mid' suffix label. outputName() trims, strips Windows-illegal chars /[<>:\"/\\\\|?*\\x00-\\x1f]/g and truncates to 120 chars; passed as run opts.outputName. Cleared to '' after every Start ('a name belongs to one song, not to the queue').",
+   "element_ids": [
+    "out-name"
+   ],
+   "backend_calls": [
+    "forge.run"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Output folder override",
+   "how_it_works": "#out-dir shows the effective folder ('next to the input file' initially; showDefaultOut() fills it from F.getOutputDir() when no override). #pick-out 'Change…' → F.pickOutDir(), stores outputDir, shows #clear-out, persists F.setSettings({outputDir}). #clear-out 'Reset' clears the override, persists outputDir:'' and re-reads the default. Restored from F.getSettings().outputDir on boot. outputDir is also passed to F.yt as outDir.",
+   "element_ids": [
+    "out-dir",
+    "pick-out",
+    "clear-out",
+    "run-info-out"
+   ],
+   "backend_calls": [
+    "forge.pickOutDir",
+    "forge.getOutputDir",
+    "forge.setSettings",
+    "forge.getSettings"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Pipeline picker (5 pipelines)",
+   "how_it_works": "div#pipeline.seg, delegated click on the closest button, value from data-v; exact values sent to the backend as opts.pipeline: 'melody' (label 'Main Melody' + PROTOTYPE badge, 'synth leads - clean hooks', default), 'piano' ('piano covers, highest accuracy'), 'general' ('any song, full-mix transcription'), 'fast' ('basic-pitch, quick & rough'), 'drums' ('8-pad kit: kick, snare, hats, toms, cymbals'). Selected button gets .is-active. syncPipelineUI() then swaps #pipeline-hint text from PIPELINE_HINT, updates #run-info-pipeline, shows only the .adv-group whose data-group === pipeline, and refreshes #run-info-out (last two path segments joined with a backslash, or 'not set').",
+   "element_ids": [
+    "pipeline",
+    "pipeline-hint",
+    "run-info-pipeline",
+    "run-info-out"
+   ],
+   "backend_calls": [
+    "forge.run",
+    "forge.setSettings",
+    "forge.getSettings"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Skip separation toggle",
+   "how_it_works": "#skipsep checkbox 'Skip separation (input is already an isolated stem)'; sent as opts.skipSeparation to F.run and persisted as settings.skipSeparation; appended to the start log line as ', skip-sep'.",
+   "element_ids": [
+    "skipsep"
+   ],
+   "backend_calls": [
+    "forge.run",
+    "forge.setSettings"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Quality preset select",
+   "how_it_works": "select#quality with three options: 'balanced' ('Balanced - one pass (default)'), 'best' ('Best - extra passes, catches fast + quiet notes (3-5x slower)'), 'custom' (hidden unless active). Choosing a preset writes real Advanced field values: balanced {USE_TTA:false,BIGSHIFTS:1,SEGMENT_HOP:'',MIN_NOTE_SEC:0.03,MIN_VELOCITY:20,MELODY_MIN_NOTE_MS:30,MELODY_DENSITY:13}; best {USE_TTA:true,BIGSHIFTS:3,SEGMENT_HOP:4,MIN_NOTE_SEC:0.02,MIN_VELOCITY:12,MELODY_MIN_NOTE_MS:22,MELODY_DENSITY:22}. detectQuality() reverse-matches the current Advanced fields; any manual edit inside #adv (change event) flips the select to Custom and unhides that option. #quality-hint text per mode: 'One separation pass, default overlap.' / 'Extra separation pass, double overlap, lower cutoffs. Much slower.' / 'Your own Advanced values.' Selecting a preset persists advanced and logs 'Quality: <name>. <hint>'.",
+   "element_ids": [
+    "quality",
+    "quality-hint",
+    "adv"
+   ],
+   "backend_calls": [
+    "forge.setSettings"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Advanced panel: disclosure + reset",
+   "how_it_works": "#adv-toggle (aria-expanded, caretDown/caretUp icon swapped via Icon.svg) shows/hides #adv. #adv-reset 'Reset tuning' writes every ADV_DEFAULTS value back, persists, re-syncs quality, and flashes the label to 'Reset done' for 1200ms.",
+   "element_ids": [
+    "adv-toggle",
+    "adv",
+    "adv-reset"
+   ],
+   "backend_calls": [
+    "forge.setSettings"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Advanced: Sound cleanup group (always visible)",
+   "how_it_works": "LOUDNESS_NORM checkbox 'Balance input volume' (default on); VELOCITY_GAMMA 'Note dynamics' number step .05 min .2 max 2 default 0.85; MIN_NOTE_SEC 'Shortest note' step .01 min 0 default 0.03 with 's' unit; MIN_VELOCITY 'Quiet-note cutoff' 0-127 default 20; MAX_POLYPHONY 'Chord size limit' step 1 min 0 max 12 default 0 ('0 = all'). Each has a descriptive title tooltip.",
+   "element_ids": [
+    "LOUDNESS_NORM",
+    "VELOCITY_GAMMA",
+    "MIN_NOTE_SEC",
+    "MIN_VELOCITY",
+    "MAX_POLYPHONY"
+   ],
+   "backend_calls": [
+    "forge.run (advanced)",
+    "forge.setSettings"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Advanced: Piano recognition group (data-group=piano)",
+   "how_it_works": "USE_TTA checkbox 'Extra accuracy pass' (default off, ~2x time); BIGSHIFTS 'Analysis passes' 1-7 default 1; SEGMENT_HOP 'Segment spacing' min .1 step .1 placeholder 'auto', unit 's', empty = engine default; PIANO_MIN_PITCH 'Lowest note' 0-127 default 21; PIANO_MAX_PITCH 'Highest note' 0-127 default 108.",
+   "element_ids": [
+    "USE_TTA",
+    "BIGSHIFTS",
+    "SEGMENT_HOP",
+    "PIANO_MIN_PITCH",
+    "PIANO_MAX_PITCH"
+   ],
+   "backend_calls": [
+    "forge.run (advanced)"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Advanced: Full-song recognition group (data-group=general)",
+   "how_it_works": "EXCLUDE_VOCALS checkbox 'Ignore vocals' (default off) — 'Ignores the vocal stem and transcribes instruments only'.",
+   "element_ids": [
+    "EXCLUDE_VOCALS"
+   ],
+   "backend_calls": [
+    "forge.run (advanced)"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Advanced: Lead melody recognition group (data-group=melody)",
+   "how_it_works": "MELODY_MIN_PITCH 'Lowest lead note' 24-96 default 45 (MIDI 45 = A2); MELODY_MAX_PITCH 'Highest lead note' 48-120 default 100 (E7); MELODY_ONSET_THRESHOLD 'Lead sensitivity' step .02 min .1 max .9 default 0.42 ('lower = more'); MELODY_MIN_NOTE_MS 'Shortest lead note' step 5 min 20 max 300 default 30 ms; MELODY_DENSITY 'Max notes / second' step 1 min 0 max 40 default 13 (0 = keep everything); MELODY_FOLD checkbox 'Fold out-of-range notes back in' (default on).",
+   "element_ids": [
+    "MELODY_MIN_PITCH",
+    "MELODY_MAX_PITCH",
+    "MELODY_ONSET_THRESHOLD",
+    "MELODY_MIN_NOTE_MS",
+    "MELODY_DENSITY",
+    "MELODY_FOLD"
+   ],
+   "backend_calls": [
+    "forge.run (advanced)"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Advanced: Drum detection group (data-group=drums)",
+   "how_it_works": "ONSET_DELTA 'Hit sensitivity' step .01 min .02 max .3 default 0.07 ('lower = more'); DRUM_MIN_GAP_MS 'Repeat-hit spacing' step 10 min 20 max 200 default 50 ms.",
+   "element_ids": [
+    "ONSET_DELTA",
+    "DRUM_MIN_GAP_MS"
+   ],
+   "backend_calls": [
+    "forge.run (advanced)"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Advanced: Fast recognition group (data-group=fast)",
+   "how_it_works": "BP_ONSET_THRESHOLD 'Note-start confidence' step .05 min .05 max .95 default 0.5; BP_FRAME_THRESHOLD 'Sustained-note confidence' same bounds default 0.3; BP_MIN_NOTE_MS 'Shortest note' step 10 min 10 default 120 ms; OCTAVE_FOLD checkbox 'Fit notes to keyboard range' (default on).",
+   "element_ids": [
+    "BP_ONSET_THRESHOLD",
+    "BP_FRAME_THRESHOLD",
+    "BP_MIN_NOTE_MS",
+    "OCTAVE_FOLD"
+   ],
+   "backend_calls": [
+    "forge.run (advanced)"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Waveform preview canvas",
+   "how_it_works": "canvas#waveform in .wave-shell (tabindex 0, role slider, aria-valuemin/max 0..100, aria-valuenow updated to the playhead percentage). loadWaveform(path): monotonically increasing waveToken guards stale loads, fetch(F.fileUrl(path)) → arrayBuffer → a lazily-created single AudioContext.decodeAudioData → waveDuration + buildPeaks(buffer, 4096 buckets of [min,max] from channel 0). #wave-loading ('Loading waveform...') toggles around it; a failure logs 'Waveform unavailable for this file; time fields and preview still work.' drawWaveform() paints: --bg-2 background, center axis line, 4..12 time grid columns (w/110) with formatClock labels, the peak envelope, the selection (dimmed outside, --accent-soft fill inside, 2px accent edge lines with 8x12 handle nubs top and bottom) and a 65%-alpha white playhead. Canvas is DPR-scaled in setupWaveCanvas() (only resizes when the pixel size actually changed).",
+   "element_ids": [
+    "wave-shell",
+    "waveform",
+    "wave-loading",
+    "preview-audio"
+   ],
+   "backend_calls": [
+    "forge.fileUrl"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Waveform wheel zoom / pan / dblclick reset",
+   "how_it_works": "window.TimelineZoom(#wave-shell, ()=>waveDuration, drawWaveform) supplies start()/span()/zoomed()/xFor()/timeAt()/follow(); wheel zooms around the pointer, shift-wheel pans, dblclick resets. A fallback object with identity mapping is used if TimelineZoom is absent. Comment: picking a 4-second range inside a 5-minute song squeezed into 900px is guesswork otherwise.",
+   "element_ids": [
+    "wave-shell",
+    "waveform"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Waveform pointer interaction (range select + scrub)",
+   "how_it_works": "pointerdown on #waveform (ignored when !waveDuration or busy): if the click is within 10px of the existing start/end edge the drag mode is 'start'/'end' (handle drag), otherwise 'select' with the click time as the anchor; setPointerCapture. pointermove: >3px movement marks moved and updates the range via setTimingRange (handles are clamped to keep at least 0.01s). pointerup: an unmoved 'select' click just moves #preview-audio.currentTime (scrub) instead of creating a range. pointercancel drops the drag.",
+   "element_ids": [
+    "waveform",
+    "preview-audio"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Waveform keyboard navigation",
+   "how_it_works": "keydown on #waveform: ArrowLeft/Right move the playhead ±1s (±10s with Shift), Home → 0, End → waveDuration; clamped, redraws, preventDefault.",
+   "element_ids": [
+    "waveform",
+    "preview-audio"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Custom time range (forge only part of a song)",
+   "how_it_works": "#time-enabled checkbox 'Custom time range' gates #time-start / #time-end (both disabled when off). parseTimeValue accepts seconds, mm:ss or hh:mm:ss (up to 3 colon parts; NaN on garbage); blank Stop = through the end. validateTiming() writes #time-hint: default 'Use seconds or mm:ss. Leave Stop blank to forge through the end.', errors 'Enter times as seconds, mm:ss, or hh:mm:ss.' / 'Stop must be after Start.' (with .is-error), success 'Forge range: <a> to <b|end>.' Start is disabled while the range is invalid. collectTiming() {enabled,start,end} is sent as opts.timing; the raw strings are persisted separately as settings.timing {enabled,start,end} and restored on boot.",
+   "element_ids": [
+    "time-enabled",
+    "time-start",
+    "time-end",
+    "time-hint",
+    "start"
+   ],
+   "backend_calls": [
+    "forge.run (timing)",
+    "forge.setSettings",
+    "forge.getSettings"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Time range presets",
+   "how_it_works": "#time-from-playhead 'Start here' sets start = current playhead and keeps/extends the end (existing end, else full duration, else +30s). #time-to-playhead 'Stop here' sets end = playhead and keeps/pulls back the start. #time-reset 'Full song' unchecks time-enabled, resets start to '0:00' and clears end. from/to-playhead are disabled with no input; time-reset is disabled when the range is off (syncTimingControls).",
+   "element_ids": [
+    "time-from-playhead",
+    "time-to-playhead",
+    "time-reset"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Audio preview playback",
+   "how_it_works": "hidden audio#preview-audio, src = F.fileUrl(inputPath) on setInput. #preview button: validates timing, seeks to the range start, play(), and when an end exists installs a 80ms setInterval that pauses at the end; failure logs 'Preview could not play this file.' #preview-stop clears the interval and pauses. Preview is disabled while busy. loadedmetadata backfills waveDuration when the decode gave none; timeupdate and pause both redraw the waveform.",
+   "element_ids": [
+    "preview",
+    "preview-stop",
+    "preview-audio"
+   ],
+   "backend_calls": [
+    "forge.fileUrl"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Preview volume + time readout",
+   "how_it_works": "range#preview-volume 0-100 (default 80) with output#preview-volume-value '<n>%'; sets preview-audio.volume and persists to localStorage 'midi-forge.preview-prefs.v1' as {audioVolume}. #time-readout (mono) shows 'HH:MM:SS.mmm / total' plus ' | start-end' when a range is active, formatted by formatClock (hours only when nonzero, always 3-digit ms); updated on every drawWaveform.",
+   "element_ids": [
+    "preview-volume",
+    "preview-volume-value",
+    "time-readout"
+   ],
+   "backend_calls": [
+    "localStorage midi-forge.preview-prefs.v1"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Start / Run",
+   "how_it_works": "#start (.btn-primary.big with play icon) is enabled only when envReady && inputPath && !busy && timing valid. Click sets runningQueue = queue.length>0 then startJob(): persists {pipeline, skipSeparation, advanced, timing:rawStrings}, hides results, shows #job-prog stage 'Queued' with an indeterminate bar, starts the elapsed timer, setBusy(true), logs '> Start <basename> (<pipeline>[, skip-sep])[ (N more queued)]', then F.run({inputPath, pipeline, skipSeparation, advanced, timing, outputName}) → currentJob (honouring an early pendingCancel), and clears #out-name.",
+   "element_ids": [
+    "start",
+    "job-prog",
+    "job-stage",
+    "job-bar",
+    "job-pct",
+    "out-name"
+   ],
+   "backend_calls": [
+    "forge.run",
+    "forge.setSettings",
+    "forge.cancel"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Run info readout",
+   "how_it_works": ".run-info (aria-hidden) two rows: 'PIPELINE' → #run-info-pipeline (current pipeline id), 'OUTPUT' → #run-info-out (last two segments of the output dir joined with '\\\\', or 'not set'). Refreshed by syncPipelineUI() on pipeline change and on out-dir changes.",
+   "element_ids": [
+    "run-info-pipeline",
+    "run-info-out"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Pause / Resume a running job",
+   "how_it_works": "#pause (hidden unless busy, title 'Suspend the job. Frees the GPU, keeps the progress.') calls F.pause(!jobPaused); disabled during the round-trip. On ok it flips the label Pause/Resume, sets #job-stage to 'Paused' or back to lastStage||'Working…', toggles .is-paused on #job-bar and #job-prog, logs '⏸ Paused. The GPU is free until you resume.' / '▶ Resumed.'; on failure logs the error. A 'forge.paused' status event also drives setPausedUi. setBusy(false) resets the label and jobPaused.",
+   "element_ids": [
+    "pause",
+    "job-stage",
+    "job-bar",
+    "job-prog"
+   ],
+   "backend_calls": [
+    "forge.pause",
+    "forge.onStatus (forge.paused)"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Cancel a job (abandons the whole batch)",
+   "how_it_works": "#cancel (hidden unless busy): clears the queue with an undo snapshot and logs 'Queue cleared. Press Undo to get the list back.', runningQueue=false, skipRequested=false, cancels currentJob or arms pendingCancel, label 'Cancelling…' (reset to 'Cancel' on done). Comment: a half-run queue that keeps going after Cancel is never what anyone means.",
+   "element_ids": [
+    "cancel"
+   ],
+   "backend_calls": [
+    "forge.cancel"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Job progress + elapsed clock",
+   "how_it_works": "#job-prog with #job-stage, .prog-right(#job-elapsed mm:ss, #job-pct), bar #job-bar. 'forge.progress' events set stage (unless paused), indeterminate class when percent==null||<0 else width+percent text; lastStage is remembered so unpausing restores it. startJobTimer paints immediately then every 1000ms; stopJobTimer clears the text.",
+   "element_ids": [
+    "job-prog",
+    "job-stage",
+    "job-elapsed",
+    "job-pct",
+    "job-bar"
+   ],
+   "backend_calls": [
+    "forge.onStatus (forge.progress)"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Log pane",
+   "how_it_works": ".log-card with header 'Log' and #log-clear ('Clear' → empties #log). pre#log, logLine() appends text + '\\n' and pins scrollTop to scrollHeight. max-height 200px (150px in the console layout). The same pane doubles as the setup log source for #setup-copy.",
+   "element_ids": [
+    "log",
+    "log-clear"
+   ],
+   "backend_calls": [
+    "forge.onStatus (forge.log / forge.provision.log)"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Result handling / output actions",
+   "how_it_works": "On 'forge.done' with ok and a midiPath: activeState='done', #output + #output-summary shown, #output gains .has-result (green treatment), #output-path = path, currentProject = result.projectPath||'', #output-review unhidden, logs '✓ Done: <path>'. Buttons: #output-open 'Open folder' → F.showItem(path), error 'File not found. It may have moved.' if not ok; #output-listen 'Listen' → parent.postMessage {type:'studio:open-audition', midiPath, projectPath: currentProject, play: undefined}; #output-review 'Open in Midi Editor' → parent.postMessage {type:'studio:open-review', projectPath: currentProject || the .mid path} (comment: only melody writes a project file, the others open the .mid directly); #output-toplayer 'Send to Midi Player ⤷' → parent.postMessage {type:'studio:open-player', midiPath} and logs '→ Sent to Midi Player'. hideResults() clears all of it and currentProject.",
+   "element_ids": [
+    "output",
+    "output-summary",
+    "output-path",
+    "output-open",
+    "output-listen",
+    "output-review",
+    "output-toplayer"
+   ],
+   "backend_calls": [
+    "forge.showItem",
+    "parent.postMessage studio:open-audition",
+    "parent.postMessage studio:open-review",
+    "parent.postMessage studio:open-player"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Error card",
+   "how_it_works": "#errcard (alert icon, #err-msg, #err-dismiss 'Dismiss'). showError(msg) stops the job timer, hides #job-prog and shows the card. On a failed forge.done: activeState = /cancel/i.test(error) ? 'cancelled' : 'failed', showError + logLine '✖ <error>'.",
+   "element_ids": [
+    "errcard",
+    "err-msg",
+    "err-dismiss"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Settings persistence (main-process store)",
+   "how_it_works": "F.getSettings() on boot restores pipeline (and the .is-active button), skipSeparation, timing {enabled,start,end}, outputDir (or showDefaultOut()), and advanced via restoreAdvanced(); then syncQuality()+syncPipelineUI(). F.setSettings is called on: quality change, adv-reset, out-dir pick/clear, and every Start. collectAdvanced() always writes ALL 23 ADV_KEYS because settings are deep-merged (omitting a key would leave the old value on disk). restoreAdvanced() treats '', null and LEGACY_DEFAULTS ({MIN_NOTE_SEC:'0.05', MELODY_MIN_NOTE_MS:'45'}) as 'unset' and substitutes the current default.",
+   "element_ids": [
+    "pipeline",
+    "skipsep",
+    "time-enabled",
+    "time-start",
+    "time-end",
+    "out-dir",
+    "clear-out",
+    "adv"
+   ],
+   "backend_calls": [
+    "forge.getSettings",
+    "forge.setSettings"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Theme self-application",
+   "how_it_works": "On load studio.getUi() → document.documentElement.dataset.theme = ui.theme (the shell also pushes theme changes live).",
+   "element_ids": [],
+   "backend_calls": [
+    "studio.getUi"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Layout picker (4 Forge layouts)",
+   "how_it_works": ".layout-bar with 'Layout' label and #layout-picker (role=group) holding four buttons data-layout classic|cards|bench|console with titles 'The original stacked layout' / 'One column, the queue as a stack of jobs' / 'Status on top, work below' / 'Rail, canvas and inspector'. Delegated click → setLayout(name), which applies it and persists studio.setUi({forgeLayout}). Boot reads studio.getUi().forgeLayout (fallback 'classic'). Also exposed as window.setForgeLayout. Active button gets .is-active + aria-pressed.",
+   "element_ids": [
+    "layout-picker",
+    "work"
+   ],
+   "backend_calls": [
+    "studio.getUi",
+    "studio.setUi"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Layout engine: block moving (no rebuild)",
+   "how_it_works": "collectBlocks() captures #work's original children once and resolves blocks by finding the .lbl whose text is 'input'/'pipeline' and taking its nextElementSibling, plus :scope > .run-card and .log-card, plus queue=#queue-wrap, time=.time-panel inside pipeline, advToggle=#adv-toggle, adv=#adv. applyLayout() only moves those nodes between generated .lane containers so every element id and every already-attached listener survives. Each applyLayout: removes all lanes, removes stray :scope > .grip-h/.grip-v, removes the numbered .lbl rails, builds the new arrangement, sets work.dataset.layout + dataset.split='forge', re-runs window.Resize.apply(work), sets document.documentElement.dataset.forgeLayout, updates the picker, and redraws the waveform (its box changed).",
+   "element_ids": [
+    "work",
+    "queue-wrap",
+    "adv-toggle",
+    "adv",
+    "layout-picker"
+   ],
+   "backend_calls": [
+    "window.Resize.apply",
+    "window.TimelineZoom"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Layout: classic (default)",
+   "how_it_works": "Restores the shipped DOM exactly: all original #work children re-appended in order, numbered .lbl rails included (CSS counter-reset on .wrap numbers them 01, 02, …). #queue-wrap is re-inserted into the input card positionally, before the first .out-row (or appended); .time-panel, #adv-toggle and #adv are re-appended as the last children of the pipeline card. work[data-layout=classic] is display:block — a single stacked column, no lanes, no dividers.",
+   "element_ids": [
+    "work",
+    "queue-wrap",
+    "adv-toggle",
+    "adv"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Layout: cards",
+   "how_it_works": "One lane (#lane-main, display:block container, gap --s6) with titled sections in this order: 'Source'(input card), 'Queue'(queue), 'Engine'(pipeline card), 'Preview'(time panel), untitled(adv toggle + adv), 'Run'(run card), untitled(log). No dividers.",
+   "element_ids": [
+    "work"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Layout: bench",
+   "how_it_works": "CSS grid 'var(--bench, 1fr) 7px 1fr'. #lane-top spans all columns and holds the run card (its .run-card becomes flex-direction:row, wrapping, centered). Then a draggable grip (data-resize='bench', min 260, max 900, label 'Resize the left column'), #lane-left with 'Source'(input), 'Queue', 'Preview'(time), and #lane-right with 'Engine'(pipeline), untitled(adv pair), untitled(log). In .lane-right the pipeline .seg stacks vertically and the run row wraps.",
+   "element_ids": [
+    "work"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Layout: console",
+   "how_it_works": "CSS grid 'var(--rail,290px) 7px 1fr 7px var(--insp,300px)'. #lane-rail: 'Source'(input) + 'Queue'. grip data-resize='rail' min 200 max 520 'Resize the source column'. #lane-canvas: 'Preview'(time panel, .wave-shell min-height 240px), 'Run'(run card), untitled(log, max-height 150px). grip data-resize='insp' min 200 max 560 'Resize the inspector'. #lane-insp: 'Engine'(pipeline, .seg stacked vertically) + untitled(adv pair). Under 1180px the inspector drops full-width below the canvas and its grip is hidden; under 900px both console and bench collapse to a single column.",
+   "element_ids": [
+    "work"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Narrow-column responsive rules",
+   "how_it_works": "Inside any .lane: .url-row, .time-grid, .out-row, .preview-footer, .input-actions and .queue-head all wrap; .queue-head .spacer becomes a full-width zero-height break (and is display:none in .lane-rail); the dropzone and its path input are allowed to shrink with ellipsis; .adv-grid drops from 3 to 2 columns under 900px. Comments record the exact failures these fix (picker showing 2 of 5 engines, Fetch on top of the Start field).",
+   "element_ids": [],
+   "must_survive": true
+  }
+ ],
+ "element_ids": [
+  "envbar",
+  "env-dot",
+  "env-text",
+  "env-recheck",
+  "setup",
+  "setup-version",
+  "setup-dir",
+  "setup-free",
+  "setup-change",
+  "setup-start",
+  "setup-cancel",
+  "setup-log",
+  "setup-copy",
+  "setup-prog",
+  "setup-step",
+  "setup-elapsed",
+  "setup-pct",
+  "setup-bar",
+  "setup-msg",
+  "setup-log-btn",
+  "layout-picker",
+  "work",
+  "dropzone",
+  "input-path",
+  "browse",
+  "queue-add",
+  "url",
+  "fetch",
+  "queue-wrap",
+  "queue-toggle",
+  "queue-count",
+  "queue-auto",
+  "queue-undo",
+  "queue-clear",
+  "queue-list",
+  "out-name",
+  "out-dir",
+  "clear-out",
+  "pick-out",
+  "pipeline",
+  "pipeline-hint",
+  "skipsep",
+  "time-enabled",
+  "time-from-playhead",
+  "time-to-playhead",
+  "time-reset",
+  "wave-shell",
+  "waveform",
+  "wave-loading",
+  "time-start",
+  "time-end",
+  "preview",
+  "preview-stop",
+  "preview-volume",
+  "preview-volume-value",
+  "time-readout",
+  "time-hint",
+  "preview-audio",
+  "quality",
+  "quality-hint",
+  "adv-toggle",
+  "adv",
+  "adv-reset",
+  "LOUDNESS_NORM",
+  "VELOCITY_GAMMA",
+  "MIN_NOTE_SEC",
+  "MIN_VELOCITY",
+  "MAX_POLYPHONY",
+  "USE_TTA",
+  "BIGSHIFTS",
+  "SEGMENT_HOP",
+  "PIANO_MIN_PITCH",
+  "PIANO_MAX_PITCH",
+  "EXCLUDE_VOCALS",
+  "MELODY_MIN_PITCH",
+  "MELODY_MAX_PITCH",
+  "MELODY_ONSET_THRESHOLD",
+  "MELODY_MIN_NOTE_MS",
+  "MELODY_DENSITY",
+  "MELODY_FOLD",
+  "ONSET_DELTA",
+  "DRUM_MIN_GAP_MS",
+  "BP_ONSET_THRESHOLD",
+  "BP_FRAME_THRESHOLD",
+  "BP_MIN_NOTE_MS",
+  "OCTAVE_FOLD",
+  "start",
+  "run-info-pipeline",
+  "run-info-out",
+  "pause",
+  "cancel",
+  "job-prog",
+  "job-stage",
+  "job-elapsed",
+  "job-pct",
+  "job-bar",
+  "output",
+  "output-summary",
+  "output-path",
+  "output-open",
+  "output-listen",
+  "output-review",
+  "output-toplayer",
+  "errcard",
+  "err-msg",
+  "err-dismiss",
+  "log",
+  "log-clear",
+  "drop-overlay",
+  "lane-rail",
+  "lane-canvas",
+  "lane-insp",
+  "lane-top",
+  "lane-left",
+  "lane-right",
+  "lane-main"
+ ],
+ "listeners": [
+  "#queue-toggle click — toggles .is-collapsed on #queue-wrap and aria-expanded (forge.js:178)",
+  "#queue-clear click — snapshot + empty the waiting queue, rerender, updateStart (183)",
+  "#queue-undo click — swap in the previous queue snapshot (redo-able), no-op while busy (184)",
+  "#env-recheck click — refreshEnv() (527)",
+  "#setup-copy click — navigator.clipboard.writeText(#log text), log success/failure (529)",
+  "#setup-log click — studio.openSetupLog(), log its error (536)",
+  "#setup-change click — studio.changeForgeFolder(), 'Moving…' label, refreshEnv on ok (541)",
+  "#setup-start click — free-space confirm, show progress, 12s silence watchdog, F.provision() (577)",
+  "#setup-cancel click — confirm, 'Cancelling…', F.cancelProvision() (617)",
+  "#browse click — F.pickInput() → addInputs(..., 'replace') (623)",
+  "#queue-add click — F.pickInput() → addInputs(..., 'queue') (624)",
+  "window dragenter — preventDefault, dragDepth++, show #drop-overlay (639)",
+  "window dragover — preventDefault (640)",
+  "window dragleave — preventDefault, dragDepth--, hide overlay at 0 (641)",
+  "window drop — preventDefault, hide overlay, acceptDrop(dataTransfer.files) (642)",
+  "#fetch click — doFetch() (653)",
+  "#url keydown — Enter runs doFetch() (654)",
+  "#pick-out click — F.pickOutDir(), set outputDir, persist, syncPipelineUI (662)",
+  "#clear-out click — clear override, persist '', showDefaultOut() (663)",
+  "#pipeline click (delegated) — set pipeline from data-v, move .is-active, syncPipelineUI (666)",
+  "#adv-toggle click — show/hide #adv, swap caret icon, aria-expanded (667)",
+  "#adv-reset click — write ADV_DEFAULTS, persist, syncQuality, flash 'Reset done' (672)",
+  "#time-enabled input — onTimingChanged (685)",
+  "#time-start input — onTimingChanged (685)",
+  "#time-end input — onTimingChanged (685)",
+  "#time-enabled change — onTimingChanged (686)",
+  "#time-from-playhead click — range start = playhead (687)",
+  "#time-to-playhead click — range end = playhead (693)",
+  "#time-reset click — disable range, start '0:00', end '' (699)",
+  "#preview-volume input — persist volume pref, update output text, set audio.volume (708)",
+  "#preview click — validate, seek to range start, play, install 80ms end-watch interval (714)",
+  "#preview-stop click — stopPreview() (730)",
+  "#preview-audio loadedmetadata — backfill waveDuration, drawWaveform (731)",
+  "#preview-audio timeupdate — drawWaveform (736)",
+  "#preview-audio pause — drawWaveform (737)",
+  "#waveform pointerdown — begin start/end/select drag, setPointerCapture (738)",
+  "#waveform pointermove — update range (or mark moved) (752)",
+  "#waveform pointerup — unmoved select click scrubs the playhead (761)",
+  "#waveform pointercancel — drop the drag (770)",
+  "#waveform keydown — Arrow/Home/End playhead nudge (771)",
+  "window resize — drawWaveform (783)",
+  "#quality change — apply preset, syncQuality, persist, log (835)",
+  "#adv change — syncQuality (any manual edit flips to Custom) (844)",
+  "#start click — runningQueue = queue.length>0, startJob() (917)",
+  "#pause click — F.pause(!jobPaused), setPausedUi, log (928)",
+  "#cancel click — clear queue with undo, cancel job / arm pendingCancel, 'Cancelling…' (940)",
+  "#output-open click — F.showItem(path), showError if missing (973)",
+  "#output-listen click — parent.postMessage studio:open-audition (974)",
+  "#output-review click — parent.postMessage studio:open-review (978)",
+  "#output-toplayer click — parent.postMessage studio:open-player + log (989)",
+  "#log-clear click — empty #log (990)",
+  "#err-dismiss click — hide #errcard (991)",
+  "F.onStatus(cb) — IPC forge:status stream, single switch over 8 event names (996)",
+  "#layout-picker click (delegated) — setLayout(button.dataset.layout) (1226)",
+  "dynamically created #setup-log-btn click — studio.openSetupLog() (1016)",
+  "dynamic queue row buttons: .qi-skip/.qi-x click (skipCurrent / removeActive / splice), .qi-move up/down click (swap with snapshot), .qi-name click (promote a queued song to current) — all re-attached on every renderQueue (137,142,145,148,157)",
+  "#wave-shell wheel + dblclick — via window.TimelineZoom (shared/timeline-zoom.js): pointer-anchored zoom, shift-wheel pan, dblclick reset",
+  "setInterval setupTimer 1000ms — setup elapsed clock (559)",
+  "setTimeout setupSilence 12000ms — 'Setup did not start' watchdog (597)",
+  "setInterval jobTimer 1000ms — job elapsed clock (964)",
+  "setInterval previewTimer 80ms — stops preview playback at the range end (725)",
+  "setTimeout 250ms — initial refreshEnv() (1242)",
+  "setTimeout 1200ms — reset the 'Reset done' label (682)"
+ ],
+ "data_structures": "\"Module state (forge.js:45-58): envReady, busy, inputPath, pipeline ('melody'), cpuNoticeShown, currentJob (id|null), pendingCancel, outputDir, currentProject, activeState ('ready'|'running'|'done'|'failed'|'cancelled'), skipRequested, previewTimer, wavePeaks (Array<[min,max]>, 4096 buckets), waveDuration, waveToken (stale-load guard), waveDrag ({mode:'start'|'end'|'select', anchor, moved, x}|null), audioCtx, jobPaused, lastStage, setupStarted/setupTimer/setupSilence/setupHeard, jobStarted/jobTimer.\\nQueue: queue = string[] of absolute paths; runningQueue bool; queueUndo = {inputPath, activeState, queue[]} single-level (swap-based, so Undo doubles as Redo).\\nADV_KEYS: 23 ids; ADV_DEFAULTS: same keys → defaults; LEGACY_DEFAULTS {MIN_NOTE_SEC:'0.05', MELODY_MIN_NOTE_MS:'45'}.\\nQUALITY = {balanced:{USE_TTA,BIGSHIFTS,SEGMENT_HOP,MIN_NOTE_SEC,MIN_VELOCITY,MELODY_MIN_NOTE_MS,MELODY_DENSITY}, best:{...}}; QUALITY_HINT {balanced,best,custom}; PIPELINE_HINT {melody,piano,general,fast,drums}.\\nTiming: collectTiming() → {enabled, start:number|null|NaN, end:number|null|NaN}; timingRaw → {enabled:boolean, start:string, end:string}; waveRange() → {enabled,start,end}.\\nSettings shape (forge:getSettings/setSettings): {pipeline, skipSeparation, advanced:{...23 keys}, timing:{enabled,start,end}, outputDir}.\\nRun opts: {inputPath, pipeline, skipSeparation, advanced, timing, outputName}. YT opts: {url, outDir}.\\nlocalStorage: 'midi-forge.queue.v1' {current, waiting[<=100]}; 'midi-forge.env.v1' {forgeReady, gpu}; 'midi-forge.preview-prefs.v1' {audioVolume}; 'midi-studio:splits' (shared/resize.js, keyed per divider).\\nLayout: LAYOUTS ['classic','cards','bench','console']; lanes {name→el}; blocks {input,pipeline,run,log,queue,time,advToggle,adv}; original = snapshot array of #work's children.\"",
+ "ipc_contracts": [
+  {
+   "channel": "forge:check",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "{forgeReady:boolean, gpu?:string, missing?:string[]}"
+  },
+  {
+   "channel": "forge:provision",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "awaited; progress arrives on forge:status"
+  },
+  {
+   "channel": "forge:provision:cancel",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "—"
+  },
+  {
+   "channel": "forge:run",
+   "direction": "renderer→main (invoke)",
+   "args": "{inputPath, pipeline:'melody'|'piano'|'general'|'fast'|'drums', skipSeparation:boolean, advanced:{23 keys, '' = engine default}, timing:{enabled,start,end}, outputName:string}",
+   "returns": "jobId"
+  },
+  {
+   "channel": "forge:yt",
+   "direction": "renderer→main (invoke)",
+   "args": "{url, outDir}",
+   "returns": "jobId"
+  },
+  {
+   "channel": "forge:cancel",
+   "direction": "renderer→main (invoke)",
+   "args": "jobId",
+   "returns": "—"
+  },
+  {
+   "channel": "forge:pause",
+   "direction": "renderer→main (invoke)",
+   "args": "paused:boolean",
+   "returns": "{ok:boolean, paused:boolean, error?:string}"
+  },
+  {
+   "channel": "forge:pickInput",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "string | string[] (multi-select)"
+  },
+  {
+   "channel": "forge:pickOutDir",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "dir string | falsy"
+  },
+  {
+   "channel": "forge:getSettings",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "settings object"
+  },
+  {
+   "channel": "forge:setSettings",
+   "direction": "renderer→main (invoke)",
+   "args": "patch (deep-merged in main)",
+   "returns": "—"
+  },
+  {
+   "channel": "forge:status",
+   "direction": "main→renderer (on)",
+   "args": "{event, step?, percent?, message?, line?, stage?, paused?, ok?, error?, result?:{midiPath?, downloadedPath?, projectPath?}}; events: forge.provision.progress|log|done|error, forge.progress, forge.log, forge.paused, forge.done",
+   "returns": "—"
+  },
+  {
+   "channel": "app:getOutputDir",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "default output dir string"
+  },
+  {
+   "channel": "shell:showItem",
+   "direction": "renderer→main (invoke)",
+   "args": "path",
+   "returns": "{ok:boolean}"
+  },
+  {
+   "channel": "shell:openPath",
+   "direction": "renderer→main (invoke)",
+   "args": "path",
+   "returns": "— (exposed as F.openPath, unused by forge.js)"
+  },
+  {
+   "channel": "app:forgeInfo",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "{forgeEnvDir, forgeFreeGb, forgeNeedGb}"
+  },
+  {
+   "channel": "app:changeForgeFolder",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "{ok, forgeEnvDir, canceled?, error?}"
+  },
+  {
+   "channel": "app:openSetupLog",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "{ok, error?}"
+  },
+  {
+   "channel": "app:version",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "version string"
+  },
+  {
+   "channel": "app:getUi",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "{theme, forgeLayout, …}"
+  },
+  {
+   "channel": "app:setUi",
+   "direction": "renderer→main (invoke)",
+   "args": "{forgeLayout}",
+   "returns": "—"
+  },
+  {
+   "channel": "studio:open-audition",
+   "direction": "iframe→shell (window.parent.postMessage, '*')",
+   "args": "{type, midiPath, projectPath, play:false|undefined}",
+   "returns": "—"
+  },
+  {
+   "channel": "studio:open-review",
+   "direction": "iframe→shell (postMessage)",
+   "args": "{type, projectPath: projectPath || the .mid path}",
+   "returns": "—"
+  },
+  {
+   "channel": "studio:open-player",
+   "direction": "iframe→shell (postMessage)",
+   "args": "{type, midiPath}",
+   "returns": "—"
+  }
+ ],
+ "perf_findings": [
+  {
+   "file": "renderer/forge/forge.js",
+   "line": 736,
+   "issue": "#preview-audio 'timeupdate' calls the full drawWaveform(), which repaints the background, the axis, up to 12 grid columns with text, the whole peak envelope (one moveTo/lineTo per CSS pixel of canvas width), the selection overlay and the playhead — just to move a 1px playhead. timeupdate fires ~4-15x/sec during preview playback.",
+   "why_it_costs": "Every playback frame redoes a full-width per-pixel path build plus getComputedStyle lookups; on a 1200px canvas that is ~1200 path segments and 12 fillText calls per event.",
+   "fix": "Split the static layers (background/grid/peaks) into an offscreen canvas or ImageBitmap rebuilt only when peaks/zoom/size change, and on timeupdate only blit that plus the playhead + selection."
+  },
+  {
+   "file": "renderer/forge/forge.js",
+   "line": 217,
+   "issue": "css(name) calls getComputedStyle(document.documentElement).getPropertyValue(name) on every use, and drawWaveform() calls it 6-8 times per repaint (lines 286, 290, 298, 299, 311, 333, 337, 344).",
+   "why_it_costs": "getComputedStyle forces style resolution on the root element; 8 of them per frame, on a function driven by timeupdate/pointermove/resize, is repeated forced style computation for values that only change with the theme.",
+   "fix": "Read the tokens once into a cache and invalidate on the documentElement data-theme change (the theme is already applied in one place, line 6)."
+  },
+  {
+   "file": "renderer/forge/forge.js",
+   "line": 752,
+   "issue": "pointermove during a range drag calls setTimingRange(), which writes both time inputs, runs validateTiming(), updateStart() and drawWaveform() — a full canvas repaint plus DOM writes on every pointer event.",
+   "why_it_costs": "Pointermove fires at input/frame rate; each event does per-pixel peak path building plus 2 input value writes plus layout-affecting textContent updates on #time-hint and #time-readout, i.e. style+layout work inside the drag loop.",
+   "fix": "Coalesce the drag into a requestAnimationFrame: store the pending range on pointermove, repaint and write the inputs once per frame."
+  },
+  {
+   "file": "renderer/forge/forge.js",
+   "line": 105,
+   "issue": "renderQueue() does list.innerHTML='' and rebuilds every <li> from scratch, and every rebuilt row attaches 3-4 fresh addEventListener closures (lines 137, 142, 145, 148, 157). It runs on every add/remove/reorder/setInput/job-done and also writes localStorage (saveQueue, line 120) each time.",
+   "why_it_costs": "With a batch of, say, 80 songs each render allocates ~80 <li> + ~300 listeners and JSON.stringifies the whole queue synchronously; reordering with the up/down buttons re-does that per click.",
+   "fix": "Keep row nodes keyed by path and reuse them (move via insertBefore), use one delegated click listener on #queue-list reading a data-index, and debounce saveQueue."
+  },
+  {
+   "file": "renderer/forge/forge.js",
+   "line": 783,
+   "issue": "window 'resize' is bound directly to drawWaveform() with no throttling.",
+   "why_it_costs": "A window drag-resize fires resize continuously; each call runs getBoundingClientRect + a possible canvas.width/height reallocation (setupWaveCanvas, line 262) + the per-pixel peak repaint, so resizing the window does full canvas reallocation work per event.",
+   "fix": "rAF-throttle it, or use a ResizeObserver on #wave-shell so it also fires on layout switches instead of only on window resize."
+  },
+  {
+   "file": "renderer/forge/forge.js",
+   "line": 213,
+   "issue": "logLine() appends with el.textContent += t + '\\n' and there is no cap on the log length; the pane is only cleared manually via #log-clear.",
+   "why_it_costs": "textContent += re-reads and re-writes the entire accumulated string each line, so a chatty provisioning or Best-quality run makes each new line O(total log size); the DOM text node also grows unbounded for the session.",
+   "fix": "Append a text node (or a document fragment of lines) instead of re-assigning textContent, and trim to the last N lines."
+  },
+  {
+   "file": "renderer/forge/forge.js",
+   "line": 379,
+   "issue": "buildPeaks(audio, 4096) runs a full linear scan of the decoded channel-0 Float32Array on the main thread right after decodeAudioData, and the whole decoded AudioBuffer for a 30-minute file is held long enough to scan it.",
+   "why_it_costs": "30 min at 44.1kHz is ~80M samples; the min/max loop is synchronous main-thread work and blocks the UI for the duration, on every setInput (including every automatic queue advance).",
+   "fix": "Move decode+peak building into a Worker (or use OfflineAudioContext downsampling) and post back only the 4096 peak pairs."
+  },
+  {
+   "file": "renderer/forge/forge.js",
+   "line": 365,
+   "issue": "loadWaveform() fetches the whole audio file via fetch(F.fileUrl(p)) into an ArrayBuffer for every setInput, including automatic queue advances, and never releases audioCtx.",
+   "why_it_costs": "A full read of every queued file into memory just to draw a preview; on a long batch this is repeated whole-file I/O plus a transient decoded buffer several times the file size.",
+   "fix": "Skip the waveform load while a batch is auto-advancing (or when the preview panel is not visible), and close/suspend the AudioContext when idle."
+  },
+  {
+   "file": "renderer/forge/forge.js",
+   "line": 316,
+   "issue": "The peak render loop indexes wavePeaks with Math.floor((from + (x/w)*width) * wavePeaks.length) per pixel and re-derives `from`/`width` from waveZoom on every draw.",
+   "why_it_costs": "At high zoom many adjacent pixels map to the same peak bucket, so the same bucket is redrawn repeatedly; at low zoom many buckets are skipped, so real peaks are dropped from the drawing (visual, not just perf).",
+   "fix": "Compute the bucket span per pixel once and aggregate min/max across the covered buckets, so a zoomed-out view is accurate and a zoomed-in view stops recomputing identical values."
+  },
+  {
+   "file": "renderer/forge/forge.js",
+   "line": 1140,
+   "issue": "applyLayout() removes and recreates every lane wrapper and every .lane-sec/.lane-title on each layout switch, and re-runs window.Resize.apply(work) plus drawWaveform().",
+   "why_it_costs": "A layout click triggers a large DOM detach/attach of the whole workspace plus a full canvas repaint. It is deliberate (it is what keeps ids and listeners intact) and only happens on an explicit user action, so the cost is acceptable — but it also means every layout switch forces a full reflow of every card.",
+   "fix": "Nothing urgent; if the rewrite makes layouts CSS-only (grid-template-areas on #work), the DOM churn and the Resize re-wiring disappear entirely."
+  }
+ ],
+ "gotchas": [
+  "Layouts must MOVE blocks, never rebuild them (forge.js:1061-1068): 'Nothing is duplicated and nothing is rebuilt: blocks are moved between lanes, which keeps every element id and every listener already attached to them intact.' All listeners are bound once at module load, so any rewrite that re-renders markup per layout silently kills every handler.",
+  "classic is restored by re-appending #work's ORIGINAL children in their original order — it is the real shipped DOM, not a reconstruction (forge.js:1066-1068, 1155-1157).",
+  "On layout switch, dividers are children of the grid and not of a lane, so clearing lanes left them behind: they 'piled up with every layout switch and turned up in the single-column layouts, which have nothing to divide' — hence the explicit `:scope > .grip-h, :scope > .grip-v` sweep (forge.js:1141-1144).",
+  "The numbered .lbl rails belong to classic only. Leaving them in other layouts 'printed both (\"01 INPUT\" above \"SOURCE\") and left them sitting in the grid as stray items' (forge.js:1145-1150).",
+  "Returning to classic must re-insert #queue-wrap and the time/adv trio POSITIONALLY, not relative to a sibling: 'Order matters and cannot rely on a sibling that may itself have moved' — queue goes before the first .out-row, preview/advanced are appended last to the pipeline card (forge.js:1158-1167).",
+  "Dividers are rebuilt with each layout so window.Resize.apply(work) must be re-run; Resize.apply skips ones it already wired (forge.js:1204-1206).",
+  "After any layout change drawWaveform() must run: 'The waveform canvas is sized from its box, which just changed' (forge.js:1214-1215).",
+  "collectAdvanced() must send EVERY key every time: settings are deep-merged in main, so 'a key left out is a key left as it was: clearing Segment spacing by omitting it kept the old 4 on disk and Best's transcribe cost with it'. Empty string means 'engine default' and the runner drops '' before building the env (forge.js:854-857).",
+  "LEGACY_DEFAULTS ({MIN_NOTE_SEC:'0.05', MELODY_MIN_NOTE_MS:'45'}) must keep being treated as unset: an old release persisted the whole Advanced panel including defaults on every Start, so bumping a default did nothing for existing users and the Quality box called their untouched panel 'Custom' (forge.js:847-852, 871).",
+  "setPausedUi must restore lastStage, not re-read #job-stage: 'Assigning the label to itself left it reading \"Paused\" forever, because the pipeline can go minutes without printing another progress line' (forge.js:921-923).",
+  "The 12-second setup silence watchdog exists because 'Nothing coming back at all must look like a failure, not like progress'; any forge.provision* event defuses it via noteSetupOutput() (forge.js:595-604, 997-998).",
+  "setup-start's try/catch is load-bearing: 'A thrown handler used to leave the panel showing its placeholder with no error anywhere, which is indistinguishable from a hang' (forge.js:606-608).",
+  "Env probing imports torch and takes tens of seconds on a slow machine, so the cached localStorage verdict is painted first and confirmed after (forge.js:492-495).",
+  "#work must stay opaque and interactive even when Forge is not provisioned: 'MIDI preview is lightweight and must remain usable before Forge setup' (forge.js:523-524).",
+  "Cancel deliberately abandons the whole batch: 'a half-run queue that keeps going after you hit Cancel is never what anyone means' — but the cleared queue is recoverable via Undo (forge.js:941-943).",
+  "forge.done keeps draining the queue even on failure: 'one failure shouldn't strand the rest' (forge.js:1053-1054).",
+  "Jobs are strictly serial by design: 'each job already saturates the GPU, so parallelism would only thrash' (forge.js:55-56).",
+  "#out-name is cleared after every Start because 'a name belongs to one song, not to the queue' (forge.js:915).",
+  "outputName() strips Windows-illegal characters because 'Windows-illegal characters would fail the write deep inside Python' (forge.js:657-659).",
+  "Only the melody pipeline writes a project file; #output-review falls back to the raw .mid path for the others (forge.js:978-982).",
+  "Dropped MIDI files are never forged — they are routed to the audition/editor via postMessage instead (forge.js:630-634).",
+  "The waveform needs wheel zoom: 'picking a 4-second range inside a 5-minute song with the whole song squeezed into 900px is guesswork otherwise' (forge.js:276-277).",
+  "waveToken guards against a slower earlier decode overwriting a newer file's peaks (forge.js:366, 377, 383).",
+  "An unmoved click on the waveform scrubs the playhead; only a >3px drag creates a selection (forge.js:755, 764-767).",
+  "No-GPU warning is logged exactly once per session (cpuNoticeShown) with concrete numbers: Piano/General 20-40 min, Fast a couple of minutes (forge.js:511-516).",
+  "shared/resize.js: every tab is a separate frame sharing one localStorage, so split sizes must be read-merge-written; writing a whole snapshot back 'erased whatever the other tabs had saved since this one started' (resize.js:32-38).",
+  "Renderer runs under a strict CSP (index.html:5-6): default-src 'self', script-src 'self' only (no inline script), media-src/connect-src include file: so F.fileUrl() fetch + <audio> playback work. Any rewrite that relies on inline scripts or a CDN will be blocked.",
+  "CSS .dropzone.drag (accent border/background) is defined but never applied by forge.js — only #drop-overlay.show is used. Either dead CSS or a lost hover-highlight feature.",
+  "#pipeline-hint's authored HTML text differs from PIPELINE_HINT.melody in JS; the JS text overwrites it on the first syncPipelineUI().",
+  "The layout picker markup lives OUTSIDE section#work (index.html:47-55) while #work's indentation suggests otherwise; collectBlocks() snapshots only #work's children, so the picker must stay outside or it will be moved into a lane."
+ ]
+}

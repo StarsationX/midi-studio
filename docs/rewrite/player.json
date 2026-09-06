@@ -1,0 +1,1024 @@
+{
+ "subsystem": "player (renderer/player: index.html, app.js, style.css, visualizer.js, midi-library.js) — the timing-critical MIDI→keypress playback tab",
+ "features": [
+  {
+   "name": "MIDI file load (browse / path box)",
+   "how_it_works": "els.midiBrowse click → window.api.pickMidi() (may return array); first path → setMidiFile(paths[0]), remainder → addToQueue(). #midi-path is a readonly text box holding the current path; loadMidi() reads els.midiPath.value as the source of truth and sends {cmd:'load_midi', path, mapping, tempo, transpose, auto_transpose, ...playOpts()}. loadPath(p) sets the box + settings.midiPath, resets the playback range if the track changed, then loadMidi(). On boot, engine 'ready' calls loadMidi() if curIdx>=0 to restore the last session's file.",
+   "element_ids": [
+    "midi-path",
+    "midi-browse"
+   ],
+   "backend_calls": [
+    "window.api.pickMidi",
+    "window.api.send({cmd:'load_midi'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "midi_loaded ingest (viz load, duration, notes, bpm, unmapped, report, auto-transpose)",
+   "how_it_works": "engine event 'midi_loaded' stores the whole payload in lastMidiLoaded (for later overlay replay), calls viz.load(evt.events, evt.note_to_key), sets overviewEvents=evt.events, totalDuration, totalNotes, bpm, bpmEstimate; showBpm(); hides #viz-empty; logs event count/duration/BPM; if evt.transpose differs from settings.transpose it adopts it and logs 'Auto-transposed'; #range-warning shows '· N notes out of range' with .is-warn and logs the unmapped list; showMappingNote(evt); showReport(evt.report); updateTrackStrip(); resets #time-total/#time-elapsed/#scrubber-fill/#scrubber-thumb; #range-empty hidden when events exist; normalizePlaybackRange(); drawRangeOverview(); applies pendingSeekAfterLoad; renderQueue(); if autoPlayNext → sendPlay(0,0).",
+   "element_ids": [
+    "viz",
+    "viz-empty",
+    "range-warning",
+    "mapping-note",
+    "play-report",
+    "time-total",
+    "time-elapsed",
+    "scrubber-fill",
+    "scrubber-thumb",
+    "range-empty"
+   ],
+   "backend_calls": [
+    "window.api.onEngineEvent"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Play queue / playlist (not consume-queue)",
+   "how_it_works": "module-level `tracks[]` + `curIdx`. renderQueue() persists (settings.playlist capped 200 + playlistCurrent) then rebuilds #queue-list from scratch; each row (queueRow) shows a number or ▶ when current+playing, the basename, and four buttons: play (playTrack(i,true)), ↑/↓ (moveTrack), ✕ (removeTrack, disabled while the current track plays). Row click loads without playing (stops playback first with userStopped=true). #queue-count shows (n). Empty state row 'Empty. Drop or browse .mid files to build a playlist.'. addToQueue() de-dupes case-insensitively, filters /\\.midi?$/i, and selects the first added track when nothing is loaded. #queue-clear keeps only the current track. #queue-undo restores the previous snapshot (rememberPlaylist/queueUndo, swap-based so undo is itself undoable) and is hidden until first change. #queue-loop checkbox (settings.queueLoop) makes advanceQueue() wrap to row 0. skipTrack(±1) wraps modulo for the next/prev hotkeys. Playlist and current row survive restart via settings.",
+   "element_ids": [
+    "queue-field",
+    "queue-list",
+    "queue-count",
+    "queue-add",
+    "queue-undo",
+    "queue-clear",
+    "queue-loop"
+   ],
+   "backend_calls": [
+    "window.api.pickMidi",
+    "window.api.send({cmd:'stop'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Auto-advance to next track at natural end",
+   "how_it_works": "In 'playback_done': if not userStopped, not crashed, no pendingRestartAt and not looping a selection → advanceQueue() → selectTrack(next,true) which sets autoPlayNext; the actual sendPlay(0,0) happens when 'midi_loaded' returns for the new file.",
+   "element_ids": [
+    "queue-loop"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'play'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Recent files",
+   "how_it_works": "pushRecent(p) is called from loadMidi(); most-recent-first, de-duped, capped at MAX_RECENTS=8, stored in settings.recentFiles. renderRecents() shows/hides #recent-field (display:none when empty) and fills #recent-select with basenames (title=full path). Selecting one calls setMidiFile(). #recent-clear empties the list.",
+   "element_ids": [
+    "recent-field",
+    "recent-select",
+    "recent-clear"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Target window selection + auto-pick + refocus",
+   "how_it_works": "requestWindows() sends {cmd:'list_windows'}; the 'windows' event stores evt.windows and calls populateWindows(previousHwnd). Options are index-valued, label = process padded/truncated to 28 chars + ' | ' + title. Auto-preselect scoring: previously selected hwnd=200, settings.targetHint substring match=100, /robloxplayerbeta|virtual.?piano/=50, /\\broblox\\b|\\bpiano\\b/=25 (the last three only when settings.autoPickTarget!==false). #target-refresh re-lists. Focusing #target-select re-lists at most every 2 s and only when not playing (lastWindowRefresh throttle). Changing it stores settings.targetHint = process||title. #auto-pick-target checkbox persists autoPickTarget. #refocus-target button (shown when progress.focus_lost) sends {cmd:'refocus'}.",
+   "element_ids": [
+    "target-select",
+    "target-refresh",
+    "auto-pick-target",
+    "refocus-target"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'list_windows'})",
+    "window.api.send({cmd:'refocus'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Mapping presets + custom mapping",
+   "how_it_works": "#mapping-select has 8 hard-coded presets (roblox, roblox61, roblox66, roblox88, roblox88ctrl, virtualpiano, virtualpiano66, drums) with descriptive labels. Change → settings.mapping + loadMidi(). #mapping-browse → window.api.pickMapping(); result is added as a '__custom__' option (label 'custom: <basename>', dataset.path = full path) via addCustomMappingOption() which first removes any existing __custom__ option, then selects it and reloads. resolveMappingArg() sends the dataset.path for __custom__ else the option value. A dropped .json becomes the custom mapping too. midi-library.js appends a 📁 #mapping-folder button next to #mapping-browse that calls studio.openMappingsDir() (persistent AppData mappings folder).",
+   "element_ids": [
+    "mapping-select",
+    "mapping-browse",
+    "mapping-folder"
+   ],
+   "backend_calls": [
+    "window.api.pickMapping",
+    "window.studio.openMappingsDir",
+    "window.api.send({cmd:'load_midi'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Mapping note / collapsed-sharps warning",
+   "how_it_works": "showMappingNote(evt): if evt.collapsed_sharps>0, #mapping-note gets .is-warn and the text 'N black-key notes will play as the white key below. If your piano takes Shift for sharps, pick roblox61.' plus a log('warn'). Otherwise it shows evt.mapping_description.",
+   "element_ids": [
+    "mapping-note"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Tempo multiplier slider with live restart",
+   "how_it_works": "#tempo range 0.25–3 step 0.05. 'input' updates settings.tempo, #tempo-label (2dp + ×), showBpm(), saves. 'change' calls setTempo() then els.tempo.blur() (a focused range input eats arrow keys meant for the game). setTempo(t) clamps+rounds to 2dp, no-ops if unchanged, logs 'Tempo → x'; if playing and not paused it sets pendingRestartAt = viz.elapsed()*prev/t and sends {cmd:'stop'} — 'playback_done' then reloads and sendPlay(at,0) with no countdown; if playing and paused it sets pendingSeekAfterLoad instead and never auto-resumes; if stopped it just loadMidi().",
+   "element_ids": [
+    "tempo",
+    "tempo-label"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'stop'})",
+    "window.api.send({cmd:'load_midi'})",
+    "window.api.send({cmd:'play'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Tempo as BPM (source BPM, 'Sounds like' estimate, Original reset)",
+   "how_it_works": "showBpm(): with no bpm the #tempo-bpm input is blanked+disabled and #tempo-bpm-src reads 'source —'; otherwise the box shows Math.round(bpm*scale) but ONLY when it is not the activeElement (never rewrite mid-typing). #tempo-bpm-src shows 'source <round(bpm)>'. #tempo-bpm-guess appears when bpmEstimate differs from bpm by >=3, labelled 'Sounds like N' with an explanatory title; clicking it adopts bpm=bpmEstimate, clears bpmEstimate and logs — the multiplier does not move. setBpm(target) computes scale=want/bpm, logs a warning when it falls outside the slider's min/max instead of silently clamping, then setTempo(scale). Enter blurs; blur re-renders; #tempo-bpm-reset sets tempo to 1×.",
+   "element_ids": [
+    "tempo-bpm",
+    "tempo-bpm-src",
+    "tempo-bpm-guess",
+    "tempo-bpm-reset"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Transpose (slider, Fit range, Reset, auto-transpose)",
+   "how_it_works": "#transpose range -24..24. 'input' updates the label live only; 'change' → applyTranspose(value,false). applyTranspose clamps to ±24, sets pendingAutoTranspose, saves, then reloads (or setTempo(current) while playing, which forces the restart path). #transpose-fit calls applyTranspose(0,true) → sends auto_transpose:true so the engine picks the shift; the engine's chosen value comes back in midi_loaded.transpose and is adopted + logged. #transpose-reset applies 0 with auto=false. pendingAutoTranspose is cleared right after each load_midi send.",
+   "element_ids": [
+    "transpose",
+    "transpose-label",
+    "transpose-fit",
+    "transpose-reset",
+    "range-warning"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'load_midi'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Hand split (both/right/left + split note)",
+   "how_it_works": "#hand select (both|right|left) and #hand-split number 24–108 (default 60). showHandSplit() prints the note name (NOTE_NAMES[n%12] + (floor(n/12)-1), e.g. C4) into #hand-split-label and disables the split box when hand==='both'. Both changes go through reloadForOpts() which saves then reloads (or setTempo while playing). playOpts() ships {hand, hand_split, chord_stagger_ms} with every load_midi, play and export_sheet so viz, keys and sheet agree.",
+   "element_ids": [
+    "hand",
+    "hand-split",
+    "hand-split-label"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Chord roll (chord stagger ms)",
+   "how_it_works": "#chord-stagger number 0–30 ms, clamped on change, persisted as settings.chordStaggerMs, shipped as chord_stagger_ms in playOpts(). Purpose: spread a chord's keys lowest-first so the target does not drop notes (keyboard ghosting).",
+   "element_ids": [
+    "chord-stagger"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Sustain toggle",
+   "how_it_works": "#sustain checkbox (default checked, settings.sustain) — hold keys for the note's full length instead of tapping. Sent as sustain in the play command only (not in load_midi).",
+   "element_ids": [
+    "sustain"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Countdown before playback",
+   "how_it_works": "#countdown number 0–10 seconds, persisted. Passed as `countdown` by doPlay(); tempo-restart and practice-loop passes deliberately pass 0. The 'countdown' engine event logs 'Starting in i…' and sets status 'paused' with the same text.",
+   "element_ids": [
+    "countdown"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Timing stats",
+   "how_it_works": "#stats checkbox → settings.stats, sent as `stats` with play. On 'playback_done' with evt.stats it logs notes, mean, median, stdev, max and >5ms count with percentage, using fmtMs() (signed, 2dp, 'ms').",
+   "element_ids": [
+    "stats"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Drop report (pre-play ghosting warning)",
+   "how_it_works": "showReport(evt.report) on midi_loaded. Builds '#N chords over <ghost_limit> keys (widest M)' and '#N notes under 30 ms'; when either exists #play-report gets .is-warn and, if chord roll is still 0, appends 'Set Chord roll to 5–10 ms if notes go missing.' When clean it reads 'Widest chord: M keys. Nothing likely to drop.'",
+   "element_ids": [
+    "play-report"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Transport (play/pause-resume/stop) + state gating",
+   "how_it_works": "#play → doPlay(): refuses if isPlaying, clears userStopped, computes preSeek from viz.elapsed() (clamped into the range when a range is on), starts a practice ramp if asked, sends play with startAt = preSeek>0.25 ? preSeek : 0 and the countdown. #pause → doTogglePause() (doPause sends {cmd:'pause'}, doResume sends {cmd:'resume'}; both flip local isPaused, the icon and the status immediately, and neither works when not playing). #stop → doStop(): clears pendingRestartAt and pendingSeekAfterLoad, sets userStopped=true, always sends {cmd:'stop'} even if the UI thinks nothing plays (so a just-dispatched restart session dies), endPractice(). Button disabled states are driven by playback_started/playback_done. setPauseButton() swaps the inline SVG between ICON_PAUSE/ICON_PLAY, toggles .is-resume and rewrites title/aria-label.",
+   "element_ids": [
+    "play",
+    "pause",
+    "stop"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'play'})",
+    "window.api.send({cmd:'pause'})",
+    "window.api.send({cmd:'resume'})",
+    "window.api.send({cmd:'stop'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "sendPlay guard rails",
+   "how_it_works": "sendPlay(startAt,countdown) refuses with a logged error when no path or no target window is selected, or when the range is invalid; clamps startAt into [range.start, range.end); sends {cmd:'play', midi_path, target_hwnd, mapping, tempo, transpose, countdown, stats, sustain, start_at, end_at (range.end or null), ...playOpts()}.",
+   "element_ids": [
+    "target-select",
+    "midi-path"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'play'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Header status pill (idle/playing/paused/blocked) + focus-lost",
+   "how_it_works": "setStatus(kind,text) toggles .is-playing/.is-paused/.is-blocked on #header-status and writes #status-text. onProgress() derives it: not playing → Idle; focus_lost → 'Waiting for target' (blocked, red pulsing dot); user_paused → Paused (amber blinking dot); else Playing. isFocusLost also un-hides #refocus-target.",
+   "element_ids": [
+    "header-status",
+    "status-dot (class)",
+    "status-text",
+    "refocus-target"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Track strip (name, duration, BPM, live note counter) + VP sheet button",
+   "how_it_works": "updateTrackStrip(): with no file it adds .is-empty and shows 'No file loaded'; otherwise the basename, fmtClock(totalDuration), bpm.toFixed(1)+' BPM' and a dynamically created <span id=\"track-notes\">0 / total</span>. onProgress writes `${evt.played} / ${totalNotes}` into #track-notes every packet; playback_done resets it to total/total. NOTE: track-notes is created by innerHTML, so it only exists after updateTrackStrip().",
+   "element_ids": [
+    "track-strip",
+    "track-name",
+    "track-meta",
+    "track-notes",
+    "export-sheet"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "VP sheet export",
+   "how_it_works": "#export-sheet sends {cmd:'export_sheet', path, mapping:'virtualpiano' (always, regardless of the selected mapping), transpose, ...playOpts()}; errors if no MIDI loaded. The 'sheet_exported' event copies evt.text to the clipboard via navigator.clipboard.writeText (failures swallowed) and logs the saved path, note count and skipped-out-of-range count.",
+   "element_ids": [
+    "export-sheet"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'export_sheet'})",
+    "navigator.clipboard.writeText"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Scrubber (hover preview, click-to-seek, drag, keyboard)",
+   "how_it_works": "#scrubber is role=slider with aria-valuenow updated each frame. mousemove over it moves #scrubber-hover width and positions #scrubber-tooltip (clamped 20px from each edge) with fmtClock; mouseleave clears it. mousedown (left button, duration>0) sets isDragging, .is-dragging, viz.setDragLock(true), viz.seek(t), requestSeek(t). window mousemove continues the drag; window mouseup flushes any pending seek and releases the drag lock after a 250 ms delay. Keydown: ArrowLeft/Right ±5 s, Home=0, End=duration, each with drag-lock → seek → requestSeek → 250 ms unlock.",
+   "element_ids": [
+    "scrubber",
+    "scrubber-fill",
+    "scrubber-hover",
+    "scrubber-thumb",
+    "scrubber-tooltip",
+    "time-elapsed",
+    "time-total"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'seek'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Throttled seek (~30 Hz)",
+   "how_it_works": "requestSeek(t) stores pendingSeek and either flushes immediately (>=33 ms since the last send) or schedules one flush via setTimeout(33) guarded by flushSeek._scheduled. flushSeek sends {cmd:'seek', time}.",
+   "element_ids": [],
+   "backend_calls": [
+    "window.api.send({cmd:'seek'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Song map / range overview canvas (full-song piano roll)",
+   "how_it_works": "drawRangeOverview() draws on #range-canvas at dpr = min(devicePixelRatio,2): background #101115, 4–12 vertical gridlines (w/100), then every event decimated by step = ceil(events.length/6000) as a 1.5px-tall bar; x from overviewZoom.xFor(t,w), y = h-5-((note-21)/87)*(h-10), width min(12, max(.03,dur)/span*w), fill = computed --accent (per draw), globalAlpha .68. When a range is active it dims outside, tints inside rgba(184,230,46,.09), draws two 2px handle lines with grab blocks top and bottom. Finally a white 75%-alpha playhead line at viz.elapsed(). Redrawn on a ResizeObserver over #range-overview and at most every 80 ms from the render loop.",
+   "element_ids": [
+    "range-overview",
+    "range-canvas",
+    "range-empty",
+    "map-toggle",
+    "map-hint",
+    "range-editor"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Range selection interaction (drag handles, drag-select, click-to-seek, keyboard)",
+   "how_it_works": "pointerdown on #range-overview picks mode by proximity (<10px to the start handle → 'start', to the end handle → 'end', else 'select') and captures the pointer. pointermove drags the chosen edge or, once moved >3px, sets both edges from the anchor. pointerup with no movement in 'select' mode is a seek: viz.seek(t) and requestSeek(t) when playing. pointercancel drops the drag. Keydown ArrowLeft/Right ±1 s (±10 with Shift), Home/End, each seeking and redrawing.",
+   "element_ids": [
+    "range-overview"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'seek'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Playback range ('Play selection only')",
+   "how_it_works": "#range-enabled + #range-start/#range-end text boxes (mm:ss(.ff) parsed by parseRangeTime, which accepts up to 3 colon-separated parts and returns NaN on garbage) + #range-full. playbackRange() returns {enabled, valid, start, end} clamped to the duration. normalizePlaybackRange() disables the inputs when the range is off or nothing is loaded, and writes #range-summary as either 'Stop must be after start' (.is-error), 'start to end · length', or 'Full song'. Ticking the box auto-fills the end with the full duration. setPlaybackRange writes formatted values and redraws; resetPlaybackRange unticks and clears. sendPlay clamps start_at into the range and passes end_at.",
+   "element_ids": [
+    "range-enabled",
+    "range-start",
+    "range-end",
+    "range-full",
+    "range-summary"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Wheel-zoom of the song map",
+   "how_it_works": "overviewZoom = window.TimelineZoom(#range-overview, ()=>totalDuration, ()=>drawRangeOverview()) — wheel zooms around the pointer (exp(deltaY*0.0016), min 0.5 s span), shift-wheel pans, dblclick resets, follow() keeps a playhead inside the window. A fallback identity object is used if TimelineZoom is missing, so the code must not assume the shared script loaded.",
+   "element_ids": [
+    "range-overview"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Practice loop (loop selection + tempo ramp)",
+   "how_it_works": "#range-loop (settings.rangeLoop) plus #ramp-start % (25–100, default 100) and #ramp-step % per pass (1–50, default 5). showPractice() toggles .is-off on #practice-row, disables the ramp inputs when off, and writes #practice-summary ('pass at N%', 'start% → 100%' or 'looping'). startPracticeIfAsked() (called from doPlay) creates practice={target: current tempo, pct: rampStart} only when looping, a range is enabled, rampStart<100 and no ramp is running, then applyRampTempo() (target*pct/100 clamped 0.25–3, writes the slider/label/BPM without saving). On natural playback_done with looping+range enabled → nextPracticePass(): bumps pct by rampStep to at most 100, applyRampTempo(), logs the pass, loadMidi() to rescale the visualizer, then sendPlay(range.start, 0). endPractice() (user stop or crash) restores the user's target tempo, saves, and reloads.",
+   "element_ids": [
+    "range-loop",
+    "ramp-start",
+    "ramp-step",
+    "practice-row",
+    "practice-summary"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'play'})",
+    "window.api.send({cmd:'load_midi'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Global hotkeys (10 bindable actions) with pynput-syntax capture",
+   "how_it_works": "Bindable: play, pause, stop, tempo up/down/set, seek fwd/back, next/prev track. Each is a readonly text input; clicking focuses it (dataset.prev saved, box cleared, placeholder 'press a key…', suspendHotkeys() sends an all-empty set_hotkeys so the key being rebound does not fire its old action), the next keydown is converted by keyEventToPynput() and the box blurs (which re-sends the bindings). Esc cancels, Backspace/Delete unbinds. keyEventToPynput builds '<ctrl>+<alt>+<shift>+base': F-keys as <f6>, bare letters/digits, PYNPUT_NAMED table for space/enter/tab/home/end/insert/pageup/pagedown/arrows/pause/scrolllock/capslock/numlock/printscreen, CODE_CHAR to get the UNSHIFTED punctuation from e.code, and a <keyCode> virtual-key fallback for numpad/media/+/−. hkLabel() renders human labels (HK_LABEL table, F-numbers, 'key NNN' for raw VKs). dataset.hk is the truth, .value is display. Each capture box gets a wrapping .hk-slot with an injected ✕ .hk-clear button (built with Icon.svg('close',10)) that unbinds and re-applies; the slot gets .is-set only when something is bound. #hotkey-apply reads all ten dataset.hk values (empty = unbound, including play/pause/stop) and sends set_hotkeys. #hotkey-status prints the bound set joined by ' · ', or 'No hotkeys bound…'. Also #tempo-step (± amount), #tempo-preset (= value) and #seek-step (seconds), all clamped and persisted.",
+   "element_ids": [
+    "hotkey-play",
+    "hotkey-pause",
+    "hotkey-stop",
+    "hotkey-tempo-up",
+    "hotkey-tempo-down",
+    "hotkey-tempo-set",
+    "hotkey-seek-fwd",
+    "hotkey-seek-back",
+    "hotkey-next",
+    "hotkey-prev",
+    "tempo-step",
+    "tempo-preset",
+    "seek-step",
+    "hotkey-apply",
+    "hotkey-status"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'set_hotkeys'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Hotkey dispatch from the engine",
+   "how_it_works": "'hotkey' engine event: play → doResume() when paused else doPlay(); stop → doStop(); pause → doTogglePause(); tempo_up/down → nudgeTempo(±settings.tempoStep||0.1); tempo_set → setTempo(settings.tempoPreset||1); next_track/prev_track → skipTrack(±1); seek_fwd/seek_back → seekRelative(±settings.seekStep||5). seekRelative drag-locks the visualizer, seeks locally, requestSeek()s and unlocks after 250 ms.",
+   "element_ids": [],
+   "backend_calls": [
+    "window.api.onEngineEvent"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Visualizer render loop with adaptive draw budget",
+   "how_it_works": "A single frame(now) function. drawBudgetMs(): Infinity when document.hidden or documentElement.dataset.onscreen==='0' (another tab showing) → the loop RETURNS and stops entirely; 250 ms when idle (4 fps); min(dataset.drawms||16, 33) while playing (>=30 fps floor). While playing it schedules with requestAnimationFrame, while idle with setTimeout(budget) — rAF handles and timeout handles are tracked in SEPARATE variables (rafId/timerId) because the id spaces can collide. Each drawn frame: viz.render(), read viz.elapsed(), update #scrubber-fill width, #scrubber-thumb left, aria-valuenow, #time-elapsed text, and drawRangeOverview() at most every 80 ms. repaintNow() resets lastFrame, cancels pending work and kicks a rAF — used on playback_started, playback_done, window focus, visibilitychange and the 'midi-studio:onscreen' custom event from the shell.",
+   "element_ids": [
+    "viz",
+    "scrubber-fill",
+    "scrubber-thumb",
+    "scrubber",
+    "time-elapsed"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Visualizer note data + clock (visualizer.js)",
+   "how_it_works": "load(events, noteToKey) maps the wire tuples [t,key,dur,note,ch] to objects, derives lo/hi from the actual note range snapped to octaves (clamped 21..108, default 36..96 when empty), builds whiteNotes + whiteIdx, resets cursor and the clock to 0. Clock: syncServerElapsed + syncClientNowMs; elapsed() returns frozenElapsed when paused, syncServerElapsed when not playing (preview-while-stopped), else syncServerElapsed + (performance.now()-syncClientNowMs)/1000 — a local extrapolation, so notes tween instead of teleporting between progress packets. clockSet({elapsed, frozen_elapsed}) resyncs from 'progress', is a no-op while dragLock is on, and resets cursor to 0 when the timeline jumped backwards by more than 0.2 s. startClock(duration,startElapsed) / stopClock() / seek(t) (optimistic local snap) / setDragLock(on).",
+   "element_ids": [
+    "viz"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Visualizer draw + culling (visualizer.js render)",
+   "how_it_works": "ctx is 2d with alpha:false, dpr = min(devicePixelRatio,2) captured ONCE in the constructor. _resize() on a ResizeObserver over the canvas. Layout: rollH = 72% of height when showKeys else full height, kbH the rest, wkeyW = W/whiteNotes.length, bkeyW = 0.6*wkeyW, hitY = rollH-4, pxPerSec = rollH/lookahead. Culling: a monotonic `cursor` advances past events whose t+dur < elapsed-0.3, then the draw loop breaks as soon as e.t > elapsed+lookahead; additional per-note reject when yBot<=0 or yTop>=rollH. Each note is a rounded rect (min 3px tall) filled with a per-note createLinearGradient (channel colour + 'ff'/'cc'/'99' alpha suffixes), with a white stroke while active. active notes are collected into a Map(note→channel) for the keybed. Hit line: a gradient glow band plus a 2px white bar. _drawKeyboard paints white keys (#e8e9ea or the channel colour when active) with per-key strokeRect, then black keys with a per-key highlight gradient, and draws the mapped key label from noteToKey at 9px/8px Consolas when wkeyW>=14 (blacks need g.w>=10).",
+   "element_ids": [
+    "viz"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Visualizer style: note colour + fall speed",
+   "how_it_works": "applyVizStyle() reads #fall-speed (0.25–4), writes #fall-speed-label, toggles .is-off on #note-color when no custom colour is set, and calls viz.setStyle({speed, color}). setStyle maps speed to lookahead = 3.0/clamp(speed,0.1,4) seconds of visible music. #note-color input sets settings.noteColor (a single colour for every channel); #note-color-reset clears it back to the 16-entry CHANNEL_COLORS rainbow. setStyle also accepts keys:false (used by the overlay) to give the roll the whole canvas.",
+   "element_ids": [
+    "note-color",
+    "note-color-reset",
+    "fall-speed",
+    "fall-speed-label"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Empty visualizer state",
+   "how_it_works": "#viz-empty is an absolutely-positioned HTML overlay ('Drag a MIDI file here' / 'or click ⌄ to browse'), faded out with .is-hidden on midi_loaded and restored when the last track is removed. visualizer.js deliberately draws NO caption of its own (only the empty keybed) so the two do not stack.",
+   "element_ids": [
+    "viz-empty"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Perch / overlay integration",
+   "how_it_works": "wirePerch() IIFE: hides #perch-btn if window.api.toggleOverlay is missing; click → toggleOverlay().then(paint) where paint sets aria-pressed from state.open; subscribes to onOverlayState so the button follows the window (the overlay can also be opened by its global key Ctrl+Alt+O or closed by its own X). Separately, onOverlayWantsState → replayToOverlay(lastMidiLoaded) and, when playing, replayToOverlay({event:'playback_started', start_elapsed: viz.elapsed()}) — the Player tab is the only frame that kept the midi_loaded payload, so an overlay opened mid-song gets caught up and resyncs off the next ordinary progress packet.",
+   "element_ids": [
+    "perch-btn"
+   ],
+   "backend_calls": [
+    "window.api.toggleOverlay",
+    "window.api.overlayState",
+    "window.api.onOverlayState",
+    "window.api.onOverlayWantsState",
+    "window.api.replayToOverlay"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Forge activity indicator + Forge hand-off",
+   "how_it_works": "window.forge.onStatus: 'forge.progress' with a jobId adds to activeForgeJobs, un-hides #forge-activity and rewrites its title with the stage; 'forge.done' removes the job, re-hides when the set is empty, and if the result carries a midiPath it addToQueue([midiPath]) and logs 'Forge finished - added \"x\" to the queue' when it was not already there.",
+   "element_ids": [
+    "forge-activity"
+   ],
+   "backend_calls": [
+    "window.forge.onStatus"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Drag-and-drop of .mid/.midi/.json",
+   "how_it_works": "window-level dragenter/dragover/dragleave/drop, all gated on dataTransfer.types including 'Files'; dragDepth counting keeps #drop-overlay .active correct across nested enters. On drop, real paths come from window.api.getDroppedFilePath(file) (webUtils.getPathForFile) inside a try/catch per file. MIDIs → addToQueue() with a 1-vs-N log line; otherwise a .json becomes the custom mapping (selected + loadMidi()); anything else logs 'Drop ignored. Only .mid/.midi/.json files are supported.' Two extra bare preventDefault dragover/drop listeners are registered after the real ones.",
+   "element_ids": [
+    "drop-overlay"
+   ],
+   "backend_calls": [
+    "window.api.getDroppedFilePath"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Log panel",
+   "how_it_works": "log(level,message) appends a <span class=\"l-<level>\"> with a [HH:MM:SS] timestamp span and scrolls to bottom; an 'error' auto-expands the collapsed panel and persists logCollapsed=false (the expand block is duplicated verbatim). Clicking #log-header anywhere but #log-clear toggles .is-collapsed and persists it; #log-clear wipes the text and stops propagation. Engine 'log' and 'error' events and onEngineError all route here.",
+   "element_ids": [
+    "log-panel",
+    "log-header",
+    "log",
+    "log-clear"
+   ],
+   "backend_calls": [
+    "window.api.onEngineError",
+    "window.api.onEngineEvent"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Accordion sidebar (one section open)",
+   "how_it_works": "initAccordion() wires every .section-head: clicking closes all sections and opens the clicked one unless it was already open (then all closed, settings.openSection=null). applySettingsToUI restores it and maps the legacy value 'hotkeys' onto 'settings'. Sections: source, playback, settings.",
+   "element_ids": [
+    "queue-field",
+    "recent-field"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Song map collapse",
+   "how_it_works": "#map-toggle flips settings.mapCollapsed, persists, toggles .is-collapsed on #range-editor, updates aria-expanded, and dispatches a synthetic window 'resize' event so the canvases re-measure. Collapsed hides .map-body and #map-hint and gives the height back to the roll.",
+   "element_ids": [
+    "map-toggle",
+    "range-editor",
+    "map-hint"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Resizable panes (shared resize.js)",
+   "how_it_works": "Three grips: data-resize=\"side\" (horizontal, 240–620) inside data-split=\"player\", and data-resize=\"map\" (y, inverted, 40–500) and \"logh\" (y, inverted, 38–600) inside data-split=\"player-main\". Each drives a CSS custom property (--side / --map / --logh) on the nearest [data-split], sizes persisted per divider under localStorage 'midi-studio:splits' using read-merge-write (every tab is a separate frame sharing one localStorage). Grips are visibility:hidden when the corresponding panel is collapsed. body.is-resizing kills the log panel's max-height transition.",
+   "element_ids": [
+    "range-editor",
+    "log-panel"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Settings persistence",
+   "how_it_works": "localStorage key 'midi-player.settings.v3', a flat object merged over defaults on load; saveSettings() writes the whole object on every change (called from dozens of handlers). Persisted: midiPath, mapping, customMappingPath, tempo, countdown, stats, sustain, 10 hotkeys, transpose, tempoStep, tempoPreset, seekStep, targetHint, openSection, noteColor, fallSpeed, logCollapsed, mapCollapsed, recentFiles, autoPickTarget, playlist, playlistCurrent, queueLoop, hand, handSplit, chordStaggerMs, rangeLoop, rampStart, rampStep. applySettingsToUI() rebuilds every control from it and reconstructs the playlist (de-duped case-insensitively, current index resolved from playlistCurrent||midiPath).",
+   "element_ids": [],
+   "must_survive": true
+  },
+  {
+   "name": "Updater (version badge + banner)",
+   "how_it_works": "initUpdater IIFE: window.api.getVersion() fills #version-badge; clicking it shows 'checking…' and calls checkForUpdates({manual:true}). onUpdateStatus states: checking, available (badge 'v→v', banner title/sub with MB size or 'open the download page', apply button label switched on s.canSelfUpdate, banner .show, log), none (badge 'v ✓' for 2.5 s, log), downloading (#update-progress .show, bar width %, button text 'Downloading N%'), ready ('Restarting…'), error (button 'Retry', log). #update-apply disables itself and calls applyUpdate(); #update-dismiss just removes .show.",
+   "element_ids": [
+    "version-badge",
+    "update-banner",
+    "update-title",
+    "update-sub",
+    "update-progress",
+    "update-progress-bar",
+    "update-apply",
+    "update-dismiss"
+   ],
+   "backend_calls": [
+    "window.api.getVersion",
+    "window.api.checkForUpdates",
+    "window.api.applyUpdate",
+    "window.api.onUpdateStatus"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Transcribed-songs library picker (midi-library.js)",
+   "how_it_works": "A separate IIFE loaded AFTER app.js that injects a new .field at the TOP of the Source section body: label 'Transcribed songs' + #lib-count (folder basename, title=full path), a #lib-search box shown only when the folder has >6 files, #lib-select, #lib-refresh (↻) and #lib-browse (📁). It bails out entirely unless window.studio, studio.listMidis and a global setMidiFile function all exist — it reuses the player's global setMidiFile(), app.js is untouched. Default folder resolved by studio.getLibraryDir() (manual pick > last transcription's folder > Forge output) and re-resolved on studio.onLibraryChanged. Choosing a song stores it under localStorage 'midi-studio.lib.last' (re-selected on the next render) and calls setMidiFile(). It also self-applies the saved theme via studio.getUi().",
+   "element_ids": [
+    "lib-count",
+    "lib-search",
+    "lib-select",
+    "lib-refresh",
+    "lib-browse"
+   ],
+   "backend_calls": [
+    "window.studio.listMidis",
+    "window.studio.getLibraryDir",
+    "window.studio.setLibraryDir",
+    "window.studio.pickFolder",
+    "window.studio.onLibraryChanged",
+    "window.studio.getUi",
+    "window.studio.openMappingsDir"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Engine ready / boot sequence",
+   "how_it_works": "Bottom of app.js: initAccordion(); applySettingsToUI(); log('Booting…'). The 'ready' engine event then logs 'Engine ready.', sendHotkeys(), requestWindows(), and loadMidi() when a track was restored. main.js re-broadcasts the last 'ready' 60 ms after a frame appears, so a tab created late still gets it.",
+   "element_ids": [],
+   "backend_calls": [
+    "window.api.send({cmd:'set_hotkeys'})",
+    "window.api.send({cmd:'list_windows'})",
+    "window.api.send({cmd:'load_midi'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Panic / crash handling",
+   "how_it_works": "There is no dedicated 'panic' button; the panic path is doStop() (always sends stop even when the UI thinks nothing plays) plus the crash branch of playback_done: evt.crashed logs 'Player engine stopped unexpectedly. Playback reset.', suppresses the rewind-to-0, the sent/dropped summary, the queue advance and the practice loop, and calls endPractice(). Main-process unhandledRejection/uncaughtException are also surfaced as engine-event log lines into this panel.",
+   "element_ids": [
+    "stop",
+    "log"
+   ],
+   "backend_calls": [
+    "window.api.send({cmd:'stop'})"
+   ],
+   "must_survive": true
+  },
+  {
+   "name": "Dropped-key summary after playback",
+   "how_it_works": "On a natural end with evt.sent present, logs 'Sent X / Y keys' plus ' (N not sent)' at warn level when any were dropped. Suppressed for user stops, crashes and tempo restarts.",
+   "element_ids": [
+    "log"
+   ],
+   "must_survive": true
+  }
+ ],
+ "element_ids": [
+  "version-badge",
+  "forge-activity",
+  "refocus-target",
+  "header-status",
+  "status-text",
+  "update-banner",
+  "update-title",
+  "update-sub",
+  "update-progress",
+  "update-progress-bar",
+  "update-apply",
+  "update-dismiss",
+  "queue-field",
+  "queue-list",
+  "queue-count",
+  "queue-loop",
+  "queue-add",
+  "queue-undo",
+  "queue-clear",
+  "recent-field",
+  "recent-select",
+  "recent-clear",
+  "target-select",
+  "target-refresh",
+  "auto-pick-target",
+  "mapping-select",
+  "mapping-browse",
+  "mapping-note",
+  "mapping-folder",
+  "tempo",
+  "tempo-label",
+  "tempo-bpm",
+  "tempo-bpm-src",
+  "tempo-bpm-guess",
+  "tempo-bpm-reset",
+  "transpose",
+  "transpose-label",
+  "transpose-fit",
+  "transpose-reset",
+  "range-warning",
+  "hand",
+  "hand-split",
+  "hand-split-label",
+  "countdown",
+  "chord-stagger",
+  "stats",
+  "play-report",
+  "midi-path",
+  "midi-browse",
+  "sustain",
+  "note-color",
+  "note-color-reset",
+  "fall-speed",
+  "fall-speed-label",
+  "hotkey-play",
+  "hotkey-pause",
+  "hotkey-stop",
+  "hotkey-tempo-up",
+  "hotkey-tempo-down",
+  "hotkey-tempo-set",
+  "hotkey-seek-fwd",
+  "hotkey-seek-back",
+  "hotkey-next",
+  "hotkey-prev",
+  "tempo-step",
+  "tempo-preset",
+  "seek-step",
+  "hotkey-apply",
+  "hotkey-status",
+  "viz",
+  "viz-empty",
+  "perch-btn",
+  "track-strip",
+  "track-name",
+  "track-meta",
+  "track-notes",
+  "export-sheet",
+  "play",
+  "pause",
+  "stop",
+  "time-elapsed",
+  "time-total",
+  "scrubber",
+  "scrubber-hover",
+  "scrubber-fill",
+  "scrubber-thumb",
+  "scrubber-tooltip",
+  "range-editor",
+  "map-toggle",
+  "map-hint",
+  "range-overview",
+  "range-canvas",
+  "range-empty",
+  "range-enabled",
+  "range-start",
+  "range-end",
+  "range-full",
+  "range-summary",
+  "practice-row",
+  "range-loop",
+  "ramp-start",
+  "ramp-step",
+  "practice-summary",
+  "log-panel",
+  "log-header",
+  "log-clear",
+  "log",
+  "drop-overlay",
+  "lib-count",
+  "lib-search",
+  "lib-select",
+  "lib-refresh",
+  "lib-browse"
+ ],
+ "listeners": [
+  "window.api.onEngineError(cb) — routes every sidecar stderr/spawn error into log('error')",
+  "window.api.onEngineEvent(cb) — the one big switch: ready | log | windows | midi_loaded | countdown | playback_started | progress | playback_done | sheet_exported | hotkey | error",
+  "window.api.onOverlayState(paint) — perch button aria-pressed follows the overlay window",
+  "window.api.onOverlayWantsState(cb) — replays lastMidiLoaded + a synthetic playback_started to a late-opened overlay",
+  "window.api.onUpdateStatus(cb) — updater state machine",
+  "window.forge.onStatus(cb) — forge.progress / forge.done; drives #forge-activity and auto-queues finished MIDIs",
+  "studio.onLibraryChanged(syncDir) (midi-library.js) — re-resolves the songs folder",
+  "every .section-head click — accordion open/close, persists openSection",
+  "#perch-btn click — window.api.toggleOverlay()",
+  "#midi-browse click — pickMidi, first file loads, rest queue",
+  "#queue-add click — pickMidi, all files queue",
+  "#queue-clear click — keep only the current track (with undo snapshot)",
+  "#queue-undo click — swap in the previous playlist snapshot",
+  "#queue-loop change — settings.queueLoop",
+  "#recent-select change — setMidiFile",
+  "#recent-clear click — empty recentFiles",
+  "#auto-pick-target change — settings.autoPickTarget",
+  "#target-refresh click — requestWindows()",
+  "#target-select focus — re-list windows, throttled 2 s, skipped while playing",
+  "#target-select change — remember settings.targetHint",
+  "#refocus-target click — send {cmd:'refocus'}",
+  "#mapping-select change — persist mapping + loadMidi (ignores __custom__)",
+  "#mapping-browse click — pickMapping, add custom option, loadMidi",
+  "#mapping-folder click (injected) — studio.openMappingsDir()",
+  "#tempo input — label + BPM readout only",
+  "#tempo change — setTempo() then els.tempo.blur()",
+  "#tempo-bpm change — setBpm(); keydown Enter — blur; blur — showBpm()",
+  "#tempo-bpm-guess click — adopt bpmEstimate as the source tempo",
+  "#tempo-bpm-reset click — setTempo(1)",
+  "#transpose input — label only; #transpose change — applyTranspose(v,false)",
+  "#transpose-fit click — applyTranspose(0,true) (auto_transpose)",
+  "#transpose-reset click — applyTranspose(0,false)",
+  "#hand change / #hand-split change / #chord-stagger change — clamp, persist, reloadForOpts()",
+  "#countdown change, #stats change, #sustain change — persist only",
+  "#note-color input / #note-color-reset click / #fall-speed input — applyVizStyle()",
+  "10 × hotkey capture input: focus (suspendHotkeys, clear), blur (restore + sendHotkeys + repaint slot), keydown (Esc cancel, Backspace/Delete unbind, else keyEventToPynput → blur)",
+  "10 × injected .hk-clear button click — unbind + applyHotkeySettings() (+ a second click listener that repaints .is-set)",
+  "#hotkey-apply click — applyHotkeySettings()",
+  "#tempo-step / #tempo-preset / #seek-step change — clamp + persist",
+  "#play click doPlay, #pause click doTogglePause, #stop click doStop",
+  "#export-sheet click — send {cmd:'export_sheet', mapping:'virtualpiano'}",
+  "#map-toggle click — collapse the song map + dispatch window 'resize'",
+  "#log-header click — toggle collapse (ignores clicks inside #log-clear)",
+  "#log-clear click — clear text, stopPropagation",
+  "#range-overview pointerdown / pointermove / pointerup / pointercancel — range handle drag, drag-select, click-to-seek",
+  "#range-overview keydown — Arrow ±1s (±10 with Shift), Home, End → seek",
+  "#range-enabled change — auto-fill the end, normalize, redraw",
+  "#range-start input, #range-end input — normalize + redraw",
+  "#range-full click — resetPlaybackRange()",
+  "#range-loop change / #ramp-start change / #ramp-step change — practice settings",
+  "#scrubber mousemove — hover bar + tooltip; #scrubber mouseleave — clear hover",
+  "#scrubber mousedown — start drag, drag-lock, seek",
+  "window mousemove (global) — continue scrubber drag, seek every move",
+  "window mouseup (global) — end drag, flush seek, unlock after 250 ms",
+  "#scrubber keydown — Arrow ±5s, Home, End → seek with 250 ms drag-lock",
+  "window dragenter / dragover / dragleave / drop — drop overlay + file handling; plus a second bare dragover and drop pair that only preventDefault",
+  "window 'midi-studio:onscreen' (custom, dispatched by the shell into the iframe) — repaintNow()",
+  "window 'focus' — repaintNow()",
+  "document 'visibilitychange' — repaintNow() when not hidden",
+  "#lib-search input — re-render the filtered list; #lib-select change — remember + setMidiFile; #lib-refresh click — rescan; #lib-browse click — pickFolder + setLibraryDir",
+  "ResizeObserver on #range-overview → drawRangeOverview()",
+  "ResizeObserver on #viz (visualizer.js constructor) → _resize()",
+  "wheel + dblclick on #range-overview (shared timeline-zoom.js) — zoom/pan/reset, wheel is passive:false and preventDefault()s",
+  "requestAnimationFrame(frame) while playing / setTimeout(frame, budget) while idle — the single render loop",
+  "setTimeout(33) inside requestSeek — the seek flush timer",
+  "3 × setTimeout(250) drag-lock releases (scrubber mouseup, scrubber keydown, seekRelative)",
+  "setTimeout(2500) — reset the version badge after an up-to-date check",
+  "resize.js: pointerdown/pointermove/pointerup on the three grips (side, map, logh)"
+ ],
+ "data_structures": "settings (localStorage 'midi-player.settings.v3'): midiPath, mapping, customMappingPath, tempo, countdown, stats, sustain, playHotkey, stopHotkey, pauseHotkey, tempoUpHotkey, tempoDownHotkey, tempoSetHotkey, seekFwdHotkey, nextHotkey, prevHotkey, seekBackHotkey, transpose, tempoStep, tempoPreset, seekStep, targetHint, openSection, noteColor, fallSpeed, logCollapsed, mapCollapsed, recentFiles[<=8], autoPickTarget, playlist[<=200], playlistCurrent, queueLoop, hand, handSplit, chordStaggerMs, rangeLoop, rampStart, rampStep. | Runtime globals in app.js: windows[] (from the 'windows' event: {hwnd, process, title}), lastMidiPath, totalDuration, totalNotes, bpm, bpmEstimate, isPlaying, isPaused, isFocusLost, pendingRestartAt (s, live tempo change), pendingSeekAfterLoad (s), overviewEvents (raw event tuples, aliased to the same array the visualizer copied from), lastMidiLoaded (whole midi_loaded payload, replayed to a late overlay), practice {target, pct} | null, tracks[] + curIdx + userStopped + autoPlayNext + queueUndo {tracks[], curPath}, rangeDrag {mode:'start'|'end'|'select', anchor, x, moved}, pendingSeek/lastSeekSentAt, rafId/timerId/lastFrame/lastOverviewFrame, activeForgeJobs Set, pendingAutoTranspose, lastWindowRefresh, isDragging, dragDepth. | Wire event tuple: [t, key, dur, note, ch]; the visualizer copies it into {t,key,dur,note,ch} objects. | Visualizer state: events[], noteToKey {midiNote:label}, lo/hi, whiteNotes[], whiteIdx Map(note→index), cursor (monotonic cull pointer), lookahead (3.0/speed s), noteColor, showKeys, syncServerElapsed, syncClientNowMs, frozenElapsed, playing, totalDuration, dragLock. | TimelineZoom view {start, span} (span 0 = show everything). | Other localStorage keys: 'midi-studio.lib.last' (last library song), 'midi-studio:splits' (pane sizes, read-merge-write shared across tabs).",
+ "ipc_contracts": [
+  {
+   "channel": "engine:send (window.api.send) — cmd:'load_midi'",
+   "direction": "renderer→main→python sidecar",
+   "args": "{path, mapping, tempo, transpose, auto_transpose, hand, hand_split, chord_stagger_ms}",
+   "returns": "engine-event 'midi_loaded'"
+  },
+  {
+   "channel": "engine:send — cmd:'play'",
+   "direction": "renderer→sidecar",
+   "args": "{midi_path, target_hwnd, mapping, tempo, transpose, countdown, stats, sustain, start_at, end_at, hand, hand_split, chord_stagger_ms}",
+   "returns": "'countdown'*, 'playback_started', 'progress'*, 'playback_done'"
+  },
+  {
+   "channel": "engine:send — cmd:'stop' | 'pause' | 'resume'",
+   "direction": "renderer→sidecar",
+   "args": "none",
+   "returns": "'playback_done' for stop; user_paused flag on 'progress'"
+  },
+  {
+   "channel": "engine:send — cmd:'seek'",
+   "direction": "renderer→sidecar",
+   "args": "{time: seconds}",
+   "returns": "next 'progress' reflects it"
+  },
+  {
+   "channel": "engine:send — cmd:'list_windows'",
+   "direction": "renderer→sidecar",
+   "args": "none",
+   "returns": "'windows' {windows:[{hwnd, process, title}]}"
+  },
+  {
+   "channel": "engine:send — cmd:'set_hotkeys'",
+   "direction": "renderer→sidecar",
+   "args": "{play, stop, pause, tempo_up, tempo_down, tempo_set, seek_fwd, next_track, prev_track, seek_back} in pynput GlobalHotKeys syntax; '' = unbound",
+   "returns": "'hotkey' events {name}"
+  },
+  {
+   "channel": "engine:send — cmd:'refocus'",
+   "direction": "renderer→sidecar",
+   "args": "none",
+   "returns": "focus_lost clears on the next 'progress'"
+  },
+  {
+   "channel": "engine:send — cmd:'export_sheet'",
+   "direction": "renderer→sidecar",
+   "args": "{path, mapping:'virtualpiano', transpose, hand, hand_split, chord_stagger_ms}",
+   "returns": "'sheet_exported' {path, text, notes, unmapped}"
+  },
+  {
+   "channel": "engine-event",
+   "direction": "main→every frame + overlay window",
+   "args": "payload objects listed above; midi_loaded carries {events, note_to_key, duration, bpm, bpm_estimate, transpose, unmapped[], collapsed_sharps, mapping_description, report{big_chords, ghost_limit, max_chord, short_notes}}; playback_started {duration, total_notes, bpm, bpm_estimate, start_elapsed}; progress {elapsed, frozen_elapsed, user_paused, focus_lost, played}; playback_done {stats{notes,mean_ms,median_ms,stdev_ms,max_ms,over_5ms}, sent, total, crashed}",
+   "returns": "n/a (push)"
+  },
+  {
+   "channel": "engine-error",
+   "direction": "main→renderer",
+   "args": "string message",
+   "returns": "n/a"
+  },
+  {
+   "channel": "dialog:openMidi / dialog:openMapping",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "path or array of paths / single mapping path"
+  },
+  {
+   "channel": "overlay:toggle / overlay:state",
+   "direction": "renderer→main (invoke)",
+   "args": "none",
+   "returns": "{open: bool}"
+  },
+  {
+   "channel": "overlay-state / overlay-wants-state",
+   "direction": "main→renderer",
+   "args": "state object / no payload",
+   "returns": "n/a"
+  },
+  {
+   "channel": "overlay:replay",
+   "direction": "renderer→main (send)",
+   "args": "a midi_loaded or playback_started payload to forward to the overlay window",
+   "returns": "n/a"
+  },
+  {
+   "channel": "app:version / update:check / update:apply / update-status",
+   "direction": "renderer↔main",
+   "args": "{manual:true} for a manual check; status {state, version, current, size, canSelfUpdate, percent, message}",
+   "returns": "version string"
+  },
+  {
+   "channel": "forge:status",
+   "direction": "main→renderer",
+   "args": "{event:'forge.progress'|'forge.done', jobId, stage, ok, result:{midiPath}}",
+   "returns": "n/a"
+  },
+  {
+   "channel": "app:getLibraryDir / app:setLibraryDir / app:listMidis / app:pickFolder / app:openMappingsDir / library-changed / app:getUi",
+   "direction": "renderer↔main",
+   "args": "dir strings",
+   "returns": "dir, string[] of .mid paths, ui {theme,lastTab}"
+  },
+  {
+   "channel": "webUtils.getPathForFile (window.api.getDroppedFilePath)",
+   "direction": "renderer preload, synchronous",
+   "args": "a File from a drop",
+   "returns": "absolute path"
+  }
+ ],
+ "perf_findings": [
+  {
+   "file": "renderer/player/app.js",
+   "line": 2020,
+   "issue": "drawRangeOverview() is called from the render loop every 80 ms (12.5 Hz) while notes are playing, and it redraws the ENTIRE song's note bars each time — up to 6000 fillRect calls plus a getComputedStyle(document.documentElement).getPropertyValue('--accent') per draw (app.js:713).",
+   "why_it_costs": "getComputedStyle on the root element forces a style resolve and is called 12× a second in the playback path; the 6000-rect loop is pure fill work that never changes unless the MIDI, zoom or range changed. Only the playhead line and the range shading actually move. On a slow machine this competes with the same main thread that owns the roll's rAF and the incoming progress packets.",
+   "fix": "Render the note bars once to an offscreen canvas/ImageBitmap keyed by (events, zoom window, canvas size) and per-frame only blit it + draw the playhead/range shading. Cache the --accent value on load/theme change instead of reading computed style per draw."
+  },
+  {
+   "file": "renderer/player/app.js",
+   "line": 1966,
+   "issue": "drawBudgetMs() reads document.documentElement.dataset.drawms and dataset.onscreen on EVERY frame invocation (including the ones that early-return before drawing).",
+   "why_it_costs": "Two dataset reads plus a Number() per frame is cheap individually, but frame() runs at rAF rate with no vsync cap (the comment at app.js:1954 measured ~500/sec), so this is the per-wakeup cost the code itself calls out as 'the whole cost on a slow machine'.",
+   "fix": "Cache the budget and invalidate it from the 'midi-studio:onscreen' listener and a MutationObserver on the data-drawms attribute, instead of polling the DOM per frame."
+  },
+  {
+   "file": "renderer/player/visualizer.js",
+   "line": 229,
+   "issue": "render() calls ctx.createLinearGradient() once PER VISIBLE NOTE (plus one for the hit line, and one per black key in _drawKeyboard at line 303).",
+   "why_it_costs": "Gradient objects are allocated and their colour stops parsed from string concatenation (baseCol + 'ff'/'cc'/'99') every frame for every note in the 3-second lookahead window — a dense passage can be hundreds of notes at 30–60 fps. That is per-frame allocation + string work + shader setup in the same thread that must service progress packets and the seek flush timer.",
+   "fix": "Precompute two gradients (active/inactive) per channel colour at load/setStyle time and reuse them, or drop to flat fills; the gradient is described in the code as 'subtle'."
+  },
+  {
+   "file": "renderer/player/visualizer.js",
+   "line": 233,
+   "issue": "Each note is drawn with a _roundRect path (beginPath + 4 arcTo + closePath) followed by fill(), and every white key in _drawKeyboard does its own strokeRect (line 276) and fillRect.",
+   "why_it_costs": "Per-note path construction and a per-key stroke means one path submission per note and per key each frame instead of batched rects — for a 61+ key layout that is ~40 stroked rects plus every visible note, every frame.",
+   "fix": "Use plain fillRect for notes below a size threshold, and draw the keybed's separator lines as one batched path (single beginPath, many moveTo/lineTo, one stroke)."
+  },
+  {
+   "file": "renderer/player/visualizer.js",
+   "line": 88,
+   "issue": "whiteNotes is built with `[0,2,4,5,7,9,11].includes(n % 12)` and _isBlack/_drawKeyboard use `[1,3,6,8,10].includes(n % 12)` — fresh array literals allocated inside loops. _isBlack is called from _noteGeom, which is called once per visible note per frame.",
+   "why_it_costs": "An array literal is allocated and linearly scanned on every _noteGeom call, i.e. hundreds of allocations per frame in the render path. Pure garbage for the GC that runs on the same thread as playback UI.",
+   "fix": "Hoist to module-level constants (a Set, or a 12-entry boolean lookup table)."
+  },
+  {
+   "file": "renderer/player/visualizer.js",
+   "line": 17,
+   "issue": "this.dpr is captured once in the constructor and never re-read; _resize() uses the stale value.",
+   "why_it_costs": "Not a hot-loop cost, but moving the window to a monitor with a different scale factor leaves the canvas backing store mismatched, which makes the browser rescale every composited frame.",
+   "fix": "Re-read min(devicePixelRatio,2) inside _resize(), and listen to a matchMedia('(resolution: …)') change."
+  },
+  {
+   "file": "renderer/player/app.js",
+   "line": 259,
+   "issue": "renderQueue() sets els.queueList.innerHTML='' and rebuilds every row from scratch, each row creating 6 elements and attaching 5 listeners. It is called from midi_loaded, playback_started, playback_done, every add/remove/move/undo, and persistPlaylist() (a full JSON.stringify of settings) runs inside it.",
+   "why_it_costs": "A large playlist means full DOM teardown/rebuild plus a localStorage write in the middle of playback transitions (playback_started in particular, which is the most timing-sensitive moment). localStorage.setItem is synchronous.",
+   "fix": "Only the ▶/number marker and .is-current change during playback — patch those two nodes instead of rebuilding, and move persistPlaylist() out of renderQueue() so a repaint does not imply a synchronous disk write."
+  },
+  {
+   "file": "renderer/player/app.js",
+   "line": 164,
+   "issue": "saveSettings() serialises the whole settings object (including playlist[<=200] and recentFiles) to localStorage synchronously, and is called from ~30 handlers — including #tempo 'input' (fires continuously while dragging the slider), #note-color 'input' and #fall-speed 'input'.",
+   "why_it_costs": "A synchronous JSON.stringify + localStorage write on every pointermove of a slider, on the same thread as the render loop and the engine event handlers.",
+   "fix": "Debounce saveSettings (e.g. 250 ms trailing) or only save on 'change' for continuous inputs."
+  },
+  {
+   "file": "renderer/player/app.js",
+   "line": 1856,
+   "issue": "The global window 'mousemove' handler runs viz.seek(t) + requestSeek(t) on every mouse move during a scrubber drag; viz.seek() resets this.cursor to 0.",
+   "why_it_costs": "Resetting the cull cursor forces the next render()'s while-loop to walk the event array from index 0 again — O(total events) per seek instead of O(new notes). During a drag across a long song that is a full array walk per mouse move, on top of the 30 Hz IPC.",
+   "fix": "Binary-search the cursor to the new time instead of resetting to 0 (events are time-sorted), and coalesce drag seeks to the render loop rather than to every mousemove."
+  },
+  {
+   "file": "renderer/player/app.js",
+   "line": 359,
+   "issue": "midi_loaded assigns overviewEvents = evt.events while viz.load() maps the same array into new objects — the full event list is held twice (raw tuples + object copies), and lastMidiLoaded holds a third reference to the whole payload.",
+   "why_it_costs": "Two full copies of every note for a large MIDI, allocated on the load path; the object-per-note copy in visualizer.load (line 70) is a single large allocation burst that can trigger a GC pause right before playback starts.",
+   "fix": "Keep the flat tuple array and index it with constants in the render loop, so the visualizer does not need an object copy at all."
+  },
+  {
+   "file": "renderer/player/app.js",
+   "line": 790,
+   "issue": "new ResizeObserver(drawRangeOverview).observe(els.rangeOverview) — the observer callback is the full redraw, and #map-toggle dispatches a synthetic window 'resize' event on every collapse.",
+   "why_it_costs": "Every layout change (pane grip drag, log collapse, window resize) triggers full-song redraws at observer frequency during the drag.",
+   "fix": "Coalesce the observer callback into the existing render loop's 80 ms overview slot rather than drawing synchronously from the observer."
+  },
+  {
+   "file": "renderer/player/app.js",
+   "line": 198,
+   "issue": "log() appends a new <span> per line with no cap and scrolls to the bottom each time (els.log.scrollTop = els.log.scrollHeight, a forced layout read).",
+   "why_it_costs": "An unbounded DOM list; a chatty session (each load logs several lines, plus warn lines per unmapped note batch) grows it forever, and every append forces a synchronous layout to read scrollHeight.",
+   "fix": "Cap the panel at N lines (drop from the front), and skip the scroll write when the user has scrolled away from the bottom."
+  },
+  {
+   "file": "renderer/player/app.js",
+   "line": 202,
+   "issue": "The 'error' auto-expand block at app.js:198-201 is duplicated verbatim at 202-205 (the second copy can never fire because the first removed the class). Same pattern at applySettingsToUI 231-234, where the transpose slider/label assignment is duplicated.",
+   "why_it_costs": "Dead code, but the first copy already wrote localStorage; harmless cost, real confusion risk for a rewriter.",
+   "fix": "Delete the duplicate blocks."
+  }
+ ],
+ "gotchas": [
+  "app.js:1948-1960 (drawBudgetMs comment) — HARD-WON: the render loop used to redraw as fast as the platform allowed, measured at ~500/sec, BECAUSE backgroundThrottling is off (so playback survives alt-tab) which also removes the vsync cap. It repainted even with no MIDI loaded and the tab hidden. Do not reintroduce a naive rAF loop.",
+  "app.js:1963-1966 + shell.js:62-73 — an iframe CANNOT see that it is off-screen (document.hidden only tracks the window), so the shell stamps data-onscreen=\"0\" on each frame's <html> and dispatches a 'midi-studio:onscreen' event when a tab becomes visible. The player MUST honour dataset.onscreen and stop the loop, and MUST repaintNow() on that event.",
+  "app.js:1971-1977 — the perf budget, the 'a game is running' multiplier and an unfocused penalty used to COMPOUND and landed at 5 fps: the roll teleported note to note. Fix: while playing the budget is floored at min(base,33) i.e. >=30 fps. Playing into a game means this window is normally NOT focused, so unfocused is the usual case, never a reason to go choppy.",
+  "app.js:1979-1982 — rAF handles and setTimeout handles live in two different id spaces and can collide numerically; they are tracked in separate variables (rafId/timerId) so clearTimeout(rafHandle) cannot cancel an unrelated timer.",
+  "app.js:885-892 — the tempo slider used to call loadMidi() directly, which rescaled the visualizer while the engine kept playing the OLD timeline. setTempo() does a proper stop-and-restart at the equivalent musical position (pendingRestartAt = elapsed*prev/new). Also: els.tempo.blur() after 'change' because a focused range input swallows every later arrow keypress meant for the game.",
+  "app.js:1294-1300 (setTempo, paused branch) — when paused, never auto-resume: end the session and pre-seek via pendingSeekAfterLoad so the next Play picks it up.",
+  "app.js:435-437 — a natural end left the visualizer clock parked at the duration, so the next Play seeked to the end and instantly 'finished' again. viz.seek(0) on a natural, non-crashed, non-restart end.",
+  "visualizer.js:36-40 and clockSet():119 — while the user drags the scrubber, incoming 'progress' packets MUST be ignored (dragLock) or the roll flickers between the drag position and the engine's stale elapsed. Every seek path (scrubber drag, scrubber keys, seekRelative hotkey) drag-locks and releases only after a 250 ms delay so the engine has time to process the final seek.",
+  "visualizer.js:125-127 — when the timeline jumps backwards by >0.2 s the render cursor must be reset to 0 or notes behind the new playhead never reappear.",
+  "visualizer.js:92-98 — load() resets the clock to 0 explicitly, otherwise a freshly-loaded MIDI inherits the previous track's scrub position.",
+  "visualizer.js:179-184 — the visualizer must NOT draw its own empty-state caption; the .viz-empty HTML overlay owns it, and drawing both stacked two messages.",
+  "visualizer.js:2-5 — the smooth local extrapolating clock (elapsed() = sync + wall delta) is what stops notes teleporting between progress packets. Do not replace it with 'draw whatever the last packet said'.",
+  "visualizer.js:282-284 — the 9px keyboard label font is deliberately below the normal 12px floor: a white key is only ~19px wide and these are single glyphs. Don't 'fix' it without making the keybed taller.",
+  "app.js:1028-1032 (applyHotkeySettings) — Play/Pause/Stop used to spring back to F6/F7/F8 when cleared, so there was no way to free those keys for the game. Empty MUST mean unbound for all ten, and sendHotkeys()'s status line must not print a label with nothing after it.",
+  "app.js:1141-1151 + suspendHotkeys() — focusing a capture box must suspend the global hotkeys, or pressing the key you are rebinding fires its old action; blur re-sends them.",
+  "app.js:1079-1084 (CODE_CHAR) — hotkey capture reads e.code to get the UNSHIFTED character, so Shift+; binds as ';' not ':'. Numpad/media/+/- fall back to the raw Windows virtual-key code <NNN>, which pynput accepts.",
+  "app.js:1173-1174 — Backspace-while-focused already unbound a key but nothing on screen said so, so keys stayed bound in practice. The injected ✕ .hk-clear button is the visible affordance; the .hk-slot wrapper is created idempotently (guarded by a parentElement class check).",
+  "app.js:1216-1220 + 1232-1243 — every transcription this app makes is stamped 120 BPM by the library that writes it, true or not, so 'source BPM' is untrustworthy. The 'Sounds like N' button offers the note-spacing estimate instead of silently overriding the file. And showBpm() must NOT rewrite #tempo-bpm while it is the activeElement (typing 17 on the way to 174 got rewritten and the caret jumped).",
+  "app.js:1249-1255 (setBpm) — when a requested BPM needs a tempo outside 0.25–3×, say so in the log rather than silently clamping to a tempo nobody asked for.",
+  "app.js:1690-1695 / doStop() — a user stop must ALWAYS send {cmd:'stop'} even when the UI thinks nothing is playing, so a just-dispatched tempo-restart session gets killed rather than continuing. userStopped suppresses the queue advance, the sent/dropped summary and the practice loop in playback_done.",
+  "app.js:1518-1522, 1580-1583 — loading a track is not playing it: starting the engine also FOCUSES the game window, so playback only ever starts on an explicit ask (Play button, a row's play button, a hotkey, or the natural end of the previous track). Row clicks load only.",
+  "app.js:1428-1431 — the queue is a playlist, not a consume-queue: tracks stay after playing, one row is current, any row can be clicked. Removing the current row while it plays is blocked (the ✕ is disabled with an explanatory title).",
+  "app.js:509-511 — the perch button must follow the overlay window's real state (onOverlayState) rather than tracking its own idea of it, because the overlay can also be opened by its global key (Ctrl+Alt+O) or closed by its own X.",
+  "app.js:514-524 + preload.js:30-33 — the overlay can be opened mid-song, after midi_loaded is long gone. The Player tab is the ONLY frame that kept the payload (lastMidiLoaded), so it must answer onOverlayWantsState with both midi_loaded and a synthetic playback_started carrying viz.elapsed().",
+  "electron/main.js:113-125 (broadcast) — engine events are fanned out by walking mainFrame.framesInSubtree and sending to each child frame individually, plus a separate send to the Perch window (the frame walk never reaches a separate window). Every tab therefore receives every engine event; per-frame handlers must tolerate that.",
+  "electron/main.js:247 — main re-broadcasts the last 'ready' payload 60 ms after a frame appears, so a lazily-created tab still gets it. The 'ready' handler must stay idempotent (it calls sendHotkeys + requestWindows + loadMidi).",
+  "electron/main.js:30-33 — backgroundThrottling:false alone is NOT enough; Chromium also backgrounds occluded renderers, which stalls timers. disable-backgrounding-occluded-windows and disable-renderer-backgrounding are both required.",
+  "electron/main.js:346-354 — playing notes into a game is timing-critical (a late keypress is audibly wrong and cannot be caught up), so while playback is live Forge is pushed to background priority exactly as for a running game. Without it the two fight for the same cores and both stutter. Related: forge-runner.js:321-331 sets OMP_NUM_THREADS and OMP_WAIT_POLICY=PASSIVE, because a spinning OpenMP thread never yields even at below-normal priority.",
+  "app.js:910-917 (playOpts) — hand / hand_split / chord_stagger_ms change WHICH notes exist and WHEN they fire, so they must go with every load_midi, play AND export_sheet or the visualizer, the keys sent and the VP sheet disagree.",
+  "app.js:940-952 (showReport) — the ghosting warning exists so the user hears about likely dropped notes BEFORE Play, not after. Ghosting starts past ~6 simultaneous keys on most keyboards.",
+  "app.js:1541-1547 (showMappingNote) — the 36-key roblox layout has no black keys, so every sharp lands on the white key below: it is 'mapped', therefore never reported out of range, and wrong. The collapsed_sharps note must stay or a first-timer blames the transcription.",
+  "resize.js:31-40 — pane sizes are stored with read-merge-write because every tab is a separate frame with its own copy of the module sharing one localStorage; writing a whole snapshot erased the other tabs' entries.",
+  "style.css:812 — body.is-resizing disables the log panel's max-height transition so dragging the grip does not lag behind the pointer.",
+  "midi-library.js:9 — this file runs AFTER app.js in the same frame and depends on the GLOBAL setMidiFile function plus window.studio.listMidis; it bails out silently if either is missing. A rewrite that scopes app.js into a module or renames setMidiFile silently deletes the songs-folder picker.",
+  "midi-library.js:84 — the injected #mapping-folder button is guarded by an existence check so a re-run does not duplicate it.",
+  "app.js:830-837 — the target-window list is refreshed on focus only when NOT playing and at most every 2 s: enumerating windows mid-playback is exactly the kind of work that must not happen.",
+  "index.html:5-6 — a strict CSP (default-src 'self', script-src 'self', no unsafe-eval) is declared inline; no CDN, no inline event handlers, and inline <style> is only allowed via style-src 'unsafe-inline'.",
+  "app.js:450 / 569 — #track-notes does not exist in index.html; it is created by updateTrackStrip()'s innerHTML. Both the progress handler and playback_done guard with `if (tn)`.",
+  "app.js:688-691 — overviewZoom falls back to an identity object when window.TimelineZoom is absent; the range overview must keep working without the shared script."
+ ]
+}
