@@ -1,10 +1,12 @@
 {
-  "generatedAt": "2026-09-07T06:25:04.950Z",
+  "generatedAt": "2026-09-07T09:29:43.234Z",
   "sizes": [
-    "1280x800"
+    "1920x1080",
+    "1040x700"
   ],
   "problems": 0,
   "stubChannelsInvoked": [
+    "app:bootMark",
     "app:bootState",
     "app:changelog",
     "app:forgeInfo",
@@ -15,10 +17,15 @@
     "app:setUi",
     "app:version",
     "app:whatsNew",
+    "engine:send",
     "forge:check",
     "forge:getSettings",
     "library:list",
+    "library:meta",
+    "library:scan",
     "overlay:state",
+    "review:load",
+    "review:pick",
     "win:state"
   ],
   "stubChannelsUnused": [
@@ -38,7 +45,6 @@
     "app:setPerformance",
     "dialog:openMapping",
     "dialog:openMidi",
-    "engine:send",
     "forge:cancel",
     "forge:pause",
     "forge:pickInput",
@@ -51,18 +57,14 @@
     "library:addFolder",
     "library:delete",
     "library:index",
-    "library:meta",
     "library:removeFolder",
     "library:reveal",
-    "library:scan",
     "library:setTags",
     "library:usage",
     "overlay:apply",
     "overlay:snap",
     "overlay:toggle",
     "review:exportMidi",
-    "review:load",
-    "review:pick",
     "review:saveProject",
     "shell:openPath",
     "shell:showItem",
@@ -80,12 +82,78 @@
       "console": 0,
       "truncated": 0,
       "failed": 0
+    },
+    {
+      "page": "forge",
+      "overflow": 0,
+      "popover": 0,
+      "escape": 0,
+      "overlap": 0,
+      "offscreen": 0,
+      "console": 0,
+      "truncated": 0,
+      "failed": 0
+    },
+    {
+      "page": "editor",
+      "overflow": 0,
+      "popover": 0,
+      "escape": 0,
+      "overlap": 0,
+      "offscreen": 0,
+      "console": 0,
+      "truncated": 0,
+      "failed": 0
+    },
+    {
+      "page": "player",
+      "overflow": 0,
+      "popover": 0,
+      "escape": 0,
+      "overlap": 0,
+      "offscreen": 0,
+      "console": 0,
+      "truncated": 0,
+      "failed": 0
+    },
+    {
+      "page": "selfmidi",
+      "overflow": 0,
+      "popover": 0,
+      "escape": 0,
+      "overlap": 0,
+      "offscreen": 0,
+      "console": 0,
+      "truncated": 0,
+      "failed": 0
+    },
+    {
+      "page": "logs",
+      "overflow": 0,
+      "popover": 0,
+      "escape": 0,
+      "overlap": 0,
+      "offscreen": 0,
+      "console": 0,
+      "truncated": 0,
+      "failed": 0
+    },
+    {
+      "page": "library",
+      "overflow": 0,
+      "popover": 0,
+      "escape": 0,
+      "overlap": 0,
+      "offscreen": 0,
+      "console": 0,
+      "truncated": 0,
+      "failed": 0
     }
   ],
   "results": [
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "boot",
       "counts": {
         "overflow": 0,
@@ -107,7 +175,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "busy",
       "counts": {
         "overflow": 0,
@@ -129,7 +197,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "palette",
       "counts": {
         "overflow": 0,
@@ -151,7 +219,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "palette-empty",
       "counts": {
         "overflow": 0,
@@ -173,7 +241,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "settings-appearance",
       "counts": {
         "overflow": 0,
@@ -195,7 +263,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "settings-playback",
       "counts": {
         "overflow": 0,
@@ -217,7 +285,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "settings-performance",
       "counts": {
         "overflow": 0,
@@ -239,7 +307,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "settings-forge",
       "counts": {
         "overflow": 0,
@@ -261,7 +329,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "settings-storage",
       "counts": {
         "overflow": 0,
@@ -283,7 +351,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "settings-updates",
       "counts": {
         "overflow": 0,
@@ -305,7 +373,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "settings-overlay",
       "counts": {
         "overflow": 0,
@@ -327,7 +395,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "settings-about",
       "counts": {
         "overflow": 0,
@@ -349,7 +417,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "logs-unwatched",
       "counts": {
         "overflow": 0,
@@ -371,7 +439,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "logs-tab",
       "counts": {
         "overflow": 0,
@@ -393,7 +461,7 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "whatsnew",
       "counts": {
         "overflow": 0,
@@ -415,8 +483,976 @@
     },
     {
       "page": "shell",
-      "size": "1280x800",
+      "size": "1920x1080",
       "state": "whatsnew-available",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "forge",
+      "size": "1920x1080",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "forge",
+      "size": "1920x1080",
+      "state": "running",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "editor",
+      "size": "1920x1080",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "editor",
+      "size": "1920x1080",
+      "state": "loaded",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "player",
+      "size": "1920x1080",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "player",
+      "size": "1920x1080",
+      "state": "loaded",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "player",
+      "size": "1920x1080",
+      "state": "playing",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "selfmidi",
+      "size": "1920x1080",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "selfmidi",
+      "size": "1920x1080",
+      "state": "loaded",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "logs",
+      "size": "1920x1080",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "logs",
+      "size": "1920x1080",
+      "state": "filled",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "logs",
+      "size": "1920x1080",
+      "state": "filtered-empty",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "library",
+      "size": "1920x1080",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "library",
+      "size": "1920x1080",
+      "state": "row-selected",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "boot",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "busy",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "palette",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "palette-empty",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "settings-appearance",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "settings-playback",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "settings-performance",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "settings-forge",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "settings-storage",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "settings-updates",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "settings-overlay",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "settings-about",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "logs-unwatched",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "logs-tab",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "whatsnew",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "shell",
+      "size": "1040x700",
+      "state": "whatsnew-available",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "forge",
+      "size": "1040x700",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "forge",
+      "size": "1040x700",
+      "state": "running",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "editor",
+      "size": "1040x700",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "editor",
+      "size": "1040x700",
+      "state": "loaded",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "player",
+      "size": "1040x700",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "player",
+      "size": "1040x700",
+      "state": "loaded",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "player",
+      "size": "1040x700",
+      "state": "playing",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "selfmidi",
+      "size": "1040x700",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "selfmidi",
+      "size": "1040x700",
+      "state": "loaded",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "logs",
+      "size": "1040x700",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "logs",
+      "size": "1040x700",
+      "state": "filled",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "logs",
+      "size": "1040x700",
+      "state": "filtered-empty",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "library",
+      "size": "1040x700",
+      "state": "default",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "library",
+      "size": "1040x700",
+      "state": "row-selected",
       "counts": {
         "overflow": 0,
         "popover": 0,

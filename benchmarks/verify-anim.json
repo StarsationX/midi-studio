@@ -1,0 +1,277 @@
+{
+  "at": "2026-09-07T09:26:06.020Z",
+  "seconds": 30,
+  "rows": [
+    {
+      "variant": "floor-nopulse",
+      "parked": false,
+      "minimized": false,
+      "seconds": 30,
+      "running": [],
+      "diag": {
+        "hidden": false,
+        "parkedAttr": false,
+        "drawParked": false
+      },
+      "cpu": {
+        "browser": {
+          "meanPct": 0.006,
+          "p95Pct": 0.009,
+          "maxPct": 0.018
+        },
+        "gpu": {
+          "meanPct": 0.005,
+          "p95Pct": 0.011,
+          "maxPct": 0.017
+        },
+        "utility": {
+          "meanPct": 0,
+          "p95Pct": 0.001,
+          "maxPct": 0.005
+        },
+        "renderer": {
+          "meanPct": 0.004,
+          "p95Pct": 0.009,
+          "maxPct": 0.099
+        }
+      },
+      "taskMsPerSec": 0.04,
+      "styleMsPerSec": 0,
+      "layoutMsPerSec": 0
+    },
+    {
+      "variant": "visible-pulse",
+      "parked": false,
+      "minimized": false,
+      "seconds": 30,
+      "running": [
+        "shell span.dot ok is-blocked [dot-pulse]",
+        "shell span.dot is-blocked [dot-pulse]"
+      ],
+      "diag": {
+        "hidden": false,
+        "parkedAttr": false,
+        "drawParked": false
+      },
+      "cpu": {
+        "browser": {
+          "meanPct": 0.006,
+          "p95Pct": 0.008,
+          "maxPct": 0.01
+        },
+        "gpu": {
+          "meanPct": 2.705,
+          "p95Pct": 2.774,
+          "maxPct": 2.828
+        },
+        "utility": {
+          "meanPct": 0,
+          "p95Pct": 0.001,
+          "maxPct": 0.001
+        },
+        "renderer": {
+          "meanPct": 0.994,
+          "p95Pct": 1.022,
+          "maxPct": 1.027
+        }
+      },
+      "taskMsPerSec": 2.38,
+      "styleMsPerSec": 0,
+      "layoutMsPerSec": 0
+    },
+    {
+      "variant": "visible-willchange",
+      "parked": false,
+      "minimized": false,
+      "seconds": 30,
+      "running": [
+        "shell span.dot ok is-blocked [dot-pulse]",
+        "shell span.dot is-blocked [dot-pulse]"
+      ],
+      "diag": {
+        "hidden": false,
+        "parkedAttr": false,
+        "drawParked": false
+      },
+      "cpu": {
+        "browser": {
+          "meanPct": 0.009,
+          "p95Pct": 0.01,
+          "maxPct": 0.098
+        },
+        "gpu": {
+          "meanPct": 2.709,
+          "p95Pct": 2.785,
+          "maxPct": 2.805
+        },
+        "utility": {
+          "meanPct": 0,
+          "p95Pct": 0.001,
+          "maxPct": 0.002
+        },
+        "renderer": {
+          "meanPct": 0.993,
+          "p95Pct": 1.016,
+          "maxPct": 1.028
+        }
+      },
+      "taskMsPerSec": 2.28,
+      "styleMsPerSec": 0,
+      "layoutMsPerSec": 0
+    },
+    {
+      "variant": "parked-pulse",
+      "parked": true,
+      "minimized": false,
+      "seconds": 30,
+      "running": [],
+      "diag": {
+        "hidden": false,
+        "parkedAttr": true,
+        "drawParked": true
+      },
+      "cpu": {
+        "browser": {
+          "meanPct": 0.006,
+          "p95Pct": 0.008,
+          "maxPct": 0.012
+        },
+        "gpu": {
+          "meanPct": 0.006,
+          "p95Pct": 0.008,
+          "maxPct": 0.009
+        },
+        "utility": {
+          "meanPct": 0,
+          "p95Pct": 0.001,
+          "maxPct": 0.006
+        },
+        "renderer": {
+          "meanPct": 0,
+          "p95Pct": 0.002,
+          "maxPct": 0.003
+        }
+      },
+      "taskMsPerSec": 0.01,
+      "styleMsPerSec": 0,
+      "layoutMsPerSec": 0
+    },
+    {
+      "variant": "parked-unpaused",
+      "parked": true,
+      "minimized": false,
+      "seconds": 30,
+      "running": [
+        "shell span.dot ok is-blocked [dot-pulse]",
+        "shell span.dot is-blocked [dot-pulse]"
+      ],
+      "diag": {
+        "hidden": false,
+        "parkedAttr": true,
+        "drawParked": true
+      },
+      "cpu": {
+        "browser": {
+          "meanPct": 0.006,
+          "p95Pct": 0.009,
+          "maxPct": 0.011
+        },
+        "gpu": {
+          "meanPct": 2.728,
+          "p95Pct": 2.768,
+          "maxPct": 2.811
+        },
+        "utility": {
+          "meanPct": 0,
+          "p95Pct": 0.001,
+          "maxPct": 0.001
+        },
+        "renderer": {
+          "meanPct": 0.995,
+          "p95Pct": 1.026,
+          "maxPct": 1.027
+        }
+      },
+      "taskMsPerSec": 2.33,
+      "styleMsPerSec": 0,
+      "layoutMsPerSec": 0
+    },
+    {
+      "variant": "minimized",
+      "parked": false,
+      "minimized": true,
+      "seconds": 30,
+      "running": [],
+      "diag": {
+        "hidden": false,
+        "parkedAttr": true,
+        "drawParked": true
+      },
+      "cpu": {
+        "browser": {
+          "meanPct": 0.006,
+          "p95Pct": 0.008,
+          "maxPct": 0.008
+        },
+        "gpu": {
+          "meanPct": 0.005,
+          "p95Pct": 0.008,
+          "maxPct": 0.008
+        },
+        "utility": {
+          "meanPct": 0,
+          "p95Pct": 0.001,
+          "maxPct": 0.001
+        },
+        "renderer": {
+          "meanPct": 0,
+          "p95Pct": 0.001,
+          "maxPct": 0.003
+        }
+      },
+      "taskMsPerSec": 0.01,
+      "styleMsPerSec": 0,
+      "layoutMsPerSec": 0
+    },
+    {
+      "variant": "minimized-unpaused",
+      "parked": false,
+      "minimized": true,
+      "seconds": 30,
+      "running": [
+        "shell span.dot ok is-blocked [dot-pulse]",
+        "shell span.dot is-blocked [dot-pulse]"
+      ],
+      "diag": {
+        "hidden": false,
+        "parkedAttr": true,
+        "drawParked": true
+      },
+      "cpu": {
+        "browser": {
+          "meanPct": 0.006,
+          "p95Pct": 0.008,
+          "maxPct": 0.009
+        },
+        "gpu": {
+          "meanPct": 0.213,
+          "p95Pct": 0.219,
+          "maxPct": 0.225
+        },
+        "utility": {
+          "meanPct": 0,
+          "p95Pct": 0.001,
+          "maxPct": 0.001
+        },
+        "renderer": {
+          "meanPct": 0.005,
+          "p95Pct": 0.009,
+          "maxPct": 0.01
+        }
+      },
+      "taskMsPerSec": 0.07,
+      "styleMsPerSec": 0,
+      "layoutMsPerSec": 0
+    }
+  ]
+}

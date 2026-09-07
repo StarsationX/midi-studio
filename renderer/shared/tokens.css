@@ -260,6 +260,11 @@ input::placeholder { color: var(--text-3); }
   animation: indet 1.15s var(--ease-standard) infinite;
 }
 @keyframes indet { from { transform: translateX(-100%); } to { transform: translateX(312%); } }
+/* An indeterminate bar sweeping for a whole download inside a panel that is not
+   the visible tab costs a composite per vsync for nobody. draw.js stamps
+   data-parked for exactly that case; see the block in ui.css for the numbers.
+   Paused, so it resumes mid-sweep the moment the panel is on screen again. */
+:root[data-parked] .bar-fill.indet { animation-play-state: paused; }
 
 /* ---- status dot ---- */
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: 0 0 auto; }

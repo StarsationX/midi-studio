@@ -1,0 +1,275 @@
+{
+  "at": "2026-09-07T07:06:49.886Z",
+  "node": "v22.18.0",
+  "forgePython": "C:\\Users\\stars\\AppData\\Local\\midi-studio\\forge-env\\python\\python.exe",
+  "forgeDir": "C:\\Users\\stars\\AppData\\Local\\midi-studio\\forge-env",
+  "results": {
+    "static": [
+      {
+        "name": "separate python.exe processes started per piano job",
+        "unit": "processes",
+        "value": 4,
+        "detail": "song_to_midi.py (the job itself, imports torch + pretty_midi) @ forge-runner.js:_spawnJob | msst/inference.py @ song_to_midi.py:173 | transcribe_fast.py @ song_to_midi.py:277 | stem_to_midi.py (only when Transkun under-reads) @ song_to_midi.py:?",
+        "note": "each one imports torch from scratch; none are reused between queued jobs"
+      },
+      {
+        "name": "full decodes of the same audio inside one piano job",
+        "unit": "decodes",
+        "value": 5,
+        "detail": "MSST inference.py reads the staged input @ song_to_midi.py:177 | normalize_wav_in_place reads + rewrites the piano stem @ audio_utils.py:32 | transcribe_fast readAudio() decodes the stem again @ transcribe_fast.py:146 | recover_sparse_piano reads the stem for its duration @ song_to_midi.py:339 | stem_to_midi.py decodes the stem a fourth time (fallback path only) @ song_to_midi.py:?"
+      },
+      {
+        "name": "scratch artefacts written per job (deleted unless FORGE_KEEP_STEMS=1)",
+        "unit": "artefacts",
+        "value": 5,
+        "detail": "work/<name>-<hash>/input/<staged copy or hardlink> @ song_to_midi.py:98 | work/<name>-<hash>/stems/*.wav  (6 stems, multi-GB) @ song_to_midi.py:178 | work/<name>-<hash>/bs_rofo_inference.yaml @ song_to_midi.py:157 | work/<name>-<hash>/general_mix.wav (general mode) @ song_to_midi.py:239 | work/<name>-<hash>/fallback_basic_pitch.mid @ song_to_midi.py:349"
+      },
+      {
+        "name": "ForgeRunner keeps a warm worker alive between queued jobs",
+        "unit": "bool",
+        "value": 0,
+        "note": "run() calls _spawnJob() which spawns a brand new interpreter every time; two queued jobs on the same pipeline reload every checkpoint"
+      }
+    ],
+    "pump": [
+      {
+        "name": "forge-runner makePump: splits on CR, caps its buffer",
+        "unit": "bool",
+        "splitsOnCarriageReturn": 1,
+        "capsBuffer": 1
+      },
+      {
+        "name": "forge-provisioner pump: splits on CR, caps its buffer",
+        "unit": "bool",
+        "splitsOnCarriageReturn": 0,
+        "capsBuffer": 0,
+        "synchronousDiskWritePerChunk": 1,
+        "note": "setup output is teed to forge-setup.log with a BLOCKING fs.writeSync on every chunk"
+      },
+      {
+        "name": "forge-runner makePump: 20000 CR-only chunks with no newline",
+        "unit": "ms total",
+        "totalMs": 18.3179,
+        "msPerChunk": 0.0009158950000000001,
+        "linesEmitted": 19999,
+        "bytesStillBuffered": 76
+      },
+      {
+        "name": "forge-provisioner pump: 20000 CR-only chunks with no newline",
+        "unit": "ms total",
+        "totalMs": 6889.8687,
+        "msPerChunk": 0.344493435,
+        "linesEmitted": 0,
+        "bytesStillBuffered": 1918903
+      }
+    ],
+    "decode": [
+      {
+        "name": "sf.write 4min stereo wav (240 s of 44.1 kHz stereo)",
+        "unit": "ms",
+        "n": 1,
+        "mean": 108.8,
+        "p50": 108.8,
+        "p95": 108.8,
+        "p99": 108.8,
+        "max": 108.8
+      },
+      {
+        "name": "sf.read (normalize_wav_in_place reads this way) (240 s of 44.1 kHz stereo)",
+        "unit": "ms",
+        "n": 3,
+        "mean": 45.333333333333336,
+        "p50": 45.2,
+        "p95": 48.9,
+        "p99": 48.9,
+        "max": 48.9
+      },
+      {
+        "name": "import librosa (cold, per process) (240 s of 44.1 kHz stereo)",
+        "unit": "ms",
+        "n": 1,
+        "mean": 4.4,
+        "p50": 4.4,
+        "p95": 4.4,
+        "p99": 4.4,
+        "max": 4.4
+      },
+      {
+        "name": "librosa.load FIRST call in the process (audio_window_from_env) (240 s of 44.1 kHz stereo)",
+        "unit": "ms",
+        "n": 1,
+        "mean": 1840.7,
+        "p50": 1840.7,
+        "p95": 1840.7,
+        "p99": 1840.7,
+        "max": 1840.7
+      },
+      {
+        "name": "librosa.load warm (240 s of 44.1 kHz stereo)",
+        "unit": "ms",
+        "n": 3,
+        "mean": 40.1,
+        "p50": 39.9,
+        "p95": 40.9,
+        "p99": 40.9,
+        "max": 40.9
+      },
+      {
+        "name": "transkun readAudio (transcribe_fast decodes the stem) (240 s of 44.1 kHz stereo)",
+        "unit": "ms",
+        "n": 3,
+        "mean": 78.63333333333334,
+        "p50": 76.7,
+        "p95": 84.4,
+        "p99": 84.4,
+        "max": 84.4
+      },
+      {
+        "name": "full decodes of the same audio per piano job",
+        "unit": "passes",
+        "value": 5,
+        "note": "see the static group for the five file:line sites; multiply one pass by five"
+      }
+    ],
+    "orphan": [
+      {
+        "name": "one synchronous tasklist.exe probe (isOurPython, forge-runner.js:130)",
+        "unit": "ms",
+        "coldFirstCall": 139.0701,
+        "n": 20,
+        "mean": 106.60410999999999,
+        "p50": 101.2611,
+        "p95": 161.6955,
+        "p99": 161.6955,
+        "max": 161.6955
+      },
+      {
+        "name": "pids currently in forge-jobs.json (each costs one probe at boot)",
+        "unit": "pids",
+        "value": 1,
+        "path": "C:\\Users\\stars\\AppData\\Roaming\\midi-studio\\forge-jobs.json",
+        "contents": "[32352]"
+      },
+      {
+        "name": "reapOrphanJobs uses synchronous execFileSync",
+        "unit": "bool",
+        "value": 1,
+        "note": "blocks the main thread; called from main.js before the window is usable"
+      }
+    ],
+    "tqdm": [
+      {
+        "name": "tqdm writes, msst-chunks-100ms",
+        "unit": "lines/s",
+        "seconds": 12.079,
+        "writes": 124,
+        "linesPerSecond": 10.265750476032784,
+        "bytesPerSecond": 687.2257637221624,
+        "carriageReturns": 123
+      },
+      {
+        "name": "tqdm writes, msst-chunks-20ms",
+        "unit": "lines/s",
+        "seconds": 10.155,
+        "writes": 104,
+        "linesPerSecond": 10.241260462826194,
+        "bytesPerSecond": 680.1575578532743,
+        "carriageReturns": 103
+      },
+      {
+        "name": "tqdm writes, unpaced-loop",
+        "unit": "lines/s",
+        "seconds": 0.044,
+        "writes": 4,
+        "linesPerSecond": 90.90909090909092,
+        "bytesPerSecond": 2613.636363636364,
+        "carriageReturns": 3
+      },
+      {
+        "name": "yt_download.py sets progress_delta (yt-dlp progress throttle)",
+        "unit": "bool",
+        "value": 0,
+        "note": "unset -> one line per read block; block size doubles to a 4 MB cap (yt_dlp/downloader/common.py best_block_size), so steady state is ~rate/4MB lines per second after a short burst of ~12 lines while it ramps"
+      }
+    ],
+    "probe": [
+      {
+        "name": "forge interpreter cold start (python -c pass)",
+        "unit": "ms",
+        "n": 5,
+        "mean": 43.24874,
+        "p50": 43.3602,
+        "p95": 46.4275,
+        "p99": 46.4275,
+        "max": 46.4275
+      },
+      {
+        "name": "python -c \"import torch\" (no CUDA call)",
+        "unit": "ms",
+        "n": 3,
+        "mean": 2367.1587666666665,
+        "p50": 2332.2306,
+        "p95": 2475.1056,
+        "p99": 2475.1056,
+        "max": 2475.1056
+      },
+      {
+        "name": "env_probe.py end to end (what forge:check spawns)",
+        "unit": "ms",
+        "n": 3,
+        "mean": 2717.0073333333335,
+        "p50": 2587.0754,
+        "p95": 3002.9865,
+        "p99": 3002.9865,
+        "max": 3002.9865,
+        "lastLine": "{\"torch\": true, \"cuda\": true, \"dml\": false, \"gpu\": \"NVIDIA GeForce RTX 5060\", \"transkun\": true, \"basic_pitch\": true, \"yt_dlp\": true}"
+      },
+      {
+        "name": "ForgeRunner.check() de-duplicates concurrent callers",
+        "unit": "bool",
+        "value": 0,
+        "note": "NO in-flight guard: every caller spawns its own torch import"
+      }
+    ],
+    "model": [
+      {
+        "name": "checkpoint on disk: transkun 2.0.pt",
+        "unit": "bytes",
+        "value": 56408978,
+        "path": "C:\\Users\\stars\\AppData\\Local\\midi-studio\\forge-env\\python\\Lib\\site-packages\\transkun\\pretrained\\2.0.pt"
+      },
+      {
+        "name": "checkpoint on disk: BS-Rofo-SW-Fixed.ckpt",
+        "unit": "bytes",
+        "value": 699412152,
+        "path": "C:\\Users\\stars\\AppData\\Local\\midi-studio\\forge-env\\models\\bs_rofo_sw\\BS-Rofo-SW-Fixed.ckpt"
+      },
+      {
+        "name": "torch.load(transkun 2.0.pt, map_location=cpu), warm page cache",
+        "unit": "ms",
+        "n": 3,
+        "mean": 23.7,
+        "p50": 21.3,
+        "p95": 29.1,
+        "p99": 29.1,
+        "max": 29.1
+      },
+      {
+        "name": "torch.load(BS-Rofo-SW-Fixed.ckpt, map_location=cpu), warm page cache",
+        "unit": "ms",
+        "n": 3,
+        "mean": 289.59999999999997,
+        "p50": 289.7,
+        "p95": 314.9,
+        "p99": 314.9,
+        "max": 314.9
+      },
+      {
+        "name": "load_model() calls per transcribe_fast.py run on the CUDA path",
+        "unit": "calls",
+        "value": 2,
+        "note": "transcribe_fast.py:145 model = load_model(); transcribe_fast.py:170 producer_model = load_model() if backend == \"cuda\""
+      }
+    ]
+  }
+}

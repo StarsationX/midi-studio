@@ -1,0 +1,462 @@
+{
+  "at": "2026-09-07T07:01:29.298Z",
+  "electron": "32.3.3",
+  "node": "20.18.1",
+  "cycles": 5,
+  "docNotes": 30000,
+  "results": {
+    "fanout": [
+      {
+        "name": "broadcast forge.log x2000, only the default tab loaded",
+        "unit": "ms/broadcast",
+        "n": 2000,
+        "mean": 0.04984945000335574,
+        "p50": 0.03989999741315842,
+        "p95": 0.09869999811053276,
+        "p99": 0.16740000247955322,
+        "max": 0.43230000138282776,
+        "sendsPerBroadcast": 7,
+        "framesInSubtree": 7
+      },
+      {
+        "name": "frames in subtree (all 6 tabs loaded)",
+        "value": 7,
+        "unit": "frames"
+      },
+      {
+        "name": "broadcast forge.log x200 back-to-back",
+        "unit": "ms/broadcast",
+        "n": 200,
+        "mean": 0.0946970003284514,
+        "p50": 0.09530000016093254,
+        "p95": 0.15049999952316284,
+        "p99": 0.2816000021994114,
+        "max": 0.28490000218153,
+        "sendsPerBroadcast": 7,
+        "totalSends": 1400,
+        "totalWallMs": 19.6739999987185,
+        "bytesSerialised": 240800
+      },
+      {
+        "name": "broadcast forge.log x2000 back-to-back",
+        "unit": "ms/broadcast",
+        "n": 2000,
+        "mean": 0.07643784998357296,
+        "p50": 0.07149999961256981,
+        "p95": 0.13900000229477882,
+        "p99": 0.298700001090765,
+        "max": 0.3718999996781349,
+        "sendsPerBroadcast": 7,
+        "totalSends": 14000,
+        "totalWallMs": 157.2694999985397,
+        "bytesSerialised": 2408000
+      },
+      {
+        "name": "sustained ~10 lines/s for 3s",
+        "unit": "ms/broadcast",
+        "n": 30,
+        "mean": 0.1551166666050752,
+        "p50": 0.15189999714493752,
+        "p95": 0.23680000007152557,
+        "p99": 0.2621999979019165,
+        "max": 0.2621999979019165,
+        "linesSent": 30,
+        "actualLinesPerSecond": 9.962036009044285,
+        "sendsPerSecond": 69.73425206331,
+        "mainCpuPercent": 0.15452778183226765,
+        "loopLagP99": 1.8124000020325184,
+        "loopLagMax": 3.059500001370907
+      },
+      {
+        "name": "sustained ~100 lines/s for 3s",
+        "unit": "ms/broadcast",
+        "n": 289,
+        "mean": 0.16714498266629282,
+        "p50": 0.1598000004887581,
+        "p95": 0.2394999973475933,
+        "p99": 0.43400000035762787,
+        "max": 0.5656000003218651,
+        "linesSent": 289,
+        "actualLinesPerSecond": 96.25762029785692,
+        "sendsPerSecond": 673.8033420849985,
+        "mainCpuPercent": 1.6088978276183892,
+        "loopLagP99": 1.9993000030517578,
+        "loopLagMax": 3.2076999992132187
+      },
+      {
+        "name": "sustained ~1000 lines/s for 3s",
+        "unit": "ms/broadcast",
+        "n": 2158,
+        "mean": 0.12868985174477543,
+        "p50": 0.12000000104308128,
+        "p95": 0.21119999885559082,
+        "p99": 0.34359999746084213,
+        "max": 0.8568999990820885,
+        "linesSent": 2158,
+        "actualLinesPerSecond": 718.8639151969811,
+        "sendsPerSecond": 5032.047406378868,
+        "mainCpuPercent": 9.251049067136831,
+        "loopLagP99": 2.5060000009834766,
+        "loopLagMax": 21.135999999940395
+      },
+      {
+        "name": "frames that subscribe to 'forge:status'",
+        "unit": "frames",
+        "subscribers": "shell,forge",
+        "subscriberCount": 2,
+        "sendsPerBroadcast": 7,
+        "wastedSendsPerBroadcast": 5,
+        "wastedFraction": 0.7142857142857143
+      },
+      {
+        "name": "frames that subscribe to 'engine-event'",
+        "unit": "frames",
+        "subscribers": "shell,player",
+        "subscriberCount": 2,
+        "sendsPerBroadcast": 7,
+        "wastedSendsPerBroadcast": 5,
+        "wastedFraction": 0.7142857142857143
+      },
+      {
+        "name": "frames that subscribe to 'engine-error'",
+        "unit": "frames",
+        "subscribers": "shell,player",
+        "subscriberCount": 2,
+        "sendsPerBroadcast": 7,
+        "wastedSendsPerBroadcast": 5,
+        "wastedFraction": 0.7142857142857143
+      },
+      {
+        "name": "frames that subscribe to 'library-changed'",
+        "unit": "frames",
+        "subscribers": "shell,player",
+        "subscriberCount": 2,
+        "sendsPerBroadcast": 7,
+        "wastedSendsPerBroadcast": 5,
+        "wastedFraction": 0.7142857142857143
+      },
+      {
+        "name": "frames that subscribe to 'game-active'",
+        "unit": "frames",
+        "subscribers": "shell",
+        "subscriberCount": 1,
+        "sendsPerBroadcast": 7,
+        "wastedSendsPerBroadcast": 6,
+        "wastedFraction": 0.8571428571428571
+      },
+      {
+        "name": "frames that subscribe to 'overlay-state'",
+        "unit": "frames",
+        "subscribers": "shell",
+        "subscriberCount": 1,
+        "sendsPerBroadcast": 7,
+        "wastedSendsPerBroadcast": 6,
+        "wastedFraction": 0.8571428571428571
+      },
+      {
+        "name": "the same 2000 broadcasts addressed only to the shell + Forge frames",
+        "unit": "ms/broadcast",
+        "n": 2000,
+        "mean": 0.020773850064724684,
+        "p50": 0.01680000126361847,
+        "p95": 0.04280000180006027,
+        "p99": 0.06890000030398369,
+        "max": 0.41499999910593033,
+        "sendsPerBroadcast": 2,
+        "note": "the headroom a per-channel frame filter would recover; not a change to the app"
+      }
+    ],
+    "pump": [
+      {
+        "name": "real ForgeRunner job, pipeline emitting ~10 lines/s for 5s",
+        "unit": "ms/emit",
+        "n": 96,
+        "mean": 0.1429927081335336,
+        "p50": 0.139699999243021,
+        "p95": 0.22599999979138374,
+        "p99": 0.27380000054836273,
+        "max": 0.27380000054836273,
+        "wallSeconds": 5.188622500002384,
+        "emitsByEvent": "forge.progress=40 forge.log=56 forge.done=1",
+        "totalEmits": 97,
+        "emitsPerSecond": 18.69474990711994,
+        "ipcSends": 672,
+        "ipcBytes": 98987,
+        "mainCpuPercent": 0.2645654021045647,
+        "loopLagP99": 2.30180000141263,
+        "loopLagMax": 18.61490000039339
+      },
+      {
+        "name": "real ForgeRunner job, pipeline emitting ~100 lines/s for 5s",
+        "unit": "ms/emit",
+        "n": 546,
+        "mean": 0.16501556768085493,
+        "p50": 0.15450000017881393,
+        "p95": 0.26579999923706055,
+        "p99": 0.4620000012218952,
+        "max": 0.5738000012934208,
+        "wallSeconds": 5.951819099999964,
+        "emitsByEvent": "forge.progress=40 forge.log=506 forge.done=1",
+        "totalEmits": 547,
+        "emitsPerSecond": 91.90467499255871,
+        "ipcSends": 3822,
+        "ipcBytes": 655879,
+        "mainCpuPercent": 1.5137976884033209,
+        "loopLagP99": 4.680700000375509,
+        "loopLagMax": 13.317800000309944
+      },
+      {
+        "name": "real ForgeRunner job, pipeline emitting ~1000 lines/s for 5s",
+        "unit": "ms/emit",
+        "n": 5046,
+        "mean": 0.12109694808641809,
+        "p50": 0.11649999767541885,
+        "p95": 0.1898999996483326,
+        "p99": 0.3060999996960163,
+        "max": 0.9189999997615814,
+        "wallSeconds": 8.394273899998517,
+        "emitsByEvent": "forge.progress=40 forge.log=5006 forge.done=1",
+        "totalEmits": 5047,
+        "emitsPerSecond": 601.2431879308693,
+        "ipcSends": 35322,
+        "ipcBytes": 6319292,
+        "mainCpuPercent": 7.27942889788447,
+        "loopLagP99": 2.887499999254942,
+        "loopLagMax": 18.733800001442432
+      }
+    ],
+    "lag": [
+      {
+        "name": "sidecar alone, Forge idle",
+        "unit": "ms (deviation from the 50 ms sidecar cadence)",
+        "n": 160,
+        "mean": 0.18961000002454967,
+        "p50": 0.17479999735951424,
+        "p95": 0.42330000177025795,
+        "p99": 0.5529999993741512,
+        "max": 0.7426000013947487,
+        "packets": 160,
+        "seconds": 8.001234000001103,
+        "skewSpreadP99MinusP50": 0.2491474151611328,
+        "skewMaxMinusP50": 0.274658203125,
+        "forgeEmitsDuringWindow": 0,
+        "forgeIpcSends": 1120,
+        "forgeIpcSendsPerSecond": 139.9784083304957,
+        "loopLagP99": 1.4937000013887882,
+        "loopLagMax": 2.0113999992609024
+      },
+      {
+        "name": "sidecar + Forge at ~10 lines/s (the measured tqdm rate)",
+        "unit": "ms (deviation from the 50 ms sidecar cadence)",
+        "n": 160,
+        "mean": 0.20297749997116626,
+        "p50": 0.1615999974310398,
+        "p95": 0.5339000001549721,
+        "p99": 0.7842000015079975,
+        "max": 0.8253000006079674,
+        "packets": 160,
+        "seconds": 7.999912900000811,
+        "skewSpreadP99MinusP50": 0.22983551025390625,
+        "skewMaxMinusP50": 0.2372264862060547,
+        "forgeEmitsDuringWindow": 130,
+        "forgeIpcSends": 2149,
+        "forgeIpcSendsPerSecond": 268.6279246865028,
+        "loopLagP99": 1.5383000001311302,
+        "loopLagMax": 2.03660000115633
+      },
+      {
+        "name": "sidecar + Forge at ~100 lines/s",
+        "unit": "ms (deviation from the 50 ms sidecar cadence)",
+        "n": 160,
+        "mean": 0.22160312491469086,
+        "p50": 0.17980000004172325,
+        "p95": 0.6451000012457371,
+        "p99": 0.9737999998033047,
+        "max": 1.203999999910593,
+        "packets": 160,
+        "seconds": 8.000498300001025,
+        "skewSpreadP99MinusP50": 0.9567737579345703,
+        "skewMaxMinusP50": 0.9760856628417969,
+        "forgeEmitsDuringWindow": 914,
+        "forgeIpcSends": 7672,
+        "forgeIpcSendsPerSecond": 958.940270007809,
+        "loopLagP99": 1.9618999995291233,
+        "loopLagMax": 3.4814999997615814
+      },
+      {
+        "name": "sidecar + Forge at ~1000 lines/s",
+        "unit": "ms (deviation from the 50 ms sidecar cadence)",
+        "n": 160,
+        "mean": 0.21709812514018267,
+        "p50": 0.1770000010728836,
+        "p95": 0.517900001257658,
+        "p99": 0.8471000008285046,
+        "max": 0.9580000005662441,
+        "packets": 160,
+        "seconds": 8.00003879999742,
+        "skewSpreadP99MinusP50": 0.24843215942382812,
+        "skewMaxMinusP50": 0.8099079132080078,
+        "forgeEmitsDuringWindow": 9495,
+        "forgeIpcSends": 68530,
+        "forgeIpcSendsPerSecond": 8566.208453891762,
+        "loopLagP99": 1.8456999994814396,
+        "loopLagMax": 3.017900001257658
+      }
+    ],
+    "run": [
+      {
+        "name": "one job, 120s of pipeline output at the measured 10 lines/s",
+        "unit": "ms/emit",
+        "n": 1246,
+        "mean": 0.16955513640472825,
+        "p50": 0.1655000001192093,
+        "p95": 0.22369999811053276,
+        "p99": 0.35580000281333923,
+        "max": 0.5229000002145767,
+        "wallSeconds": 121.92937299999967,
+        "emitsByEvent": "forge.progress=40 forge.log=1206 forge.done=1",
+        "totalEmits": 1247,
+        "totalIpcSends": 8722,
+        "totalIpcBytes": 1514793,
+        "mainThreadMsSpentFanningOut": 211.26569996029139,
+        "mainCpuPercent": 0.17326891360319877,
+        "loopLagP99": 1.5413000024855137,
+        "loopLagMax": 9.621500000357628
+      }
+    ],
+    "memory": [
+      {
+        "name": "documents actually opened during the run",
+        "unit": "loads",
+        "value": 5,
+        "note": "each cycle really did load a fresh 30k-note document"
+      },
+      {
+        "name": "renderer V8 heap over 5 open/close cycles (after forced GC)",
+        "unit": "bytes",
+        "baseline": 13936348,
+        "afterFirstCycle": 22018552,
+        "afterLastCycle": 22155696,
+        "growthPerCycleAfterFirst": 34286
+      },
+      {
+        "name": "renderer process working set over 5 cycles",
+        "unit": "bytes",
+        "baseline": 148480000,
+        "afterFirstCycle": 212082688,
+        "afterLastCycle": 207273984,
+        "growthPerCycleAfterFirst": -1202176
+      },
+      {
+        "name": "main-process V8 heap over 5 cycles",
+        "unit": "bytes",
+        "baseline": 7153668,
+        "afterFirstCycle": 5834940,
+        "afterLastCycle": 17983512,
+        "growthPerCycleAfterFirst": 3037143
+      },
+      {
+        "name": "main process working set over 5 cycles",
+        "unit": "bytes",
+        "baseline": 109961216,
+        "afterFirstCycle": 116785152,
+        "afterLastCycle": 129658880,
+        "growthPerCycleAfterFirst": 3218432
+      },
+      {
+        "name": "per-cycle samples",
+        "unit": "bytes",
+        "series": [
+          {
+            "cycle": 0,
+            "phase": "baseline",
+            "mainHeap": 7153668,
+            "rendererJsHeap": 13936348,
+            "rendererJsHeapTotal": 16265216,
+            "mainWorkingSet": 109961216,
+            "rendererWorkingSet": 148480000,
+            "gpuWorkingSet": 134750208,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 1,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 5834940,
+            "rendererJsHeap": 22018552,
+            "rendererJsHeapTotal": 23805952,
+            "mainWorkingSet": 116785152,
+            "rendererWorkingSet": 212082688,
+            "gpuWorkingSet": 142458880,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 2,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 11934020,
+            "rendererJsHeap": 22044452,
+            "rendererJsHeapTotal": 23805952,
+            "mainWorkingSet": 121933824,
+            "rendererWorkingSet": 211636224,
+            "gpuWorkingSet": 143527936,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 3,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 5869012,
+            "rendererJsHeap": 22065736,
+            "rendererJsHeapTotal": 23805952,
+            "mainWorkingSet": 125890560,
+            "rendererWorkingSet": 211640320,
+            "gpuWorkingSet": 144572416,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 4,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 12564132,
+            "rendererJsHeap": 22091988,
+            "rendererJsHeapTotal": 23805952,
+            "mainWorkingSet": 125980672,
+            "rendererWorkingSet": 207200256,
+            "gpuWorkingSet": 143953920,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 5,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 17983512,
+            "rendererJsHeap": 22155696,
+            "rendererJsHeapTotal": 24068096,
+            "mainWorkingSet": 129658880,
+            "rendererWorkingSet": 207273984,
+            "gpuWorkingSet": 145539072,
+            "rendererProcesses": 1
+          }
+        ]
+      },
+      {
+        "name": "DOM census after the run",
+        "unit": "nodes",
+        "census": {
+          "iframes": 6,
+          "forgeNodes": 731,
+          "forgeLogCount": "600",
+          "reviewNodes": 418,
+          "playerNodes": 702,
+          "libraryNodes": 718,
+          "logsNodes": 287,
+          "logsRows": 1,
+          "auditionNodes": 520
+        }
+      }
+    ],
+    "meta": [
+      {
+        "name": "stub IPC calls answered during the run",
+        "value": 153,
+        "unit": "calls"
+      }
+    ]
+  }
+}

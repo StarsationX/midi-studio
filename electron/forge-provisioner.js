@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const paths = require('./paths');
+const { makePump } = require('./forge-runner');
 const { bundledPlayerPython } = require('./paths');
 const forgeStorage = require('./forge-storage');
 
@@ -34,16 +35,20 @@ class ForgeProvisioner {
     // Open the log FIRST. Everything below can fail, and when it did there was
     // no file anywhere to explain why, the panel just sat on its placeholder.
     this._logPath = paths.forgeSetupLog();
+    // A WRITE STREAM, not writeSync per chunk. Setup streams for minutes and
+    // the tee used to block the main thread on every chunk of it; a stream
+    // buffers and writes off-thread while keeping the bytes in order.
     try {
       fs.mkdirSync(path.dirname(this._logPath), { recursive: true });
-      this._logFd = fs.openSync(this._logPath, 'w');
-      fs.writeSync(this._logFd, `=== Midi Forge setup log, ${new Date().toISOString()} ===\n`);
-    } catch { this._logFd = null; }
+      this._log = fs.createWriteStream(this._logPath, { flags: 'w' });
+      this._log.on('error', () => { this._log = null; });
+      this._log.write(`=== Midi Forge setup log, ${new Date().toISOString()} ===\n`);
+    } catch { this._log = null; }
 
     const envDir = paths.forgeEnvDir(this._getSettings());
     const py = lightPython();
     const say = (line) => {
-      if (this._logFd != null) { try { fs.writeSync(this._logFd, line + '\n'); } catch {} }
+      if (this._log) { try { this._log.write(line + '\n'); } catch {} }
       this._emit({ event: 'forge.provision.log', line });
     };
     say(`log file: ${this._logPath}`);
@@ -52,7 +57,7 @@ class ForgeProvisioner {
 
     const fail = (message) => {
       say(`FAILED before start: ${message}`);
-      if (this._logFd != null) { try { fs.closeSync(this._logFd); } catch {} this._logFd = null; }
+      if (this._log) { try { this._log.end(); } catch {} this._log = null; }
       this._emit({ event: 'forge.provision.error', message, logPath: this._logPath });
     };
 
@@ -100,7 +105,6 @@ class ForgeProvisioner {
       }
     }, 15000);
     if (this._watchdog.unref) this._watchdog.unref();
-    let buf = '';
     const onLine = (line) => {
       this._lastOutput = Date.now();
       if (line.startsWith('MSTEP|')) {
@@ -114,13 +118,20 @@ class ForgeProvisioner {
       if (line.startsWith('MFAIL|')) { this._emit({ event: 'forge.provision.error', message: line.slice(6) }); return; }
       this._emit({ event: 'forge.provision.log', line });
     };
-    const pump = (c) => { if (this._logFd != null) { try { fs.writeSync(this._logFd, c); } catch {} } buf += c; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).replace(/\r$/, ''); buf = buf.slice(i + 1); if (l.trim()) onLine(l.trim()); } };
+    // INVARIANT 6 (the carriage-return fix) applies here too and never was.
+    // pip rewrites ONE line with \r for the whole of a multi-GB download, so a
+    // \n-only splitter showed the user nothing for the longest part of setup
+    // and grew an unbounded buffer while it did: 20k CR chunks cost 2199ms and
+    // emitted 0 lines here, against 18ms and 19,999 lines through makePump.
+    // Same pump as forge-runner so the two can never drift apart again.
+    const split = makePump(onLine);
+    const pump = (c) => { if (this._log) { try { this._log.write(c); } catch {} } split(c); };
     child.stdout.setEncoding('utf-8'); child.stdout.on('data', pump);
     child.stderr.setEncoding('utf-8'); child.stderr.on('data', pump);
     child.on('exit', (code) => {
       this._child = null;
       clearInterval(this._watchdog); this._watchdog = null;
-      if (this._logFd != null) { try { fs.writeSync(this._logFd, `\n=== exited code=${code} cancelled=${!!child.__cancelled} ===\n`); fs.closeSync(this._logFd); } catch {} this._logFd = null; }
+      if (this._log) { try { this._log.end(`\n=== exited code=${code} cancelled=${!!child.__cancelled} ===\n`); } catch {} this._log = null; }
       if (child.__cancelled) this._emit({ event: 'forge.provision.error', message: 'Setup cancelled.' });
       else if (code !== 0) this._emit({ event: 'forge.provision.error', message: `Setup failed (exit ${code}). Full log: ${this._logPath}`, logPath: this._logPath });
       // success already signaled by MDONE

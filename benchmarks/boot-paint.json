@@ -1,0 +1,165 @@
+{
+  "at": "2026-09-07T07:34:25.132Z",
+  "mode": "boot",
+  "boot": {
+    "runs": 6,
+    "rows": [
+      {
+        "firstPaint": 332,
+        "fcp": 775.9,
+        "dcl": 385,
+        "domComplete": 499.3,
+        "imgLoadedAt": 0,
+        "imgDecodedAt": 774.6,
+        "fontsReadyAt": 505.6,
+        "longTasks": [
+          [
+            56,
+            66
+          ]
+        ],
+        "booted": true,
+        "shellReadyMs": 506,
+        "bootIpcCount": 26
+      },
+      {
+        "firstPaint": 160.9,
+        "fcp": 331,
+        "dcl": 224.1,
+        "domComplete": 306.9,
+        "imgLoadedAt": 0,
+        "imgDecodedAt": 330.1,
+        "fontsReadyAt": 313.2,
+        "longTasks": [
+          [
+            50,
+            53
+          ]
+        ],
+        "booted": true,
+        "shellReadyMs": 316,
+        "bootIpcCount": 55
+      },
+      {
+        "firstPaint": 165,
+        "fcp": 333.8,
+        "dcl": 229.4,
+        "domComplete": 312.4,
+        "imgLoadedAt": 0,
+        "imgDecodedAt": 333.9,
+        "fontsReadyAt": 318.7,
+        "longTasks": [
+          [
+            51,
+            54
+          ]
+        ],
+        "booted": true,
+        "shellReadyMs": 322,
+        "bootIpcCount": 84
+      },
+      {
+        "firstPaint": 164.8,
+        "fcp": 344.8,
+        "dcl": 228.1,
+        "domComplete": 320.8,
+        "imgLoadedAt": 0,
+        "imgDecodedAt": 343.5,
+        "fontsReadyAt": 327.9,
+        "longTasks": [
+          [
+            50,
+            54
+          ]
+        ],
+        "booted": true,
+        "shellReadyMs": 330,
+        "bootIpcCount": 113
+      },
+      {
+        "firstPaint": 165.6,
+        "fcp": 333.5,
+        "dcl": 202.5,
+        "domComplete": 314.4,
+        "imgLoadedAt": 0,
+        "imgDecodedAt": 333.5,
+        "fontsReadyAt": 320.6,
+        "longTasks": [
+          [
+            51,
+            54
+          ]
+        ],
+        "booted": true,
+        "shellReadyMs": 323,
+        "bootIpcCount": 142
+      },
+      {
+        "firstPaint": 166.7,
+        "fcp": 334.7,
+        "dcl": 226.7,
+        "domComplete": 317.5,
+        "imgLoadedAt": 0,
+        "imgDecodedAt": 334,
+        "fontsReadyAt": 323.7,
+        "longTasks": [
+          [
+            52,
+            53
+          ]
+        ],
+        "booted": true,
+        "shellReadyMs": 327,
+        "bootIpcCount": 171
+      }
+    ],
+    "firstPaint": {
+      "mean": 192.5,
+      "p95": 332,
+      "max": 332,
+      "min": 160.9
+    },
+    "fcp": {
+      "mean": 409,
+      "p95": 775.9,
+      "max": 775.9,
+      "min": 331
+    },
+    "imgLoadedAt": {
+      "mean": 0,
+      "p95": 0,
+      "max": 0,
+      "min": 0
+    },
+    "imgDecodedAt": {
+      "mean": 408.3,
+      "p95": 774.6,
+      "max": 774.6,
+      "min": 330.1
+    },
+    "fontsReadyAt": {
+      "mean": 351.6,
+      "p95": 505.6,
+      "max": 505.6,
+      "min": 313.2
+    },
+    "dcl": {
+      "mean": 249.3,
+      "p95": 385,
+      "max": 385,
+      "min": 202.5
+    },
+    "domComplete": {
+      "mean": 345.2,
+      "p95": 499.3,
+      "max": 499.3,
+      "min": 306.9
+    },
+    "shellReadyMs": {
+      "mean": 354,
+      "p95": 506,
+      "max": 506,
+      "min": 316
+    }
+  }
+}

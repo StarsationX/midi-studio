@@ -17,12 +17,27 @@ const { ForgeProvisioner } = require('./forge-provisioner');
 const forgeStorage = require('./forge-storage');
 const library = require('./library');
 const { GameWatch } = require('./gamewatch');
+const fanout = require('./fanout');
 const { Overlay } = require('./overlay');
 const updater = require('./updater');
 
 // Boot diagnostics, a packaged GUI app has no console; this captures startup
 // milestones/errors to a file so a silent early exit can be diagnosed.
 const BOOT_LOG = path.join(os.tmpdir(), 'midi-studio-boot.log');
+// The writes stay SYNCHRONOUS: a boot log that loses its last line before a
+// silent early exit is worthless, and that line is the one that matters. What
+// was missing is a bound -- the file accumulated every boot the app had ever
+// had (33KB / 713 lines on this machine after ordinary use, and nothing ever
+// trimmed it). Capped once per launch to the last BOOT_LOG_MAX bytes, cut on a
+// line boundary, so it stays a diagnostic instead of an archive.
+const BOOT_LOG_MAX = 64 * 1024;
+function trimBootLog() {
+  try {
+    if (fs.statSync(BOOT_LOG).size <= BOOT_LOG_MAX) return;
+    const tail = fs.readFileSync(BOOT_LOG, 'utf-8').slice(-BOOT_LOG_MAX);
+    fs.writeFileSync(BOOT_LOG, tail.slice(tail.indexOf('\n') + 1), 'utf-8');
+  } catch (_) { /* a diagnostic must never be able to stop the app booting */ }
+}
 function blog(m) { try { fs.appendFileSync(BOOT_LOG, `${Date.now()} ${m}\n`); } catch (_) {} }
 // The splash shows REAL initialisation state, never a fake percentage. These
 // are the milestones main actually passes; the renderer collects the ones that
@@ -78,6 +93,11 @@ function setPlaybackActive(on) {
 }
 let forge = null;
 let provisioner = null;
+// Boot-path work that was moved OFF the boot path (see createServices).
+// Kept as promises so the handlers that genuinely depend on the answer can
+// await it while the window paints without waiting for anything.
+let forgePathsSettled = Promise.resolve();
+let orphanReap = Promise.resolve(0);
 let gameWatch = null;
 let lastReady = null; // cached engine 'ready' so a late-loading tab iframe still syncs
 let overlay = null;
@@ -89,6 +109,27 @@ let lastSongName = '';
 // empty white rectangle, which on a slow machine is what "it opens white and
 // never loads" actually was.
 let winPainted = false;
+// Resolves when the window is on screen.
+//
+// Protective work that nothing on the first frame depends on waits for this,
+// because moving a process spawn OFF the pre-window path is only a win if it
+// does not land on top of the renderer's first paint instead. That distinction
+// is the whole finding here: taking the synchronous orphan reap out of
+// createServices moved `boot:window` from 335ms to 199ms, and moved `painted`
+// by 11ms. 135ms was relocated, not removed. So the reap now waits until the
+// window is up, where there is nothing left to be in front of.
+//
+// The setTimeout is a FALLBACK for the headless --configure-forge-storage path,
+// where no window is ever created and the reap must still happen. It is NOT the
+// mechanism that keeps invariant 10: a job started the instant the window
+// appears cannot race the reap, because forge:run and forge:yt await
+// orphanReap before spawning anything. The timer only guarantees the promise
+// settles; the await guarantees the ordering.
+let markWindowPainted = () => {};
+const windowPainted = new Promise((resolve) => {
+  markWindowPainted = () => { resolve(); markWindowPainted = () => {}; };
+  setTimeout(() => markWindowPainted(), 3000).unref();
+});
 // The last update status, replayed to the renderer when it finishes loading.
 // Pushing it the moment the network answers loses it entirely if the renderer
 // has not subscribed yet, which is normal on a slow machine.
@@ -114,6 +155,12 @@ function deliverOpenPath() {
 
 const gotLock = CONFIGURE_FORGE_INDEX >= 0 || app.requestSingleInstanceLock();
 blog(`gotLock=${gotLock}`);
+// Rotate only in the instance that owns the app. A second launch exits
+// immediately, and if it trimmed the file it would truncate the log out from
+// under the instance that is still appending to it -- losing the first half
+// of a boot that is still in progress, which is the half that explains a
+// silent early exit.
+if (gotLock) trimBootLog();
 
 // ---- frame-aware messaging --------------------------------------------------
 // Push to the MAIN (shell) frame only, used for update-status so the shell owns
@@ -137,10 +184,18 @@ function broadcast(channel, payload) {
     if (!win || win.isDestroyed()) return;
     const wc = win.webContents;
     if (wc.isDestroyed()) return;
+    // The shell frame always gets it: it is the frame that owns the app's
+    // chrome and it subscribes to nearly every channel anyway, so filtering it
+    // would buy nothing and is the one send whose delivery must never be in
+    // doubt.
     wc.send(channel, payload);
     const main = wc.mainFrame;
+    // Tab iframes are skipped only when the frame has TOLD us it does not
+    // listen to this channel; a frame that has not reported yet still gets
+    // everything (electron/fanout.js explains why that direction is the safe
+    // one, and it is what keeps invariant 4 true).
     if (main) for (const f of main.framesInSubtree) {
-      if (f !== main) { try { f.send(channel, payload); } catch (_) {} }
+      if (f !== main && fanout.frameWants(f, channel)) { try { f.send(channel, payload); } catch (_) {} }
     }
   } catch (_) {}
   // Perch is a separate window, so the frame walk above never reaches it.
@@ -254,10 +309,12 @@ function createWindow() {
       backgroundThrottling: false,
     },
   });
+  blog('t:browserwindow');
   win.setMenuBarVisibility(false);
   win.loadFile(paths.rendererIndexHtml());
   win.once('ready-to-show', () => {
     winPainted = true;
+    markWindowPainted();
     if (wb.maximized) win.maximize();
     win.show();
     bootMark('painted', 'Ready');
@@ -444,6 +501,7 @@ function createServices() {
     blog(`user mappings dir=${md}`);
   } catch (e) { blog(`ensureUserMappings failed: ${e && e.message}`); }
 
+  blog('t:mappings');
   sidecar = new PlayerSidecar({
     getSettings: () => settings.getAll(),
     onEvent: (payload) => {
@@ -469,7 +527,13 @@ function createServices() {
     Promise.resolve(sidecar.start()).catch((e) => broadcast('engine-error', `Player engine failed to start: ${e && e.message || e}`));
   }, 1200);
 
+  blog('t:sidecar-ctor');
   const forgeEmit = (payload) => {
+    // Setup changes what a capability probe would answer, so the cached
+    // verdict must not outlive it (see ForgeRunner.check).
+    if (payload && String(payload.event || '').startsWith('forge.provision.')) {
+      try { forge.invalidateCheck(); } catch (_) {}
+    }
     // Move each finished transcription into the program's output folder so they
     // collect in one place, then tell the player to re-scan.
     if (payload && payload.event === 'forge.done' && payload.ok && payload.result && payload.result.midiPath) {
@@ -525,6 +589,7 @@ function createServices() {
     getSettings: () => Object.assign({}, settings.forgePaths(), { performance: performanceSettings() }) });
   // While a game is up, this app is the guest: idle priority, smaller batches,
   // and the renderer drops to its limited draw rate.
+  blog('t:forge-ctor');
   gameWatch = new GameWatch((game) => {
     gameUp = !!game;
     const rule = performanceSettings().whenGaming;
@@ -538,16 +603,43 @@ function createServices() {
   });
   // Nothing needs to know about a running game in the first seconds.
   setTimeout(() => gameWatch.start(), 8000);
-  try { adoptInstallerForgePath(); } catch (e) { blog(`adopt forge path failed: ${e.message}`); }
-  try { recoverForgeEnv(); } catch (e) { blog(`forge env recovery failed: ${e.message}`); }
+  blog('t:gamewatch-ctor');
+  // Neither block below has anything to do with the first frame, and both used
+  // to spawn a process SYNCHRONOUSLY right here, before the window existed:
+  // reg.exe at ~24ms, and tasklist at 107-342ms PER stale pid (320ms for three,
+  // measured in benchmarks/main-perf.js). They now run alongside window
+  // creation, and the handlers that need the answer await the promise instead
+  // of the boot path waiting for it.
+  //
+  // forgePathsSettled: which folder Forge lives in. Awaited by every handler
+  // that reports or uses a Forge path, so nothing can observe a pre-adoption
+  // value. The window itself does not care which folder it is.
+  forgePathsSettled = adoptInstallerForgePath()
+    .catch((e) => blog(`adopt forge path failed: ${e && e.message}`))
+    .then(() => {
+      blog('t:adopt-forge-path');
+      try { recoverForgeEnv(); } catch (e) { blog(`forge env recovery failed: ${e.message}`); }
+      blog('t:recover-forge-env');
+    });
   // A previous run that was force-killed can leave a Forge job pinning the GPU.
-  try {
-    bootMark('jobs', 'Checking background jobs');
-    const reaped = reapOrphanJobs();
-    if (reaped) { blog(`reaped ${reaped} orphaned forge job(s)`); setTimeout(() =>
-      broadcast('forge:status', { event: 'forge.log', line: `Stopped ${reaped} leftover Forge job${reaped === 1 ? '' : 's'} from a previous session.`, level: 'info' }), 1500); }
-  } catch (e) { blog(`reap failed: ${e.message}`); }
+  // INVARIANT 10 still holds: the reap must complete before a NEW job starts,
+  // which is why forge:run and forge:yt await orphanReap. Nothing else needs to.
+  // The splash mark is here because this is where the app takes responsibility
+  // for leftover jobs; the reap itself runs once the window is on screen (see
+  // windowPainted). It still completes within a second of launch, and the
+  // ordering that matters is enforced by the await in forge:run, not by when
+  // this happens to start.
+  bootMark('jobs', 'Checking background jobs');
+  orphanReap = windowPainted.then(reapOrphanJobs).then((reaped) => {
+    blog('t:reap-orphans');
+    if (reaped) {
+      blog(`reaped ${reaped} orphaned forge job(s)`);
+      setTimeout(() => broadcast('forge:status', { event: 'forge.log', line: `Stopped ${reaped} leftover Forge job${reaped === 1 ? '' : 's'} from a previous session.`, level: 'info' }), 1500);
+    }
+    return reaped;
+  }).catch((e) => { blog(`reap failed: ${e && e.message}`); return 0; });
   provisioner = new ForgeProvisioner({ emit: forgeEmit, getSettings: () => settings.forgePaths(), settings });
+  blog('t:provisioner-ctor');
 }
 
 // ---- IPC --------------------------------------------------------------------
@@ -622,16 +714,28 @@ function forgeInfo() {
 // The installer records the folder the user picked; the app applies it on its
 // first run. (It used to be applied by the installer launching the app, which
 // caused install-time failures.)
-function adoptInstallerForgePath() {
+// ASYNCHRONOUS on purpose: this is a process spawn (24ms mean / 30ms max
+// measured, with a 5000ms timeout that a hung registry call would have spent
+// blocking the window). Nothing on the first frame depends on which folder
+// Forge is stored in, so the read overlaps window creation and every consumer
+// of a Forge path awaits forgePathsSettled instead.
+function regQueryForgeStorageDir() {
+  return new Promise((resolve) => {
+    try {
+      execFile('reg.exe', ['query', 'HKCU\\Software\\StarsationX\\MIDI Studio', '/v', 'ForgeStorageDir'],
+        { windowsHide: true, timeout: 5000 }, (error, stdout) => {
+          if (error) { resolve(''); return; }
+          const match = /ForgeStorageDir\s+REG_SZ\s+(.+)/i.exec(String(stdout || ''));
+          resolve(match ? match[1].trim() : '');
+        });
+    } catch (_) { resolve(''); }
+  });
+}
+
+async function adoptInstallerForgePath() {
   if (process.platform !== 'win32') return;
   if (settings.forgePaths().forgeEnvDir) return;         // an explicit choice already exists
-  let chosen = '';
-  try {
-    const out = spawnSync('reg.exe', ['query', 'HKCU\\Software\\StarsationX\\MIDI Studio', '/v', 'ForgeStorageDir'],
-      { windowsHide: true, encoding: 'utf-8', timeout: 5000 });
-    const match = /ForgeStorageDir\s+REG_SZ\s+(.+)/i.exec(out.stdout || '');
-    chosen = match ? match[1].trim() : '';
-  } catch (_) { return; }
+  const chosen = await regQueryForgeStorageDir();
   if (!chosen) return;
   const current = paths.forgeEnvDir(settings.forgePaths());
   if (forgeStorage.samePath(chosen, current)) return;
@@ -1075,6 +1179,11 @@ function wireIpc() {
   // log rather than a second mechanism, so one file is the whole startup story
   // and benchmarks/startup.js can read it. Fire-and-forget: a measurement must
   // never add a round trip to the path it measures.
+  // Additive, fire-and-forget: a frame naming a channel it has a listener for.
+  ipcMain.on('app:subscribe', (e, channel) => {
+    if (channel == null) fanout.markReady(e.senderFrame);
+    else fanout.noteSubscription(e.senderFrame, channel);
+  });
   ipcMain.on('app:bootMark', (_e, p) => {
     const step = String((p && p.step) || '').slice(0, 40);
     if (!step) return;
@@ -1130,9 +1239,14 @@ function wireIpc() {
     settings.merge({ performance: clean });
     return performanceSettings();
   });
-  ipcMain.handle('app:forgeInfo', forgeInfo);
-  ipcMain.handle('app:changeForgeFolder', () => changeForgeStorage());
-  ipcMain.handle('app:resetForgeFolder', () => changeForgeStorage(paths.forgeEnvDir({})));
+  // forgePathsSettled: adoptInstallerForgePath()/recoverForgeEnv() were moved
+  // off the boot path, so anything that REPORTS a Forge path waits for them
+  // here. The wait is ~0 in practice (the registry read overlaps window
+  // creation, which is 258ms) and it is what makes the move invisible: no
+  // caller can observe a pre-adoption folder.
+  ipcMain.handle('app:forgeInfo', async () => { await forgePathsSettled; return forgeInfo(); });
+  ipcMain.handle('app:changeForgeFolder', async () => { await forgePathsSettled; return changeForgeStorage(); });
+  ipcMain.handle('app:resetForgeFolder', async () => { await forgePathsSettled; return changeForgeStorage(paths.forgeEnvDir({})); });
   ipcMain.handle('app:openSetupLog', () => {
     const p = paths.forgeSetupLog();
     if (!paths.exists(p)) return { ok: false, error: 'no setup log yet' };
@@ -1166,10 +1280,19 @@ function wireIpc() {
   ipcMain.handle('update:check', (_e, opts) => updater.checkForUpdates(sendUpdate, isObj(opts) ? opts : { manual: true }));
   ipcMain.handle('update:apply', () => updater.applyUpdate(sendUpdate));
 
-  ipcMain.handle('forge:check', () => forge.check());
-  ipcMain.handle('forge:provision', () => (provisioner.isRunning() ? { running: true } : (provisioner.start(), { started: true })));
+  ipcMain.handle('forge:check', async (_e, opts) => { await forgePathsSettled; return forge.check(opts); });
+  ipcMain.handle('forge:provision', async () => {
+    await forgePathsSettled;
+    if (provisioner.isRunning()) return { running: true };
+    // Setup is about to change what a capability probe would answer.
+    forge.invalidateCheck();
+    provisioner.start();
+    return { started: true };
+  });
   ipcMain.handle('forge:provision:cancel', () => { provisioner.cancel(); return true; });
-  ipcMain.handle('forge:run', (_e, opts) => {
+  ipcMain.handle('forge:run', async (_e, opts) => {
+    await orphanReap;                                    // INVARIANT 10
+    await forgePathsSettled;
     opts = isObj(opts) ? opts : {};
     return forge.run({
       inputPath: String(opts.inputPath || ''),
@@ -1180,7 +1303,9 @@ function wireIpc() {
       timing: isObj(opts.timing) ? opts.timing : {},
     });
   });
-  ipcMain.handle('forge:yt', (_e, opts) => {
+  ipcMain.handle('forge:yt', async (_e, opts) => {
+    await orphanReap;                                    // INVARIANT 10
+    await forgePathsSettled;
     opts = isObj(opts) ? opts : {};
     return forge.ytDownload({ url: String(opts.url || ''), outDir: String(opts.outDir || programOutputDir()) });
   });
@@ -1240,6 +1365,7 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
     try {
       settings = new Settings();
       installDebouncedSettings(settings);
+      blog('t:settings');
       bootMark('session', 'Restoring session');
       overlay = new Overlay({
         settings,
@@ -1247,10 +1373,13 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
         preload: paths.preloadScript(),
         onLog: blog,
       });
+      blog('t:overlay-ctor');
       wireIpc();
       wireOverlayIpc();
       registerOverlayShortcuts();
+      blog('t:ipc-wired');
       createServices();
+      blog('t:services');
       bootMark('window', 'Loading interface');
       createWindow();
       blog(`window created; index=${paths.rendererIndexHtml()}`);

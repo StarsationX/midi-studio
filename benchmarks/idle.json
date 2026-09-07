@@ -1,0 +1,699 @@
+{
+  "at": "2026-09-07T07:29:37.801Z",
+  "seconds": 20,
+  "size": "1280x800",
+  "platform": "win32 10.0.26200",
+  "cores": 12,
+  "cpu": "AMD Ryzen 5 5600 6-Core Processor              ",
+  "note": "renderer measured against tools/ipc-stubs.js; electron/main.js not booted",
+  "tabs": [
+    {
+      "tab": "forge",
+      "shellBootMs": 384,
+      "booted": true,
+      "timeline": {
+        "domContentLoaded": 329.9,
+        "domComplete": 379.1,
+        "loadEventEnd": 379.3,
+        "paints": [
+          {
+            "name": "first-paint",
+            "at": 275.7
+          },
+          {
+            "name": "first-contentful-paint",
+            "at": 548
+          }
+        ],
+        "resources": [],
+        "fontsReadyAt": 383.2,
+        "booted": true,
+        "splashImg": {
+          "src": "lockup.png",
+          "complete": true,
+          "w": 600,
+          "h": 338,
+          "cssW": 0,
+          "cssH": 0,
+          "start": null,
+          "dur": null,
+          "bytes": 0
+        },
+        "scripts": []
+      },
+      "panel": {
+        "originEpoch": 1788766179141.1,
+        "firstPaintEpoch": 1788766179283.1,
+        "fcpEpoch": 1788766179283.1,
+        "dclEpoch": 1788766179248.6,
+        "loadEpoch": 1788766179248.7002,
+        "nodes": 603
+      },
+      "panelMs": {
+        "navStart": 0,
+        "firstPaint": 142,
+        "fcp": 142,
+        "domContentLoaded": 108,
+        "load": 108,
+        "nodes": 603
+      },
+      "firstOpen": {
+        "toIframeCompleteMs": 123,
+        "toQuietMs": 727,
+        "scriptMs": 10.1,
+        "layoutMs": 32.6,
+        "styleMs": 20.8,
+        "taskMs": 182.4,
+        "layouts": 11
+      },
+      "instrumented": [
+        "shell",
+        "frame-forge",
+        "frame-review",
+        "frame-player",
+        "frame-audition",
+        "frame-library",
+        "frame-logs"
+      ],
+      "animating": [],
+      "idle": {
+        "seconds": 20,
+        "rafPerSec": 0,
+        "timerArmsPerSec": 0,
+        "ipcPerSec": 0,
+        "ipcTop": [],
+        "scriptMsPerSec": 0.01,
+        "taskMsPerSec": 0.06,
+        "layoutMsPerSec": 0,
+        "layoutsPerSec": 0,
+        "styleRecalcsPerSec": 0,
+        "heapMB": 8.29,
+        "heapGrowthMB": 0,
+        "nodes": 3548,
+        "listeners": 306,
+        "documents": 10,
+        "perFrame": [],
+        "cpu": {
+          "browser": {
+            "meanPct": 0.01,
+            "p95Pct": 0.01,
+            "maxPct": 0.03,
+            "memMB": 94.2
+          },
+          "gpu": {
+            "meanPct": 0.01,
+            "p95Pct": 0.02,
+            "maxPct": 0.02,
+            "memMB": 106.3
+          },
+          "utility": {
+            "meanPct": 0,
+            "p95Pct": 0,
+            "maxPct": 0.02,
+            "memMB": 50.1
+          },
+          "renderer": {
+            "meanPct": 0,
+            "p95Pct": 0.01,
+            "maxPct": 0.02,
+            "memMB": 112.2
+          }
+        }
+      }
+    },
+    {
+      "tab": "review",
+      "shellBootMs": 327,
+      "booted": true,
+      "timeline": {
+        "domContentLoaded": 207.1,
+        "domComplete": 320.4,
+        "loadEventEnd": 320.6,
+        "paints": [
+          {
+            "name": "first-paint",
+            "at": 171.4
+          },
+          {
+            "name": "first-contentful-paint",
+            "at": 344.7
+          }
+        ],
+        "resources": [],
+        "fontsReadyAt": 326.7,
+        "booted": true,
+        "splashImg": {
+          "src": "lockup.png",
+          "complete": true,
+          "w": 600,
+          "h": 338,
+          "cssW": 0,
+          "cssH": 0,
+          "start": null,
+          "dur": null,
+          "bytes": 0
+        },
+        "scripts": []
+      },
+      "panel": {
+        "originEpoch": 1788766201392.7,
+        "firstPaintEpoch": 1788766201510.5,
+        "fcpEpoch": 1788766201510.5,
+        "dclEpoch": 1788766201516.0999,
+        "loadEpoch": 1788766201516.3,
+        "nodes": 372
+      },
+      "panelMs": {
+        "navStart": 2,
+        "firstPaint": 120,
+        "fcp": 120,
+        "domContentLoaded": 125,
+        "load": 125,
+        "nodes": 372
+      },
+      "firstOpen": {
+        "toIframeCompleteMs": 126,
+        "toQuietMs": 607,
+        "scriptMs": 25.5,
+        "layoutMs": 26.1,
+        "styleMs": 9.5,
+        "taskMs": 133.3,
+        "layouts": 11
+      },
+      "instrumented": [
+        "shell",
+        "frame-forge",
+        "frame-review",
+        "frame-player",
+        "frame-audition",
+        "frame-library",
+        "frame-logs"
+      ],
+      "animating": [],
+      "idle": {
+        "seconds": 20,
+        "rafPerSec": 0,
+        "timerArmsPerSec": 0,
+        "ipcPerSec": 0,
+        "ipcTop": [],
+        "scriptMsPerSec": 0.01,
+        "taskMsPerSec": 0.06,
+        "layoutMsPerSec": 0,
+        "layoutsPerSec": 0,
+        "styleRecalcsPerSec": 0,
+        "heapMB": 8.21,
+        "heapGrowthMB": 0,
+        "nodes": 4582,
+        "listeners": 423,
+        "documents": 7,
+        "perFrame": [],
+        "cpu": {
+          "browser": {
+            "meanPct": 0.01,
+            "p95Pct": 0.08,
+            "maxPct": 0.1,
+            "memMB": 93.9
+          },
+          "gpu": {
+            "meanPct": 0.01,
+            "p95Pct": 0.02,
+            "maxPct": 0.02,
+            "memMB": 114.3
+          },
+          "utility": {
+            "meanPct": 0,
+            "p95Pct": 0,
+            "maxPct": 0,
+            "memMB": 50.1
+          },
+          "renderer": {
+            "meanPct": 0,
+            "p95Pct": 0.01,
+            "maxPct": 0.02,
+            "memMB": 125.8
+          }
+        }
+      }
+    },
+    {
+      "tab": "player",
+      "shellBootMs": 322,
+      "booted": true,
+      "timeline": {
+        "domContentLoaded": 228.8,
+        "domComplete": 315.1,
+        "loadEventEnd": 315.2,
+        "paints": [
+          {
+            "name": "first-paint",
+            "at": 168
+          },
+          {
+            "name": "first-contentful-paint",
+            "at": 338.1
+          }
+        ],
+        "resources": [],
+        "fontsReadyAt": 321.5,
+        "booted": true,
+        "splashImg": {
+          "src": "lockup.png",
+          "complete": true,
+          "w": 600,
+          "h": 338,
+          "cssW": 0,
+          "cssH": 0,
+          "start": null,
+          "dur": null,
+          "bytes": 0
+        },
+        "scripts": []
+      },
+      "panel": {
+        "originEpoch": 1788766223524.6,
+        "firstPaintEpoch": 1788766223612.5,
+        "fcpEpoch": 1788766223612.5,
+        "dclEpoch": 1788766223636.4001,
+        "loadEpoch": 1788766223636.6,
+        "nodes": 702
+      },
+      "panelMs": {
+        "navStart": 1,
+        "firstPaint": 89,
+        "fcp": 89,
+        "domContentLoaded": 112,
+        "load": 113,
+        "nodes": 702
+      },
+      "firstOpen": {
+        "toIframeCompleteMs": 125,
+        "toQuietMs": 487,
+        "scriptMs": 13.4,
+        "layoutMs": 25,
+        "styleMs": 20.3,
+        "taskMs": 156.8,
+        "layouts": 13
+      },
+      "instrumented": [
+        "shell",
+        "frame-forge",
+        "frame-review",
+        "frame-player",
+        "frame-audition",
+        "frame-library",
+        "frame-logs"
+      ],
+      "animating": [
+        "shell span.dot i.-blocked [dot-pulse infinite]"
+      ],
+      "idle": {
+        "seconds": 20,
+        "rafPerSec": 0,
+        "timerArmsPerSec": 0,
+        "ipcPerSec": 0,
+        "ipcTop": [],
+        "scriptMsPerSec": 0.01,
+        "taskMsPerSec": 2.39,
+        "layoutMsPerSec": 0,
+        "layoutsPerSec": 0,
+        "styleRecalcsPerSec": 0,
+        "heapMB": 8.64,
+        "heapGrowthMB": 0,
+        "nodes": 5029,
+        "listeners": 465,
+        "documents": 10,
+        "perFrame": [],
+        "cpu": {
+          "browser": {
+            "meanPct": 0.01,
+            "p95Pct": 0.01,
+            "maxPct": 0.02,
+            "memMB": 93.2
+          },
+          "gpu": {
+            "meanPct": 2.72,
+            "p95Pct": 3,
+            "maxPct": 3.04,
+            "memMB": 115.9
+          },
+          "utility": {
+            "meanPct": 0,
+            "p95Pct": 0,
+            "maxPct": 0,
+            "memMB": 50
+          },
+          "renderer": {
+            "meanPct": 1.27,
+            "p95Pct": 1.37,
+            "maxPct": 1.4,
+            "memMB": 130
+          }
+        }
+      }
+    },
+    {
+      "tab": "audition",
+      "shellBootMs": 322,
+      "booted": true,
+      "timeline": {
+        "domContentLoaded": 231.6,
+        "domComplete": 311.4,
+        "loadEventEnd": 311.6,
+        "paints": [
+          {
+            "name": "first-paint",
+            "at": 165.7
+          },
+          {
+            "name": "first-contentful-paint",
+            "at": 337.7
+          }
+        ],
+        "resources": [],
+        "fontsReadyAt": 318.1,
+        "booted": true,
+        "splashImg": {
+          "src": "lockup.png",
+          "complete": true,
+          "w": 600,
+          "h": 338,
+          "cssW": 0,
+          "cssH": 0,
+          "start": null,
+          "dur": null,
+          "bytes": 0
+        },
+        "scripts": []
+      },
+      "panel": {
+        "originEpoch": 1788766245537.9,
+        "firstPaintEpoch": 1788766245589.7,
+        "fcpEpoch": 1788766245589.7,
+        "dclEpoch": 1788766245613,
+        "loadEpoch": 1788766245613.4,
+        "nodes": 484
+      },
+      "panelMs": {
+        "navStart": 1,
+        "firstPaint": 53,
+        "fcp": 53,
+        "domContentLoaded": 76,
+        "load": 76,
+        "nodes": 484
+      },
+      "firstOpen": {
+        "toIframeCompleteMs": 124,
+        "toQuietMs": 486,
+        "scriptMs": 9.7,
+        "layoutMs": 13,
+        "styleMs": 13.7,
+        "taskMs": 110.1,
+        "layouts": 15
+      },
+      "instrumented": [
+        "shell",
+        "frame-forge",
+        "frame-review",
+        "frame-player",
+        "frame-audition",
+        "frame-library",
+        "frame-logs"
+      ],
+      "animating": [
+        "shell span.dot i.-blocked [dot-pulse infinite]"
+      ],
+      "idle": {
+        "seconds": 20,
+        "rafPerSec": 0,
+        "timerArmsPerSec": 0,
+        "ipcPerSec": 0,
+        "ipcTop": [],
+        "scriptMsPerSec": 0.01,
+        "taskMsPerSec": 2.39,
+        "layoutMsPerSec": 0,
+        "layoutsPerSec": 0,
+        "styleRecalcsPerSec": 0,
+        "heapMB": 8.56,
+        "heapGrowthMB": 0,
+        "nodes": 4654,
+        "listeners": 384,
+        "documents": 7,
+        "perFrame": [],
+        "cpu": {
+          "browser": {
+            "meanPct": 0.01,
+            "p95Pct": 0.01,
+            "maxPct": 0.01,
+            "memMB": 93.6
+          },
+          "gpu": {
+            "meanPct": 2.61,
+            "p95Pct": 2.84,
+            "maxPct": 2.89,
+            "memMB": 116.2
+          },
+          "utility": {
+            "meanPct": 0,
+            "p95Pct": 0,
+            "maxPct": 0,
+            "memMB": 50
+          },
+          "renderer": {
+            "meanPct": 1.03,
+            "p95Pct": 1.13,
+            "maxPct": 1.14,
+            "memMB": 124.7
+          }
+        }
+      }
+    },
+    {
+      "tab": "library",
+      "shellBootMs": 318,
+      "booted": true,
+      "timeline": {
+        "domContentLoaded": 225.6,
+        "domComplete": 308.5,
+        "loadEventEnd": 308.7,
+        "paints": [
+          {
+            "name": "first-paint",
+            "at": 167.1
+          },
+          {
+            "name": "first-contentful-paint",
+            "at": 335.1
+          }
+        ],
+        "resources": [],
+        "fontsReadyAt": 315.7,
+        "booted": true,
+        "splashImg": {
+          "src": "lockup.png",
+          "complete": true,
+          "w": 600,
+          "h": 338,
+          "cssW": 0,
+          "cssH": 0,
+          "start": null,
+          "dur": null,
+          "bytes": 0
+        },
+        "scripts": []
+      },
+      "panel": {
+        "originEpoch": 1788766267545.5,
+        "firstPaintEpoch": 1788766267642.7,
+        "fcpEpoch": 1788766267642.7,
+        "dclEpoch": 1788766267683.7,
+        "loadEpoch": 1788766267684.3,
+        "nodes": 660
+      },
+      "panelMs": {
+        "navStart": 2,
+        "firstPaint": 99,
+        "fcp": 99,
+        "domContentLoaded": 140,
+        "load": 140,
+        "nodes": 660
+      },
+      "firstOpen": {
+        "toIframeCompleteMs": 257,
+        "toQuietMs": 498,
+        "scriptMs": 28.6,
+        "layoutMs": 32.5,
+        "styleMs": 24.1,
+        "taskMs": 193.8,
+        "layouts": 15
+      },
+      "instrumented": [
+        "shell",
+        "frame-forge",
+        "frame-review",
+        "frame-player",
+        "frame-audition",
+        "frame-library",
+        "frame-logs"
+      ],
+      "animating": [],
+      "idle": {
+        "seconds": 20,
+        "rafPerSec": 0,
+        "timerArmsPerSec": 0,
+        "ipcPerSec": 0,
+        "ipcTop": [],
+        "scriptMsPerSec": 0.01,
+        "taskMsPerSec": 0.06,
+        "layoutMsPerSec": 0,
+        "layoutsPerSec": 0,
+        "styleRecalcsPerSec": 0,
+        "heapMB": 9.26,
+        "heapGrowthMB": 0,
+        "nodes": 4900,
+        "listeners": 374,
+        "documents": 7,
+        "perFrame": [],
+        "cpu": {
+          "browser": {
+            "meanPct": 0.01,
+            "p95Pct": 0.01,
+            "maxPct": 0.01,
+            "memMB": 94
+          },
+          "gpu": {
+            "meanPct": 0.01,
+            "p95Pct": 0.03,
+            "maxPct": 0.04,
+            "memMB": 122.7
+          },
+          "utility": {
+            "meanPct": 0,
+            "p95Pct": 0,
+            "maxPct": 0,
+            "memMB": 50
+          },
+          "renderer": {
+            "meanPct": 0,
+            "p95Pct": 0.01,
+            "maxPct": 0.02,
+            "memMB": 130
+          }
+        }
+      }
+    },
+    {
+      "tab": "logs",
+      "shellBootMs": 325,
+      "booted": true,
+      "timeline": {
+        "domContentLoaded": 228.7,
+        "domComplete": 317.4,
+        "loadEventEnd": 317.7,
+        "paints": [
+          {
+            "name": "first-paint",
+            "at": 168.8
+          },
+          {
+            "name": "first-contentful-paint",
+            "at": 341.5
+          }
+        ],
+        "resources": [],
+        "fontsReadyAt": 324,
+        "booted": true,
+        "splashImg": {
+          "src": "lockup.png",
+          "complete": true,
+          "w": 600,
+          "h": 338,
+          "cssW": 0,
+          "cssH": 0,
+          "start": null,
+          "dur": null,
+          "bytes": 0
+        },
+        "scripts": []
+      },
+      "panel": {
+        "originEpoch": 1788766289566.5,
+        "firstPaintEpoch": 1788766289612.5,
+        "fcpEpoch": 1788766289612.5,
+        "dclEpoch": 1788766289622.8,
+        "loadEpoch": 1788766289622.9,
+        "nodes": 77
+      },
+      "panelMs": {
+        "navStart": 1,
+        "firstPaint": 47,
+        "fcp": 47,
+        "domContentLoaded": 57,
+        "load": 57,
+        "nodes": 77
+      },
+      "firstOpen": {
+        "toIframeCompleteMs": 124,
+        "toQuietMs": 484,
+        "scriptMs": 4.1,
+        "layoutMs": 3.7,
+        "styleMs": 10.5,
+        "taskMs": 81.3,
+        "layouts": 9
+      },
+      "instrumented": [
+        "shell",
+        "frame-forge",
+        "frame-review",
+        "frame-player",
+        "frame-audition",
+        "frame-library",
+        "frame-logs"
+      ],
+      "animating": [],
+      "idle": {
+        "seconds": 20,
+        "rafPerSec": 0,
+        "timerArmsPerSec": 0,
+        "ipcPerSec": 0,
+        "ipcTop": [],
+        "scriptMsPerSec": 0.01,
+        "taskMsPerSec": 0.05,
+        "layoutMsPerSec": 0,
+        "layoutsPerSec": 0,
+        "styleRecalcsPerSec": 0,
+        "heapMB": 7.83,
+        "heapGrowthMB": 0,
+        "nodes": 3520,
+        "listeners": 306,
+        "documents": 7,
+        "perFrame": [],
+        "cpu": {
+          "browser": {
+            "meanPct": 0.01,
+            "p95Pct": 0.01,
+            "maxPct": 0.08,
+            "memMB": 95
+          },
+          "gpu": {
+            "meanPct": 0.01,
+            "p95Pct": 0.02,
+            "maxPct": 0.02,
+            "memMB": 123.8
+          },
+          "utility": {
+            "meanPct": 0,
+            "p95Pct": 0,
+            "maxPct": 0,
+            "memMB": 50
+          },
+          "renderer": {
+            "meanPct": 0,
+            "p95Pct": 0.01,
+            "maxPct": 0.02,
+            "memMB": 122.3
+          }
+        }
+      }
+    }
+  ]
+}

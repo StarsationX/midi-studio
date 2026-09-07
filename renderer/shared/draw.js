@@ -89,6 +89,44 @@
   var localOnscreen = null;   // null = follow the attribute
   var localBaseMs = null;     // null = follow data-drawms
 
+  var parked = null;          // last value stamped on <html>, so we only write on a change
+
+  // ------------------------------------------------------- minimised window ---
+  //
+  // env.hidden has always been documented above as "window minimised", and it
+  // was dead code: document.hidden and document.visibilityState BOTH stay
+  // 'visible' for ever in this app, because webPreferences.backgroundThrottling
+  // is false by design (an invariant) and Electron then never marks the page
+  // hidden. Measured directly with an Electron probe: minimise AND hide both
+  // leave visibilityState === 'visible', while screenX/screenY go to
+  // -32000/-32000 -- the position Windows parks a minimised window at.
+  //
+  // So the position IS the signal, and it is read EVENT-DRIVEN, never polled:
+  // Windows fires blur on minimise and focus on restore, and both are already
+  // listened for at the bottom of this file. A poll would be exactly the "wakes
+  // up with nothing to do" waste this module exists to remove.
+  //
+  // Unfocused is NOT minimised. Playing into a game means this window is
+  // normally not focused, so blur is only the moment to RE-READ the position;
+  // the decision is the position itself, and a merely unfocused window keeps
+  // its real coordinates and its full frame budget.
+  //
+  // TOP FRAME ONLY. A panel iframe reads the same -32000 (verified), but it
+  // receives no blur, focus, resize or visibilitychange at all when the window
+  // is minimised, so a panel that parked on this would have nothing left to
+  // un-park it. Panels keep the data-onscreen stamp the shell already drives.
+  var isTop = false;
+  try { isTop = (global.top === global); } catch (e) { isTop = false; }
+
+  var MINIMIZED_AT = -20000;   // the real value is -32000; this is the margin
+
+  function windowMinimized() {
+    if (!isTop) return false;
+    var x = global.screenX, y = global.screenY;
+    return typeof x === 'number' && typeof y === 'number'
+      && x <= MINIMIZED_AT && y <= MINIMIZED_AT;
+  }
+
   // ---------------------------------------------------------------- inputs ---
 
   function readAttrs() {
@@ -103,7 +141,7 @@
     env.gameActive = localGame || ds.game === '1' || ds.gameActive === '1' || ds.gameRaised === '1';
     env.gamePreRaised = ds.gameRaised === '1';
     env.onscreen = localOnscreen === null ? (ds.onscreen !== '0') : localOnscreen;
-    env.hidden = !!document.hidden;
+    env.hidden = !!document.hidden || windowMinimized();
     env.focused = typeof document.hasFocus === 'function' ? document.hasFocus() : true;
   }
 
@@ -123,8 +161,42 @@
     return ms;
   }
 
+  // A looping CSS animation is the one moving thing in this app that the frame
+  // budget above cannot reach: the compositor runs it every vsync whether or
+  // not any consumer asked for a frame, and the app disables Chromium's
+  // background throttling on purpose (an invariant), so nothing else stops it.
+  //
+  // Measured, benchmarks/anim-cost.js, two pulsing 8px status dots, 20s
+  // samples, same window and same DOM in every row:
+  //   visible, pulsing               1.060% renderer / 2.902% GPU
+  //   parked,  pulsing (old)         1.084% renderer / 2.990% GPU
+  //   parked,  paused  (now)         0.000% renderer / 0.008% GPU
+  //   really minimised, pulsing      0.005% renderer / 0.248% GPU
+  //   really minimised, paused       0.000% renderer / 0.009% GPU
+  // The VISIBLE row is deliberately untouched: the pulse is the affordance for
+  // the blocked state and a smooth one costs a composite per vsync, which is a
+  // price, not a defect. Minimising already recovers most of the cost on its
+  // own (2.902% -> 0.248% GPU); what is left is what this removes, and it is
+  // held for as long as the window stays minimised.
+  //
+  // So the scheduler's own park state -- exactly the condition under which it
+  // arms no rAF at all -- is published on <html data-parked>, and ui.css /
+  // tokens.css pause the decorative loops off it. PAUSED, not stopped: the
+  // animation resumes mid-cycle the moment the document is visible again, so
+  // nothing about how it looks on screen changes.
+  function reflectPark() {
+    var now2 = !env.onscreen || env.hidden;
+    if (now2 === parked) return;
+    parked = now2;
+    var root = document.documentElement;
+    if (!root) return;
+    if (now2) root.setAttribute('data-parked', '1');
+    else root.removeAttribute('data-parked');
+  }
+
   function refreshEnv(force) {
     readAttrs();
+    reflectPark();
     var next = computeBudget();
     if (next !== budget || force) {
       budget = next;
@@ -395,6 +467,7 @@
       baseMs: env.baseMs,
       focused: env.focused,
       onscreen: env.onscreen,
+      parked: !!parked,
       playback: env.playback,
       gameActive: env.gameActive,
       frames: frames,
@@ -412,7 +485,16 @@
     invalidateAll();
   });
   document.addEventListener('visibilitychange', function () { refreshEnv(true); if (!document.hidden) invalidateAll(); });
-  global.addEventListener('focus', function () { refreshEnv(true); });
+  // focus/blur are also how a minimise and a restore are noticed (see
+  // windowMinimized above): Windows fires them, and the window position is
+  // already updated by the time they run. Coming back from a park, repaint
+  // everything once, exactly as the onscreen handler does, so no canvas can
+  // survive showing stale pixels.
+  global.addEventListener('focus', function () {
+    var wasHidden = env.hidden;
+    refreshEnv(true);
+    if (wasHidden && !env.hidden) invalidateAll();
+  });
   global.addEventListener('blur', function () { refreshEnv(true); });
   global.addEventListener('midi-studio:theme', function () { invalidateAll(); });
 
@@ -562,6 +644,7 @@
   // ------------------------------------------------------------------ boot ---
 
   readAttrs();
+  reflectPark();
   budget = computeBudget();
 
   var API = {

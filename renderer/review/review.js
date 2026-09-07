@@ -141,6 +141,12 @@
   let notes = [];
   const byId = new Map();
   let sortDirty = false, extentDirty = true;
+  // Bumped by setNotes() (the one place the note array is replaced) and by the
+  // two places that add/remove an id in the live `selected` Set. Together with
+  // that Set's identity they are the whole invalidation key for selectedNotes().
+  let notesEpoch = 0, selVersion = 0;
+  // See window.__review at the bottom of the file.
+  const Seam = { forcePython: false, loadedVia: '', snapshot: null };
   let maxEnd = 0, maxShort = 0.5;
   let longNotes = [];      // notes longer than LONG_SEC, kept out of the back-scan
   let notesVersion = 0;
@@ -284,9 +290,10 @@
   // ==========================================================================
   function setNotes(arr) {
     const d = doc();
-    if (!d) { notes = []; byId.clear(); sortDirty = false; extentDirty = true; return; }
+    if (!d) { notes = []; notesEpoch++; byId.clear(); sortDirty = false; extentDirty = true; return; }
     d.notes = arr;
     notes = arr;
+    notesEpoch++;
     byId.clear();
     for (let i = 0; i < arr.length; i++) byId.set(arr[i].id, arr[i]);
     sortDirty = true;
@@ -294,8 +301,25 @@
   }
   function ensureSorted() {
     if (!sortDirty) return;
-    notes.sort((a, b) => (a.start - b.start) || (a.pitch - b.pitch));
+    // sortDirty means "something touched a note", not "the order broke", and
+    // most of the paths that set it do not break it: the loader hands over an
+    // already-sorted array, a velocity/channel edit and the undo of one leave
+    // start and pitch alone, and a move-drag over the WHOLE document translates
+    // every note by the same delta and so preserves the order exactly. One
+    // linear scan reading the fields directly is 5.6x cheaper than making TimSort
+    // re-establish the same fact through a JS comparator (0.57ms against 3.19ms
+    // over 120k notes), and when the order HAS broken the scan exits at the
+    // first inversion and costs ~0.3ms on top of the sort. Measured at 120k in
+    // the real panel: undo 24.6ms -> 19.6ms mean, redo 32.8ms -> 19.9ms.
+    if (!sortedAlready()) notes.sort((a, b) => (a.start - b.start) || (a.pitch - b.pitch));
     sortDirty = false;
+  }
+  function sortedAlready() {
+    for (let i = 1; i < notes.length; i++) {
+      const a = notes[i - 1], b = notes[i];
+      if (a.start > b.start || (a.start === b.start && a.pitch > b.pitch)) return false;
+    }
+    return true;
   }
   // A loop, never Math.max(...spread): the spread throws RangeError past ~100k
   // arguments, so one very large transcription hard-failed on its first refresh.
@@ -331,6 +355,15 @@
   // back-scan only has to cover the longest SHORT note. Measured on a
   // 120k-note transcription with one song-length note: 15.9ms -> 0.9ms p99 at
   // the tail of the song.
+  // TRIED AND REVERTED: skipping the re-sort mid-gesture and finding the window
+  // with a linear pass instead. The premise was that a drag re-sorts the whole
+  // array on every repaint, so 30fps would cost 30 sorts a second. It does not:
+  // a drag displaces each note by the same delta, which leaves the array NEARLY
+  // sorted, and TimSort walks a nearly-sorted array in close to linear time. The
+  // measurement said so -- three paired 120k runs, drag repaint frame 7.63/11.8/
+  // 6.00ms with the sort against 11.7/10.1/6.85ms with the linear pass, i.e. no
+  // improvement inside a run-to-run spread that is bigger than the effect. The
+  // sorted path is the simpler one and keeps the draw order exactly, so it stays.
   function forOverlapping(from, to, fn) {
     ensureSorted();
     ensureExtent();
@@ -420,7 +453,7 @@
 
   function applyEntry(entry, dir) {
     const d = doc();
-    if (!d) return;
+    if (!d) return false;
     if (dir < 0) {
       if (entry.added.length) {
         const drop = new Set(entry.added.map((n) => n.id));
@@ -440,6 +473,20 @@
     }
     sortDirty = true;
     extentDirty = true;
+    // Only an add or a remove can strand a selected id. A field-only entry (a
+    // velocity edit and its undo, the common case) cannot, and rebuilding the
+    // Set for it costs a 120k-element spread, a filter and a fresh Set for
+    // nothing.
+    return entry.added.length > 0 || entry.removed.length > 0;
+  }
+  // Drop ids whose note is gone, without allocating when none are.
+  function pruneSelection() {
+    let stale = false;
+    for (const id of selected) if (!byId.has(id)) { stale = true; break; }
+    if (!stale) return;
+    const next = new Set();
+    for (const id of selected) if (byId.has(id)) next.add(id);
+    selected = next;
   }
   function applyMeta(m) {
     if (!m) return;
@@ -454,9 +501,8 @@
     const stack = hist[candidate] || [];
     if (!stack.length) return;
     const entry = stack.pop();
-    applyEntry(entry, -1);
+    if (applyEntry(entry, -1)) pruneSelection();
     (fut[candidate] || (fut[candidate] = [])).push(entry);
-    selected = new Set([...selected].filter((id) => byId.has(id)));
     setDirty(true);
     relayout();
     say('Undid ' + entry.label);
@@ -466,9 +512,8 @@
     const stack = fut[candidate] || [];
     if (!stack.length) return;
     const entry = stack.pop();
-    applyEntry(entry, 1);
+    if (applyEntry(entry, 1)) pruneSelection();
     (hist[candidate] || (hist[candidate] = [])).push(entry);
-    selected = new Set([...selected].filter((id) => byId.has(id)));
     setDirty(true);
     relayout();
     say('Redid ' + entry.label);
@@ -478,9 +523,10 @@
     if (tx) commitTx();
     const h = hist[candidate] || (hist[candidate] = []);
     const f = fut[candidate] || (fut[candidate] = []);
-    while (h.length > index + 1) { const e = h.pop(); applyEntry(e, -1); f.push(e); }
-    while (h.length < index + 1 && f.length) { const e = f.pop(); applyEntry(e, 1); h.push(e); }
-    selected = new Set([...selected].filter((id) => byId.has(id)));
+    let membership = false;
+    while (h.length > index + 1) { const e = h.pop(); membership = applyEntry(e, -1) || membership; f.push(e); }
+    while (h.length < index + 1 && f.length) { const e = f.pop(); membership = applyEntry(e, 1) || membership; h.push(e); }
+    if (membership) pruneSelection();
     setDirty(true);
     relayout();
     // The only undo path whose caller is a History row click, so the re-render
@@ -554,6 +600,45 @@
   const waveH = Draw.register({ key: 'review:wave', el: waveHost, draw: drawWave });
   const autoH = Draw.register({ key: 'review:auto', el: autoHost, draw: drawAuto });
   disposers.push(() => { rollH.dispose(); waveH.dispose(); autoH.dispose(); waveLayer.dispose(); });
+
+  // ---- live drawing --------------------------------------------------------
+  //
+  // draw.js gives a consumer that has not said it is animating a 250ms idle
+  // clamp, so the Editor's canvases repainted FOUR TIMES A SECOND during a
+  // scroll, a zoom, a marquee or a note drag -- measured at 4.0 fps at every
+  // document size, against 27-30 fps during playback, which was the only path
+  // that called setLive. The picture was a quarter of a second behind the hand
+  // for the whole gesture. Player, Forge and Audition already do this.
+  //
+  // A REFCOUNT, not a flag: playback and a gesture overlap constantly (scrubbing
+  // while a song plays), and whichever finished first used to be able to drop
+  // the other back to 4 fps. Nothing here changes the frame BUDGET -- the user's
+  // data-drawms, the game raise, the unfocused clamp and the playback floor all
+  // still apply exactly as before; this only stops the Editor asking for less
+  // than the budget it already has.
+  let liveRefs = 0;
+  function liveOn() {
+    if (++liveRefs === 1) { rollH.setLive(true); waveH.setLive(true); autoH.setLive(true); }
+  }
+  function liveOff() {
+    if (liveRefs > 0 && --liveRefs === 0) { rollH.setLive(false); waveH.setLive(false); autoH.setLive(false); }
+  }
+  // A discrete gesture -- a wheel tick, a scroll event, a slider input -- has no
+  // release to hang the reference off, so it holds one for a short window that
+  // each new event extends. One timer, one reference, so a burst that overlaps
+  // another cannot leave the roll live forever.
+  let burstHeld = false, burstTimer = 0;
+  function liveBurst() {
+    if (!burstHeld) { burstHeld = true; liveOn(); }
+    if (burstTimer) clearTimeout(burstTimer);
+    burstTimer = setTimeout(() => { burstTimer = 0; burstHeld = false; liveOff(); }, 220);
+  }
+  disposers.push(() => {
+    if (burstTimer) clearTimeout(burstTimer);
+    burstTimer = 0;
+    burstHeld = false;
+    liveRefs = 0;
+  });
 
   function paint() { rollH.invalidate(); autoH.invalidate(); }
   function paintAll() { rollH.invalidate(); autoH.invalidate(); waveH.invalidate(); }
@@ -1001,6 +1086,7 @@
   const onScroll = coalesce(() => {
     sx = rollScroll.scrollLeft;
     sy = rollScroll.scrollTop;
+    liveBurst();                        // a scroll is an animation, not an idle view
     paint();
   });
   onEl(rollScroll, 'scroll', onScroll, { passive: true });
@@ -1252,7 +1338,7 @@
     }
     clearInterval(clockTimer);
     clockTimer = setInterval(clockTick, CLOCK_MS);
-    rollH.setLive(true); waveH.setLive(true); autoH.setLive(true);
+    liveOn();                          // released by pausePlayback()
     reportTransport(true);
     syncUi();
   }
@@ -1264,7 +1350,7 @@
     clockTimer = 0;
     audio.pause();
     clearSounding();
-    rollH.setLive(false); waveH.setLive(false); autoH.setLive(false);
+    liveOff();                         // taken by startPlayback()
     reportTransport(true);
     paintAll();
     syncUi();
@@ -1439,12 +1525,89 @@
     relayout();
   }
 
+  // ---- reading a document --------------------------------------------------
+  //
+  // The Editor used to open a file by asking main to spawn
+  // python-engine/midi_document.py, which parsed the MIDI with mido, printed
+  // 5MB of JSON, and handed it back over an IPC hop that structured-cloned the
+  // whole document and then had contextBridge deep-copy it a second time.
+  // Measured on a 50,000-note transcription: 2102ms of python plus 238ms of IPC
+  // before a single note could be drawn; 5259ms and 666ms at 120k.
+  //
+  // Nothing in that pipeline needs to happen outside the frame that is going to
+  // hold the document, so the bytes are read straight off disk and parsed here
+  // (renderer/shared/midi-parse.js, 25ms at 50k, 69ms at 120k) and the document
+  // never crosses a process boundary at all.
+  //
+  // THE PYTHON LOADER IS STILL THE CONTRACT. It is still the writer, and it is
+  // still the reader for anything the JS parser will not swear to: the parser
+  // throws on SMPTE divisions, malformed chunks, System Common status bytes and
+  // every other construct where it and mido could disagree, and readDocument()
+  // falls back automatically. A file that used to open still opens; the worst
+  // case is that it opens at the old speed. tools/run-tests.js asserts the two
+  // readers agree field for field, note for note, over every fixture.
+  const MidiParse = window.MidiParse;
+
+  async function readBytes(p) {
+    // review.fileUrl is the preload's pathToFileURL, so a path with spaces,
+    // '#' or non-ASCII characters in it survives; the review frame is a
+    // file:// document, so this is a same-scheme read and never touches the
+    // network.
+    const res = await fetch(R.fileUrl(p));
+    if (!res.ok) throw new Error('could not read ' + p);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  // The same envelope electron/main.js loadReviewFile() builds, from the same
+  // inputs. Any failure at all throws, and readDocument() then hands the WHOLE
+  // file to python rather than half-answering: main skips a project candidate
+  // whose file is missing and fails on one that is corrupt, and reproducing that
+  // distinction here would be two behaviours to keep in step instead of one.
+  async function readDocumentFast(filePath) {
+    if (/\.midi?$/i.test(filePath)) {
+      const document = MidiParse.parse(await readBytes(filePath), filePath);
+      return {
+        projectPath: '',
+        project: { format: 'midi-studio-project', version: 1, name: MidiParse.stem(filePath),
+          sourceAudio: '', selectedCandidate: 'clean', candidates: { clean: filePath } },
+        documents: { clean: document },
+      };
+    }
+    const res = await fetch(R.fileUrl(filePath));
+    if (!res.ok) throw new Error('could not read ' + filePath);
+    const project = JSON.parse(await res.text());
+    if (!project || project.format !== 'midi-studio-project' || typeof project.candidates !== 'object'
+        || !project.candidates) throw new Error('This is not a MIDI Studio project.');
+    const documents = {};
+    for (const [name, midiPath] of Object.entries(project.candidates)) {
+      documents[name] = MidiParse.parse(await readBytes(midiPath), midiPath);
+    }
+    if (!Object.keys(documents).length) throw new Error('The project MIDI files could not be found.');
+    return { projectPath: filePath, project, documents };
+  }
+
+  async function readDocument(filePath) {
+    if (MidiParse && R.fileUrl && !Seam.forcePython) {
+      try {
+        const data = await readDocumentFast(filePath);
+        Seam.loadedVia = 'js';
+        return { ok: true, data };
+      } catch (error) {
+        // Not an error the user should see: the python loader is about to try
+        // the same file, and it is the one whose verdict counts.
+        console.info('[review] renderer parse declined, using the python loader:', error && error.message);
+      }
+    }
+    Seam.loadedVia = 'python';
+    return R.load(filePath);
+  }
+
   async function openPath(filePath) {
     if (!filePath) return;
     if (dirty && !window.confirm('Discard unsaved note edits and open another file?')) return;
     setStatus('loading');
     say('Opening ' + Fmt.basename(filePath) + '…');
-    const result = await R.load(filePath);
+    const result = await readDocument(filePath);
     if (!result || !result.ok) {
       setStatus('failed');
       say((result && result.error) || 'Could not open that file.', 'err');
@@ -1496,7 +1659,6 @@
     $('empty').hidden = true;
     syncBpm();
     sampledReady = false;
-    ensureSamples();
     buildTracks();
     renderSources();
     renderMarkers();
@@ -1508,6 +1670,19 @@
     rollScroll.scrollLeft = 0;
     rollScroll.scrollTop = 0;
     relayout();
+    // AFTER the picture, deliberately. ensureSamples() constructs the
+    // AudioContext, which OPENS THE AUDIO DEVICE: 108ms for the first one in the
+    // process and 13ms for the first one in each renderer, and it used to sit
+    // between the click and the first pixel of the newly opened song -- 65-78%
+    // of all the JS on the open path at 2k notes. Nothing about drawing a piano
+    // roll needs an audio device. The samples still load, still finish long
+    // before a note can be auditioned, and playNote()/startPlayback() both call
+    // ensureSamples() themselves if they somehow get there first, so no audio
+    // behaviour and no first-note latency changes.
+    // Two frames, not later(): the second rAF runs once the first has been
+    // composited, and later() enrols its timer in the set clearSounding()
+    // cancels, which would silently drop this.
+    requestAnimationFrame(() => requestAnimationFrame(() => { ensureSamples(); }));
     maybeClaim();
     await loadPeaks();
   }
@@ -1564,9 +1739,25 @@
   // ==========================================================================
   // 15. edit operations
   // ==========================================================================
+  // The selection in DOCUMENT ORDER. One velocity commit used to walk the whole
+  // note array three separate times for this (setSelectionField, syncNoteFields
+  // and selectionStats each called it), so at 120k notes a single slider drag
+  // was a chain of 50-73ms long tasks.
+  //
+  // The memo is keyed on everything that can change the answer and nothing else:
+  // the identity of the `selected` Set (every reassignment makes a new one), an
+  // explicit counter for the two places that mutate one in place, and the
+  // epoch setNotes() bumps when the note array itself is replaced. Notes are
+  // mutated in PLACE for a field edit, so the same objects stay correct.
+  // The returned array is shared and must be treated as read-only.
+  let selCacheSet = null, selCacheVer = -1, selCacheEpoch = -1, selCacheList = null;
   function selectedNotes() {
+    if (selCacheList && selCacheSet === selected && selCacheVer === selVersion
+        && selCacheEpoch === notesEpoch) return selCacheList;
     const out = [];
     for (let i = 0; i < notes.length; i++) if (selected.has(notes[i].id)) out.push(notes[i]);
+    selCacheSet = selected; selCacheVer = selVersion; selCacheEpoch = notesEpoch;
+    selCacheList = out;
     return out;
   }
   function targets() { return selected.size ? selectedNotes() : notes.slice(); }
@@ -1862,6 +2053,7 @@
   // 16. roll pointer gestures
   // ==========================================================================
   let marquee = null, drag = null, rollRect = null;
+  let rollGestureLive = false;          // see liveOn()/liveOff()
 
   function hitNote(x, y) {
     const t = (x - KEY_W) / zoom;
@@ -1887,6 +2079,15 @@
   }
 
   onEl(rollCanvas, 'pointerdown', (ev) => {
+    rollPointerDown(ev);
+    // Whichever branch below started a gesture, it holds the roll live until
+    // endPointer() or pointercancel. Taking the reference HERE, from the state
+    // the handler left behind, is what makes "every gesture" true by
+    // construction instead of by remembering to add a line to each branch.
+    if ((marquee || drag) && !rollGestureLive) { rollGestureLive = true; liveOn(); }
+  });
+
+  function rollPointerDown(ev) {
     if (!loaded() || ev.button !== 0) return;
     rollCanvas.focus();
     rollRect = Draw.measure(rollCanvas);
@@ -1930,6 +2131,7 @@
     if (ev.shiftKey || ev.ctrlKey) {
       if (selected.has(hit.note.id)) selected.delete(hit.note.id);
       else { selected.add(hit.note.id); playNote(hit.note, 0, true); }
+      selVersion++;                     // in-place: see selectedNotes()
       paint();
       syncSelection();
       return;
@@ -1943,7 +2145,7 @@
       originals: selectedNotes().map((n) => ({ n, start: n.start, end: n.end, pitch: n.pitch })) };
     paint();
     syncSelection();
-  });
+  }
 
   function eraseAt(note) {
     if (!note || (drag && drag.ids.has(note.id))) return;
@@ -1952,6 +2154,7 @@
     txRemove(note);
     setNotes(notes.filter((n) => n.id !== note.id));
     selected.delete(note.id);
+    selVersion++;                       // in-place: see selectedNotes()
     relayoutSoon();
   }
 
@@ -2020,6 +2223,8 @@
   });
 
   function endPointer(ev) {
+    // One release for every gesture shape below, taken in pointerdown.
+    if (rollGestureLive) { rollGestureLive = false; liveOff(); }
     if (marquee) {
       const m = marquee;
       marquee = null;
@@ -2054,7 +2259,13 @@
     renderHistory();
   }
   onEl(rollCanvas, 'pointerup', endPointer);
-  onEl(rollCanvas, 'pointercancel', (ev) => { if (drag && drag.dirtied) abortTx(); marquee = null; drag = null; rollRect = null; paint(); });
+  onEl(rollCanvas, 'pointercancel', (ev) => {
+    // A cancelled gesture never reaches endPointer, and a live reference that is
+    // never released is the one way this could keep asking for frames at rest.
+    if (rollGestureLive) { rollGestureLive = false; liveOff(); }
+    if (drag && drag.dirtied) abortTx();
+    marquee = null; drag = null; rollRect = null; paint();
+  });
 
   onEl(rollCanvas, 'dblclick', (ev) => {
     if (!loaded() || tool === 'erase') return;
@@ -2101,6 +2312,7 @@
     if (!loaded()) return;
     if (ev.ctrlKey || ev.altKey || ev.metaKey) {
       ev.preventDefault();
+      liveBurst();
       const rect = Draw.measure(rollScroll);
       const cx = ev.clientX - rect.left;
       const anchor = timeForX(cx + sx);
@@ -2170,6 +2382,7 @@
     }
     waveDrag = { mode, x0: x, t0: t, moved: false, a: loopA, b: loopB };
     capture(waveHost, ev.pointerId);
+    liveOn();                           // released by pointerup / pointercancel
   });
   onEl(waveHost, 'pointermove', (ev) => {
     if (!waveDrag) return;
@@ -2187,6 +2400,7 @@
   });
   onEl(waveHost, 'pointerup', (ev) => {
     if (!waveDrag) return;
+    liveOff();
     const d = waveDrag;
     waveDrag = null;
     waveRect = null;
@@ -2194,7 +2408,7 @@
     else { reportTransport(true); say('Loop ' + Fmt.clock(loopA, { ms: true }) + ' → ' + Fmt.clock(loopB, { ms: true })); }
     syncUi();
   });
-  onEl(waveHost, 'pointercancel', () => { waveDrag = null; waveRect = null; });
+  onEl(waveHost, 'pointercancel', () => { if (waveDrag) liveOff(); waveDrag = null; waveRect = null; });
   onEl(waveHost, 'keydown', (ev) => {
     if (!loaded()) return;
     const step = ev.shiftKey ? 1 : 0.05;
@@ -2266,18 +2480,20 @@
     autoDrag = true;
     autoRect = Draw.measure(autoCanvas);
     capture(autoHost, ev.pointerId);
+    liveOn();                           // released by pointerup / pointercancel
     laneApply(ev);
   });
   onEl(autoHost, 'pointermove', (ev) => { if (autoDrag) laneApply(ev); });
   onEl(autoHost, 'pointerup', () => {
     if (!autoDrag) return;
+    liveOff();
     autoDrag = false;
     autoRect = null;
     commitTx();
     renderHistory();
     syncUi();
   });
-  onEl(autoHost, 'pointercancel', () => { autoDrag = false; autoRect = null; abortTx(); });
+  onEl(autoHost, 'pointercancel', () => { if (autoDrag) liveOff(); autoDrag = false; autoRect = null; abortTx(); });
 
   // ==========================================================================
   // 19. left panel: tracks + markers
@@ -2590,18 +2806,34 @@
       return;
     }
     const first = list[0];
-    const uniform = (fn) => list.every((n) => fn(n) === fn(first));
-    $('n-pitch').value = uniform((n) => n.pitch) ? String(first.pitch) : '';
-    $('n-pitch-name').textContent = uniform((n) => n.pitch) ? Fmt.note(first.pitch) : 'mixed';
-    const vel = uniform((n) => n.velocity) ? first.velocity : Math.round(list.reduce((a, n) => a + n.velocity, 0) / list.length);
+    // ONE walk. This used to be four list.every() passes plus two reduce()
+    // passes over the same array -- six traversals of a 120k-note selection per
+    // commit, on top of the three selectedNotes() scans that fed them. The
+    // values are identical; they are just computed together.
+    const firstLen = first.end - first.start;
+    let uPitch = true, uVel = true, uLen = true, uChan = true, sumVel = 0, sumLen = 0;
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i], len = n.end - n.start;
+      if (n.pitch !== first.pitch) uPitch = false;
+      if (n.velocity !== first.velocity) uVel = false;
+      if (len !== firstLen) uLen = false;
+      if (n.channel !== first.channel) uChan = false;
+      sumVel += n.velocity;
+      sumLen += len;
+    }
+    $('n-pitch').value = uPitch ? String(first.pitch) : '';
+    $('n-pitch-name').textContent = uPitch ? Fmt.note(first.pitch) : 'mixed';
+    const vel = uVel ? first.velocity : Math.round(sumVel / list.length);
     $('n-vel').value = String(vel);
     $('n-vel').style.setProperty('--p', String((vel - 1) / 126));
     $('n-vel-out').textContent = String(vel);
     $('n-vel-num').value = String(vel);
-    const len = Math.round((uniform((n) => n.end - n.start) ? (first.end - first.start)
-      : list.reduce((a, n) => a + (n.end - n.start), 0) / list.length) * 1000);
+    const len = Math.round((uLen ? firstLen : sumLen / list.length) * 1000);
     $('n-len').value = String(len);
-    $('n-chan').value = String(uniform((n) => n.channel) ? first.channel : first.channel);
+    // uChan is computed for the same reason the original called uniform() here:
+    // both branches yield first.channel, so a mixed selection shows the first
+    // note's channel. Left exactly as it was.
+    $('n-chan').value = String(uChan ? first.channel : first.channel);
   }
 
   // A marquee drag re-selects on every pointermove. The count is cheap and goes
@@ -2814,7 +3046,7 @@
   onEl($('z-out'), 'click', () => setZoom(zoom / 1.3, timeForX(sx + rollScroll.clientWidth / 2), rollScroll.clientWidth / 2));
   onEl($('z-fit'), 'click', zoomFit);
   const zoomPaint = coalesce((v) => setZoom(v, timeForX(sx + rollScroll.clientWidth / 2), rollScroll.clientWidth / 2));
-  onEl($('zoom'), 'input', (ev) => zoomPaint(Number(ev.target.value)));
+  onEl($('zoom'), 'input', (ev) => { liveBurst(); zoomPaint(Number(ev.target.value)); });
 
   onEl($('grid'), 'change', () => { $('q-grid').value = $('grid').value; paint(); });
   onEl($('q-grid'), 'change', () => { $('grid').value = $('q-grid').value; paint(); });
@@ -2850,7 +3082,7 @@
 
   onEl($('bpm'), 'change', () => {
     const d = doc();
-    if (!d) return;
+    if (!d) return false;
     const v = clamp(Number($('bpm').value) || 120, 20, 400);
     const before = { bpm: d.bpm, bpmEstimated: d.bpmEstimated };
     if (before.bpm === v && !d.bpmEstimated) { $('bpm').value = String(v); return; }
@@ -3180,6 +3412,18 @@
   // Legacy delivery is retired the moment frame:ready lands, but the global is
   // cheap and keeps an older shell working.
   window.openReviewProject = openPath;
+
+  // A test seam, and the only way benchmarks/editor-open-e2e.js and
+  // tools/run-tests.js can prove the claim this panel's fast reader rests on:
+  // open the SAME file both ways and diff the document the panel ends up
+  // holding. `forcePython` also stays as the escape hatch if the renderer parse
+  // ever has to be taken out of the loop without a rebuild.
+  Seam.snapshot = () => {
+    const d = doc();
+    return d ? { name: d.name, path: d.path, bpm: d.bpm, bpmEstimated: d.bpmEstimated,
+      duration: d.duration, programs: d.programs, notes: d.notes, via: Seam.loadedVia } : null;
+  };
+  window.__review = Seam;
 
   // ---- boot ----------------------------------------------------------------
   readTokens();

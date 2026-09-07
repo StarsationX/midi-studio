@@ -123,14 +123,23 @@ class RecordingKB:
     press() and release() are what playback_loop and play_keys call. The
     timestamps bracket the ACTUAL injection, so press cost is measured where it
     is paid rather than inferred.
+
+    Only presses of a BASE key are recorded as notes. play_keys() also presses
+    Shift/Ctrl around a note whose mapping needs a modifier, and those arrive
+    here as pynput Key enum members rather than strings; counting them as notes
+    put the whole press-to-event pairing out of step by however many uppercase
+    keys the mapping happened to use.
     """
 
-    __slots__ = ("presses", "releases", "_press", "_release", "_mode")
+    __slots__ = ("presses", "releases", "mod_presses", "mod_releases",
+                 "_press", "_release", "_mode")
 
     def __init__(self, mode):
         self._mode = mode
-        self.presses = []    # (entry_perf, exit_perf)
+        self.presses = []    # (entry_perf, exit_perf) for base keys only
         self.releases = []
+        self.mod_presses = 0
+        self.mod_releases = 0
         if mode == "stub":
             self._press = self._noop
             self._release = self._noop
@@ -153,12 +162,20 @@ class RecordingKB:
     def press(self, v):
         t0 = time.perf_counter()
         self._press(v)
-        self.presses.append((t0, time.perf_counter()))
+        t1 = time.perf_counter()
+        if isinstance(v, str):
+            self.presses.append((t0, t1))
+        else:
+            self.mod_presses += 1
 
     def release(self, v):
         t0 = time.perf_counter()
         self._release(v)
-        self.releases.append((t0, time.perf_counter()))
+        t1 = time.perf_counter()
+        if isinstance(v, str):
+            self.releases.append((t0, t1))
+        else:
+            self.mod_releases += 1
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +263,8 @@ class LoadGen:
 # ---------------------------------------------------------------------------
 
 def run_once(midi, mapping, seconds, kb_mode, load, load_procs, sustain,
-             progress_loop, focus_monitor_cost, tempo=1.0, verbose=True):
+             progress_loop, focus_monitor_cost, tempo=1.0, verbose=True,
+             calibrate=False):
     mapping_data, note_to_key = engine.load_mapping(mapping, ENGINE)
     events, unmapped, total_dur, bpm, _g = engine.parse_midi(
         str(midi), note_to_key, tempo)
@@ -307,10 +325,22 @@ def run_once(midi, mapping, seconds, kb_mode, load, load_procs, sustain,
     wall0 = time.perf_counter()
     result_holder = {}
 
+    # Default OFF so these numbers stay comparable with the pre-optimisation
+    # benchmarks/player-baseline.json. Pass --calibrate to measure what the
+    # app actually ships: ipc_main.py calibrates the aim and hands
+    # playback_loop the back-to-back cost so chords straddle the beat.
+    latency = 0.0015
+    inject_cost = None
+    if calibrate:
+        aim, chord_press, chord_tap = engine.calibrate_injection(Controller())
+        if aim is not None:
+            latency = aim
+            inject_cost = chord_press if sustain else chord_tap
+
     def session():
         try:
-            engine.playback_loop(events, state, kb, 0.0015, None, True,
-                                 sustain, end_at)
+            engine.playback_loop(events, state, kb, latency, None, True,
+                                 sustain, end_at, inject_cost=inject_cost)
         except BaseException as e:  # noqa: BLE001
             result_holder["error"] = repr(e)
 
@@ -341,11 +371,29 @@ def run_once(midi, mapping, seconds, kb_mode, load, load_procs, sustain,
     upto = min(len(events), n_expect)
     gaps = [events[i + 1][0] - events[i][0] for i in range(upto - 1)]
 
+    # Every note of a chord shares one target time, so notes 2..k of a chord
+    # can only be dispatched after the ones before them have finished
+    # injecting. Bucketing land_err by position-within-chord shows whether the
+    # tail of the distribution is chords rather than the scheduler.
+    by_pos = {}
+    pos = 0
+    for k in range(len(land)):
+        if k > 0 and (events[k][0] - events[k - 1][0]) < 0.003:
+            pos += 1
+        else:
+            pos = 0
+        by_pos.setdefault(min(pos, 7), []).append(land[k])
+    chord_pos = {("pos_%d" % k): stats(v) for k, v in sorted(by_pos.items())}
+
     out = {
         "condition": {
             "load": load, "load_procs": (load_procs if load != "none" else 0),
             "load_priority_applied": gen.applied,
             "kb": kb_mode, "sustain": bool(sustain),
+            "calibrated_aim": bool(calibrate),
+            "latency_offset_ms": round(latency * 1000.0, 4),
+            "inject_cost_ms": (round(inject_cost * 1000.0, 4)
+                               if inject_cost else None),
             "progress_loop": bool(progress_loop),
             "focus_monitor": bool(focus_monitor_cost),
         },
@@ -361,11 +409,14 @@ def run_once(midi, mapping, seconds, kb_mode, load, load_procs, sustain,
             "gaps_under_3ms": sum(1 for g in gaps if g < 0.003),
             "gaps_3_to_30ms": sum(1 for g in gaps if 0.003 <= g < 0.030),
         },
+        "land_err_by_chord_position_ms": chord_pos,
         "wake_err_ms": stats(wake),
         "land_err_ms": stats(land),
         "press_cost_ms": stats(cost),
         "engine_timing_errors_ms": stats(state.timing_errors),
         "releases": len(kb.releases),
+        "modifier_presses": kb.mod_presses,
+        "modifier_releases": kb.mod_releases,
         "ipc": {
             "progress_packets": emitted["n"],
             "progress_bytes": emitted["bytes"],
@@ -398,6 +449,17 @@ def print_run(r):
               ">5ms %-4d >20ms %d"
               % (key, s["mean"], s["p95"], s["p99"], s["max"],
                  s["over_5ms"], s["over_20ms"]))
+    cp = r.get("land_err_by_chord_position_ms") or {}
+    if cp:
+        parts = []
+        for k in sorted(cp, key=lambda x: int(x.split("_")[1])):
+            v = cp[k]
+            if v:
+                parts.append("%s n=%d mean%+.2f p99%+.2f max%+.2f"
+                             % (k, v["n"], v["mean"], v["p99"], v["max"]))
+        print("  land_err by position within chord:")
+        for x in parts:
+            print("      " + x)
     i = r["ipc"]
     print("  ipc: %s/s progress, %s B/s, %d per note; focus polls %d"
           % (i["packets_per_sec"], i["bytes_per_sec"], i["per_note_packets"],
@@ -585,6 +647,10 @@ def main():
     p.add_argument("--microbench", action="store_true")
     p.add_argument("--sleep-probe", action="store_true")
     p.add_argument("--ipc-volume", action="store_true")
+    p.add_argument("--calibrate", action="store_true",
+                   help="aim as the shipped app does: measured latency offset "
+                        "plus chord centring (default off, so runs stay "
+                        "comparable with player-baseline.json)")
     p.add_argument("--no-play", action="store_true",
                    help="skip the playback runs (probes only)")
     p.add_argument("--json", default="")
@@ -624,7 +690,7 @@ def main():
                     Path(args.midi), args.mapping, args.seconds, args.kb,
                     load, args.load_procs, args.sustain,
                     not args.no_progress, not args.no_focus_monitor,
-                    args.tempo))
+                    args.tempo, calibrate=args.calibrate))
 
     if args.json:
         Path(args.json).write_text(json.dumps(report, indent=2), encoding="utf-8")

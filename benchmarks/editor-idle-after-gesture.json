@@ -1,0 +1,14 @@
+{
+  "at": "2026-09-07T08:30:32.983Z",
+  "file": "big-10k.mid",
+  "restMs": 2000,
+  "rest": {
+    "open": 0,
+    "scroll": 0,
+    "wheel zoom": 0,
+    "marquee": 0,
+    "marquee cancel": 0,
+    "note drag": 0
+  },
+  "pass": true
+}

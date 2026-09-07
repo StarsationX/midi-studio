@@ -8,11 +8,37 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const { pathToFileURL } = require('url');
 
+// The single place any push listener is registered in any frame, which is why
+// it is also where the frame tells main WHICH pushes it wants. main.js's
+// broadcast() sends to all 7 frames; 71-86% of those sends were landing in a
+// document with no listener (engine-event alone is 20 a second while a song
+// plays). See electron/fanout.js for the rule that keeps invariant 4 intact.
+//
+// Ordering matters: the listener is attached BEFORE the subscription is sent,
+// so main can never be told about a subscription that is not live yet. And
+// unsubscribing is deliberately not reported -- a stale subscription costs one
+// send, a missed one costs a dropped event.
+const subscribedChannels = new Set();
 const onChannel = (channel) => (handler) => {
   const fn = (_e, payload) => handler(payload);
   ipcRenderer.on(channel, fn);
+  if (!subscribedChannels.has(channel)) {
+    subscribedChannels.add(channel);
+    try { ipcRenderer.send('app:subscribe', channel); } catch (_) {}
+  }
   return () => ipcRenderer.off(channel, fn);
 };
+
+// A frame that subscribes to nothing has to say so, or main cannot tell it
+// apart from a frame whose scripts have not run yet and must keep sending to
+// it. Sent on load, i.e. after every listener the document registers while it
+// starts up has already been reported above. A listener registered LATER still
+// reports itself through onChannel, so the set only ever grows.
+const announceSubsReady = () => { try { ipcRenderer.send('app:subscribe', null); } catch (_) {} };
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'complete') announceSubsReady();
+  else window.addEventListener('load', announceSubsReady, { once: true });
+}
 
 // ---- Player (original midi-player API, preserved exactly) ------------------
 contextBridge.exposeInMainWorld('api', {
@@ -38,7 +64,10 @@ contextBridge.exposeInMainWorld('api', {
 
 // ---- Forge tab -------------------------------------------------------------
 contextBridge.exposeInMainWorld('forge', {
-  check: () => ipcRenderer.invoke('forge:check'),
+  // check({ fresh: true }) forces a new capability probe; without it a verdict
+  // less than ten seconds old is reused, so the Forge tab and the shell asking
+  // independently at launch cost one `import torch` instead of two.
+  check: (opts) => ipcRenderer.invoke('forge:check', opts),
   provision: () => ipcRenderer.invoke('forge:provision'),
   cancelProvision: () => ipcRenderer.invoke('forge:provision:cancel'),
   run: (opts) => ipcRenderer.invoke('forge:run', opts),

@@ -348,11 +348,16 @@ const invoked = new Set();
 // touched; the performance harnesses care HOW OFTEN, because an idle app that
 // invokes IPC 20 times a second is a defect you can only see by counting.
 const calls = new Map();
+// A timestamped log as well as a count. WHEN a channel is invoked matters as
+// much as how often: an expensive probe fired during boot and the same probe
+// fired ten seconds later are the same count and a completely different app.
+const callLog = [];
 function countCall(channel) {
   invoked.add(channel);
   calls.set(channel, (calls.get(channel) || 0) + 1);
+  if (callLog.length < 4000) callLog.push({ t: Date.now(), channel: channel });
 }
-function resetCalls() { calls.clear(); }
+function resetCalls() { calls.clear(); callLog.length = 0; }
 function callTotal() { let n = 0; for (const v of calls.values()) n += v; return n; }
 function registerStubs() {
   for (const [channel, fn] of Object.entries(HANDLERS)) {
@@ -371,7 +376,8 @@ function registerStubs() {
 }
 module.exports = {
   ROOT, HOME, OUT_DIR, EXTRA_DIR, FORGE_DIR, SONGS,
-  HANDLERS, SEND_CHANNELS, invoked, calls, resetCalls, callTotal, registerStubs,
+  HANDLERS, SEND_CHANNELS, invoked, calls, callLog, resetCalls, callTotal, registerStubs,
+  MIDI_LOADED, WINDOWS_EVENT,
   makeLibraryFiles, makeDocument, reviewPayload,
   LIB_FILES, STORAGE, LIB_TAGS, LIB_USAGE, FORGE_SETTINGS, OVERLAY_CFG, REVIEW_PROJECT,
 };

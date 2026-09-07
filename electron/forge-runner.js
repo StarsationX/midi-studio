@@ -3,7 +3,7 @@
 // honest progress to the renderer via the injected emit() callback.
 'use strict';
 
-const { spawn, execFile, execFileSync } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -56,6 +56,11 @@ function outputMidiPath(inputPath, timing, outputName) {
   const suffix = `_range_${fmt(start || 0)}_${end != null ? fmt(end) : 'end'}`;
   return extless + suffix + '.mid';
 }
+
+// How long a Forge capability verdict may be reused. Short on purpose: nothing
+// that would change the answer (provisioning several GB) can happen inside ten
+// seconds, and the point is only to stop two frames asking at the same launch.
+const CHECK_TTL_MS = 10000;
 
 // Line pump that treats \r as a line ending too, so progress bars stream.
 function makePump(onLine) {
@@ -111,27 +116,54 @@ function writePids(pids) {
 function trackPid(pid) { const pids = readPids(); if (!pids.includes(pid)) { pids.push(pid); writePids(pids); } }
 function untrackPid(pid) { writePids(readPids().filter((p) => p !== pid)); }
 
+// ASYNCHRONOUS on purpose. tasklist.exe costs 107-342ms per pid on this
+// machine (main-perf.js "reap"), and this used to run with execFileSync inside
+// createServices(), i.e. BEFORE the window existed -- 320ms of a 619ms startup
+// with three stale pids, and it grows linearly with them. Nothing on the first
+// frame depends on the answer, so the probe is spawned instead of waited on.
+// The ordering that DOES matter (invariant 10: a leftover job must be reaped
+// before a new one is started) is preserved by main.js awaiting the promise
+// this returns before forge:run/forge:yt spawn anything.
 function isOurPython(pid) {
-  if (process.platform !== 'win32') return false;
-  try {
-    const out = execFileSync('tasklist.exe', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'],
-      { windowsHide: true, encoding: 'utf-8', timeout: 5000 });
-    return /^"python(w)?\.exe"/i.test(out.trim());
-  } catch { return false; }
+  if (process.platform !== 'win32') return Promise.resolve(false);
+  return new Promise((resolve) => {
+    try {
+      execFile('tasklist.exe', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'],
+        { windowsHide: true, timeout: 5000 },
+        (error, stdout) => resolve(!error && /^"python(w)?\.exe"/i.test(String(stdout || '').trim())));
+    } catch { resolve(false); }
+  });
 }
 
-// Called once at startup: anything still alive from a previous run is ours to kill.
+function killPid(pid) {
+  return new Promise((resolve) => {
+    try {
+      execFile('taskkill.exe', ['/pid', String(pid), '/t', '/f'], { windowsHide: true, timeout: 5000 },
+        (error) => resolve(!error));
+    } catch { resolve(false); }
+  });
+}
+
+// Called once at startup: anything still alive from a previous run is ours to
+// kill. Resolves with how many were killed.
 function reapOrphanJobs() {
   const pids = readPids();
-  if (!pids.length) return 0;
-  let killed = 0;
-  for (const pid of pids) {
-    if (!isOurPython(pid)) continue;
-    try { execFileSync('taskkill.exe', ['/pid', String(pid), '/t', '/f'], { windowsHide: true, timeout: 5000 }); killed += 1; }
-    catch (_) { /* already gone */ }
-  }
-  writePids([]);
-  return killed;
+  if (!pids.length) return Promise.resolve(0);
+  // All pids at once. They are independent probes and there are never many, so
+  // the reap costs ONE tasklist round trip instead of N sequential ones -- the
+  // synchronous version paid 107-342ms per pid, one after another.
+  return Promise.all(pids.map(async (pid) => {
+    if (!(await isOurPython(pid))) return 0;
+    return (await killPid(pid)) ? 1 : 0;
+  })).then((results) => {
+    // Forget only the pids THIS reap examined. The list is no longer cleared
+    // wholesale, because the reap is asynchronous now and the player sidecar
+    // registers its own pid here while it runs (its spawn is deferred 1200ms,
+    // and a loaded machine has been measured taking 2.5s for one tasklist).
+    // Clearing the file would have made that sidecar unreapable next boot.
+    writePids(readPids().filter((pid) => !pids.includes(pid)));
+    return results.reduce((a, b) => a + b, 0);
+  });
 }
 
 class ForgeRunner {
@@ -173,9 +205,38 @@ class ForgeRunner {
   _forgePython() { return paths.forgeEnvPython(this._settings()); }
 
   // Out-of-process capability probe. Resolves { forgeReady, gpu, torch, missing }.
-  check() {
+  // Two frames ask independently (the Forge tab 250ms after it loads, the shell
+  // as a fallback if no GPU verdict arrived), and one probe is a full `import
+  // torch` in a fresh interpreter -- 2.7s of CPU measured, competing with the
+  // boot path and the player sidecar's own startup. So: callers that arrive
+  // while a probe is running share it, and a verdict is reused for CHECK_TTL_MS
+  // afterwards. The TTL is short on purpose -- provisioning takes minutes, so
+  // nothing can become true inside it -- and invalidateCheck() drops it the
+  // moment setup finishes or the Forge paths change. check({ fresh: true })
+  // bypasses both, which is what an explicit "re-check the engine" must do.
+  invalidateCheck() { this._checkCache = null; }
+
+  check(opts) {
+    const fresh = !!(opts && opts.fresh);
+    const py = this._forgePython();
+    if (fresh) this._checkCache = null;
+    const cached = this._checkCache;
+    if (cached && cached.py === py && Date.now() - cached.at < CHECK_TTL_MS) return Promise.resolve(cached.value);
+    if (this._checkInFlight && this._checkInFlight.py === py && !fresh) return this._checkInFlight.promise;
+    const promise = this._runCheck(py).then((value) => {
+      this._checkCache = { py, at: Date.now(), value };
+      if (this._checkInFlight && this._checkInFlight.promise === promise) this._checkInFlight = null;
+      return value;
+    }, (e) => {
+      if (this._checkInFlight && this._checkInFlight.promise === promise) this._checkInFlight = null;
+      throw e;
+    });
+    this._checkInFlight = { py, promise };
+    return promise;
+  }
+
+  _runCheck(py) {
     return new Promise((resolve) => {
-      const py = this._forgePython();
       const base = { forgeReady: false, forgePython: py, gpu: null, torch: false, missing: [] };
       if (!py) { base.missing = ['forge-env']; return resolve(base); }
       let out = '', done = false, timer = null;
@@ -386,4 +447,4 @@ class ForgeRunner {
   cancelAll() { for (const id of [...this._jobs.keys()]) this.cancel(id); }
 }
 
-module.exports = { ForgeRunner, reapOrphanJobs, trackPid, untrackPid };
+module.exports = { ForgeRunner, reapOrphanJobs, trackPid, untrackPid, makePump };

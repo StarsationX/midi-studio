@@ -77,6 +77,7 @@ const {
   HANDLERS, invoked, registerStubs,
   makeLibraryFiles, makeDocument, reviewPayload,
   LIB_FILES, STORAGE, LIB_TAGS, LIB_USAGE, FORGE_SETTINGS, OVERLAY_CFG, REVIEW_PROJECT,
+  MIDI_LOADED, WINDOWS_EVENT,
 } = stubs;
 
 // ===========================================================================

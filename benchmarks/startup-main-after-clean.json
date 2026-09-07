@@ -1,0 +1,515 @@
+{
+  "at": "2026-09-07T08:20:15.100Z",
+  "runs": 6,
+  "platform": "win32 10.0.26200",
+  "cpu": "AMD Ryzen 5 5600 6-Core Processor              ",
+  "cores": 12,
+  "packaged": false,
+  "tab": "player",
+  "milestones": {
+    "forgeCtor": {
+      "why": "ForgeRunner constructed",
+      "n": 1,
+      "mean": 223,
+      "p50": 223,
+      "p95": 223,
+      "p99": 223,
+      "max": 223,
+      "min": 223
+    },
+    "gameWatchCtor": {
+      "why": "GameWatch constructed (start deferred 8000ms)",
+      "n": 1,
+      "mean": 223,
+      "p50": 223,
+      "p95": 223,
+      "p99": 223,
+      "max": 223,
+      "min": 223
+    },
+    "jobs": {
+      "why": "splash: Checking background jobs",
+      "n": 1,
+      "mean": 224,
+      "p50": 224,
+      "p95": 224,
+      "p99": 224,
+      "max": 224,
+      "min": 224
+    },
+    "provisioner": {
+      "why": "ForgeProvisioner constructed",
+      "n": 1,
+      "mean": 224,
+      "p50": 224,
+      "p95": 224,
+      "p99": 224,
+      "max": 224,
+      "min": 224
+    },
+    "services": {
+      "why": "createServices() returned",
+      "n": 1,
+      "mean": 225,
+      "p50": 225,
+      "p95": 225,
+      "p99": 225,
+      "max": 225,
+      "min": 225
+    },
+    "window": {
+      "why": "createWindow() called",
+      "n": 1,
+      "mean": 225,
+      "p50": 225,
+      "p95": 225,
+      "p99": 225,
+      "max": 225,
+      "min": 225
+    },
+    "browserWindow": {
+      "why": "new BrowserWindow() returned",
+      "n": 1,
+      "mean": 272,
+      "p50": 272,
+      "p95": 272,
+      "p99": 272,
+      "max": 272,
+      "min": 272
+    },
+    "loadFile": {
+      "why": "renderer/index.html handed to Chromium",
+      "n": 1,
+      "mean": 286,
+      "p50": 286,
+      "p95": 286,
+      "p99": 286,
+      "max": 286,
+      "min": 286
+    },
+    "painted": {
+      "why": "WINDOW ON SCREEN (ready-to-show)",
+      "n": 1,
+      "mean": 700,
+      "p50": 700,
+      "p95": 700,
+      "p99": 700,
+      "max": 700,
+      "min": 700
+    },
+    "ui.script": {
+      "why": "shell.js begins executing",
+      "n": 1,
+      "mean": 744,
+      "p50": 744,
+      "p95": 744,
+      "p99": 744,
+      "max": 744,
+      "min": 744
+    },
+    "ui.fcp": {
+      "why": "first contentful paint (the splash)",
+      "n": 3,
+      "mean": 1527,
+      "p50": 1592,
+      "p95": 1633,
+      "p99": 1633,
+      "max": 1633,
+      "min": 1355
+    },
+    "ui.interface": {
+      "why": "shell chrome rendered",
+      "n": 1,
+      "mean": 748,
+      "p50": 748,
+      "p95": 748,
+      "p99": 748,
+      "max": 748,
+      "min": 748
+    },
+    "tab.src": {
+      "why": "the restored tab iframe is given its src",
+      "n": 1,
+      "mean": 761,
+      "p50": 761,
+      "p95": 761,
+      "p99": 761,
+      "max": 761,
+      "min": 761
+    },
+    "tab.ready": {
+      "why": "that tab announced frame:ready",
+      "n": 1,
+      "mean": 1017,
+      "p50": 1017,
+      "p95": 1017,
+      "p99": 1017,
+      "max": 1017,
+      "min": 1017
+    },
+    "ui.session": {
+      "why": "session restored, tab activated",
+      "n": 1,
+      "mean": 758,
+      "p50": 758,
+      "p95": 758,
+      "p99": 758,
+      "max": 758,
+      "min": 758
+    },
+    "handover": {
+      "why": "SHELL INTERACTIVE (splash hands over)",
+      "n": 2,
+      "mean": 963,
+      "p50": 895,
+      "p95": 1030,
+      "p99": 1030,
+      "max": 1030,
+      "min": 895
+    },
+    "engine": {
+      "why": "python sidecar spawn begins (deliberately +1200ms)",
+      "n": 3,
+      "mean": 1427,
+      "p50": 1423,
+      "p95": 1443,
+      "p99": 1443,
+      "max": 1443,
+      "min": 1416
+    },
+    "adoptForge": {
+      "why": "adoptInstallerForgePath: an overlapped reg.exe read (was a synchronous spawn on the boot path)",
+      "n": 1,
+      "mean": 301,
+      "p50": 301,
+      "p95": 301,
+      "p99": 301,
+      "max": 301,
+      "min": 301
+    },
+    "recoverForge": {
+      "why": "recoverForgeEnv: disk probes for a provisioned env",
+      "n": 1,
+      "mean": 303,
+      "p50": 303,
+      "p95": 303,
+      "p99": 303,
+      "max": 303,
+      "min": 303
+    },
+    "reap": {
+      "why": "reapOrphanJobs done (was a synchronous tasklist.exe per stale pid, before the window)",
+      "n": 1,
+      "mean": 517,
+      "p50": 517,
+      "p95": 517,
+      "p99": 517,
+      "max": 517,
+      "min": 517
+    }
+  },
+  "deltas": {
+    "forgeCtor -> gameWatchCtor": {
+      "n": 1,
+      "mean": 0,
+      "p50": 0,
+      "p95": 0,
+      "p99": 0,
+      "max": 0,
+      "min": 0
+    },
+    "gameWatchCtor -> jobs": {
+      "n": 1,
+      "mean": 1,
+      "p50": 1,
+      "p95": 1,
+      "p99": 1,
+      "max": 1,
+      "min": 1
+    },
+    "jobs -> provisioner": {
+      "n": 1,
+      "mean": 0,
+      "p50": 0,
+      "p95": 0,
+      "p99": 0,
+      "max": 0,
+      "min": 0
+    },
+    "provisioner -> services": {
+      "n": 1,
+      "mean": 1,
+      "p50": 1,
+      "p95": 1,
+      "p99": 1,
+      "max": 1,
+      "min": 1
+    },
+    "services -> window": {
+      "n": 1,
+      "mean": 0,
+      "p50": 0,
+      "p95": 0,
+      "p99": 0,
+      "max": 0,
+      "min": 0
+    },
+    "window -> browserWindow": {
+      "n": 1,
+      "mean": 47,
+      "p50": 47,
+      "p95": 47,
+      "p99": 47,
+      "max": 47,
+      "min": 47
+    },
+    "browserWindow -> loadFile": {
+      "n": 1,
+      "mean": 14,
+      "p50": 14,
+      "p95": 14,
+      "p99": 14,
+      "max": 14,
+      "min": 14
+    },
+    "loadFile -> painted": {
+      "n": 1,
+      "mean": 414,
+      "p50": 414,
+      "p95": 414,
+      "p99": 414,
+      "max": 414,
+      "min": 414
+    },
+    "painted -> ui.script": {
+      "n": 1,
+      "mean": 44,
+      "p50": 44,
+      "p95": 44,
+      "p99": 44,
+      "max": 44,
+      "min": 44
+    },
+    "ui.script -> ui.fcp": {
+      "n": 1,
+      "mean": 848,
+      "p50": 848,
+      "p95": 848,
+      "p99": 848,
+      "max": 848,
+      "min": 848
+    },
+    "ui.fcp -> ui.interface": {
+      "n": 1,
+      "mean": -844,
+      "p50": -844,
+      "p95": -844,
+      "p99": -844,
+      "max": -844,
+      "min": -844
+    },
+    "ui.interface -> tab.src": {
+      "n": 1,
+      "mean": 13,
+      "p50": 13,
+      "p95": 13,
+      "p99": 13,
+      "max": 13,
+      "min": 13
+    },
+    "tab.src -> tab.ready": {
+      "n": 1,
+      "mean": 256,
+      "p50": 256,
+      "p95": 256,
+      "p99": 256,
+      "max": 256,
+      "min": 256
+    },
+    "tab.ready -> ui.session": {
+      "n": 1,
+      "mean": -259,
+      "p50": -259,
+      "p95": -259,
+      "p99": -259,
+      "max": -259,
+      "min": -259
+    },
+    "ui.session -> handover": {
+      "n": 1,
+      "mean": 272,
+      "p50": 272,
+      "p95": 272,
+      "p99": 272,
+      "max": 272,
+      "min": 272
+    },
+    "handover -> engine": {
+      "n": 2,
+      "mean": 457,
+      "p50": 393,
+      "p95": 521,
+      "p99": 521,
+      "max": 521,
+      "min": 393
+    }
+  },
+  "raw": [
+    {
+      "_lines": 0,
+      "_ok": false,
+      "_foreignBefore": 0,
+      "_foreignAfter": 9,
+      "_pythonAfter": 0,
+      "_contended": true
+    },
+    {
+      "_lines": 25,
+      "forgeCtor": 223,
+      "gameWatchCtor": 223,
+      "jobs": 224,
+      "provisioner": 224,
+      "services": 225,
+      "window": 225,
+      "browserWindow": 272,
+      "loadFile": 286,
+      "painted": 700,
+      "ui.script": 744,
+      "ui.fcp": 1592,
+      "ui.interface": 748,
+      "tab.src": 761,
+      "tab.ready": 1017,
+      "ui.session": 758,
+      "handover": 1030,
+      "engine": 1423,
+      "adoptForge": 301,
+      "recoverForge": 303,
+      "reap": 517,
+      "_tab": "player",
+      "_ok": true,
+      "_foreignBefore": 9,
+      "_foreignAfter": 9,
+      "_pythonAfter": 0,
+      "_contended": true
+    },
+    {
+      "_lines": 2,
+      "ui.fcp": 1633,
+      "engine": 1443,
+      "_ok": true,
+      "_foreignBefore": 9,
+      "_foreignAfter": 4,
+      "_pythonAfter": 0,
+      "_contended": true
+    },
+    {
+      "_lines": 3,
+      "ui.fcp": 1355,
+      "handover": 895,
+      "engine": 1416,
+      "_ok": true,
+      "_foreignBefore": 4,
+      "_foreignAfter": 4,
+      "_pythonAfter": 1,
+      "_contended": true
+    },
+    {
+      "_lines": 0,
+      "_ok": false,
+      "_foreignBefore": 4,
+      "_foreignAfter": 9,
+      "_pythonAfter": 0,
+      "_contended": true
+    },
+    {
+      "_lines": 0,
+      "_ok": false,
+      "_foreignBefore": 9,
+      "_foreignAfter": 4,
+      "_pythonAfter": 0,
+      "_contended": true
+    }
+  ],
+  "offPath": {
+    "adoptForge - painted": {
+      "n": 1,
+      "mean": -399,
+      "p50": -399,
+      "p95": -399,
+      "p99": -399,
+      "max": -399,
+      "min": -399
+    },
+    "recoverForge - painted": {
+      "n": 1,
+      "mean": -397,
+      "p50": -397,
+      "p95": -397,
+      "p99": -397,
+      "max": -397,
+      "min": -397
+    },
+    "reap - painted": {
+      "n": 1,
+      "mean": -183,
+      "p50": -183,
+      "p95": -183,
+      "p99": -183,
+      "max": -183,
+      "min": -183
+    }
+  },
+  "contendedRuns": 6,
+  "pythonLeakRuns": 1,
+  "perRun": [
+    {
+      "run": 1,
+      "contended": true,
+      "foreignBefore": 0,
+      "foreignAfter": 9,
+      "pythonAfter": 0
+    },
+    {
+      "run": 2,
+      "painted": 700,
+      "handover": 1030,
+      "window": 225,
+      "contended": true,
+      "foreignBefore": 9,
+      "foreignAfter": 9,
+      "pythonAfter": 0
+    },
+    {
+      "run": 3,
+      "contended": true,
+      "foreignBefore": 9,
+      "foreignAfter": 4,
+      "pythonAfter": 0
+    },
+    {
+      "run": 4,
+      "handover": 895,
+      "contended": true,
+      "foreignBefore": 4,
+      "foreignAfter": 4,
+      "pythonAfter": 1
+    },
+    {
+      "run": 5,
+      "contended": true,
+      "foreignBefore": 4,
+      "foreignAfter": 9,
+      "pythonAfter": 0
+    },
+    {
+      "run": 6,
+      "contended": true,
+      "foreignBefore": 9,
+      "foreignAfter": 4,
+      "pythonAfter": 0
+    }
+  ],
+  "clean": {
+    "runs": 0
+  }
+}

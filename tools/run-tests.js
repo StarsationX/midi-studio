@@ -327,6 +327,19 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     console.log('  (skipped melody shaper self-check: no forge python)');
   }
 
+  // The Player's aim-compensation maths has its own self-check. It needs
+  // pynput, so run it with the BUNDLED sidecar python (the forge env has
+  // torch but not necessarily pynput). Skipped, not failed, when absent.
+  const sidecarPy = path.join(root, 'python-engine', 'python', 'python.exe');
+  const aimCheck = path.join(root, 'python-engine', 'test_player_timing_fixes.py');
+  if (fs.existsSync(sidecarPy) && fs.existsSync(aimCheck)) {
+    let out = '';
+    try { out = execFileSync(sidecarPy, [aimCheck], { encoding: 'utf-8', timeout: 60000 }); } catch (e) { out = String((e && e.stdout) || '') + String((e && e.stderr) || ''); }
+    ok(/player timing fixes: OK/.test(out), 'player aim-compensation self-check: ' + out.trim().slice(-160));
+  } else {
+    console.log('  (skipped player aim self-check: no bundled sidecar python)');
+  }
+
   const installer = fs.readFileSync(path.join(root, 'build', 'installer.nsh'), 'utf-8');
   const pkg = require(path.join(root, 'package.json'));
   const lock = require(path.join(root, 'package-lock.json'));
@@ -438,6 +451,92 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/def make_resolver/.test(engineSrc), 'out-of-range notes fold by octave instead of being dropped');
   ok(/time\.sleep\(0\.025\)/.test(engineSrc), 'the focus monitor polls fast enough not to leak keystrokes');
   ok(/_spin_until/.test(engineSrc), 'a re-articulated note is separated from its own release');
+  // ---- aim compensation (chord centring + measured injection cost) --------
+  // Every note of a chord shares one timestamp but is injected serially, so
+  // note k lands ~k injections late; one constant latency_offset cannot fix
+  // notes whose real delays differ. Measured: |land err| p99 11.6 -> 7.5 ms,
+  // notes over 10 ms 47 -> 10, once the group is aimed early by the mean
+  // serial delay. Remove any of these three and the chord tail comes back.
+  ok(/def chord_aim_shifts/.test(engineSrc) && /shifts = chord_aim_shifts\(events, inject_cost\)/.test(engineSrc),
+    'chords are aimed to straddle the beat instead of trailing it');
+  ok(/target = base \+ t_sec - latency_offset - aim_shift/.test(engineSrc),
+    'the per-chord aim shift actually reaches the sleep target');
+  ok(/shifts\[k\] = want/.test(engineSrc) && /room = t0 - \(prev_aim \+ prev_size \* inject_cost\)/.test(engineSrc),
+    'a chord is never aimed earlier than the chord in front of it can finish injecting');
+  ok(/nap = remaining - spin/.test(engineSrc) && /if nap > poll:/.test(engineSrc)
+    && !/half = remaining/.test(engineSrc),
+    'the approach still takes ONE capped nap: splitting it measured a worse worst-case overshoot');
+  ok(/_NULL_VK = 0xFF/.test(engineSrc) && /def calibrate_injection/.test(engineSrc)
+    && !/kb\.press\("a"\); kb\.release\("a"\)[\s\S]{0,200}calibrate_injection/.test(engineSrc),
+    'keypress cost is calibrated against an undefined virtual key, so nothing is typed into the target window');
+  const ipcSrc = read('python-engine/ipc_main.py');
+  ok(/aim_cost, chord_press, chord_tap = self\._injection_cost\(\)/.test(ipcSrc)
+    && /latency = aim_cost/.test(ipcSrc)
+    && /inject_cost=inject_cost/.test(ipcSrc),
+    'the sidecar aims with the measured injection cost instead of a hardcoded 1.5ms');
+  // An isolated press costs ~0.5ms; a chord member queued behind another
+  // costs ~2.1ms. One number for both under-compensates a chord ~4x.
+  ok(/inject_cost = chord_press if sustain else chord_tap/.test(ipcSrc)
+    && /spaced_samples/.test(engineSrc),
+    'chord centring uses the back-to-back cost, not the isolated-note cost');
+  ok(/self\.inject_cost = \(aim, press, tap\) if plausible else \(fb, fb, fb\)/.test(ipcSrc),
+    'an implausible calibration falls back to the old fixed offset rather than an absurd aim');
+  // The calibration is 208ms of wall clock (measured 205-213ms over 5 runs,
+  // 150ms of it the deliberate 15ms spacing between the isolated-press
+  // samples). Left inline in _run_session it landed in front of the FIRST Play
+  // of every sidecar process, between the click and the count-in. It does not
+  // depend on the song, the target window or the mapping -- it is a property
+  // of the machine -- so it is prewarmed on an idle sidecar instead: first
+  // Play measured 221-240ms -> 0.008ms.
+  //
+  // The lock is what makes that safe. A Play arriving mid-prewarm must WAIT
+  // for the in-flight result rather than start a second calibration: two
+  // SendInput bursts running at once measure each other (3.45ms tap observed
+  // under concurrency against 1.41ms idle, and CPU load alone does NOT move
+  // it), and that inflated number would then be cached for the life of the
+  // process and aim every chord far too early.
+  ok(/def prewarm_injection/.test(ipcSrc)
+    && /target=bridge\.prewarm_injection/.test(ipcSrc),
+    'the injection calibration is prewarmed, not paid for by the first Play');
+  ok(/self\._inject_lock = threading\.Lock\(\)/.test(ipcSrc)
+    && /with self\._inject_lock:/.test(ipcSrc),
+    'a Play during the prewarm waits for that calibration instead of racing a second one');
+  {
+    // Prewarming BEFORE ready would just move the 208ms to startup.
+    const readyAt = ipcSrc.indexOf('emit({"event": "ready"})');
+    const warmAt = ipcSrc.indexOf('target=bridge.prewarm_injection');
+    ok(readyAt > 0 && warmAt > readyAt,
+      'the sidecar reports ready before it starts calibrating');
+  }
+
+  // ---- the Editor's selection memo ---------------------------------------
+  // selectedNotes() is memoised on three things: the IDENTITY of the `selected`
+  // Set, an explicit selVersion counter, and the notes epoch. Every path that
+  // REPLACES the selection builds a new Set, so identity covers those. The
+  // dangerous case is a mutation IN PLACE -- selected.add/delete/clear -- which
+  // leaves identity unchanged, so it must bump selVersion or the memo serves a
+  // stale list and the next edit is applied to the WRONG NOTES, silently.
+  // There are exactly two such sites today and both bump it. This assertion is
+  // here so a third cannot be added without one.
+  {
+    const reviewSrc = read('renderer/review/review.js');
+    const NEWLINE_RE = /\r?\n/;
+    const INPLACE_RE = /\bselected\.(add|delete|clear)\s*\(/;
+    const lines = reviewSrc.split(NEWLINE_RE);
+    const unguarded = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!INPLACE_RE.test(lines[i])) continue;
+      // The bump may sit on the same line or in the next two: the click site
+      // brackets an add/delete pair with a single bump after it.
+      if (!/selVersion\+\+/.test(lines.slice(i, i + 3).join(' '))) unguarded.push(i + 1);
+    }
+    ok(unguarded.length === 0,
+      'every in-place change to the Editor selection bumps selVersion'
+      + (unguarded.length ? ' (unguarded at review.js line ' + unguarded.join(', ') + ')' : ''));
+    ok(/selCacheSet === selected && selCacheVer === selVersion/.test(reviewSrc)
+      && /selCacheEpoch === notesEpoch/.test(reviewSrc),
+      'the selection memo is keyed on Set identity, selVersion AND the notes epoch');
+  }
   ok(/def panic_release/.test(read('python-engine/ipc_main.py')),
     'stdin EOF releases held keys instead of leaving them down');
   ok(/60 \* percent \/ 100/.test(mainSrc), 'the draw budget allows 60fps at full allowance');
@@ -546,6 +645,72 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   // and would otherwise read data-drawms straight back over it.
   ok(/var localBaseMs/.test(drawSrc) && /localBaseMs !== null \? localBaseMs/.test(drawSrc),
     'Draw.setBaseMs is a local override, not an env write readAttrs erases');
+
+  // 2b. PARKED DECORATIVE ANIMATIONS. A looping CSS animation is the one moving
+  // thing the frame budget cannot reach: the compositor produces a frame every
+  // vsync whether or not a consumer asked for one, and backgroundThrottling is
+  // disabled by design so nothing else stops it. Measured with
+  // benchmarks/anim-cost.js, two pulsing status dots, 20s samples, same DOM:
+  //   parked + running (what the app did before)  1.154% renderer / 3.168% GPU
+  //   parked + paused  (what it does now)         0.000% renderer / 0.008% GPU
+  // and the visible case is deliberately UNCHANGED at 1.110% / 3.109%, because
+  // the pulse is the affordance for the blocked state and must keep running.
+  //
+  // Three things have to hold together or the saving silently disappears:
+  ok(/function reflectPark\(/.test(drawSrc) && /setAttribute\('data-parked', '1'\)/.test(drawSrc)
+    && /removeAttribute\('data-parked'\)/.test(drawSrc),
+    'draw.js publishes its park state on <html data-parked>');
+  // It must be the SAME condition the scheduler parks on, or a document could
+  // stop animating while it is still drawing frames, or the reverse.
+  ok(/function reflectPark\(\)\s*\{\s*\n\s*var now2 = !env\.onscreen \|\| env\.hidden;/.test(drawSrc),
+    'data-parked uses exactly the scheduler\'s own park condition');
+  ok(/reflectPark\(\);\s*\n\s*var next = computeBudget\(\)/.test(drawSrc),
+    'reflectPark runs on every refreshEnv, not only on a budget change');
+  // The MutationObserver watches <html> attributes. If data-parked were ever
+  // added to that filter, writing it would re-enter refreshEnv forever.
+  const attrFilter = /attributeFilter: \[([^\]]*)\]/.exec(drawSrc);
+  ok(!!attrFilter && attrFilter[1].indexOf('data-parked') < 0,
+    'data-parked is NOT in draw.js\'s attributeFilter (writing it must not re-enter refreshEnv)');
+  // 2c. MINIMISED WINDOW DETECTION. env.hidden is documented as "window
+  // minimised" and was dead: document.hidden and visibilityState both stay
+  // 'visible' for ever under backgroundThrottling:false (measured with an
+  // Electron probe -- minimise AND hide both leave 'visible'), while
+  // screenX/screenY go to -32000. Measured, benchmarks/anim-cost.js, window
+  // really minimised, 20s samples:
+  //   loops still running (what the app did)  0.005% renderer / 0.248% GPU
+  //   loops parked        (what it does now)  0.000% renderer / 0.009% GPU
+  ok(/function windowMinimized\(/.test(drawSrc)
+    && /env\.hidden = !!document\.hidden \|\| windowMinimized\(\)/.test(drawSrc),
+    'draw.js feeds a minimised window into env.hidden, which visibilitychange never can');
+  // Unfocused is NOT minimised: the app is designed to be played into a game
+  // with this window behind it, and a focus test here would kill the visualizer
+  // during every single playback.
+  ok(/x <= MINIMIZED_AT && y <= MINIMIZED_AT/.test(drawSrc)
+    && !/hasFocus\(\)[^;]*MINIMIZED/.test(drawSrc),
+    'the minimise test is the window POSITION, never the focus state');
+  // Top frame only: a panel iframe reads the same -32000 but gets no blur,
+  // focus, resize or visibilitychange when the window is minimised, so one that
+  // parked on it would have nothing left to un-park it.
+  ok(/function windowMinimized\(\)\s*\{\s*\n\s*if \(!isTop\) return false;/.test(drawSrc),
+    'only the top frame parks on a minimised window (a panel could never un-park)');
+  // Event-driven, never polled: a poll is exactly the "wakes with nothing to
+  // do" waste this module exists to remove.
+  ok(!/setInterval\s*\(/.test(drawSrc), 'draw.js polls nothing on a timer');
+  // Coming back from a park must repaint, or a canvas shows stale pixels.
+  ok(/var wasHidden = env\.hidden;[\s\S]{0,160}if \(wasHidden && !env\.hidden\) invalidateAll\(\)/.test(drawSrc),
+    'restoring from a minimised window repaints every consumer once');
+
+  // Pause, never stop: animation-play-state resumes mid-cycle, so nothing about
+  // how any of these looks on screen changes.
+  for (const sel of ['.dot.is-paused', '.dot.is-blocked', '.btn.is-busy::after', '.skel-bar::after']) {
+    ok(uiCss.indexOf(':root[data-parked] ' + sel) >= 0,
+      'ui.css parks the ' + sel + ' loop when the document cannot be seen');
+  }
+  ok(/:root\[data-parked\] \.bar-fill\.indet \{ animation-play-state: paused; \}/.test(tokensCss),
+    'tokens.css parks the indeterminate bar sweep when the document cannot be seen');
+  ok(!/:root\[data-parked\][^{]*\{[^}]*animation:\s*none/.test(uiCss)
+    && !/:root\[data-parked\][^{]*\{[^}]*animation:\s*none/.test(tokensCss),
+    'parked loops are PAUSED, never set to animation:none (which would restart them)');
 
   // 3. debounce().flush() must INVOKE. It is the only send path for the volume
   // knob and the only thing a keyboard arrow-press on a slider ever produces.
@@ -961,6 +1126,160 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   }
 }
 
+
+// ===========================================================================
+//  MAIN PROCESS -- the performance pass, and the invariants it leans on.
+//  Every assertion here exists because something was made faster by relying on
+//  it; if one fails, the speed-up has become a bug.
+// ===========================================================================
+{
+  const mfs = require('fs');
+  const mainSrc = mfs.readFileSync(path.join(root, 'electron', 'main.js'), 'utf-8');
+  const preSrc = mfs.readFileSync(path.join(root, 'electron', 'preload.js'), 'utf-8');
+  const provSrc = mfs.readFileSync(path.join(root, 'electron', 'forge-provisioner.js'), 'utf-8');
+
+  // ---- frame fan-out (invariant 4) ----------------------------------------
+  const fanout = require(path.join(root, 'electron', 'fanout.js'));
+  const neverReported = {};
+  const subscriber = {};
+  const loadedButSilent = {};
+  fanout.noteSubscription(subscriber, 'engine-event');
+  fanout.markReady(loadedButSilent);
+  ok(fanout.frameWants(neverReported, 'engine-event'),
+    'a frame that has never reported receives everything (unknown must fail TOWARDS sending)');
+  ok(fanout.frameWants(neverReported, 'a-channel-invented-later'),
+    'unknown frames receive any channel, not a hard-coded list');
+  ok(fanout.frameWants(subscriber, 'engine-event'), 'a subscribed frame receives its channel');
+  ok(!fanout.frameWants(subscriber, 'forge:status'),
+    'a frame that has reported does not receive a channel it never subscribed to');
+  ok(!fanout.frameWants(loadedButSilent, 'engine-event'),
+    'a loaded frame that listens to nothing receives nothing');
+  fanout.noteSubscription(loadedButSilent, 'forge:status');
+  ok(fanout.frameWants(loadedButSilent, 'forge:status'),
+    'a listener registered after load still gets through (the set only ever grows)');
+  ok(fanout.subscriptionsOf(neverReported) === null,
+    'subscriptionsOf tells "never reported" apart from "reported nothing"');
+  ok(!fanout.frameWants(null, 'engine-event'), 'a missing frame is never sent to');
+
+  ok(/framesInSubtree/.test(mainSrc), 'broadcast still walks mainFrame.framesInSubtree (invariant 4)');
+  ok(/fanout\.frameWants\(f, channel\)/.test(mainSrc), 'subframe sends go through the subscription filter');
+  ok(/wc\.send\(channel, payload\);/.test(mainSrc), 'the shell frame is always sent to, unfiltered');
+  ok(/overlay\.send\(channel, payload\)/.test(mainSrc), 'Perch still gets its own separate send (invariant 4)');
+  ok(/ipcMain\.on\('app:subscribe'/.test(mainSrc), 'main registers the additive app:subscribe channel');
+  ok(/ipcRenderer\.send\('app:subscribe', channel\)/.test(preSrc),
+    'every push listener reports its channel from onChannel, the one place they are registered');
+  ok(preSrc.indexOf('ipcRenderer.on(channel, fn)') < preSrc.indexOf("ipcRenderer.send('app:subscribe', channel)"),
+    'the listener is attached BEFORE the subscription is announced, so main can never be told about a listener that is not live');
+  ok(/app:subscribe', null/.test(preSrc), 'a frame that listens to nothing says so once it has loaded');
+
+  // ---- game watch: fewer spawns, same coverage ----------------------------
+  const gw = require(path.join(root, 'electron', 'gamewatch.js'));
+  for (const name of gw.GAMES) {
+    ok(gw.PROBE_FILTERS.some((f) => gw.filterCovers(f, name)),
+      `${name} is covered by a tasklist filter (an uncovered game would never be detected)`);
+  }
+  ok(gw.PROBE_FILTERS.length < gw.GAMES.length, 'the poll asks fewer questions than there are games');
+  ok(gw.filterCovers('Roblox*', 'RobloxPlayerBeta.exe'), 'a prefix wildcard covers the names under it');
+  ok(!gw.filterCovers('Roblox*', 'javaw.exe'), 'a prefix wildcard covers nothing else');
+  ok(!gw.filterCovers('javaw.exe', 'notjavaw.exe'), 'an exact filter is exact, not a substring');
+
+  // ---- forge runner: the boot path no longer waits on tasklist ------------
+  const fr = require(path.join(root, 'electron', 'forge-runner.js'));
+  const reaped = fr.reapOrphanJobs();
+  ok(reaped && typeof reaped.then === 'function',
+    'reapOrphanJobs is asynchronous: createServices never blocks the window on tasklist.exe');
+  await reaped;
+  ok(typeof fr.makePump === 'function', 'the carriage-return pump is exported so the provisioner can share it');
+  {
+    const seen = [];
+    const pump = fr.makePump((l) => seen.push(l));
+    pump('Downloading: 10%\rDownloading: 20%\r');
+    ok(seen.length === 2 && seen[1] === 'Downloading: 20%',
+      'the shared pump treats a bare carriage return as a line ending (invariant 6)');
+  }
+  ok(/makePump/.test(provSrc), 'forge-provisioner uses the shared carriage-return pump, not its own newline-only one');
+  ok(!/fs\.writeSync\(this\._logFd, c\)/.test(provSrc), 'the provisioner no longer blocks the main thread per stdout chunk');
+
+  // ---- forge capability probe: one torch import, not two -------------------
+  {
+    const runner = new fr.ForgeRunner({});
+    let probes = 0;
+    runner._forgePython = () => 'python.exe';
+    runner._runCheck = () => { probes += 1; return new Promise((r) => setTimeout(() => r({ forgeReady: true }), 15)); };
+    const both = await Promise.all([runner.check(), runner.check()]);
+    ok(probes === 1, `two callers that overlap share one probe (spawned ${probes})`);
+    ok(both[0] === both[1], 'both callers get the same verdict object');
+    await runner.check();
+    ok(probes === 1, 'a verdict a moment old is reused instead of importing torch again');
+    await runner.check({ fresh: true });
+    ok(probes === 2, 'an explicit re-check bypasses the cache');
+    runner.invalidateCheck();
+    await runner.check();
+    ok(probes === 3, 'invalidateCheck() forces the next probe (setup changes the answer)');
+    runner._forgePython = () => 'somewhere-else.exe';
+    await runner.check();
+    ok(probes === 4, 'a verdict is never reused across a different Forge python');
+  }
+
+  // ---- boot ordering -------------------------------------------------------
+  ok(/ipcMain\.handle\('forge:run', async[\s\S]{0,400}?await orphanReap/.test(mainSrc),
+    'INVARIANT 10: forge:run waits for the orphan reap before a new job can spawn');
+  ok(/ipcMain\.handle\('forge:yt', async[\s\S]{0,400}?await orphanReap/.test(mainSrc),
+    'INVARIANT 10: forge:yt waits for the orphan reap too');
+  ok(/app:forgeInfo[\s\S]{0,160}?await forgePathsSettled/.test(mainSrc),
+    'the Forge path report waits for the overlapped registry adoption, so no caller sees a pre-adoption folder');
+  ok(!/function adoptInstallerForgePath[\s\S]{0,900}?spawnSync\(/.test(mainSrc),
+    'adoptInstallerForgePath no longer spawns a process synchronously on the boot path');
+  ok(/BOOT_LOG_MAX/.test(mainSrc) && /appendFileSync\(BOOT_LOG/.test(mainSrc),
+    'the boot log is capped but its writes stay synchronous (the last line before a silent exit is the one that matters)');
+  ok(/if \(gotLock\) trimBootLog\(\)/.test(mainSrc),
+    'only the instance that owns the app rotates the boot log (a second launch must not truncate it under a running instance, or under a reader holding a byte offset)');
+
+  // The reap waits for the window, so it cannot land on the first paint -- and
+  // INVARIANT 10 is held by the AWAIT in forge:run, not by that timing. Both
+  // halves are asserted, because a fallback timer in the same change is exactly
+  // the thing that later gets mistaken for the mechanism.
+  ok(/orphanReap = windowPainted\.then\(reapOrphanJobs\)/.test(mainSrc),
+    'the orphan reap starts once the window is on screen, not while it is painting');
+  ok(/markWindowPainted\(\);/.test(mainSrc) && /win\.once\('ready-to-show'/.test(mainSrc),
+    'ready-to-show is what resolves windowPainted');
+  ok(/setTimeout\(\(\) => markWindowPainted\(\), 3000\)/.test(mainSrc),
+    'a headless launch (--configure-forge-storage creates no window) still settles windowPainted, so the reap is never skipped');
+  {
+    // The ordering guarantee must survive someone deleting the fallback timer,
+    // and must not depend on the reap having finished by any particular moment.
+    const runHandler = /ipcMain\.handle\('forge:run',[\s\S]*?\n  \}\);/.exec(mainSrc);
+    ok(!!runHandler, 'the forge:run handler is findable');
+    if (runHandler) {
+      ok(runHandler[0].indexOf('await orphanReap') < runHandler[0].indexOf('forge.run('),
+        'INVARIANT 10 holds by await: forge:run waits for the reap BEFORE it spawns, whatever the timing');
+    }
+  }
+  ok(/if \(gotLock\) trimBootLog\(\)/.test(mainSrc),
+    'only the instance that owns the app rotates the boot log (a second launch must not truncate it under a running instance, or under a reader holding a byte offset)');
+
+  // The reap waits for the window, so it cannot land on the first paint -- and
+  // INVARIANT 10 is held by the AWAIT in forge:run, not by that timing. Both
+  // halves are asserted, because a fallback timer in the same change is exactly
+  // the thing that later gets mistaken for the mechanism.
+  ok(/orphanReap = windowPainted\.then\(reapOrphanJobs\)/.test(mainSrc),
+    'the orphan reap starts once the window is on screen, not while it is painting');
+  ok(/markWindowPainted\(\);/.test(mainSrc) && /win\.once\('ready-to-show'/.test(mainSrc),
+    'ready-to-show is what resolves windowPainted');
+  ok(/setTimeout\(\(\) => markWindowPainted\(\), 3000\)/.test(mainSrc),
+    'a headless launch (--configure-forge-storage creates no window) still settles windowPainted, so the reap is never skipped');
+  {
+    // The ordering guarantee must survive someone deleting the fallback timer,
+    // and must not depend on the reap having finished by any particular moment.
+    const runHandler = /ipcMain\.handle\('forge:run',[\s\S]*?\n  \}\);/.exec(mainSrc);
+    ok(!!runHandler, 'the forge:run handler is findable');
+    if (runHandler) {
+      ok(runHandler[0].indexOf('await orphanReap') < runHandler[0].indexOf('forge.run('),
+        'INVARIANT 10 holds by await: forge:run waits for the reap BEFORE it spawns, whatever the timing');
+    }
+  }
+}
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
@@ -972,3 +1291,237 @@ ok(fp === null || typeof fp === 'string', 'forgeEnvPython string|null');
 const env = p.forgeChildEnv({});
 ok(typeof env.MIDI_STUDIO_FORGE_ENV_DIR === 'string' && env.MIDI_STUDIO_FORGE_ENV_DIR.length > 0, 'forgeChildEnv has env dir');
 // (the async verifyDigest IIFE above prints the final pass/fail + exits)
+
+// =============================================================================
+//  Editor open path: the renderer-side MIDI reader
+// =============================================================================
+// renderer/shared/midi-parse.js exists to take python-engine/midi_document.py
+// off the Editor's open path (2102ms -> 50ms at 50k notes, 5259 -> 80 at 120k,
+// measured end to end by benchmarks/editor-open-e2e.js). The python loader is
+// still the writer and still the fallback, so the ONE thing that has to be true
+// is that the two readers return the SAME document. These assertions prove it
+// on real fixtures and on synthetic files built to hit the rules that are easy
+// to get subtly wrong; `node benchmarks/editor-parse-parity.js --dir <corpus>`
+// runs the same comparison over a whole library (92 real files, 236,659 notes,
+// all identical) and is the check to re-run after touching either reader.
+{
+  const fs2 = require('fs');
+  const os2 = require('os');
+  const cp2 = require('child_process');
+  const MidiParse = require(path.join(root, 'renderer', 'shared', 'midi-parse.js'));
+  const engineDir = path.join(root, 'python-engine');
+  const docPy = path.join(engineDir, 'midi_document.py');
+
+  // ---- python's round(), reproduced exactly --------------------------------
+  // Every one of these was taken from the real interpreter. The ties matter:
+  // note ends land on dyadic values like 76.1015625 constantly, python rounds
+  // half-to-EVEN and JS toFixed/Math.round round half-up, and getting it wrong
+  // moved 1-7 notes in nearly every file of a 92-file corpus by 1e-6 s.
+  const roundCases = [
+    [76.1015625, 6, 76.101562], [76.1015635, 6, 76.101563],
+    [42.8046875, 6, 42.804688], [0.1015625, 6, 0.101562],
+    [100.0625, 3, 100.062], [100.0635, 3, 100.064],
+    [0.5, 0, 0], [1.5, 0, 2], [2.5, 0, 2], [2.675, 2, 2.67],
+  ];
+  for (const rc of roundCases) {
+    ok(MidiParse.pyRound(rc[0], rc[1]) === rc[2],
+      'pyRound(' + rc[0] + ', ' + rc[1] + ') === ' + rc[2] + ' (got ' + MidiParse.pyRound(rc[0], rc[1]) + ')');
+  }
+
+  // ---- a minimal SMF writer, so the awkward rules can be tested on purpose --
+  const vlq = (n) => {
+    const out = [n & 0x7f];
+    n >>= 7;
+    while (n > 0) { out.unshift((n & 0x7f) | 0x80); n >>= 7; }
+    return out;
+  };
+  const be32 = (n) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  const be16 = (n) => [(n >>> 8) & 255, n & 255];
+  // tracks: arrays of [deltaTicks, ...bytes]
+  const smf = (format, division, tracks) => {
+    let out = [0x4d, 0x54, 0x68, 0x64].concat(be32(6), be16(format), be16(tracks.length), be16(division));
+    for (const evts of tracks) {
+      let body = [];
+      for (const e of evts) body = body.concat(vlq(e[0]), e.slice(1));
+      body = body.concat(vlq(0), [0xff, 0x2f, 0x00]);   // end_of_track
+      out = out.concat([0x4d, 0x54, 0x72, 0x6b], be32(body.length), body);
+    }
+    return Buffer.from(out);
+  };
+  const tmpMid = (name, buf) => {
+    const f = path.join(os2.tmpdir(), 'midi-studio-test-' + process.pid + '-' + name + '.mid');
+    fs2.writeFileSync(f, buf);
+    return f;
+  };
+
+  const pyExe = [path.join(engineDir, 'python', 'python.exe'), 'py', 'python'].find((c) => {
+    try { return cp2.spawnSync(c, ['-c', 'pass'], { timeout: 20000 }).status === 0; } catch (_) { return false; }
+  });
+  const pyLoad = (f) => {
+    const r = cp2.spawnSync(pyExe, [docPy, 'load', f], { cwd: engineDir, encoding: 'utf-8',
+      maxBuffer: 512 * 1024 * 1024, windowsHide: true,
+      env: Object.assign({}, process.env, { PYTHONIOENCODING: 'utf-8' }) });
+    if (r.status !== 0) throw new Error((r.stderr || '').trim() || 'midi_document.py failed');
+    return JSON.parse(r.stdout.trim());
+  };
+  // `programs` key ORDER differs by construction (a python dict keeps insertion
+  // order, a JS object with integer-like keys iterates numerically) and cannot
+  // matter: save_midi sorts them and review.js looks them up by key.
+  const samePrograms = (a, b) => {
+    const ka = Object.keys(a || {}).sort(), kb = Object.keys(b || {}).sort();
+    return ka.length === kb.length && ka.every((k, i) => kb[i] === k && Number(a[k]) === Number(b[k]));
+  };
+  const sameDoc = (py, js, label) => {
+    const bad = [];
+    for (const k of ['name', 'path', 'bpm', 'bpmEstimated', 'duration']) {
+      if (JSON.stringify(py[k]) !== JSON.stringify(js[k])) {
+        bad.push(k + ' py=' + JSON.stringify(py[k]) + ' js=' + JSON.stringify(js[k]));
+      }
+    }
+    if (!samePrograms(py.programs, js.programs)) bad.push('programs');
+    if (py.notes.length !== js.notes.length) bad.push('count ' + py.notes.length + ' vs ' + js.notes.length);
+    else {
+      let n = 0;
+      for (let i = 0; i < py.notes.length; i++) {
+        const a = py.notes[i], b = js.notes[i];
+        if (a.id !== b.id || a.pitch !== b.pitch || a.start !== b.start || a.end !== b.end ||
+            a.velocity !== b.velocity || a.channel !== b.channel ||
+            !!a.unterminated !== !!b.unterminated) n++;
+      }
+      if (n) bad.push(n + ' notes');
+    }
+    ok(bad.length === 0, 'parity ' + label + ': ' + (bad.join('; ') || 'identical'));
+  };
+
+  const NOTE_ON = (ch, p, v) => [0x90 | ch, p, v];
+  const NOTE_OFF = (ch, p) => [0x80 | ch, p, 0];
+
+  if (!pyExe) {
+    console.log('  SKIP: no python interpreter, midi-parse parity not checked');
+  } else {
+    // ---- every shipped fixture, field for field ----------------------------
+    const fixDir = path.join(root, 'benchmarks', 'fixtures');
+    const fixtures = fs2.existsSync(fixDir)
+      ? fs2.readdirSync(fixDir).filter((n) => /\.midi?$/i.test(n)) : [];
+    ok(fixtures.length >= 4, 'there are MIDI fixtures to check parity against');
+    for (const f of fixtures) {
+      const full = path.join(fixDir, f);
+      sameDoc(pyLoad(full), MidiParse.parse(fs2.readFileSync(full), full), f);
+    }
+
+    // ---- the rules that are easy to get subtly wrong -----------------------
+    const made = [];
+
+    // 1. trailing silence: a control_change 960 ticks past the last note_off,
+    //    then end_of_track. mido counts every delta in the merged track, so the
+    //    document's duration has to include that tail. This is the whole reason
+    //    the reader tracks maxTick separately from the events it keeps.
+    made.push(['trailing-silence', smf(0, 480, [[
+      [0].concat(NOTE_ON(0, 60, 100)), [480].concat(NOTE_OFF(0, 60)), [960, 0xb0, 7, 100],
+    ]])]);
+
+    // 2. an unterminated note: no note_off at all. It must survive, be flagged,
+    //    and be closed at the end of the file rather than dropped.
+    made.push(['unterminated', smf(0, 480, [[
+      [0].concat(NOTE_ON(0, 60, 100)), [240].concat(NOTE_ON(0, 64, 90)),
+      [480].concat(NOTE_OFF(0, 64)),
+    ]])]);
+
+    // 3. running status, interrupted by a meta event. mido keeps last_status
+    //    across meta ("Meta messages don't set running status"), so the bytes
+    //    after the marker are still note_ons. Conflating "the byte just read"
+    //    with "the running status" silently mangles every file shaped like this.
+    made.push(['running-status-meta', smf(0, 480, [[
+      [0, 0x90, 60, 100], [0, 64, 100], [0, 67, 100],
+      [0, 0xff, 0x06, 0x02, 0x68, 0x69],          // marker "hi"
+      [480, 60, 0], [0, 64, 0], [0, 67, 0],       // note_on with velocity 0
+    ]])]);
+
+    // 4. two tracks that interleave, plus a mid-file tempo change and two
+    //    program changes: merged playback order, tempo applied as it occurs, and
+    //    the per-message delta partition that decides the last decimal.
+    made.push(['two-track-tempo', smf(1, 384, [
+      [[0, 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20], [0, 0xc0, 0x18],
+        [0].concat(NOTE_ON(0, 60, 100)), [300].concat(NOTE_OFF(0, 60)),
+        [100, 0xff, 0x51, 0x03, 0x05, 0x16, 0x15],
+        [0].concat(NOTE_ON(0, 62, 100)), [700].concat(NOTE_OFF(0, 62))],
+      [[0, 0xc1, 0x30], [150].concat(NOTE_ON(1, 67, 80)), [275].concat(NOTE_OFF(1, 67)),
+        [13].concat(NOTE_ON(1, 69, 70)), [901].concat(NOTE_OFF(1, 69))],
+    ])]);
+
+    // 5. no tempo track at all -- the transcription case, where bpm has to be
+    //    guessed from the onsets and bpmEstimated has to say so.
+    const guessed = [];
+    for (let i = 0; i < 40; i++) {
+      guessed.push([i ? 120 : 0].concat(NOTE_ON(0, 60 + (i % 5), 90)));
+      guessed.push([60].concat(NOTE_OFF(0, 60 + (i % 5))));
+    }
+    made.push(['no-tempo', smf(0, 480, [guessed])]);
+
+    const tmpFiles = [];
+    for (const entry of made) {
+      const name = entry[0];
+      const f = tmpMid(name, entry[1]);
+      tmpFiles.push(f);
+      let py = null;
+      try { py = pyLoad(f); } catch (e) { ok(false, 'python could load the ' + name + ' fixture: ' + e.message); continue; }
+      const js = MidiParse.parse(fs2.readFileSync(f), f);
+      sameDoc(py, js, name);
+      if (name === 'unterminated') {
+        ok(js.notes.some((n) => n.unterminated === true), 'an unterminated note keeps its flag');
+        ok(js.notes.length === 2, 'an unterminated note is kept, never dropped');
+      }
+      if (name === 'trailing-silence') {
+        ok(js.duration > js.notes[js.notes.length - 1].end,
+          'silence after the last note still counts towards duration (end_of_track is not dropped)');
+      }
+      if (name === 'running-status-meta') {
+        ok(js.notes.length === 3, 'running status survives a meta event in between');
+      }
+      if (name === 'two-track-tempo') {
+        ok(js.notes.length === 4 && Object.keys(js.programs).length === 2,
+          'both tracks merge and both program changes are kept');
+        ok(js.bpmEstimated === false, 'a file with a tempo track is not guessed at');
+      }
+      if (name === 'no-tempo') {
+        ok(js.bpmEstimated === true, 'a file with no tempo track reports its bpm as a guess');
+      }
+    }
+    for (const f of tmpFiles) { try { fs2.unlinkSync(f); } catch (_) { /* windows lock */ } }
+  }
+
+  // ---- the reader REFUSES what it will not swear to, so the fallback runs ---
+  const refuse = (buf, why) => {
+    let threw = false;
+    try { MidiParse.parse(buf, 'x.mid'); } catch (_) { threw = true; }
+    ok(threw, 'the renderer parser refuses ' + why + ' (and review.js falls back to python)');
+  };
+  refuse(Buffer.from([1, 2, 3]), 'a file that is too short');
+  refuse(Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(64)]), 'a file with no MThd');
+  refuse(smf(2, 480, [[[0, 0x90, 60, 100], [10, 0x80, 60, 0]]]), 'a type 2 (asynchronous) file');
+  {
+    const b = smf(0, 480, [[[0, 0x90, 60, 100], [10, 0x80, 60, 0]]]);
+    b[12] = 0xe7; b[13] = 0x28;                      // SMPTE division
+    refuse(b, 'an SMPTE time division');
+  }
+  {
+    const b = smf(0, 480, [[[0, 0x90, 60, 100], [10, 0x80, 60, 0]]]);
+    b[b.length - 7] = 0xf1;                          // a System Common byte
+    refuse(b, 'a System Common status byte inside a track');
+  }
+  refuse(smf(0, 480, [[[0, 60, 100]]]), 'running status with nothing to run from');
+
+  // ---- the wiring, so a rename cannot quietly disable any of the above ------
+  const revSrc = fs2.readFileSync(path.join(root, 'renderer', 'review', 'review.js'), 'utf-8');
+  const revHtml = fs2.readFileSync(path.join(root, 'renderer', 'review', 'index.html'), 'utf-8');
+  ok(revHtml.indexOf('shared/midi-parse.js') > 0 &&
+     revHtml.indexOf('shared/midi-parse.js') < revHtml.indexOf('./review.js'),
+    'review/index.html loads midi-parse.js before review.js');
+  ok(/readDocumentFast\(filePath\)[\s\S]{0,600}?catch[\s\S]{0,400}?return R\.load\(filePath\)/.test(revSrc),
+    'the Editor falls back to the python loader when the renderer parse declines');
+  ok(/Seam\.forcePython/.test(revSrc), 'forcePython keeps the python loader reachable without a rebuild');
+  const docSrc = fs2.readFileSync(docPy, 'utf-8');
+  ok(!/^\s*[^#\n]*midi\.length/m.test(docSrc),
+    'midi_document.py no longer re-iterates the file for mido .length (248ms at 50k, 676ms at 120k)');
+  ok(/def save_midi/.test(docSrc), 'midi_document.py is still the writer');
+}

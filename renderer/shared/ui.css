@@ -827,6 +827,35 @@
 @keyframes dot-pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.55); opacity: .55; } }
 .dot.is-live { background: var(--accent); }
 
+/* ---- parked: the loops that must not run for an audience of nobody ----
+   draw.js stamps data-parked on <html> for exactly the condition under which
+   its own scheduler arms no rAF at all: the window is minimised/hidden, or this
+   panel is not the visible tab. A CSS animation is the one moving thing the
+   frame budget cannot reach -- the compositor produces a frame every vsync
+   whether or not anything asked for one -- and the app disables Chromium's
+   background throttling on purpose, so nothing else will stop it.
+
+   Measured with benchmarks/anim-cost.js (20s samples, two 8px pulsing dots):
+     parked, pulsing           1.084% renderer CPU / 2.990% GPU CPU
+     parked, paused            0.000% renderer CPU / 0.008% GPU CPU
+     really minimised, pulsing 0.005% renderer CPU / 0.248% GPU CPU
+     really minimised, paused  0.000% renderer CPU / 0.009% GPU CPU
+   The VISIBLE case is deliberately untouched at 1.060% / 2.902%: the pulse is
+   the affordance for the blocked state, and a smooth one costs a composite per
+   vsync. That is a price, not a defect, and it is not traded away here.
+
+   PAUSED, not stopped: animation-play-state resumes mid-cycle the instant the
+   document is visible again, so nothing about how any of these looks on screen
+   changes -- the pulse is still the affordance for the blocked state, the
+   spinner still spins, the indeterminate bar still sweeps. Only endless
+   DECORATIVE loops are listed: a finite animation may have an animationend
+   listener behind it, and pausing one of those would stall real logic. */
+:root[data-parked] .dot.is-paused,
+:root[data-parked] .dot.is-blocked,
+:root[data-parked] .pill.is-blocked > .dot,
+:root[data-parked] .btn.is-busy::after,
+:root[data-parked] .skel-bar::after { animation-play-state: paused; }
+
 /* ===========================================================================
    16. PROGRESS AND METERS
    .bar / .bar-fill (transform-driven, --p 0..1) live in tokens.css.
