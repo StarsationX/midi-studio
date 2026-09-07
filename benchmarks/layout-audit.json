@@ -1,23 +1,21 @@
 {
-  "generatedAt": "2026-09-07T05:35:53.579Z",
+  "generatedAt": "2026-09-07T05:38:09.312Z",
   "sizes": [
     "1920x1080"
   ],
   "problems": 0,
   "stubChannelsInvoked": [
-    "app:forgeInfo",
-    "app:getOutputDir",
     "app:getUi",
-    "app:version",
-    "forge:check",
-    "forge:getSettings"
+    "engine:send"
   ],
   "stubChannelsUnused": [
     "app:bootState",
     "app:changeForgeFolder",
     "app:changelog",
     "app:cleanReinstall",
+    "app:forgeInfo",
     "app:getLibraryDir",
+    "app:getOutputDir",
     "app:listMidis",
     "app:notesShown",
     "app:openBootLog",
@@ -32,11 +30,13 @@
     "app:setLibraryDir",
     "app:setPerformance",
     "app:setUi",
+    "app:version",
     "app:whatsNew",
     "dialog:openMapping",
     "dialog:openMidi",
-    "engine:send",
     "forge:cancel",
+    "forge:check",
+    "forge:getSettings",
     "forge:pause",
     "forge:pickInput",
     "forge:pickOutDir",
@@ -71,7 +71,7 @@
   ],
   "perPage": [
     {
-      "page": "forge",
+      "page": "player",
       "overflow": 0,
       "popover": 0,
       "escape": 0,
@@ -84,7 +84,7 @@
   ],
   "results": [
     {
-      "page": "forge",
+      "page": "player",
       "size": "1920x1080",
       "state": "default",
       "counts": {
@@ -106,9 +106,31 @@
       "truncated": []
     },
     {
-      "page": "forge",
+      "page": "player",
       "size": "1920x1080",
-      "state": "running",
+      "state": "loaded",
+      "counts": {
+        "overflow": 0,
+        "popover": 0,
+        "escape": 0,
+        "overlap": 0,
+        "offscreen": 0,
+        "console": 0,
+        "truncated": 0
+      },
+      "problems": 0,
+      "console": [],
+      "overflow": [],
+      "popover": [],
+      "escape": [],
+      "overlap": [],
+      "offscreen": [],
+      "truncated": []
+    },
+    {
+      "page": "player",
+      "size": "1920x1080",
+      "state": "playing",
       "counts": {
         "overflow": 0,
         "popover": 0,

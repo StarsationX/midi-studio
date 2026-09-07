@@ -317,7 +317,14 @@
   Visualizer.prototype.render = function (ctx, W, H) {
     if (W < 20 || H < 20) return;
     var pal = this._pal;
-    var rollH = this.showKeys ? Math.floor(H * 0.72) : H;
+    // The keybed takes the bottom fifth, which is the proportion in the design
+    // reference. At 0.72 the keyboard read as the heavy half of the picture and
+    // stole travel from the falling notes, which are the thing being watched.
+    // Clamped so the keys stay playable-looking on a short window and do not
+    // swell on a tall one.
+    var rollH = this.showKeys
+      ? H - Math.round(Math.min(132, Math.max(56, H * 0.21)))
+      : H;
     var kbH = H - rollH;
     var nWhite = Math.max(1, this.whiteNotes.length);
     var wkeyW = W / nWhite;
