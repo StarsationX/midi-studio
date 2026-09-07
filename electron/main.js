@@ -335,7 +335,7 @@ function createWindow() {
     // The nav order is Forge, Editor, Player, Self MIDI, Library, Logs. This map
     // and the shell's own Ctrl+1..6 handler must always list the same six keys
     // in the same order, or the two disagree about what Ctrl+3 means.
-    const tab = { 1: 'forge', 2: 'review', 3: 'player', 4: 'audition', 5: 'library', 6: 'logs' }[input.key];
+    const tab = { 1: 'forge', 2: 'player', 3: 'review', 4: 'audition', 5: 'library', 6: 'logs' }[input.key];
     if (tab) { sendToRenderer('shell-shortcut', { tab }); e.preventDefault(); return; }
     // The command palette and the settings sheet belong to the shell, so they
     // have to come back out of the panel the same way the tab keys do.

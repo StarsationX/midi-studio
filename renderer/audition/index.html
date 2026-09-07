@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Self MIDI is the ONE page with a deliberately relaxed policy: soundfont
+  <!-- Listen is the ONE page with a deliberately relaxed policy: soundfont
        banks are loaded by injecting a <script src="../soundfonts/...-mp3.js">
        and their mp3 payloads are read back out of data: URIs (invariant 30).
        script-src stays 'self' because the bank scripts ARE 'self'; connect-src
@@ -12,7 +12,7 @@
        loosened, and no remote origin is allowed anywhere. -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data:;" />
-  <title>Self MIDI</title>
+  <title>Listen</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="../shared/ui.css" />
   <link rel="stylesheet" href="./audition.css" />
@@ -132,7 +132,7 @@
       <div class="state sm-state" id="sm-state">
         <span class="state-icon" id="sm-state-icon"><i data-icon="drop" data-icon-size="28"></i></span>
         <span class="state-title" id="sm-state-title">Nothing loaded</span>
-        <span class="state-msg" id="sm-state-msg">Open a MIDI file, drop one here, or pick a song from your library. Self MIDI plays it inside the app.</span>
+        <span class="state-msg" id="sm-state-msg">Open a MIDI file, drop one here, or pick a song from your library. Listen plays it inside the app.</span>
         <span class="state-actions">
           <button class="btn btn-primary" type="button" id="state-open">Choose MIDI</button>
         </span>
@@ -356,7 +356,7 @@
   <div class="drop-card">
     <span class="drop-icon"><i data-icon="drop" data-icon-size="28"></i></span>
     <span class="drop-title">Drop to listen</span>
-    <span class="drop-sub">Self MIDI plays it inside MIDI Studio</span>
+    <span class="drop-sub">Listen plays it inside MIDI Studio</span>
     <span class="drop-types">.mid &middot; .midi &middot; .midstudio.json</span>
   </div>
 </div>

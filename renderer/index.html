@@ -50,14 +50,14 @@
       <button class="nav-item" id="nav-forge" role="tab" data-frame="forge" aria-selected="true" tabindex="0" aria-controls="frame-forge">
         <span class="nav-label">Forge</span><span class="nav-key mono" aria-hidden="true">^1</span>
       </button>
-      <button class="nav-item" id="nav-review" role="tab" data-frame="review" aria-selected="false" tabindex="-1" aria-controls="frame-review">
-        <span class="nav-label">Editor</span><span class="nav-key mono" aria-hidden="true">^2</span>
-      </button>
       <button class="nav-item" id="nav-player" role="tab" data-frame="player" aria-selected="false" tabindex="-1" aria-controls="frame-player">
-        <span class="nav-label">Player</span><span class="nav-key mono" aria-hidden="true">^3</span>
+        <span class="nav-label">Player</span><span class="nav-key mono" aria-hidden="true">^2</span>
+      </button>
+      <button class="nav-item" id="nav-review" role="tab" data-frame="review" aria-selected="false" tabindex="-1" aria-controls="frame-review">
+        <span class="nav-label">Editor</span><span class="nav-key mono" aria-hidden="true">^3</span>
       </button>
       <button class="nav-item" id="nav-audition" role="tab" data-frame="audition" aria-selected="false" tabindex="-1" aria-controls="frame-audition">
-        <span class="nav-label">Self MIDI</span><span class="nav-key mono" aria-hidden="true">^4</span>
+        <span class="nav-label">Listen</span><span class="nav-key mono" aria-hidden="true">^4</span>
       </button>
       <button class="nav-item" id="nav-library" role="tab" data-frame="library" aria-selected="false" tabindex="-1" aria-controls="frame-library">
         <span class="nav-label">Library</span><span class="nav-key mono" aria-hidden="true">^5</span>
@@ -145,7 +145,7 @@
     <iframe class="tabframe" id="frame-forge"    data-frame="forge"    data-src="./forge/index.html"    title="Forge"     role="tabpanel" aria-labelledby="nav-forge"></iframe>
     <iframe class="tabframe" id="frame-review"   data-frame="review"   data-src="./review/index.html"   title="Editor"    role="tabpanel" aria-labelledby="nav-review" hidden></iframe>
     <iframe class="tabframe" id="frame-player"   data-frame="player"   data-src="./player/index.html"   title="Player"    role="tabpanel" aria-labelledby="nav-player" hidden></iframe>
-    <iframe class="tabframe" id="frame-audition" data-frame="audition" data-src="./audition/index.html" title="Self MIDI" role="tabpanel" aria-labelledby="nav-audition" hidden></iframe>
+    <iframe class="tabframe" id="frame-audition" data-frame="audition" data-src="./audition/index.html" title="Listen" role="tabpanel" aria-labelledby="nav-audition" hidden></iframe>
     <iframe class="tabframe" id="frame-library"  data-frame="library"  data-src="./library/index.html"  title="Library"   role="tabpanel" aria-labelledby="nav-library" hidden></iframe>
     <iframe class="tabframe" id="frame-logs"     data-frame="logs"     data-src="./logs/index.html"     title="Logs"      role="tabpanel" aria-labelledby="nav-logs" hidden></iframe>
 
@@ -607,7 +607,7 @@
             <div class="set-row"><span class="set-key">Version</span><div class="set-val mono" id="s-about-version">&#8230;</div></div>
             <div class="set-row"><span class="set-key">Electron</span><div class="set-val mono small" id="s-about-runtime">&#8212;</div></div>
             <div class="set-row"><span class="set-key">Project</span><div class="set-val"><button class="link" id="s-repo" type="button">github.com/StarsationX/midi-studio</button></div></div>
-            <p class="set-note">Forge transcribes audio to MIDI, the Editor cleans it up, the Player types it into a game, Self MIDI plays it here, and the Library keeps track of all of it.</p>
+            <p class="set-note">Forge transcribes audio to MIDI, the Editor cleans it up, the Player types it into a game, Listen plays it here, and the Library keeps track of all of it.</p>
           </div>
         </section>
       </div>

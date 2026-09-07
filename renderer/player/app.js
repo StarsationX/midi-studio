@@ -2323,7 +2323,7 @@
       { sep: true },
       { label: 'Reveal in Explorer', icon: 'folder', disabled: !has, run: () => window.Bus.send(T.FILE_REVEAL, { path: lastMidiPath }) },
       { label: 'Send to the Editor', icon: 'send', disabled: !has, run: () => window.Bus.send(T.NAV_OPEN_EDITOR, { midiPath: lastMidiPath }) },
-      { label: 'Listen in Self MIDI', icon: 'play', disabled: !has, run: () => window.Bus.send(T.NAV_OPEN_SELFMIDI, { midiPath: lastMidiPath, play: false }) },
+      { label: 'Listen', icon: 'play', disabled: !has, run: () => window.Bus.send(T.NAV_OPEN_SELFMIDI, { midiPath: lastMidiPath, play: false }) },
       { sep: true },
       { label: 'Copy VirtualPiano sheet', disabled: !has, run: exportSheet },
       { label: 'Reload mapping', icon: 'refresh', disabled: !has, run: () => { loadMidi(); say('Mapping reloaded.'); } },

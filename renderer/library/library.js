@@ -3,7 +3,7 @@
 // The dedicated file view. It is the PRIMARY consumer of the one library index
 // (electron/library.js): it does not re-implement the scan, the melody-candidate
 // fold, the skip set or the caps, and it does not own a second favourites store
-// -- favourites are ui.libraryFavorites in settings, the same set Self MIDI
+// -- favourites are ui.libraryFavorites in settings, the same set Listen
 // reads and writes.
 //
 // The four columns a directory listing cannot answer (Length, Notes, Source,
@@ -77,7 +77,7 @@
   const SRC_LABEL = { generated: 'Generated', imported: 'Imported', library: 'Library' };
   const SRC_ORDER = { generated: 0, imported: 1, library: 2 };
   const USE_LABEL = {
-    player: 'Played in Player', selfmidi: 'Listened in Self MIDI', editor: 'Opened in Editor',
+    player: 'Played in Player', selfmidi: 'Listened in Listen', editor: 'Opened in Editor',
     forge: 'Used in Forge', preview: 'Previewed here', reveal: 'Revealed in Explorer'
   };
   const BUILTIN = 2;          // dirs[0] and dirs[1] are built in (CONTRACT 11.12)
@@ -110,7 +110,7 @@
   };
 
   // =========================================================================
-  // FAVOURITES -- ONE store, shared with Self MIDI (CONTRACT 11.12)
+  // FAVOURITES -- ONE store, shared with Listen (CONTRACT 11.12)
   // Settings REPLACES arrays (invariant 38), so the whole array always goes out.
   // =========================================================================
   const writeFavs = debounce(() => {
@@ -973,7 +973,7 @@
 
   function noPreviewToast() {
     toast('warn', 'Nothing to preview',
-      'This file has no source recording. Listen (Self MIDI) plays the notes instead.');
+      'This file has no source recording. Listen plays the notes instead.');
   }
 
   function startPreview(p) {
@@ -1219,7 +1219,7 @@
       !many && { label: 'Preview', icon: 'play', disabled: !canPreview(file.path),
         run: () => startPreview(file.path) },
       { label: 'Send to Player', key: 'Enter', icon: 'send', run: () => sendTo('player', targets) },
-      { label: 'Listen in Self MIDI', run: () => sendTo('selfmidi', targets) },
+      { label: 'Listen', run: () => sendTo('selfmidi', targets) },
       { label: 'Open in Editor', run: () => sendTo('editor', targets) },
       { sep: true },
       { label: 'Favorite', checked: fav, run: () => setFav(targets, !fav) },
@@ -1672,7 +1672,7 @@
         + 'and everything else here needs the file.';
     } else if (has && !many && !canPreview(state.focusPath)) {
       note.hidden = false;
-      note.textContent = 'No source recording for this file, so Preview has nothing to play. Listen (Self MIDI) plays the notes.';
+      note.textContent = 'No source recording for this file, so Preview has nothing to play. Listen plays the notes.';
     } else note.hidden = true;
   }
 
@@ -2290,7 +2290,7 @@
         enabled: some, run: () => sendTo('player', state.sel.slice()) },
       { id: 'library.openEditor', label: 'Open the selection in the Editor', group: 'Library',
         enabled: some, run: () => sendTo('editor', state.sel.slice()) },
-      { id: 'library.listen', label: 'Listen to the selection in Self MIDI', group: 'Library',
+      { id: 'library.listen', label: 'Listen to the selection in Listen', group: 'Library',
         enabled: some, run: () => sendTo('selfmidi', state.sel.slice()) },
       { id: 'library.favorite', label: 'Favourite the selection', group: 'Library',
         enabled: some, run: () => setFav(state.sel.slice(), !selectedFiles().every((f) => f.fav)) },

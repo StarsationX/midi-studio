@@ -3092,7 +3092,7 @@
       keywords: 'send play roblox', enabled: () => loaded(), run: () => sendToPlayer(true) },
     { id: 'editor.export', label: 'Export edited MIDI', group: 'Editor',
       keywords: 'write mid', enabled: () => loaded(), run: exportMidi },
-    { id: 'editor.listen', label: 'Listen in Self MIDI', group: 'Editor',
+    { id: 'editor.listen', label: 'Listen', group: 'Editor',
       keywords: 'audition preview hear', enabled: () => loaded(), run: listenSelfMidi },
     { id: 'editor.sendPlayer', label: 'Send to the MIDI Player', group: 'Editor',
       enabled: () => loaded(), run: () => sendToPlayer(false) },

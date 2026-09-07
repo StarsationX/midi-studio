@@ -1,6 +1,6 @@
-// audition.js — Self MIDI, the internal listener.
+// audition.js — Listen, the internal listener.
 //
-// The Player sends keystrokes to another application. Self MIDI plays the music
+// The Player sends keystrokes to another application. Listen plays the music
 // HERE, through Web Audio, with the sampled FluidR3 banks. So this reads as a
 // music player and a library browser, not as a second Player.
 //
@@ -450,7 +450,7 @@
       setInstrumentStatus(`${instrumentLabel(key)} unavailable · Basic fallback`);
       window.Bus.send(T.UI_STATUS, {
         frame: FRAME, severity: 'warn',
-        text: `Self MIDI: ${instrumentLabel(key)} samples did not load (${error && error.message ? error.message : 'unknown error'}). Using the fallback synth.`,
+        text: `Listen: ${instrumentLabel(key)} samples did not load (${error && error.message ? error.message : 'unknown error'}). Using the fallback synth.`,
       });
       return false;
     } finally {
@@ -1467,11 +1467,11 @@
     $('sm-song').hidden = !has;
     $('sm-state').hidden = has;
     if (!has) {
-      document.title = 'Self MIDI';
+      document.title = 'Listen';
       renderMarks();
       return;
     }
-    document.title = `${doc.name} · Self MIDI`;
+    document.title = `${doc.name} · Listen`;
 
     $('song-title').textContent = doc.name || window.Fmt.stem(path);
     $('song-title').title = doc.name || '';
@@ -1652,7 +1652,7 @@
         (result && result.error) || 'The file could not be read. It may have moved or be a different format.');
       window.Bus.send(T.UI_STATUS, {
         frame: FRAME, severity: 'err',
-        text: `Self MIDI: ${(result && result.error) || 'could not open'} — ${source}`,
+        text: `Listen: ${(result && result.error) || 'could not open'} — ${source}`,
       });
       reportState(true);
       return false;
@@ -2560,31 +2560,31 @@
   window.Commands.setScope(FRAME);
   const hasFile = () => !!currentDocument();
   const unregister = window.Commands.registerAll([
-    { id: 'selfmidi.open', label: 'Open a MIDI file', keywords: ['listen', 'browse', 'file'], group: 'Self MIDI', run: openPicker },
-    { id: 'selfmidi.play', label: 'Play or pause', keys: 'Space', group: 'Self MIDI', enabled: hasFile, run: () => togglePlay() },
-    { id: 'selfmidi.stop', label: 'Stop', keys: 'Home', group: 'Self MIDI', enabled: hasFile, run: stop },
-    { id: 'selfmidi.back', label: 'Back 5 seconds', keys: 'Left', group: 'Self MIDI', enabled: hasFile, run: () => seek(songTime() - 5) },
-    { id: 'selfmidi.forward', label: 'Forward 5 seconds', keys: 'Right', group: 'Self MIDI', enabled: hasFile, run: () => seek(songTime() + 5) },
-    { id: 'selfmidi.next', label: 'Next in the queue', group: 'Self MIDI', enabled: () => prefs.queue.length > 0, run: nextTrack },
-    { id: 'selfmidi.prev', label: 'Previous in the queue', group: 'Self MIDI', enabled: () => prefs.queue.length > 0, run: prevTrack },
-    { id: 'selfmidi.favorite', label: 'Favorite this song', keywords: ['star', 'like'], group: 'Self MIDI', enabled: hasFile, run: () => toggleFav(currentPath()) },
-    { id: 'selfmidi.addQueue', label: 'Add this song to the queue', group: 'Self MIDI', enabled: hasFile, run: () => addToQueue(currentPath()) },
-    { id: 'selfmidi.clearQueue', label: 'Clear the queue', group: 'Self MIDI', enabled: () => prefs.queue.length > 0, run: () => { prefs.queue = []; savePrefs(); renderRail(); reportState(true); republishCommands(); } },
-    { id: 'selfmidi.newPlaylist', label: 'New playlist', group: 'Self MIDI', run: () => openNameSheet('new', 'New playlist', '') },
-    { id: 'selfmidi.savePlaylist', label: 'Save the queue as a playlist', group: 'Self MIDI', enabled: () => prefs.queue.length > 0, run: () => openNameSheet('save', 'Save the queue as a playlist', 'My queue') },
-    { id: 'selfmidi.loopA', label: 'Set the loop A point here', group: 'Self MIDI', enabled: hasFile, run: setPointA },
-    { id: 'selfmidi.loopB', label: 'Set the loop B point here', group: 'Self MIDI', enabled: hasFile, run: setPointB },
-    { id: 'selfmidi.loopClear', label: 'Clear the loop range', group: 'Self MIDI', enabled: () => loop.b > loop.a, run: clearRange },
-    { id: 'selfmidi.bookmark', label: 'Bookmark this spot', group: 'Self MIDI', enabled: hasFile, run: addMark },
-    { id: 'selfmidi.resetZoom', label: 'Reset the piano-roll zoom', group: 'Self MIDI', enabled: hasFile, run: () => zoom.reset() },
-    { id: 'selfmidi.sendPlayer', label: 'Send this song to the Player', keywords: ['keystrokes', 'roblox'], group: 'Self MIDI', enabled: hasFile, run: () => window.Bus.send(T.NAV_OPEN_PLAYER, { midiPath: currentPath() }) },
-    { id: 'selfmidi.sendEditor', label: 'Open this song in the Editor', group: 'Self MIDI', enabled: hasFile, run: () => window.Bus.send(T.NAV_OPEN_EDITOR, { projectPath: player.projectPath || '', midiPath: currentPath() }) },
-    { id: 'selfmidi.reveal', label: 'Show this song in the folder', group: 'Self MIDI', enabled: hasFile, run: () => window.Bus.send(T.FILE_REVEAL, { path: currentPath() }) },
+    { id: 'selfmidi.open', label: 'Open a MIDI file', keywords: ['listen', 'browse', 'file'], group: 'Listen', run: openPicker },
+    { id: 'selfmidi.play', label: 'Play or pause', keys: 'Space', group: 'Listen', enabled: hasFile, run: () => togglePlay() },
+    { id: 'selfmidi.stop', label: 'Stop', keys: 'Home', group: 'Listen', enabled: hasFile, run: stop },
+    { id: 'selfmidi.back', label: 'Back 5 seconds', keys: 'Left', group: 'Listen', enabled: hasFile, run: () => seek(songTime() - 5) },
+    { id: 'selfmidi.forward', label: 'Forward 5 seconds', keys: 'Right', group: 'Listen', enabled: hasFile, run: () => seek(songTime() + 5) },
+    { id: 'selfmidi.next', label: 'Next in the queue', group: 'Listen', enabled: () => prefs.queue.length > 0, run: nextTrack },
+    { id: 'selfmidi.prev', label: 'Previous in the queue', group: 'Listen', enabled: () => prefs.queue.length > 0, run: prevTrack },
+    { id: 'selfmidi.favorite', label: 'Favorite this song', keywords: ['star', 'like'], group: 'Listen', enabled: hasFile, run: () => toggleFav(currentPath()) },
+    { id: 'selfmidi.addQueue', label: 'Add this song to the queue', group: 'Listen', enabled: hasFile, run: () => addToQueue(currentPath()) },
+    { id: 'selfmidi.clearQueue', label: 'Clear the queue', group: 'Listen', enabled: () => prefs.queue.length > 0, run: () => { prefs.queue = []; savePrefs(); renderRail(); reportState(true); republishCommands(); } },
+    { id: 'selfmidi.newPlaylist', label: 'New playlist', group: 'Listen', run: () => openNameSheet('new', 'New playlist', '') },
+    { id: 'selfmidi.savePlaylist', label: 'Save the queue as a playlist', group: 'Listen', enabled: () => prefs.queue.length > 0, run: () => openNameSheet('save', 'Save the queue as a playlist', 'My queue') },
+    { id: 'selfmidi.loopA', label: 'Set the loop A point here', group: 'Listen', enabled: hasFile, run: setPointA },
+    { id: 'selfmidi.loopB', label: 'Set the loop B point here', group: 'Listen', enabled: hasFile, run: setPointB },
+    { id: 'selfmidi.loopClear', label: 'Clear the loop range', group: 'Listen', enabled: () => loop.b > loop.a, run: clearRange },
+    { id: 'selfmidi.bookmark', label: 'Bookmark this spot', group: 'Listen', enabled: hasFile, run: addMark },
+    { id: 'selfmidi.resetZoom', label: 'Reset the piano-roll zoom', group: 'Listen', enabled: hasFile, run: () => zoom.reset() },
+    { id: 'selfmidi.sendPlayer', label: 'Send this song to the Player', keywords: ['keystrokes', 'roblox'], group: 'Listen', enabled: hasFile, run: () => window.Bus.send(T.NAV_OPEN_PLAYER, { midiPath: currentPath() }) },
+    { id: 'selfmidi.sendEditor', label: 'Open this song in the Editor', group: 'Listen', enabled: hasFile, run: () => window.Bus.send(T.NAV_OPEN_EDITOR, { projectPath: player.projectPath || '', midiPath: currentPath() }) },
+    { id: 'selfmidi.reveal', label: 'Show this song in the folder', group: 'Listen', enabled: hasFile, run: () => window.Bus.send(T.FILE_REVEAL, { path: currentPath() }) },
     // The four the bottom transport drives (§11.4). They take an argument from
     // the bar; run without one they do nothing rather than guess.
-    { id: 'selfmidi.repeat', label: 'Repeat mode (from the transport)', group: 'Self MIDI', run: (arg) => { if (typeof arg === 'string') setRepeat(arg); } },
-    { id: 'selfmidi.transpose', label: 'Transpose (from the transport)', group: 'Self MIDI', run: (arg) => { if (Number.isFinite(Number(arg))) setTranspose(Number(arg)); } },
-    { id: 'selfmidi.volume', label: 'Volume (from the transport)', group: 'Self MIDI', run: (arg) => { if (Number.isFinite(Number(arg))) { setVolume(Number(arg) * 100); persistVolume(); } } },
+    { id: 'selfmidi.repeat', label: 'Repeat mode (from the transport)', group: 'Listen', run: (arg) => { if (typeof arg === 'string') setRepeat(arg); } },
+    { id: 'selfmidi.transpose', label: 'Transpose (from the transport)', group: 'Listen', run: (arg) => { if (Number.isFinite(Number(arg))) setTranspose(Number(arg)); } },
+    { id: 'selfmidi.volume', label: 'Volume (from the transport)', group: 'Listen', run: (arg) => { if (Number.isFinite(Number(arg))) { setVolume(Number(arg) * 100); persistVolume(); } } },
   ]);
 
   // ==========================================================================
@@ -2682,7 +2682,7 @@
   setInstrumentStatus(`${instrumentLabel()} · Loads on play`);
   enableActions(false);
   setState('empty', 'Nothing loaded',
-    'Open a MIDI file, drop one here, or pick a song from your library. Self MIDI plays it inside the app.');
+    'Open a MIDI file, drop one here, or pick a song from your library. Listen plays it inside the app.');
   setNavTab(navTab);
   setRailTab(railTab);
   renderMarks();
@@ -2695,7 +2695,7 @@
   // and never calls this, but a shell that has not been updated still can.
   window.loadAudition = (midiPath, projectPath, options) => loadAudition(midiPath, projectPath, options || {});
 
-  window.Bus.send(T.FRAME_READY, { frame: FRAME, title: 'Self MIDI' });
+  window.Bus.send(T.FRAME_READY, { frame: FRAME, title: 'Listen' });
 
   (async () => {
     await readStores();

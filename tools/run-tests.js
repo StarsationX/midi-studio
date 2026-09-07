@@ -614,7 +614,7 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   // is inside a panel. The two maps have to list the same six frame keys in the
   // same order or the app disagrees with itself about what Ctrl+6 means, and
   // nothing at runtime notices.
-  const NAV_ORDER = ['forge', 'review', 'player', 'audition', 'library', 'logs'];
+  const NAV_ORDER = ['forge', 'player', 'review', 'audition', 'library', 'logs'];
   {
     const mainSrc2 = rd('electron/main.js');
     const html = rd('renderer/index.html');

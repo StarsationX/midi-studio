@@ -70,14 +70,14 @@
   // 1. FRAMES
   // ==========================================================================
   // Internal frame keys never change: 'review' is the Editor, 'audition' is
-  // Self MIDI. The nav order is Forge, Editor, Player, Self MIDI, Library,
+  // Listen. The nav order is Forge, Editor, Player, Listen, Library,
   // Logs, and Ctrl+1..6 follow that order (main.js maps the same six, in the
   // same order -- see the KEY ROUTER section).
   const FRAMES = [
     { key: 'forge',    nav: 'nav-forge',    el: 'frame-forge',    label: 'Forge',     title: 'MIDI Studio · Forge' },
-    { key: 'review',   nav: 'nav-review',   el: 'frame-review',   label: 'Editor',    title: 'MIDI Studio · Editor' },
     { key: 'player',   nav: 'nav-player',   el: 'frame-player',   label: 'Player',    title: 'MIDI Studio · Player' },
-    { key: 'audition', nav: 'nav-audition', el: 'frame-audition', label: 'Self MIDI', title: 'MIDI Studio · Self MIDI' },
+    { key: 'review',   nav: 'nav-review',   el: 'frame-review',   label: 'Editor',    title: 'MIDI Studio · Editor' },
+    { key: 'audition', nav: 'nav-audition', el: 'frame-audition', label: 'Listen',    title: 'MIDI Studio · Listen' },
     { key: 'library',  nav: 'nav-library',  el: 'frame-library',  label: 'Library',   title: 'MIDI Studio · Library' },
     { key: 'logs',     nav: 'nav-logs',     el: 'frame-logs',     label: 'Logs',      title: 'MIDI Studio · Logs' }
   ];
@@ -1286,7 +1286,7 @@
   // here: every position on screen arrived in a transport:state packet.
   // ==========================================================================
   const OWNER_HOME = { player: 'player', selfmidi: 'audition', editor: 'review' };
-  const OWNER_LABEL = { player: 'Player', selfmidi: 'Self MIDI', editor: 'Editor' };
+  const OWNER_LABEL = { player: 'Player', selfmidi: 'Listen', editor: 'Editor' };
   const xport = $('xport');
   let xportMs = false;                    // show milliseconds in the readout
   let scrubbing = false, scrubValue = 0;

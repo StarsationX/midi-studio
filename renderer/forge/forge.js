@@ -1901,7 +1901,7 @@
         { group: Fmt.basename(it.path) },
         { label: 'Open in Editor', icon: 'send', run: () => Bus.send(T.NAV_OPEN_EDITOR, { projectPath: it.project || '', midiPath: it.path }) },
         { label: 'Send to Player', icon: 'play', run: () => Bus.send(T.NAV_OPEN_PLAYER, { midiPath: it.path }) },
-        { label: 'Listen (Self MIDI)', icon: 'keyboard', run: () => Bus.send(T.NAV_OPEN_SELFMIDI, { midiPath: it.path, projectPath: it.project || '' }) },
+        { label: 'Listen', icon: 'keyboard', run: () => Bus.send(T.NAV_OPEN_SELFMIDI, { midiPath: it.path, projectPath: it.project || '' }) },
         { sep: true },
         { label: 'Show in folder', icon: 'folder', run: () => Bus.send(T.FILE_REVEAL, { path: it.path }) },
         { label: 'Forget this result', icon: 'close', danger: true, run: () => forget(it) },
@@ -2488,7 +2488,7 @@
       { id: 'forge.copyLog', label: 'Forge: copy the pipeline log', group: 'Forge', run: () => copyLog('the log') },
       { id: 'forge.openResult', label: 'Forge: open the last result in the Editor', group: 'Forge', enabled: () => !!selected, run: () => $('act-editor').click() },
       { id: 'forge.sendPlayer', label: 'Forge: send the last result to the Player', group: 'Forge', enabled: () => !!selected, run: () => $('act-player').click() },
-      { id: 'forge.listen', label: 'Forge: listen to the last result in Self MIDI', group: 'Forge', enabled: () => !!selected, run: () => $('act-listen').click() },
+      { id: 'forge.listen', label: 'Forge: listen to the last result in Listen', group: 'Forge', enabled: () => !!selected, run: () => $('act-listen').click() },
       { id: 'forge.revealResult', label: 'Forge: show the last result in its folder', group: 'Forge', enabled: () => !!selected, run: () => $('act-folder').click() },
     ]));
   }
