@@ -318,16 +318,16 @@ function createWindow() {
   // them once the user has clicked into a tab.
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown' || !input.control || input.meta) return;
-    // Ctrl+Alt+L opens the activity log. Checked first, because the tab map
-    // below deliberately ignores Alt.
+    // Ctrl+Alt+L goes to the Logs tab. Checked first, because the tab map below
+    // deliberately ignores Alt.
     if (input.alt) {
       if (input.key === 'l' || input.key === 'L') { sendToRenderer('shell-shortcut', { id: 'log' }); e.preventDefault(); }
       return;
     }
-    // The nav order is Forge, Editor, Player, Self MIDI, Library. This map and
-    // the shell's own Ctrl+1..5 handler must always list the same five keys in
-    // the same order, or the two disagree about what Ctrl+3 means.
-    const tab = { 1: 'forge', 2: 'review', 3: 'player', 4: 'audition', 5: 'library' }[input.key];
+    // The nav order is Forge, Editor, Player, Self MIDI, Library, Logs. This map
+    // and the shell's own Ctrl+1..6 handler must always list the same six keys
+    // in the same order, or the two disagree about what Ctrl+3 means.
+    const tab = { 1: 'forge', 2: 'review', 3: 'player', 4: 'audition', 5: 'library', 6: 'logs' }[input.key];
     if (tab) { sendToRenderer('shell-shortcut', { tab }); e.preventDefault(); return; }
     // The command palette and the settings sheet belong to the shell, so they
     // have to come back out of the panel the same way the tab keys do.
@@ -1009,6 +1009,10 @@ function wireIpc() {
 
   ipcMain.handle('app:openExternal', (_e, url) => (/^https?:\/\//i.test(String(url)) ? shell.openExternal(url) : null));
   ipcMain.handle('app:version', () => app.getVersion());
+  // The release name is package.json's, not Electron's, so it comes from there.
+  ipcMain.handle('app:release', () => {
+    try { return String(require('../package.json').releaseName || ''); } catch (_) { return ''; }
+  });
   // The window is frameless, so the three window buttons are the renderer's and
   // it needs these. Nothing here can act on a window it does not own.
   ipcMain.handle('win:state', () => windowState());

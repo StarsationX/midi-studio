@@ -67,10 +67,11 @@ Everything else is independent. `icons.js`, `resize.js` and `menu.js` each
 upgrade their own markup on `DOMContentLoaded`, so they may sit anywhere after
 the elements they will touch are parsed (bottom of `<body>` is simplest).
 
-`renderer/index.html` (the shell) loads the required five plus `vlist.js` for the
-log drawer, and neither `resize.js` nor `timeline-zoom.js` nor `menu.js`: the
-shell has no split, no time axis and no context menu. That is the pattern to
-copy, not an omission.
+`renderer/index.html` (the shell) loads **only** the required five: no
+`vlist.js` (the log is its own tab now and owns the virtualised list), no
+`resize.js`, no `timeline-zoom.js`, no `menu.js` — the shell has no long list,
+no split, no time axis and no context menu. That is the pattern to copy, not an
+omission.
 
 Classic scripts, window globals — matching `renderer/index.html` and
 `renderer/player/index.html`, which is what the CSP (`script-src 'self'`, no
@@ -794,13 +795,14 @@ Legacy aliases still accepted on receive and rewritten:
 
 | Constant | Type | Payload |
 |---|---|---|
-| `NAV_ACTIVATE` | `nav:activate` | `{tab:'forge'\|'review'\|'player'\|'audition'\|'library', focus?:boolean}` |
+| `NAV_ACTIVATE` | `nav:activate` | `{tab:'forge'\|'review'\|'player'\|'audition'\|'library'\|'logs', focus?:boolean}` |
 | `NAV_ACTIVATED` | `nav:activated` | `{tab, previous}` |
 | `NAV_OPEN_FORGE` | `nav:open-forge` | `{inputPath?:string, url?:string}` |
 | `NAV_OPEN_EDITOR` | `nav:open-editor` | `{projectPath?:string, midiPath?:string}` |
 | `NAV_OPEN_PLAYER` | `nav:open-player` | `{midiPath?:string, play?:boolean}` |
 | `NAV_OPEN_SELFMIDI` | `nav:open-selfmidi` | `{midiPath?:string, play?:boolean}` |
 | `NAV_OPEN_LIBRARY` | `nav:open-library` | `{selectPath?:string, query?:string}` |
+| `NAV_OPEN_LOGS` | `nav:open-logs` | `{query?:string, source?:'all'\|'forge'\|'setup'\|'player'\|'shell', level?:'all'\|'info'\|'ok'\|'warn'\|'error'}` |
 
 **Frame lifecycle**
 
@@ -865,6 +867,29 @@ Legacy aliases still accepted on receive and rewritten:
 | `UPDATE_STATUS` | `update:status` | `{state:string, percent?, version?, staged?}` |
 | `OVERLAY_STATE` | `overlay:state` | `{open:boolean, bounds?:{x,y,w,h}}` |
 
+**The activity log**
+
+The **shell owns the ring buffer** and the Logs tab is a view of it. The shell is
+the thing that receives `forge:status`, `engine:error`, the provisioning stream
+and `ui:status` from every frame, and it must keep collecting whether or not the
+Logs tab has ever been opened — tab frames load lazily, so a viewer that owned
+the buffer would start every session empty.
+
+| Constant | Type | Direction | Payload |
+|---|---|---|---|
+| `LOG_SYNC` | `log:sync` | shell → Logs | `{lines:[line], cap:number, seq:number}` — the **whole** buffer. Sent once, in answer to the Logs frame's `frame:ready`, so a freshly opened tab gets the history it missed, and again after a `log:clear` |
+| `LOG_APPEND` | `log:append` | shell → Logs | `{lines:[line]}` — **batched**: one rAF's worth of lines per message. Never one message per line. A Forge run emits hundreds of lines per stage and that fan-out is exactly what this rewrite has been removing |
+| `LOG_CLEAR` | `log:clear` | Logs → shell | `{}` — the viewer does not own the buffer, so Clear is a **request**. The shell empties it and answers with a fresh (empty) `log:sync`, so the two cannot disagree |
+
+`line` is `{id:number, text:string, level:'info'\|'ok'\|'warn'\|'error', src:string, clock:'HH:MM:SS'}`.
+`id` is monotonic in the shell, which is the whole de-duplication the viewer
+needs where a sync and the first batch overlap. `src` is whoever produced the
+line — `forge`, `setup`, `player`, `update`, `app`, or a frame key.
+
+**Sending one of these from anywhere but the shell or the Logs tab is a defect.**
+A panel that wants something in the log sends `ui:status` (§6.1, shell chrome);
+that is the one public door.
+
 **Diagnostics**
 
 | Constant | Type | Payload |
@@ -877,12 +902,12 @@ Legacy aliases still accepted on receive and rewritten:
 | Where | Values |
 |---|---|
 | `UI_TOAST.severity`, `UI_STATUS.severity` | `info` · `ok` · `warn` · **`err`** |
-| the shell's log drawer, internally, and `FORGE_STATUS`'s `forge.log` `level` | `info` · `ok` · `warn` · **`error`** |
+| the shell's log ring buffer, the Logs tab, and `FORGE_STATUS`'s `forge.log` `level` | `info` · `ok` · `warn` · **`error`** |
 
 The bus surface is the short one. A panel that sends `severity:'error'` is not
 rejected — it is silently shown as **info**, which is the bug this table exists to
-prevent. The log's `error` level is what auto-opens the drawer and increments the
-error badge; only `forge:status` speaks it directly.
+prevent. The log's `error` level is what increments the error count on the
+activity strip; only `forge:status` speaks it directly.
 
 ---
 
@@ -1350,8 +1375,8 @@ Space handler on `window` never sees it. Escape leaves the box unchanged.
 # 11. The Shell
 
 `renderer/index.html` + `renderer/shell/shell.js` + `renderer/shell/shell.css`
-own the application chrome: the custom titlebar, the activity strip and its log
-drawer, the tab stage, the persistent bottom transport, the command palette, the
+own the application chrome: the custom titlebar, the activity strip, the tab
+stage, the persistent bottom transport, the command palette, the
 settings sheet, the boot splash, the window-level drop veil, toasts, the key
 router and the cross-tab hand-off router.
 
@@ -1361,10 +1386,19 @@ main-process IPC, its own persisted settings, or the activity model in §11.3.
 
 ## 11.1 Frame lifecycle — what every tab must do
 
-The five frames are `forge`, `review` (Editor), `player`, `audition` (Self MIDI)
-and `library`. Frames load **lazily**: a frame's `src` is set the first time its
-tab is activated, so a panel must not assume it exists at app start, and the
-shell must not assume a panel exists when a hand-off arrives.
+The six frames are `forge`, `review` (Editor), `player`, `audition` (Self MIDI),
+`library` and `logs`, in that nav order — which is also `Ctrl+1..6`. Frames load
+**lazily**: a frame's `src` is set the first time its tab is activated, so a
+panel must not assume it exists at app start, and the shell must not assume a
+panel exists when a hand-off arrives.
+
+**`Ctrl+1..6` is two maps that must agree.** The shell handles the keys, *and*
+`electron/main.js` handles them again in `before-input-event`, because the stage
+covers nearly the whole window and swallows the keydown the moment focus is
+inside a panel. `shell.js`'s `FRAMES` array and `main.js`'s
+`{1:'forge', 2:'review', 3:'player', 4:'audition', 5:'library', 6:'logs'}` are
+the two, and a sixth tab added to one and not the other means the app disagrees
+with itself about what `Ctrl+6` means. `tools/run-tests.js` asserts they match.
 
 ```
 1. document loads
@@ -1398,8 +1432,9 @@ Rules:
   `#tab-fallback` empty state matches `main`'s failing URL against the frame's
   `data-src` with `./` stripped, so a panel that ships as, say,
   `library/library.html` gets Chromium's white error page instead of the
-  fallback — the one thing §11.1 promises will never happen. The five paths are
-  `forge/`, `review/`, `player/`, `audition/`, `library/`, each `index.html`.
+  fallback — the one thing §11.1 promises will never happen. The six paths are
+  `forge/`, `review/`, `player/`, `audition/`, `library/`, `logs/`, each
+  `index.html`.
 * The shell owns the theme, the accent, the density and the draw budget. A panel
   must **not** apply its own theme. It receives:
   * `data-theme`, the seven `--accent*` custom properties, `data-density`,
@@ -1438,6 +1473,7 @@ deliver. A hand-off to a frame that has not loaded is **queued**, not dropped.
 | `nav:open-player` | Player | `{midiPath?, play?, mappingPath?, queue?}` |
 | `nav:open-selfmidi` | Self MIDI | `{midiPath?, projectPath?, play?}` |
 | `nav:open-library` | Library | `{selectPath?, query?}` |
+| `nav:open-logs` | Logs | `{query?, source?, level?}` — all three optional; each one that is present presets that filter |
 | `nav:activate` | any tab, nothing to open | `{tab, focus?}` |
 
 ```js
@@ -1532,11 +1568,29 @@ below 5% or under 8 seconds, because a made-up number is worse than none.
 | Forge engine verdict | `forge:status` with `{event:'forge.env', forgeReady, gpu, missing}` after the Forge tab runs `forge.check()`. The shell caches it in `localStorage['midi-studio:forgeEnv']` and paints that cached verdict **synchronously** on the next cold start, because the probe imports torch and takes tens of seconds. If nobody has probed 12 seconds after boot, the shell probes once itself |
 | Anything worth saying | `Bus.send(UI_TOAST, {severity,title,message,key})`, or `UI_STATUS` which goes to the log |
 
-**The log drawer** is the single sink for the Forge log, the provisioning log,
-player errors and shell events. Ring buffer capped at 600 lines, rendered by
-`VList` at 18px rows, level-coloured, auto-expanding on the first error (which is
-**not** persisted as a preference), with Clear, Copy and a level filter.
-`Ctrl+Alt+L` toggles it.
+**The log is the Logs tab**, `renderer/logs/`, and the shell keeps owning the
+buffer that feeds it. Ring buffer capped at 600 lines, the single sink for the
+Forge log, the provisioning log, player errors and shell events, published over
+`log:sync` / `log:append` / `log:clear` (§6.1). `Ctrl+Alt+L` and `Ctrl+6` both
+go to the tab.
+
+There is **one** log UI. What is left on the activity strip is discoverability
+and nothing else: `#as-errors`, hidden at zero, showing the error count, and
+clicking it switches to the Logs tab — an error raised while the user is in
+another tab still has to be findable. It does **not** steal the tab on its own;
+the old drawer's auto-expand-on-first-error, and its persisted open/closed
+preference, are both gone with the drawer.
+
+The tab itself (`logs/index.html` + `logs.js` + `logs.css`) is a viewer, not an
+owner: the whole scrollback through `VList` (rows are `.lrow.is-grid` in an
+`.lgrid`, at `--h-logrow`, which is one decision with the `rowHeight` option),
+a five-bucket source filter (all / Forge / setup / player / shell), a level
+filter over the same `info | ok | warn | error` vocabulary, a debounced text
+filter, Copy (the lines shown) and Clear, and a Follow toggle that sticks to the
+tail and disengages the moment the user scrolls up. Level is a **word** in its
+own column as well as a colour (rule 11). It claims no transport and registers
+its one repaint with `Draw`, so a twenty-minute Forge run paints nothing at all
+while the tab is in the background.
 
 **The update row** implements all eight states — checking, available,
 downloading, verifying, ready, manual, updated, none, error — and is the only one

@@ -20,14 +20,12 @@ body { background: var(--bg); }
   --h-tbar: 44px;
   --h-astrip: 34px;
   --h-xport: 56px;
-  --h-logdrawer: 196px;
   --w-setnav: 176px;
 }
 [data-density="compact"] {
   --h-tbar: 40px;
   --h-astrip: 30px;
   --h-xport: 50px;
-  --h-logdrawer: 164px;
   --w-setnav: 158px;
 }
 
@@ -43,25 +41,16 @@ body[data-boot="ready"] .shell {
 }
 
 /* ===========================================================================
-   0. THE WAVEFORM MARK
-   Five bars on the same grid as the icon set. Static in the titlebar; the
-   splash animates the same element.
+   0. THE MARK
+   The real hexagon badge, 64x64 and 7.7KB, shown at 26px beside the wordmark
+   text. Full-colour artwork is the one sanctioned exception to "accent is for
+   state only", so it is never tinted and never gets a glow behind it. The
+   600px lockup (with its own wordmark) is the splash's, and only the splash's:
+   it is 151KB and the titlebar is on the first-paint path.
    ======================================================================== */
-.wf { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
-.wf > i {
-  display: block; width: 2px; height: 100%;
-  background: var(--accent); border-radius: 1px;
-  transform: scaleY(var(--wf, 1)); transform-origin: bottom center;
-}
-.wf > i:nth-child(1) { --wf: .38; }
-.wf > i:nth-child(2) { --wf: .70; }
-.wf > i:nth-child(3) { --wf: 1; }
-.wf > i:nth-child(4) { --wf: .56; }
-.wf > i:nth-child(5) { --wf: .28; }
-
 .brand-mark { display: flex; align-items: center; flex: 0 0 auto; }
-.brand-mark.is-lg .wf { height: 26px; gap: 3px; }
-.brand-mark.is-lg .wf > i { width: 3px; }
+.brand-img { display: block; width: 26px; height: 26px; }
+.brand-mark.is-lg .brand-img { width: 34px; height: 34px; }
 
 /* ===========================================================================
    1. TITLEBAR
@@ -260,50 +249,25 @@ body[data-maximized="1"] .wctl-restore { display: block; }
 .as-upd-sub { font-size: var(--t1); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .as-upd-bar { width: 90px; flex: 0 0 auto; }
 
-/* --- log drawer -------------------------------------------------------- */
-.as-log-toggle {
+/* --- the log's one remaining affordance on the strip -------------------- */
+/* The log lives in its own tab now. What stays here is discoverability: an
+   error must be findable from any tab, and this switches to that tab. */
+.as-errors {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 var(--s3); border: 0; border-left: 1px solid var(--line);
-  background: transparent; color: var(--text-3); cursor: pointer;
-  font: 600 var(--t1)/1.25 var(--font-body);
-  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+  background: transparent; color: var(--err); cursor: pointer;
+  font: 600 var(--t1)/1.25 var(--font-body); white-space: nowrap;
+  transition: background-color var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
 }
-.as-log-toggle:hover { background: var(--surface-2); color: var(--text); }
-.as-log-toggle:focus-visible { box-shadow: inset var(--ring); }
-.as-log-toggle [data-icon] { transition: transform var(--motion-fast) var(--ease-standard); }
-.as-log-toggle[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
-.as-log-toggle[aria-expanded="true"] [data-icon] { transform: rotate(90deg); }
-.as-log-count {
+.as-errors:hover { background: var(--err-soft); }
+.as-errors:focus-visible { box-shadow: inset var(--ring); }
+.as-err-count {
   padding: 0 5px; border-radius: var(--r-pill);
   background: var(--err-soft); color: var(--err);
   font: 600 var(--t1)/1.5 var(--font-mono);
 }
-
-.alog {
-  flex: 0 0 auto; display: flex; flex-direction: column;
-  height: var(--h-logdrawer); border-top: 1px solid var(--line);
-  background: var(--bg-2);
-}
-.alog-head {
-  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s2);
-  height: var(--h-ctl); padding: 0 var(--s2) 0 var(--s3);
-  border-bottom: 1px solid var(--line); background: var(--surface);
-}
-.alog-title { font: 700 var(--t1)/1.25 var(--font-mono); letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-3); }
-.alog-list { flex: 1 1 auto; min-height: 0; padding: 4px 0; }
-.alog-empty { flex: 1 1 auto; }
-.logline {
-  display: flex; align-items: center; gap: var(--s2);
-  height: 18px; padding: 0 var(--s3);
-  font: 400 var(--t1)/18px var(--font-mono);
-  color: var(--text-2); white-space: nowrap;
-}
-.logline-t { flex: 0 0 auto; color: var(--text-3); }
-.logline-src { flex: 0 0 54px; color: var(--text-3); text-transform: uppercase; font-size: var(--t1); letter-spacing: .6px; }
-.logline-x { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.logline.is-warn .logline-x { color: var(--warn); }
-.logline.is-error .logline-x { color: var(--err); }
-.logline.is-ok .logline-x { color: var(--accent); }
+.as-err-txt { color: var(--text-3); }
 
 /* ===========================================================================
    3. TAB STAGE
@@ -661,23 +625,19 @@ body.is-covered .tabframe { visibility: hidden; }
   transform: scale(1); opacity: 1;
   transition: transform 200ms var(--ease-exit), opacity 200ms var(--ease-exit);
 }
-.splash-mark .wf { height: 40px; gap: 5px; }
-.splash-mark .wf > i { width: 5px; border-radius: 2px; }
-/* the bars rise in sequence, then hold at the mark's own proportions */
-.splash-mark .wf > i { animation: wf-rise 420ms var(--ease-enter) both; }
-.splash-mark .wf > i:nth-child(1) { animation-delay: 0ms; }
-.splash-mark .wf > i:nth-child(2) { animation-delay: 70ms; }
-.splash-mark .wf > i:nth-child(3) { animation-delay: 140ms; }
-.splash-mark .wf > i:nth-child(4) { animation-delay: 210ms; }
-.splash-mark .wf > i:nth-child(5) { animation-delay: 280ms; }
-@keyframes wf-rise {
-  from { transform: scaleY(.04); opacity: .25; }
-  60%  { transform: scaleY(calc(var(--wf) * 1.22)); opacity: 1; }
-  to   { transform: scaleY(var(--wf)); opacity: 1; }
+/* The lockup arrives once: scale + opacity, no width/height, no loop. Its
+   natural size is 600px, so 300 is a 2x-clean display size. */
+.splash-logo {
+  display: block; width: 300px; height: auto;
+  animation: logo-in 440ms var(--ease-enter) both;
+}
+@keyframes logo-in {
+  from { opacity: 0; transform: scale(.94); }
+  to   { opacity: 1; transform: none; }
 }
 /* a thin lime line sweeps under the mark, once */
 .splash-sweep {
-  width: 96px; height: 1px; background: var(--line-2); position: relative; overflow: hidden;
+  width: 300px; height: 1px; background: var(--line-2); position: relative; overflow: hidden;
 }
 .splash-sweep::after {
   content: ""; position: absolute; inset: 0;
@@ -687,9 +647,9 @@ body.is-covered .tabframe { visibility: hidden; }
 }
 @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 
+/* The lockup carries the wordmark itself, so only the tagline is text here. */
 .splash-word { text-align: center; opacity: 0; animation: fade-up 300ms 320ms var(--ease-enter) both; }
-.splash-name { font: 700 var(--t4)/1.1 var(--font-display); letter-spacing: 3.4px; color: var(--text); }
-.splash-tag { margin-top: 5px; font: 500 var(--t2)/1.4 var(--font-body); color: var(--text-3); }
+.splash-tag { font: 500 var(--t2)/1.4 var(--font-body); color: var(--text-3); }
 @keyframes fade-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 .splash-status {
@@ -698,10 +658,10 @@ body.is-covered .tabframe { visibility: hidden; }
   opacity: 0; animation: fade-up 260ms 460ms var(--ease-enter) both;
 }
 
-/* Handover, and the short-circuit for a fast boot: the bars snap to their
-   settled proportions instead of waiting out their stagger. */
-.splash.is-settled .wf > i,
-.splash.is-out .wf > i { animation: none; transform: scaleY(var(--wf)); opacity: 1; }
+/* Handover, and the short-circuit for a fast boot: the artwork snaps to its
+   settled state instead of waiting out the arrival. */
+.splash.is-settled .splash-logo,
+.splash.is-out .splash-logo { animation: none; transform: none; opacity: 1; }
 .splash.is-settled .splash-word, .splash.is-settled .splash-status,
 .splash.is-out .splash-word, .splash.is-out .splash-status { animation: none; opacity: 1; }
 .splash.is-settled .splash-sweep::after, .splash.is-out .splash-sweep::after { animation: none; opacity: 0; }
@@ -709,8 +669,12 @@ body.is-covered .tabframe { visibility: hidden; }
 .splash.is-out .splash-mark { transform: scale(.96); opacity: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .splash-mark .wf > i, .splash-sweep::after, .splash-word, .splash-status { animation: none !important; opacity: 1; }
-  .splash-mark .wf > i { transform: scaleY(var(--wf)); }
+  /* A plain short fade, and nothing left mid-transform: the blanket kill switch
+     collapses an animation to one ~0ms iteration and leaves it at its END
+     frame, so every one of these needs its static form spelt out. */
+  .splash-logo, .splash-word, .splash-status { animation: none !important; opacity: 1; transform: none; }
+  .splash-logo { transition: opacity 120ms linear; }
+  .splash-sweep::after { animation: none !important; opacity: 0; }
   .nav-ind { transition: none; }
 }
 

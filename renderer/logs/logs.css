@@ -1,0 +1,65 @@
+/* logs.css: the Logs tab.
+   Everything here either restyles a slot of a shared primitive or lays the page
+   out. No forked button, row, panel, tab strip or list. */
+
+/* The console row is tighter than a file row, and that is ONE decision, not two:
+   VList writes this number as the inline height of every pooled node, so the
+   token and the rowHeight option must agree (CONTRACT 2.7). logs.js reads it
+   back with Tokens.num('h-logrow') and re-applies it on a density change. */
+:root { --h-logrow: 22px; }
+[data-density="compact"] { --h-logrow: 19px; }
+
+html, body { height: 100%; }
+body { background: var(--bg); overflow: hidden; }
+
+.lg {
+  display: flex; flex-direction: column;
+  height: 100%; min-height: 0;
+  border: 0; border-radius: 0; background: var(--bg);
+}
+.lg-tools { flex: 0 0 auto; }
+.lg-tools2 { flex: 0 0 auto; }
+.lg-search { flex: 0 1 320px; min-width: 140px; }
+.lg-counts { color: var(--text-3); font-size: var(--t1); white-space: nowrap; }
+.lg-cap { white-space: nowrap; }
+.lg-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* --- the grid ----------------------------------------------------------- */
+.lgrid.is-log { flex: 1 1 auto; min-height: 0; }
+.lgrid.is-log .lgrid-head { height: var(--h-ctl-sm); }
+.lgrid.is-log .lgrid-th {
+  align-items: center; padding: 0 10px;
+  font: 700 var(--t1)/1 var(--font-mono);
+  letter-spacing: 1px; text-transform: uppercase; color: var(--text-3);
+}
+.lgrid.is-log .lgrid-th + .lgrid-th { border-left: 1px solid var(--line); }
+
+/* VList sets the row height inline from its rowHeight option, so .lrow's own
+   min-height has to get out of the way or the box is taller than its slot and
+   the rows overlap. */
+.lgrid.is-log .lrow {
+  min-height: 0;
+  font: 400 var(--t1)/var(--h-logrow) var(--font-mono);
+  color: var(--text-2);
+}
+.lgrid.is-log .lcell { padding: 0 10px; }
+.lg-t { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.lg-src { color: var(--text-3); text-transform: uppercase; letter-spacing: .6px; }
+.lg-lvl { color: var(--text-3); letter-spacing: .6px; }
+.lg-msg { color: var(--text-2); }
+
+/* Level: a word in its own column AND a colour. Never colour alone. */
+.lrow.is-ok    .lg-lvl, .lrow.is-ok    .lg-msg { color: var(--accent); }
+.lrow.is-warn  .lg-lvl, .lrow.is-warn  .lg-msg { color: var(--warn); }
+.lrow.is-error .lg-lvl, .lrow.is-error .lg-msg { color: var(--err); }
+.lrow.is-error { background: color-mix(in srgb, var(--err-soft) 55%, transparent); }
+.lrow.is-error:hover { background: var(--err-soft); }
+
+.lg-empty { flex: 1 1 auto; }
+
+@media (max-width: 780px) {
+  /* The two toolbar labels go first; the controls they name are self-evident
+     and the row has to keep the search box usable. */
+  .lg-tools .toolbar-label { display: none; }
+  .lg-counts { display: none; }
+}

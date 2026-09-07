@@ -109,6 +109,7 @@ contextBridge.exposeInMainWorld('perch', {
 // ---- Shell -----------------------------------------------------------------
 contextBridge.exposeInMainWorld('studio', {
   getVersion: () => ipcRenderer.invoke('app:version'),
+  getRelease: () => ipcRenderer.invoke('app:release'),
   checkForUpdates: (opts) => ipcRenderer.invoke('update:check', opts),
   applyUpdate: () => ipcRenderer.invoke('update:apply'),
   onUpdateStatus: onChannel('update-status'),

@@ -70,6 +70,7 @@
     NAV_OPEN_PLAYER:    'nav:open-player',     // {midiPath?, play?}
     NAV_OPEN_SELFMIDI:  'nav:open-selfmidi',   // {midiPath?, play?}
     NAV_OPEN_LIBRARY:   'nav:open-library',    // {selectPath?, query?}
+    NAV_OPEN_LOGS:      'nav:open-logs',       // {query?, source?, level?}
 
     // -- frame lifecycle -----------------------------------------------------
     FRAME_READY:        'frame:ready',         // {frame, title?}
@@ -115,6 +116,16 @@
     GAME_ACTIVE:        'game:active',         // {name}
     UPDATE_STATUS:      'update:status',       // {state, percent?, version?, staged?}
     OVERLAY_STATE:      'overlay:state',       // {open, bounds?}
+
+    // -- the activity log. The shell OWNS the ring buffer (it is the sink for
+    // forge:status, engine:error, provisioning output and ui:status from every
+    // frame, and it collects whether or not the Logs tab has ever been opened).
+    // The Logs frame is a VIEW of it: it gets one full sync on frame:ready and
+    // batched appends after that. Never one message per line -- a Forge run
+    // emits hundreds of lines per stage.
+    LOG_SYNC:           'log:sync',            // shell->logs {lines:[line], cap, seq}
+    LOG_APPEND:         'log:append',          // shell->logs {lines:[line]}
+    LOG_CLEAR:          'log:clear',           // logs->shell {} (shell answers with log:sync)
 
     // -- diagnostics ---------------------------------------------------------
     PING:               'bus:ping',            // {}

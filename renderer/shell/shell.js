@@ -1,7 +1,7 @@
 // ===========================================================================
 // shell.js — the application shell.
 //
-// It owns: the custom titlebar, the activity strip (with its log drawer), the
+// It owns: the custom titlebar, the activity strip, the
 // tab stage, the persistent bottom transport, the command palette, the settings
 // sheet, the boot splash, the window-level drop veil, toasts, the key router,
 // and the cross-tab hand-off router.
@@ -70,14 +70,16 @@
   // 1. FRAMES
   // ==========================================================================
   // Internal frame keys never change: 'review' is the Editor, 'audition' is
-  // Self MIDI. The nav order is Forge, Editor, Player, Self MIDI, Library, and
-  // Ctrl+1..5 follow that order (main.js maps the same five, in the same order).
+  // Self MIDI. The nav order is Forge, Editor, Player, Self MIDI, Library,
+  // Logs, and Ctrl+1..6 follow that order (main.js maps the same six, in the
+  // same order -- see the KEY ROUTER section).
   const FRAMES = [
     { key: 'forge',    nav: 'nav-forge',    el: 'frame-forge',    label: 'Forge',     title: 'MIDI Studio · Forge' },
     { key: 'review',   nav: 'nav-review',   el: 'frame-review',   label: 'Editor',    title: 'MIDI Studio · Editor' },
     { key: 'player',   nav: 'nav-player',   el: 'frame-player',   label: 'Player',    title: 'MIDI Studio · Player' },
     { key: 'audition', nav: 'nav-audition', el: 'frame-audition', label: 'Self MIDI', title: 'MIDI Studio · Self MIDI' },
-    { key: 'library',  nav: 'nav-library',  el: 'frame-library',  label: 'Library',   title: 'MIDI Studio · Library' }
+    { key: 'library',  nav: 'nav-library',  el: 'frame-library',  label: 'Library',   title: 'MIDI Studio · Library' },
+    { key: 'logs',     nav: 'nav-logs',     el: 'frame-logs',     label: 'Logs',      title: 'MIDI Studio · Logs' }
   ];
   const ORDER = FRAMES.map((f) => f.key);
   const byKey = Object.create(null);
@@ -398,104 +400,84 @@
   };
 
   // ---- the log ring buffer (one sink: Forge, provisioning, player, shell) ---
+  // The SHELL owns it. It receives forge:status, engine:error, the provisioning
+  // stream and ui:status from every frame, and it must keep collecting whether
+  // or not the Logs tab has ever been opened -- tab frames load lazily, so the
+  // viewer cannot be the owner. The Logs frame is a pure view of this buffer:
+  // one full log:sync when it announces frame:ready, batched log:append after.
   const LOG_CAP = 600;
   const logLines = [];
-  let logSeq = 0, logErrors = 0, logFilter = 'all', logAutoOpened = false, logPinned = true;
-  const logHost = $('alog-list');
-  const logEmpty = $('alog-empty');
-  let logList = null;
+  let logSeq = 0, logErrors = 0;
 
   const LEVEL_RANK = { info: 0, ok: 0, warn: 1, error: 2 };
-  function logVisible() {
-    if (logFilter === 'all') return logLines;
-    const min = logFilter === 'error' ? 2 : 1;
-    return logLines.filter((l) => (LEVEL_RANK[l.level] || 0) >= min);
-  }
-  function makeLogList() {
-    if (logList || !window.VList) return logList;
-    logList = window.VList(logHost, {
-      rowHeight: 18, overscan: 8, selectable: false, ariaLabel: 'Activity log',
-      key: (it) => it.id,
-      createRow() {
-        const n = document.createElement('div');
-        n.className = 'logline';
-        n.innerHTML = '<span class="logline-t"></span><span class="logline-src"></span><span class="logline-x"></span>';
-        return n;
-      },
-      renderRow(n, it) {
-        // classList, NEVER className: VList adds .vlist-row (position:absolute)
-        // to every node it pools, and assigning className here deleted it. The
-        // rows dropped into normal flow and stacked ON TOP of their own
-        // translateY, so every line sat 18px lower than the one before it and
-        // the drawer's scroll extent was ~40% too long.
-        n.classList.remove('is-ok', 'is-warn', 'is-error');
-        if (it.level && it.level !== 'info') n.classList.add('is-' + it.level);
-        n.children[0].textContent = it.clock;
-        n.children[1].textContent = it.src;
-        n.children[2].textContent = it.text;
-        n.title = it.text;
-      }
-    });
-    logHost.addEventListener('scroll', () => {
-      logPinned = logHost.scrollTop + logHost.clientHeight >= logHost.scrollHeight - 24;
-    });
-    return logList;
-  }
-  const renderLog = coalesce(() => {
-    const items = logVisible();
-    logEmpty.hidden = items.length > 0;
-    logHost.hidden = items.length === 0;
-    if (!items.length) return;
-    const list = makeLogList();
-    if (!list) return;
-    list.setItems(items);
-    if (logPinned) list.scrollToIndex(items.length - 1, 'nearest');
+
+  // Batched publish. A transcription emits hundreds of lines per stage, and one
+  // bus message per line across a frame boundary is exactly the hot path this
+  // rewrite has been removing. One rAF, one message, however many lines.
+  let logOut = [];
+  const flushLogOut = coalesce(() => {
+    if (!logOut.length) return;
+    const f = byKey.logs;
+    if (!window.Bus || !f || !f.busReady) return;      // nobody is watching yet
+    const batch = logOut; logOut = [];
+    window.Bus.send(T.LOG_APPEND, { lines: batch }, { to: f.frame });
   });
 
   function logPush(text, level, src) {
     text = String(text == null ? '' : text).replace(/\s+$/, '');
     if (!text) return;
     level = LEVEL_RANK[level] === undefined ? 'info' : level;
+    src = src || 'app';
     const last = logLines[logLines.length - 1];
     if (last && last.text === text && last.level === level && last.src === src) return;   // pure repeat
     const d = new Date();
-    logLines.push({
-      id: ++logSeq, text, level, src: src || 'app',
+    const line = {
+      id: ++logSeq, text: text, level: level, src: src,
       clock: String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0')
-    });
+    };
+    logLines.push(line);
     while (logLines.length > LOG_CAP) logLines.shift();
-    if (level === 'error') {
-      logErrors += 1;
-      if (!logAutoOpened && $('alog').hidden) { logAutoOpened = true; setLogOpen(true, { persist: false }); }
-    }
-    renderLog();
-    renderLogCount();
+    if (level === 'error') { logErrors += 1; renderLogCount(); }
+    logOut.push(line);
+    // The viewer keeps the same cap, so a backlog longer than the buffer is
+    // pointless to carry: the sync it will get is authoritative anyway.
+    if (logOut.length > LOG_CAP) logOut.splice(0, logOut.length - LOG_CAP);
+    flushLogOut();
   }
+
+  // The one thing left on the strip. An error must stay discoverable from any
+  // tab, so the count survives; clicking it goes to the Logs tab.
   function renderLogCount() {
-    const el = $('as-log-count');
-    el.hidden = logErrors === 0;
-    if (logErrors) el.textContent = logErrors > 99 ? '99+' : String(logErrors);
+    const host = $('as-errors'), el = $('as-log-count');
+    if (!host || !el) return;
+    host.hidden = logErrors === 0;
+    if (!logErrors) return;
+    el.textContent = logErrors > 99 ? '99+' : String(logErrors);
+    host.setAttribute('aria-label',
+      logErrors + (logErrors === 1 ? ' error' : ' errors') + ' in the log. Show the Logs tab.');
   }
-  function setLogOpen(on, opts) {
-    const drawer = $('alog'), btn = $('as-log-toggle');
-    drawer.hidden = !on;
-    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
-    if (on) { logPinned = true; renderLog(); }
-    else { logAutoOpened = false; logErrors = 0; renderLogCount(); }
-    if (!opts || opts.persist !== false) saveUi({ logOpen: !!on });
+  function logSync(to) {
+    if (!window.Bus) return;
+    window.Bus.send(T.LOG_SYNC, { lines: logLines.slice(), cap: LOG_CAP, seq: logSeq }, { to: to });
   }
-  $('as-log-toggle').addEventListener('click', () => setLogOpen($('alog').hidden));
-  $('alog-close').addEventListener('click', () => setLogOpen(false));
-  $('alog-clear').addEventListener('click', () => {
-    logLines.length = 0; logErrors = 0; logSeq = 0;
-    renderLog(); renderLogCount();
-  });
-  $('alog-copy').addEventListener('click', async () => {
-    const text = logVisible().map((l) => `${l.clock} [${l.src}] ${l.text}`).join('\n');
-    try { await navigator.clipboard.writeText(text); toast({ severity: 'ok', title: 'Log copied', message: `${logVisible().length} lines` }); }
-    catch (_) { toast({ severity: 'err', title: 'Could not copy the log' }); }
-  });
-  $('alog-filter').addEventListener('change', (e) => { logFilter = e.target.value; logPinned = true; renderLog(); });
+  function logClear() {
+    logLines.length = 0; logOut.length = 0; logErrors = 0; logSeq = 0;
+    renderLogCount();
+    const f = byKey.logs;
+    if (f && f.busReady) logSync(f.frame);
+  }
+  function logText() {
+    return logLines.map((l) => l.clock + ' [' + l.src + '] '
+      + (l.level === 'info' ? '' : l.level.toUpperCase() + ' ') + l.text).join('\n');
+  }
+  async function copyLog() {
+    if (!logLines.length) { toast({ severity: 'warn', title: 'Nothing to copy' }); return; }
+    try {
+      await navigator.clipboard.writeText(logText());
+      toast({ severity: 'ok', title: 'Log copied', message: logLines.length + ' lines' });
+    } catch (_) { toast({ severity: 'err', title: 'Could not copy the log' }); }
+  }
+  $('as-errors').addEventListener('click', () => activate('logs'));
 
   // ==========================================================================
   // 7. THE ACTIVITY STRIP RENDER
@@ -938,6 +920,19 @@
   const fmtClock = (s) => (window.Fmt ? window.Fmt.clock(s, { ms: xportMs }) : (s == null ? '--:--' : Math.round(s) + 's'));
   const fmtBytes = (b) => (window.Fmt ? window.Fmt.bytes(b) : Math.round(b / 1048576) + ' MB');
 
+  // ---- version chrome. The chip stays bare (v3.0.0); the About pane is the
+  // ---- one place the release name is spelt out.
+  let appVersion = '', releaseName = '';
+  function applyVersion(v) {
+    if (v) appVersion = String(v);
+    if (!appVersion) return;
+    const chip = $('version-chip');
+    chip.textContent = 'v' + appVersion;
+    chip.setAttribute('aria-label', 'Version ' + appVersion + ', check for updates');
+    $('s-version').textContent = 'v' + appVersion;
+    $('s-about-version').textContent = appVersion + (releaseName ? ' \u201c' + releaseName + '\u201d' : '');
+  }
+
   // ==========================================================================
   // 8. TAB ROUTING
   // ==========================================================================
@@ -1046,7 +1041,8 @@
       return false;
     } },
     audition: { type: () => T.NAV_OPEN_SELFMIDI, legacy: (w, p) => (typeof w.loadAudition === 'function' ? (w.loadAudition(p.midiPath || '', p.projectPath || '', { play: p.play }), true) : false) },
-    library:  { type: () => T.NAV_OPEN_LIBRARY,  legacy: () => false }
+    library:  { type: () => T.NAV_OPEN_LIBRARY,  legacy: () => false },
+    logs:     { type: () => T.NAV_OPEN_LOGS,     legacy: () => false }
   };
 
   let pendingClear = 0;
@@ -1126,6 +1122,9 @@
       f.loaded = true;
       skinFrame(f); stampFrame(f); markVisibility();
       flushQueue(f);
+      // A freshly opened Logs tab missed everything logged before it existed;
+      // one full sync on the handshake is how it catches up.
+      if (f.key === 'logs') logSync(f.frame);
       if (window.Bus) window.Bus.send(T.UI_DENSITY, { density: density === 'compact' ? 'compact' : 'normal' }, { to: f.frame });
     });
     // frame:busy is how a panel says "I am holding work". The Editor uses it for
@@ -1165,6 +1164,9 @@
     window.Bus.on(T.NAV_OPEN_PLAYER, (p, m) => handoff('player', p, { from: frameKeyOf(m) }));
     window.Bus.on(T.NAV_OPEN_SELFMIDI, (p, m) => handoff('audition', p, { from: frameKeyOf(m) }));
     window.Bus.on(T.NAV_OPEN_LIBRARY, (p, m) => handoff('library', p, { from: frameKeyOf(m) }));
+    window.Bus.on(T.NAV_OPEN_LOGS, (p, m) => handoff('logs', p, { from: frameKeyOf(m) }));
+    // The viewer never owns the buffer, so Clear is a request, not a local act.
+    window.Bus.on(T.LOG_CLEAR, () => logClear());
     window.Bus.on(T.FILE_DROPPED, (p, m) => routePaths((p && p.paths) || [], frameKeyOf(m)));
     window.Bus.on(T.FILE_REVEAL, (p) => { if (p && p.path && studio.showItem) studio.showItem(p.path); });
     window.Bus.on(T.UI_TOAST, (p) => toast(p));
@@ -1895,8 +1897,7 @@
     // is what knows about the GPU, so never let this clear a known GPU verdict.
     activity.engine.ready = !!info.forgeReady;
     if (!info.forgeReady) activity.engine.gpu = null;
-    $('s-version').textContent = 'v' + info.version;
-    $('s-about-version').textContent = 'v' + info.version;
+    applyVersion(info.version);
     setPathChip('s-forgedir', info.forgeEnvDir, 'not set');
     $('s-forgedir-mirror').textContent = info.forgeEnvDir || '—';
     $('s-forgedir-mirror').title = info.forgeEnvDir || '';
@@ -2171,7 +2172,7 @@
   }
   if (studio.onPanelFailed) studio.onPanelFailed((p) => { if (p && p.url) markFrameFailed(p.url, p.desc); });
   $('tf-retry').addEventListener('click', () => retryFrame(activeKey));
-  $('tf-log').addEventListener('click', () => setLogOpen(true));
+  $('tf-log').addEventListener('click', () => activate('logs'));
   if (studio.onWindowState) studio.onWindowState(applyWindowState);
   if (wnd.state) wnd.state().then(applyWindowState).catch(() => {});
 
@@ -2198,26 +2199,26 @@
 
   // ==========================================================================
   // 14. KEY ROUTER
-  // Ctrl+1..5 is handled here AND in main via before-input-event, because the
+  // Ctrl+1..6 is handled here AND in main via before-input-event, because the
   // stage covers nearly the whole window and swallows keydowns the moment focus
-  // is inside a panel. Both maps must list the same five tabs in the same order.
+  // is inside a panel. Both maps must list the same six tabs in the same order:
+  // forge, review, player, audition, library, logs.
   // ==========================================================================
   window.addEventListener('keydown', (e) => {
     // Escape has one precedence order and affects exactly one thing.
     if (e.key === 'Escape') {
       if (palOpen) { closePalette(); e.preventDefault(); return; }
       if (setOpen) { closeSettings(); e.preventDefault(); return; }
-      if (!$('alog').hidden) { setLogOpen(false); e.preventDefault(); return; }
       if (!$('as-update').hidden) { activity.update.dismissed = true; renderUpdate(); e.preventDefault(); }
       return;
     }
     if (e.ctrlKey && !e.altKey && !e.metaKey) {
-      const n = '12345'.indexOf(e.key);
+      const n = '123456'.indexOf(e.key);
       if (n >= 0) { activate(ORDER[n]); e.preventDefault(); return; }
       if (e.key === 'k' || e.key === 'K') { openPalette(''); e.preventDefault(); return; }
       if (e.key === ',') { openSettings(); e.preventDefault(); return; }
     }
-    if (e.ctrlKey && e.altKey && (e.key === 'l' || e.key === 'L')) { setLogOpen($('alog').hidden); e.preventDefault(); return; }
+    if (e.ctrlKey && e.altKey && (e.key === 'l' || e.key === 'L')) { activate('logs'); e.preventDefault(); return; }
     if (palOpen || setOpen) return;
     // Space belongs to the transport owner, but never while a field has focus.
     if (e.key === ' ' && spaceTransport && !isFormFocus()) {
@@ -2228,14 +2229,14 @@
       window.Transport.stop(); e.preventDefault();
     }
   });
-  // Ctrl+1..5 arriving from the main process (before-input-event) because the
+  // Ctrl+1..6 arriving from the main process (before-input-event) because the
   // panel iframe swallowed the keydown.
   if (studio.onShortcut) studio.onShortcut((p) => {
     if (!p) return;
     if (p.tab) { activate(p.tab); return; }
     if (p.id === 'palette') { if (palOpen) closePalette(); else openPalette(''); return; }
     if (p.id === 'settings') { if (setOpen) closeSettings(); else openSettings(); return; }
-    if (p.id === 'log') { setLogOpen($('alog').hidden); return; }
+    if (p.id === 'log') { activate('logs'); return; }
     if (window.Bus && p.id) window.Bus.send(T.UI_SHORTCUT, { id: p.id }, { to: 'frames' });
   });
 
@@ -2477,9 +2478,9 @@
       { id: 'app.settings', label: 'Open settings', group: 'Application', keys: 'Ctrl+,', run: () => openSettings() },
       { id: 'app.updates', label: 'Check for updates', group: 'Application', keywords: ['version', 'upgrade'],
         run: () => { activity.update.dismissed = false; if (studio.checkForUpdates) studio.checkForUpdates({ manual: true }); } },
-      { id: 'app.log', label: 'Show the activity log', group: 'Application', keys: 'Ctrl+Alt+L', keywords: ['console', 'output', 'errors'],
-        run: () => setLogOpen(true) },
-      { id: 'app.copyLog', label: 'Copy the activity log', group: 'Application', run: () => $('alog-copy').click() },
+      { id: 'app.log', label: 'Open Logs', group: 'Application', keys: 'Ctrl+Alt+L',
+        keywords: ['console', 'output', 'errors', 'activity log'], run: () => activate('logs') },
+      { id: 'app.copyLog', label: 'Copy the activity log', group: 'Application', run: () => copyLog() },
       { id: 'app.density', label: 'Toggle compact density', group: 'Appearance', keywords: ['spacing', 'comfortable'],
         run: () => setDensity(density === 'compact' ? 'normal' : 'compact') },
       { id: 'app.forgeStorage', label: 'Change Forge storage folder…', group: 'Forge',
@@ -2583,11 +2584,9 @@
   renderPerch();
   bootMark('interface');
 
+  if (studio.getRelease) studio.getRelease().then((r) => { releaseName = String(r || ''); applyVersion(appVersion); }).catch(() => {});
   if (studio.getVersion) studio.getVersion().then((v) => {
-    $('version-chip').textContent = 'v' + v;
-    $('version-chip').setAttribute('aria-label', 'Version ' + v + ', check for updates');
-    $('s-version').textContent = 'v' + v;
-    $('s-about-version').textContent = 'v' + v;
+    applyVersion(v);
     activity.update.current = v;
   }).catch(() => {});
 
@@ -2622,7 +2621,6 @@
       b.setAttribute('aria-checked', on ? 'true' : 'false');
       b.tabIndex = on ? 0 : -1;
     }
-    if (ui.logOpen) setLogOpen(true, { persist: false });
     renderTransport();
     activate(normaliseTab(ui.lastTab), { persist: false, focus: false });
     bootMark('session');

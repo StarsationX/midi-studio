@@ -19,12 +19,11 @@
      ======================================================================= -->
 <div class="splash" id="splash" role="status" aria-live="polite">
   <div class="splash-inner">
-    <div class="splash-mark" id="splash-mark" aria-hidden="true">
-      <span class="wf"><i></i><i></i><i></i><i></i><i></i></span>
-      <span class="splash-sweep"></span>
+    <div class="splash-mark" id="splash-mark">
+      <img class="splash-logo" src="./shared/lockup.png" width="600" height="338" alt="MIDI Studio" decoding="sync" />
+      <span class="splash-sweep" aria-hidden="true"></span>
     </div>
     <div class="splash-word">
-      <div class="splash-name">MIDI STUDIO</div>
       <div class="splash-tag">Listen. Edit. Play. Anywhere.</div>
     </div>
     <div class="splash-status mono" id="splash-status">Loading interface</div>
@@ -39,7 +38,7 @@
        ===================================================================== -->
   <header class="tbar" id="titlebar">
     <div class="tbar-brand" id="brand">
-      <span class="brand-mark" aria-hidden="true"><span class="wf"><i></i><i></i><i></i><i></i><i></i></span></span>
+      <span class="brand-mark" aria-hidden="true"><img class="brand-img" src="./shared/mark.png" width="64" height="64" alt="" /></span>
       <span class="brand-text">
         <span class="brand-name">MIDI STUDIO</span>
         <span class="brand-tag">Listen. Edit. Play. Anywhere.</span>
@@ -62,6 +61,9 @@
       </button>
       <button class="nav-item" id="nav-library" role="tab" data-frame="library" aria-selected="false" tabindex="-1" aria-controls="frame-library">
         <span class="nav-label">Library</span><span class="nav-key mono" aria-hidden="true">^5</span>
+      </button>
+      <button class="nav-item" id="nav-logs" role="tab" data-frame="logs" aria-selected="false" tabindex="-1" aria-controls="frame-logs">
+        <span class="nav-label">Logs</span><span class="nav-key mono" aria-hidden="true">^6</span>
       </button>
     </nav>
 
@@ -116,37 +118,19 @@
         <button class="btn btn-icon is-sm is-bare" id="as-upd-x" aria-label="Dismiss update notice"><i data-icon="close" data-icon-size="11"></i></button>
       </div>
 
-      <button class="as-log-toggle" id="as-log-toggle" aria-expanded="false" aria-controls="alog">
-        <i data-icon="caretRight" data-icon-size="12"></i>
-        <span>Log</span>
-        <span class="as-log-count mono" id="as-log-count" hidden>0</span>
+      <!-- The log itself is the Logs tab (Ctrl+6). All that is left on the
+           strip is the discoverability affordance: an error must still be
+           findable from any tab, and clicking this goes there. -->
+      <button class="as-errors" id="as-errors" hidden data-tip="Show the Logs tab (Ctrl+6)">
+        <span class="dot err"></span>
+        <span class="as-err-count mono" id="as-log-count">0</span>
+        <span class="as-err-txt">in the log</span>
       </button>
-    </div>
-
-    <!-- Log drawer: the single sink for the Forge log, the provisioning log and
-         player errors. Capped ring buffer, rendered by VList. -->
-    <div class="alog" id="alog" hidden>
-      <div class="alog-head">
-        <span class="alog-title mono">Activity log</span>
-        <span class="selectwrap is-sm"><select class="select is-sm" id="alog-filter" aria-label="Log level filter">
-          <option value="all">All levels</option>
-          <option value="warn">Warnings and errors</option>
-          <option value="error">Errors only</option>
-        </select></span>
-        <span class="u-spacer"></span>
-        <button class="btn btn-sm btn-ghost" id="alog-copy">Copy</button>
-        <button class="btn btn-sm btn-ghost" id="alog-clear">Clear</button>
-        <button class="btn btn-icon is-sm is-bare" id="alog-close" aria-label="Close log"><i data-icon="close" data-icon-size="12"></i></button>
-      </div>
-      <div class="vlist alog-list" id="alog-list"></div>
-      <div class="alog-empty state is-compact" id="alog-empty">
-        <span class="state-msg">Nothing logged yet. Forge output, setup output and player errors all land here.</span>
-      </div>
     </div>
   </div>
 
   <!-- ========================================================================
-       3. TAB STAGE. Five panels, lazily loaded. data-onscreen + the
+       3. TAB STAGE. Six panels, lazily loaded. data-onscreen + the
        'midi-studio:onscreen' event are stamped by shell.js.
        ===================================================================== -->
   <main class="stage" id="stage">
@@ -155,6 +139,7 @@
     <iframe class="tabframe" id="frame-player"   data-frame="player"   data-src="./player/index.html"   title="Player"    role="tabpanel" aria-labelledby="nav-player" hidden></iframe>
     <iframe class="tabframe" id="frame-audition" data-frame="audition" data-src="./audition/index.html" title="Self MIDI" role="tabpanel" aria-labelledby="nav-audition" hidden></iframe>
     <iframe class="tabframe" id="frame-library"  data-frame="library"  data-src="./library/index.html"  title="Library"   role="tabpanel" aria-labelledby="nav-library" hidden></iframe>
+    <iframe class="tabframe" id="frame-logs"     data-frame="logs"     data-src="./logs/index.html"     title="Logs"      role="tabpanel" aria-labelledby="nav-logs" hidden></iframe>
 
     <!-- Shown over a panel whose document could not load. A Chromium error page
          inside a tab is a white rectangle, and a white rectangle is exactly what
@@ -165,7 +150,7 @@
       <span class="state-msg" id="tf-msg"></span>
       <span class="state-actions">
         <button class="btn btn-sm btn-primary" id="tf-retry">Try again</button>
-        <button class="btn btn-sm btn-ghost" id="tf-log">Show the log</button>
+        <button class="btn btn-sm btn-ghost" id="tf-log">Show the Logs tab</button>
       </span>
     </div>
   </main>
@@ -581,7 +566,7 @@
         <section class="set-pane" data-pane="about" role="tabpanel" aria-label="About" hidden>
           <div class="set-sec">
             <div class="set-about">
-              <span class="brand-mark is-lg" aria-hidden="true"><span class="wf"><i></i><i></i><i></i><i></i><i></i></span></span>
+              <span class="brand-mark is-lg" aria-hidden="true"><img class="brand-img" src="./shared/mark.png" width="64" height="64" alt="" /></span>
               <div>
                 <div class="set-about-name">MIDI STUDIO</div>
                 <div class="set-about-tag">Listen. Edit. Play. Anywhere.</div>
@@ -618,7 +603,6 @@
 <script src="./shared/tokens.js"></script>
 <script src="./shared/fmt.js"></script>
 <script src="./shared/draw.js"></script>
-<script src="./shared/vlist.js"></script>
 <script src="./shared/bus.js"></script>
 <script src="./shared/icons.js"></script>
 <script src="./shell/shell.js"></script>

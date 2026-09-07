@@ -1,6 +1,7 @@
 {
   "name": "midi-studio",
-  "version": "2.27.1",
+  "version": "3.0.0",
+  "releaseName": "Graphite",
   "description": "Turn a song into MIDI, edit it, and play it back on any keyboard.",
   "author": "StarsationX",
   "license": "MIT",
@@ -59,7 +60,10 @@
       "artifactName": "MIDI-Studio-${version}-${target}.${ext}",
       "fileAssociations": [
         {
-          "ext": ["mid", "midi"],
+          "ext": [
+            "mid",
+            "midi"
+          ],
           "name": "MIDI file",
           "description": "MIDI Studio song",
           "role": "Viewer"
