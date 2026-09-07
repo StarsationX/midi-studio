@@ -50,6 +50,7 @@ per-frame cost.
 <script src="../shared/menu.js"></script>           <!-- any context menu -->
 <script src="../shared/resize.js"></script>         <!-- any .split / grip -->
 <script src="../shared/timeline-zoom.js"></script>  <!-- any time axis -->
+<script src="../shared/hotkey.js"></script>         <!-- any hotkey capture box -->
 
 <script src="forge.js"></script>
 ```
@@ -1115,6 +1116,11 @@ Divider keys are one shared, per-tab-namespaced registry. Claimed so far:
 | Key | Owner |
 |---|---|
 | `library:side` | the Library's left column |
+| `player:side` | the Player's left setup column |
+| `player:rail` | the Player's right song-information rail (`data-invert`) |
+| `player:map` | the Player's song map height (`data-axis="y"`) |
+| `forge:rail` | the Forge tab's left input/pipeline column |
+| `forge:insp` | the Forge tab's right results column (`data-invert`) |
 
 Pick `"<frame key>:<name>"` and add the row.
 
@@ -1243,6 +1249,61 @@ and **every keyboard arrow adjustment, which produces no other event at all**. U
   (no `input` means no pending value, so send directly).
 
 Never debounce a paint, and never rAF-coalesce a write.
+
+### 9.7 hotkey.js — `window.Hotkey`
+
+The capture box for a **global** hotkey: the ones the Python sidecar registers, so
+the value is pynput syntax (`<ctrl>+<f6>`, `<space>`, `;`) and not a DOM key name.
+The CSS (`.hk`, `.hk.is-capturing`, `.hk.is-empty`, `.hk-slot`, `.hk-clear`) is
+§2.9 and already shipped; this is its driver. It is **not** for in-app shortcuts —
+those are `Commands` (§8) and the shell's key router (§11.7).
+
+| Signature | Notes |
+|---|---|
+| `Hotkey.toPynput(event)` | a `keydown` as pynput syntax, or `null` for a modifier pressed on its own (keep listening) |
+| `Hotkey.label(combo)` | `'<ctrl>+<f6>'` → `'Ctrl+F6'`. `''` stays `''` |
+| `Hotkey.create(opts)` | one capture box. Returns a widget |
+| `Hotkey.NAMED` / `.CODE_CHAR` / `.LABELS` | the three tables, if a caller has to translate something the widget did not produce |
+
+```js
+const w = Hotkey.create({
+  id: 'hotkey-play',                 // id for the <button class="hk-slot">
+  label: 'Play / resume',            // used in both ARIA labels
+  describedBy: 'hk-label-play',      // your row's own <span> id
+  value: settings.playHotkey || '',  // '' is a real value: UNBOUND
+  onCapture: () => suspendHotkeys(), // focused: the globals must go quiet
+  onCommit:  () => applyHotkeys()    // settled (blur / unbind): persist + re-send
+});
+row.append(myLabelSpan, w.el);       // w.el is the .hk element
+```
+
+| Widget | Notes |
+|---|---|
+| `w.el`, `w.slot`, `w.clear` | the `.hk` wrapper and its two buttons |
+| `w.value()` | the current combo, `''` when unbound |
+| `w.label()` | the same thing, human-readable |
+| `w.set(combo[, quiet])` | write it in. `quiet` skips `onChange`; neither form fires `onCommit` |
+| `w.focus()` | start capturing |
+| `w.dispose()` | drops its four listeners — call it from your teardown |
+
+**Three things it exists to keep, and a tab that re-implements them loses:**
+
+* **`e.code` decides the character, never `e.key`**, so Shift+`;` binds as `;` and
+  not `:` — a pynput listener sees the physical key, and a box that stored `:`
+  produced a binding that could never fire.
+* **Empty means UNBOUND** (invariant 13), for `play`/`pause`/`stop` as much as for
+  the rest, so those keys can be freed for the game. Nothing springs back to a
+  default. Focus-then-leave without pressing anything is *not* an unbind — only
+  Backspace/Delete or the `.hk-clear` button is.
+* **A focused box must suspend the global hotkeys** (invariant 13), or the key
+  being rebound fires its old action while it is being rebound. The widget cannot
+  do that itself — only the owner can talk to the engine — so it calls
+  `onCapture()`, and the owner sends the "all empty" `set_hotkeys`. `onCommit()`
+  is where the real set goes back out.
+
+Every key belongs to a focused box, including Space, Tab and Enter: the widget
+`preventDefault()`s and `stopPropagation()`s the whole `keydown`, so a transport
+Space handler on `window` never sees it. Escape leaves the box unchanged.
 
 ---
 
@@ -1825,10 +1886,13 @@ the **same** set, and building two is the defect. The store:
 
 # 12. Shared primitives that do not exist yet
 
-SYNTHESIS lists 29 shared primitives. Twenty-three are on disk and documented
-above. These six are **not built**, and this section exists so the first tab that
+SYNTHESIS lists 29 shared primitives. Twenty-four are on disk and documented
+above. These five are **not built**, and this section exists so the first tab that
 needs one builds it *here* rather than inside itself — which is what §0's "do not
 invent a parallel one" means in practice.
+
+**#25, the hotkey capture widget, has been built**: the Player was its first
+consumer, so it landed as `renderer/shared/hotkey.js` and is documented in §9.7.
 
 The rule for all six: it lands in `renderer/shared/`, it gets a section in this
 document in the same shape as §9, and it gets added to §0's optional list. A tab
@@ -1837,7 +1901,6 @@ that needs one and builds it privately has created the second copy.
 | SYNTHESIS # | Primitive | Where it belongs | First consumer |
 |---|---|---|---|
 | 9 | **Range / loop selection widget** — proportional edge hit-testing, handle drag, drag-select with a 3px deadzone, unmoved click = seek, keyboard nudge, `mm:ss(.mmm)` parse/format | `renderer/shared/range.js` (`Range`), driving a canvas or an absolutely-positioned overlay; it pairs with `TimelineZoom` for the time mapping and must reuse `Fmt.clock`/`Fmt.parseClock` | whichever of Forge time range / Editor loop / Player playback range / Self MIDI Loop A-B is built first. Invariant 20's proportional edge rule (`width>14 && right-x < min(8, width*0.3)`) is part of it, not a caller's job |
-| 25 | **Hotkey capture widget** — `e.code`-based unshifted resolution, pynput syntax builder, human label renderer, and **suspend global hotkeys while focused** (invariant 13) | `renderer/shared/hotkey.js` (`Hotkey`). The CSS is already shipped: `.hk`, `.hk.is-capturing`, `.hk-slot` (§2.9) — it has no driver | the Player's ten hotkeys. Empty means **unbound**, including play/pause/stop |
 | 27 | **Audio preview engine** — one `AudioContext` owner, soundfont prepare with per-pitch decode + progress + a 2-instrument LRU, oscillator fallback including drum synthesis, envelope, voice pool | `renderer/shared/audio.js` (`Audio`). Self MIDI is the page that deliberately relaxes `script-src` to inject soundfont banks (invariant 30), so the module must work with and without a bank | Editor preview and Self MIDI — they must not open two `AudioContext`s. Note invariant 26: the scheduler is lookahead (~1.5s ahead of the Web Audio clock), never per-frame note firing |
 | 28 | **Peak extraction worker** — decode + min/max bucketing off the main thread, returning a fixed bucket array | `renderer/shared/peaks.js` + `renderer/shared/peaks.worker.js`. A worker is `'self'` so the CSP allows it; the bucket array is what `Draw.LayerCache` keys its static layer on | Forge waveform and Editor waveform |
 | 29 | **Frame-safe drag helper** — pointer capture, a bounding rect cached for the whole gesture, rAF-coalesced updates, `body.is-resizing` | `renderer/shared/drag.js` (`Drag`). `resize.js` already implements this shape for dividers; the general version is the same code without the custom-property specifics. `body.is-resizing` and `body.is-resizing iframe{pointer-events:none}` are already in the token layer | every canvas gesture: note drag, note resize, scrub, range handles |

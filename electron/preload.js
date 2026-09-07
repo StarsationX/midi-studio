@@ -68,13 +68,27 @@ contextBridge.exposeInMainWorld('review', {
   getDroppedFilePath: (file) => webUtils.getPathForFile(file),
 });
 
-// ---- MIDI library (Self Midi) ----------------------------------------------
+// ---- MIDI library (the Library tab, Self Midi, the shell's song index) ------
+// list/addFolder/removeFolder/reveal/onChanged are the original surface and are
+// unchanged. Everything below them is additive, for the Library tab: a streaming
+// scan, the lazily-parsed Length/Notes index, tags, usage and trash.
 contextBridge.exposeInMainWorld('library', {
   list: () => ipcRenderer.invoke('library:list'),
   addFolder: () => ipcRenderer.invoke('library:addFolder'),
   removeFolder: (dir) => ipcRenderer.invoke('library:removeFolder', dir),
   reveal: (p) => ipcRenderer.invoke('library:reveal', p),
   onChanged: onChannel('library-changed'),
+  scan: () => ipcRenderer.invoke('library:scan'),
+  meta: (payload) => ipcRenderer.invoke('library:meta', payload),
+  setTags: (payload) => ipcRenderer.invoke('library:setTags', payload),
+  usage: (payload) => ipcRenderer.invoke('library:usage', payload),
+  index: (payload) => ipcRenderer.invoke('library:index', payload),
+  remove: (payload) => ipcRenderer.invoke('library:delete', payload),
+  // Partial scan batches and full-index progress, pushed to THIS frame only.
+  onProgress: onChannel('library-progress'),
+  fileUrl: (p) => pathToFileURL(String(p || '')).href,
+  showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
+  openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
 });
 
 // ---- Perch (the always-on-top overlay window) ------------------------------

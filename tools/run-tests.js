@@ -95,9 +95,11 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/function findReadyForgeEnv/.test(pj), 'paths can search for a provisioned env');
 }
 
-// Forge layouts. The blocks are MOVED between arrangements rather than
-// duplicated, so the markup must contain exactly one of each control and the
-// classic layout must be restorable from the original child order.
+// Forge is ONE three-column layout now. The four arrangements (classic/cards/
+// bench/console) and the block-moving engine are removed on purpose (SYNTHESIS
+// orphan 1, migration_map 90-95): a CSS grid with two persisted dividers
+// replaces them, which is what deletes the DOM churn and the Resize re-wiring.
+// The markup must still contain exactly one of each control.
 {
   const fsx = require('fs');
   const html = fsx.readFileSync(path.join(root, 'renderer', 'forge', 'index.html'), 'utf8');
@@ -106,13 +108,126 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     const n = (html.match(new RegExp('id="' + id + '"', 'g')) || []).length;
     ok(n === 1, `forge markup has exactly one #${id} (found ${n})`);
   }
-  ok(/const LAYOUTS = \['classic', 'cards', 'bench', 'console'\]/.test(js), 'all four layouts are offered');
-  ok(/applyLayout\('classic'\)/.test(js), 'classic is the fallback layout');
-  ok(/original = \[\.\.\.work\.children\]/.test(js), 'classic is restored from the original child order');
-  // classic must put the preview/advanced trio back by appending, not by
-  // insertBefore a sibling that may itself have moved into another lane.
-  ok(/for \(const node of \[b\.time, b\.advToggle, b\.adv\]\) if \(node\) b\.pipeline\.appendChild\(node\)/.test(js),
-    'classic restore does not depend on a sibling that may have moved');
+  // The layout engine must NOT come back: no LAYOUTS table, no applyLayout, no
+  // lane building, and no window.setForgeLayout for the shell to call.
+  ok(!/const LAYOUTS =/.test(js) && !/function applyLayout/.test(js),
+    'the four-layout block-moving engine is gone');
+  ok(!/setForgeLayout/.test(js) && !html.includes('id="layout-picker"'),
+    'the Forge layout picker is gone');
+  // One grid, two dividers, persisted per CONTRACT 9.3 as forge:rail / forge:insp.
+  ok(html.includes('data-split="forge"'), 'forge owns one split namespace');
+  for (const prop of ['rail', 'insp']) {
+    ok(html.includes(`data-resize="${prop}"`), `forge has a --${prop} divider`);
+  }
+  // Every advanced key must reach main on every write: settings are deep-merged,
+  // so an omitted key silently keeps its old on-disk value (invariant 8).
+  ok(/for \(const k of ADV_KEYS\)/.test(js) && (js.match(/'MELODY_FOLD'/g) || []).length >= 1,
+    'collectAdvanced walks the whole ADV_KEYS list');
+  ok(/LEGACY_DEFAULTS = \{ MIN_NOTE_SEC: '0\.05', MELODY_MIN_NOTE_MS: '45' \}/.test(js),
+    'the two legacy defaults are still treated as unset');
+  // The cached env verdict is painted before the probe answers: probing imports
+  // torch and takes tens of seconds.
+  ok(js.indexOf('localStorage.getItem(ENV_CACHE_KEY)') > 0
+    && js.indexOf('localStorage.getItem(ENV_CACHE_KEY)') < js.indexOf('await F.check()'),
+    'the cached engine verdict is read before the probe runs');
+  // Seven stages, and the frame handshake that drains queued hand-offs.
+  ok((html.match(/class="stg"/g) || []).length === 7, 'the progress checklist has seven stages');
+  ok(/FRAME_READY, \{ frame: FRAME/.test(js), 'forge sends frame:ready');
+  // No hand-rolled draw loop: everything paints through the shared scheduler.
+  ok(!/requestAnimationFrame\(function frame|rafLoop/.test(js) && /Draw\.register\(/.test(js),
+    'forge paints through the Draw scheduler');
+
+  // A VList renderRow must never assign a bare className: vlist.js adds
+  // `vlist-row` once in makeRow(), and that class is what supplies the
+  // position:absolute + pointer-events:auto the rows need inside the
+  // pointer-events:none sizer. Wiping it let .lrow's own position:relative lay
+  // each pool row out in flow AS WELL as translating it, which doubled the row
+  // pitch, broke refreshLog's scroll-to-bottom arithmetic and made every log
+  // line unhoverable (must_survive feature 39).
+  {
+    const NL = String.fromCharCode(10);
+    const blocks = js.split('renderRow(node').slice(1)
+      .map((chunk) => chunk.split(NL + '    },')[0]);
+    ok(blocks.length > 0, 'forge has at least one VList renderRow to check');
+    for (const b of blocks) {
+      ok(!/node\.className\s*=\s*(['"`])(?!vlist-row)/.test(b),
+        'a forge renderRow never drops the vlist-row class');
+    }
+  }
+  ok(/node\.className = 'vlist-row lrow is-' \+ it\.level/.test(js),
+    'the log rows keep vlist-row when their level class changes');
+
+  // Nothing derived or transient may reach localStorage: a Float32Array of note
+  // onsets stringifies as {"0":..,"1":..} (~30KB a row), walked the blob into
+  // the 5MB quota behind a silent try/catch, and came back lengthless so every
+  // restored row's density strip read "no data".
+  ok(!/it\.onsets = /.test(js), 'parsed onsets are never written onto a history row');
+  ok(/HISTORY_KEEP = \[/.test(js) && !/HISTORY_KEEP = \[[^\]]*onsets/.test(js)
+    && !/HISTORY_KEEP = \[[^\]]*freshUntil/.test(js),
+    'saveHistory persists an explicit field whitelist without onsets or freshUntil');
+  ok(/function onsetsFor\(it\)/.test(js) && /metaCache\.get\(lower\(it\.path\)\)/.test(js),
+    'the density strip reads onsets back out of metaCache');
+
+  // Invariant 20: the resize-edge zone exists only above 14px. A fixed 8px grab
+  // on a narrow range made a click anywhere near it resolve to 'start', and an
+  // unmoved click in that mode neither seeks nor starts a new selection.
+  ok(/width > 14 \? Math\.min\(8, width \* 0\.3\) : 0/.test(js),
+    'the waveform edge grab zone stays proportional (invariant 20)');
+
+  // Rule 12 / invariant 31: 12px is the type floor in both densities, and the
+  // visualiser's 9px keyboard label is the only sanctioned exception.
+  const fcss = fsx.readFileSync(path.join(root, 'renderer', 'forge', 'forge.css'), 'utf8');
+  for (const [where, text, re] of [
+    ['forge.css', fcss, /(?:font(?:-size)?:[^;}]*?)(8|9|10|11)(?:\.\d+)?px/g],
+    ['forge.js', js, /ctx\.font = '(8|9|10|11)(?:\.\d+)?px/g],
+  ]) {
+    const hit = text.match(re);
+    ok(!hit, `${where} keeps every type size at the 12px floor (${hit ? hit.join(', ') : 'clean'})`);
+  }
+
+  // Collapsing a column is a side-by-side affordance. The inspector becomes the
+  // full-width bottom row under 1181px, so its collapse rules must not reach
+  // into that range -- a 34px strip in a 268px-tall row is an empty band.
+  const wide = fcss.indexOf('@media (min-width: 1181px)');
+  ok(wide > 0 && /@media \(min-width: 1181px\)[\s\S]{0,900}\.fg-insp\.is-collapsed/.test(fcss),
+    'the inspector collapse rules are scoped to the wide (>=1181px) layout');
+  ok(!/@media \(min-width: 901px\)[\s\S]{0,900}\.fg-col\.is-collapsed \{ width: 34px !important/.test(fcss),
+    'no !important collapse width leaks across the 1180px re-layout');
+  ok(/@media \(max-width: 1180px\)[\s\S]{0,2600}\.fg-insp \.fg-collapse \{ display: none/.test(fcss),
+    'the inspector chevron is hidden where the inspector cannot collapse');
+
+  // One source of truth for the results selection: the list and the Selected
+  // Result panel with its four live hand-off buttons must not disagree after an
+  // Escape or an arrow key (vlist's own Escape stops propagation).
+  ok(/onSelectionChange\(keys, rows\) \{ select\(/.test(js),
+    'the results list drives select() from onSelectionChange');
+
+  // Every one-shot timer takes its own disposer out of the registry when it
+  // fires; `disposers` is only drained on teardown, so a per-stage /
+  // per-result / per-flash push grew unboundedly for the life of the panel.
+  ok(/function later\(ms, fn\)/.test(js) && /disposers\.splice\(i, 1\)/.test(js),
+    'forge has a self-cleaning one-shot timer helper');
+  ok(!/disposers\.push\(\(\) => clearTimeout\(id\)\)/.test(js),
+    'no one-shot timer leaves a dead closure in the teardown registry');
+
+  // AudioSampleEntry: channelcount at box+24, then samplesize, pre_defined and
+  // reserved before the 16.16 samplerate at box+32. `o` is box+4.
+  ok(/rate: d\.getUint16\(o \+ 28, false\), channels: d\.getUint16\(o \+ 20, false\)/.test(js),
+    'the mp4a sample rate is read at the 16.16 field, not at `reserved`');
+
+  // The shell must not drop a tab's own forge:status packets: forge.job is the
+  // documented way a tab names the job it started (CONTRACT 11.3), and a yt-dlp
+  // download never echoes the `Input:` line the strip otherwise recovers.
+  const shellJs = fsx.readFileSync(path.join(root, 'renderer', 'shell', 'shell.js'), 'utf8');
+  ok(/Bus\.on\(T\.FORGE_STATUS, \(p\) => \{[\s\S]{0,400}adoptEnvProbe\(p\);[\s\S]{0,120}else handleForgeStatus\(p\);/.test(shellJs),
+    'the shell forwards a frame non-env forge:status to handleForgeStatus');
+
+  // CONTRACT 9.3's divider registry exists so two tabs cannot collide on a key
+  // inside the single shared localStorage['midi-studio:splits'].
+  const contract = fsx.readFileSync(path.join(root, 'docs', 'rewrite', 'CONTRACT.md'), 'utf8');
+  for (const key of ['forge:rail', 'forge:insp']) {
+    ok(contract.includes('`' + key + '`'), `CONTRACT 9.3 claims ${key}`);
+  }
 
   // The rewritten settings sheet: #set-nav + eight .set-pane sections. The four
   // Forge layouts and their picker (#s-forge-layout) are gone on purpose, and
@@ -294,16 +409,27 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
 
   // ---- tempo as BPM -------------------------------------------------------
   const playerJs = read('renderer/player/app.js');
+  const drawSrcTop = read('renderer/shared/draw.js');
   ok(/function setBpm/.test(playerJs), 'tempo can be set as a BPM number');
   ok(/bpm_estimate/.test(playerJs), 'the onset-based tempo estimate reaches the UI');
   ok(read('renderer/player/index.html').includes('id="tempo-bpm"'), 'the BPM field exists');
   ok(read('python-engine/ipc_main.py').includes('"bpm_estimate"'), 'the engine reports a tempo estimate');
 
   // ---- hotkeys can be unbound --------------------------------------------
+  // The widget is shared (CONTRACT §9.7): the pynput tables, the e.code rule and
+  // the capture box live in one module, not once per tab that wants a remapper.
+  const hotkeyJs = read('renderer/shared/hotkey.js');
+  ok(/window\.Hotkey|global\.Hotkey/.test(hotkeyJs), 'the hotkey capture widget is exposed');
+  ok(/hk-clear/.test(hotkeyJs) && /hk-clear/.test(read('renderer/player/style.css')),
+    'every hotkey box has a visible unbind');
+  ok(/CODE_CHAR/.test(hotkeyJs) && !/CODE_CHAR/.test(playerJs),
+    'the e.code table lives in the shared widget, not a second copy in the panel');
+  ok(read('renderer/player/index.html').includes('shared/hotkey.js'),
+    'the Player loads the shared hotkey widget');
   ok(!/playHotkey = hk\(els\.hkPlay\) \|\| /.test(playerJs),
     'clearing Play/Stop/Pause is respected instead of springing back to F6/F7/F8');
-  ok(/hk-clear/.test(playerJs) && /hk-clear/.test(read('renderer/player/style.css')),
-    'every hotkey box has a visible unbind');
+  ok(/onCapture/.test(hotkeyJs) && /onCapture: \(\) => suspendHotkeys\(\)/.test(playerJs),
+    'focusing a capture box suspends the global hotkeys (invariant 13)');
   ok(/els\.hkNext, els\.hkPrev/.test(playerJs),
     'the next/prev hotkey boxes capture keys (they were never wired)');
 
@@ -315,7 +441,24 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/def panic_release/.test(read('python-engine/ipc_main.py')),
     'stdin EOF releases held keys instead of leaving them down');
   ok(/60 \* percent \/ 100/.test(mainSrc), 'the draw budget allows 60fps at full allowance');
-  ok(/Math\.min\(base, 33\)/.test(playerJs), 'the roll keeps 30fps while notes are moving');
+  // The floor is computed in ONE place, and it is only an allowance: Draw is
+  // dirty-driven, so a consumer that does not ask for the next frame runs at
+  // whatever rate its events arrive (20Hz of engine 'progress' packets) no matter
+  // what the budget permits. Both halves have to be asserted, and the assertion
+  // has to point at the code that runs, not at a comment claiming it does.
+  ok(/PLAYBACK_FLOOR_MS = 33/.test(drawSrcTop)
+    && /Math\.min\(ms, Math\.min\(base, PLAYBACK_FLOOR_MS\)\)/.test(drawSrcTop),
+    'the draw budget floors at 30fps while playback is live');
+  ok(/isPlaying && !isPaused && !viz\.isFrozen\(\)\) vizHandle\.invalidate\(\)/.test(playerJs),
+    'the roll asks for the next frame while notes are moving (30fps, not 20Hz of packets)');
+  // Same shape for the two self-issued stops: playback_done carries no reason, so
+  // a restart must be distinguishable from the end of the song or the renderer
+  // advances the queue and starts typing into the game unasked.
+  ok(/const selfRestart = pendingRestartAt !== null \|\| restarting;/.test(playerJs)
+    && /restarting = true;/.test(playerJs),
+    'a paused tempo/opts restart is not mistaken for the end of the song');
+  ok(/userStopped = false;[\s\S]{0,400}?cmd: 'play'/.test(playerJs),
+    'the user-stop flag is cleared where playback begins, not in one caller');
 
   // ---- resizable panes ----------------------------------------------------
   const resizeSrc = read('renderer/shared/resize.js');
@@ -339,10 +482,10 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     ['renderer/forge/forge.css', 'rail']]) {
     ok(read(sheet).includes(`var(--${prop}`), `${sheet} drives its grid from --${prop}`);
   }
-  // Dividers live on the grid, not inside a lane, so the lane cleanup missed
-  // them: they piled up and appeared in the single-column layouts.
-  ok(/> \.grip-h, :scope > \.grip-v'\)\) stale\.remove\(\)/.test(read('renderer/forge/forge.js')),
-    'the forge layout engine clears its dividers before rebuilding');
+  // The lane/divider sweep existed only because layouts rebuilt the grid. With
+  // one static grid there is nothing to sweep, and nothing may re-create it.
+  ok(!/stale\.remove\(\)/.test(read('renderer/forge/forge.js')),
+    'forge no longer rebuilds its dividers on a layout switch');
 
   // ---- melody: dense electronic ------------------------------------------
   const shapeSrc = read('python-engine/melody_shape.py');

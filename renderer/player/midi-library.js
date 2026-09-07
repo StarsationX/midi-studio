@@ -1,94 +1,145 @@
-// midi-library.js: adds a "Songs folder" picker to the player's Source panel.
-// Lists every .mid in the chosen folder (defaults to the Forge output folder) so
-// you can pick one to load + play. Loaded after app.js in the same frame; reuses
-// the player's global setMidiFile(), app.js itself is untouched.
-(() => {
-  const studio = window.studio;
-  // self-apply saved theme on load (shell also pushes it live on change)
-  if (studio && studio.getUi) studio.getUi().then((u) => { if (u && u.theme) document.documentElement.dataset.theme = u.theme; }).catch(() => {});
-  if (!studio || typeof setMidiFile !== 'function' || !studio.listMidis) return;
+// midi-library.js — where the Player's "See all" song browser gets its files.
+//
+// This used to be an IIFE loaded AFTER app.js that injected a "Transcribed
+// songs" <select> into the sidebar and reached for a GLOBAL setMidiFile(). The
+// Library tab supersedes that picker, and the global dependency was a trap: any
+// rewrite that scoped app.js silently deleted the feature with no error.
+//
+// So it is now a plain, explicitly-required data module. app.js asks it for
+// songs; it never touches the DOM and never assumes a global exists. The
+// persistent-mappings-folder button it used to inject now lives where it
+// belongs, in Playback settings > Mapping (app.js), so custom mappings keep
+// surviving updates.
+(function (global) {
+  'use strict';
 
-  const body = document.querySelector('.section[data-section="source"] .section-body');
-  if (!body) return;
+  var LAST_KEY = 'midi-studio.lib.last';
 
-  const field = document.createElement('div');
-  field.className = 'field';
-  field.innerHTML =
-    '<label>Transcribed songs <span class="muted small" id="lib-count"></span></label>' +
-    '<input id="lib-search" type="text" placeholder="Search songs…" autocomplete="off" ' +
-      'style="width:100%;margin-bottom:6px;display:none" />' +
-    '<div class="file-row">' +
-      '<select id="lib-select"><option value="">Choose a folder</option></select>' +
-      '<button id="lib-refresh" class="btn btn-icon" title="Rescan folder">↻</button>' +
-      '<button id="lib-browse" class="btn btn-icon" title="Choose a folder of MIDIs">📁</button>' +
-    '</div>';
-  // Place it at the very top of the Source panel so it's the first control.
-  body.insertBefore(field, body.firstChild);
-
-  const sel = field.querySelector('#lib-select');
-  const browse = field.querySelector('#lib-browse');
-  const refreshBtn = field.querySelector('#lib-refresh');
-  const search = field.querySelector('#lib-search');
-  const count = field.querySelector('#lib-count');
-  const LAST_KEY = 'midi-studio.lib.last';
-  let dir = '';
-  let allFiles = [];   // full list for this folder (unfiltered)
-
-  function render() {
-    const q = search.value.trim().toLowerCase();
-    const list = q ? allFiles.filter((p) => p.split(/[\\/]/).pop().toLowerCase().includes(q)) : allFiles;
-    const last = localStorage.getItem(LAST_KEY) || '';
-    sel.innerHTML = '';
-    const head = document.createElement('option');
-    head.value = '';
-    head.textContent = !allFiles.length ? 'No MIDIs here'
-      : list.length ? `${list.length}${q ? ' match' + (list.length > 1 ? 'es' : '') : ' MIDI' + (list.length > 1 ? 's' : '')}`
-      : 'No matches';
-    sel.appendChild(head);
-    for (const p of list) {
-      const o = document.createElement('option');
-      o.value = p; o.textContent = p.split(/[\\/]/).pop(); o.title = p;
-      if (p === last) o.selected = true;       // re-select the last-played song
-      sel.appendChild(o);
-    }
-    search.style.display = allFiles.length > 6 ? '' : 'none';  // only when worth it
+  function basename(p) {
+    return global.Fmt ? global.Fmt.basename(p) : String(p || '').split(/[\\/]/).pop();
+  }
+  function dirname(p) {
+    return global.Fmt ? global.Fmt.dirname(p) : String(p || '').replace(/[\\/][^\\/]*$/, '');
   }
 
-  async function refresh() {
-    if (!dir) { allFiles = []; sel.innerHTML = '<option value="">Choose a folder</option>'; count.textContent = ''; return; }
-    try { allFiles = await studio.listMidis(dir); } catch (_) { allFiles = []; }
-    render();
-    count.textContent = dir.split(/[\\/]/).filter(Boolean).pop();
-    count.title = dir;
-  }
+  var dir = '';
+  var files = [];          // [{path, name, dir}]
+  var loaded = false;
+  var inflight = null;
+  var listeners = [];
+  var unsubChanged = null;
 
-  search.addEventListener('input', render);
-  sel.addEventListener('change', () => { if (sel.value) { localStorage.setItem(LAST_KEY, sel.value); setMidiFile(sel.value); } });
-  refreshBtn.addEventListener('click', refresh);
-  browse.addEventListener('click', async () => {
-    const d = await studio.pickFolder();
-    if (d) { dir = d; try { await studio.setLibraryDir(d); } catch (_) {} refresh(); }
-  });
-
-  // Resolve the default folder (manual pick > last transcription's folder > Forge
-  // output folder). Re-resolved when a transcription finishes, so by default the
-  // list follows wherever the newest transcribed MIDI came out.
-  function syncDir() { studio.getLibraryDir().then((d) => { dir = d || ''; refresh(); }).catch(() => {}); }
-  syncDir();
-  if (studio.onLibraryChanged) studio.onLibraryChanged(syncDir);
-
-  // A discoverable shortcut to the persistent AppData mappings folder. Drop
-  // custom mapping .json files there and they survive every relaunch/update.
-  if (studio.openMappingsDir) {
-    const mb = document.getElementById('mapping-browse');
-    if (mb && !document.getElementById('mapping-folder')) {
-      const fb = document.createElement('button');
-      fb.id = 'mapping-folder';
-      fb.className = mb.className;
-      fb.title = 'Open mappings folder (custom mappings kept here persist)';
-      fb.textContent = '📁';
-      fb.addEventListener('click', () => { try { studio.openMappingsDir(); } catch (_) {} });
-      mb.insertAdjacentElement('afterend', fb);
+  function notify() {
+    for (var i = 0; i < listeners.length; i++) {
+      try { listeners[i](); } catch (e) { /* a bad listener is not fatal */ }
     }
   }
-})();
+
+  function shape(list) {
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (typeof p !== 'string' || !/\.midi?$/i.test(p)) continue;
+      out.push({ path: p, name: basename(p), dir: dirname(p) });
+    }
+    out.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    return out;
+  }
+
+  // The folder the app's own transcriptions land in: a manual pick, else the
+  // last transcription's folder, else the Forge output folder. main resolves
+  // that; we only cache the answer.
+  function resolveDir() {
+    var studio = global.studio;
+    if (!studio || !studio.getLibraryDir) return Promise.resolve('');
+    return studio.getLibraryDir().then(function (d) { return d || ''; }, function () { return ''; });
+  }
+
+  function refresh() {
+    var studio = global.studio;
+    if (!studio || !studio.listMidis) {
+      files = []; loaded = true; inflight = null; notify();
+      return Promise.resolve(files);
+    }
+    if (inflight) return inflight;
+    inflight = resolveDir().then(function (d) {
+      dir = d;
+      if (!d) return [];
+      return studio.listMidis(d).catch(function () { return []; });
+    }).then(function (list) {
+      files = shape(Array.isArray(list) ? list : []);
+      loaded = true;
+      inflight = null;
+      notify();
+      return files;
+    }, function () {
+      files = []; loaded = true; inflight = null; notify();
+      return files;
+    });
+    return inflight;
+  }
+
+  var API = {
+    // The folder these songs came from, '' when there is none yet.
+    dir: function () { return dir; },
+    dirName: function () { return dir ? dir.split(/[\\/]/).filter(Boolean).pop() : ''; },
+    // Cached list; call refresh() (or ready()) first.
+    files: function () { return files; },
+    loaded: function () { return loaded; },
+    ready: function () { return loaded && !inflight ? Promise.resolve(files) : refresh(); },
+    refresh: refresh,
+
+    // Let the user point it somewhere else. Resolves to the new folder or ''.
+    pickFolder: function () {
+      var studio = global.studio;
+      if (!studio || !studio.pickFolder) return Promise.resolve('');
+      return studio.pickFolder().then(function (d) {
+        if (!d) return '';
+        var done = studio.setLibraryDir ? studio.setLibraryDir(d) : Promise.resolve();
+        return Promise.resolve(done).catch(function () {}).then(function () {
+          loaded = false;
+          return refresh().then(function () { return dir; });
+        });
+      }, function () { return ''; });
+    },
+
+    // Which song was opened from here last, so the browser can preselect it.
+    last: function () {
+      try { return localStorage.getItem(LAST_KEY) || ''; } catch (e) { return ''; }
+    },
+    remember: function (p) {
+      try { localStorage.setItem(LAST_KEY, p || ''); } catch (e) { /* private mode */ }
+    },
+
+    // fn() whenever the list changes. Returns an unsubscribe.
+    onChange: function (fn) {
+      if (typeof fn !== 'function') return function () {};
+      listeners.push(fn);
+      return function () {
+        var i = listeners.indexOf(fn);
+        if (i >= 0) listeners.splice(i, 1);
+      };
+    },
+
+    // A finished transcription changes the folder contents, and main already
+    // broadcasts that, so nothing here polls.
+    watch: function () {
+      if (unsubChanged) return unsubChanged;
+      var studio = global.studio;
+      if (studio && studio.onLibraryChanged) {
+        unsubChanged = studio.onLibraryChanged(function () { loaded = false; refresh(); });
+      } else {
+        unsubChanged = function () {};
+      }
+      return unsubChanged;
+    },
+
+    dispose: function () {
+      if (unsubChanged) { try { unsubChanged(); } catch (e) {} unsubChanged = null; }
+      listeners.length = 0;
+    }
+  };
+
+  global.PlayerLibrary = API;
+  if (typeof module !== 'undefined' && module.exports) module.exports = API;
+})(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -4,359 +4,614 @@
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
-  <title>MIDI Player</title>
+  <title>MIDI Studio · Player</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
+  <link rel="stylesheet" href="../shared/ui.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="app-header">
-    <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M3 18V6h2v12H3zm4 0V6h2v12H7zm5 2V4h2v16h-2zm5-2V6h2v12h-2zm5-9V6h-2v3h2zm0 6v-3h-2v3h2z" fill="currentColor"/>
-      </svg>
-      <span class="brand-name">MIDI Player</span>
-      <button class="version-badge" id="version-badge" title="Check for updates">v...</button>
+
+<div class="p-shell split" data-split="player" style="--side: 312px; --rail: 288px; --map: 108px">
+
+  <!-- ======================================================================
+       LEFT: setup. Four tabs, one open at a time. This replaced an accordion
+       whose "all closed" state left the column blank.
+       =================================================================== -->
+  <aside class="pane is-fixed p-side" style="width: var(--side)" aria-label="Player setup">
+    <div class="tabstrip" role="tablist" aria-label="Setup sections">
+      <button type="button" role="tab" id="tab-song" aria-controls="panel-song" aria-selected="true" tabindex="0">Song<span class="count" id="tab-song-count" hidden>0</span></button>
+      <button type="button" role="tab" id="tab-target" aria-controls="panel-target" aria-selected="false" tabindex="-1">Target</button>
+      <button type="button" role="tab" id="tab-playback" aria-controls="panel-playback" aria-selected="false" tabindex="-1">Playback</button>
+      <button type="button" role="tab" id="tab-prefs" aria-controls="panel-prefs" aria-selected="false" tabindex="-1">Preferences</button>
     </div>
-    <div class="header-actions">
-      <div class="forge-activity" id="forge-activity" hidden title="Midi-Forge is running with reduced resource priority">
-        <span class="forge-activity-dot"></span>
-        <span>Forging</span>
-      </div>
-      <button class="refocus-target" id="refocus-target" type="button" hidden title="Switch back to the selected target window">
-        Focus target
-      </button>
-      <div class="header-status" id="header-status">
-        <span class="status-dot"></span>
-        <span class="status-text" id="status-text">Idle</span>
-      </div>
-    </div>
-  </header>
 
-  <div class="update-banner" id="update-banner">
-    <div class="update-icon">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l4 4h-3v6h-2V7H8l4-4zM5 19v-2h14v2H5z" fill="currentColor"/></svg>
-    </div>
-    <div class="update-text">
-      <div class="update-title" id="update-title">Update available</div>
-      <div class="update-sub" id="update-sub"></div>
-    </div>
-    <div class="update-progress" id="update-progress"><div class="update-progress-bar" id="update-progress-bar"></div></div>
-    <button class="btn btn-update" id="update-apply">Update &amp; restart</button>
-    <button class="btn btn-ghost" id="update-dismiss" title="Dismiss" aria-label="Dismiss"><i data-icon="close" data-icon-size="12"></i></button>
-  </div>
-
-  <main class="app-grid" data-split="player">
-
-    <!-- ============================================================
-         Sidebar, accordion (one section open at a time)
-         ============================================================ -->
-    <aside class="panel sidebar">
-
-      <section class="section is-open" data-section="source">
-        <button class="section-head" type="button">
-          <h2 class="section-title">Source</h2>
-          <svg class="caret" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 10l5 5 5-5z" fill="currentColor"/>
-          </svg>
-        </button>
-        <div class="section-body">
-          <div class="field" id="queue-field">
-            <div class="queue-head">
-              <span class="queue-title">Queue <span id="queue-count" class="queue-count"></span></span>
-              <label class="queue-loop"><input type="checkbox" id="queue-loop"/> loop</label>
-              <button id="queue-add" class="btn btn-icon" title="Add MIDI files to queue">+</button>
-              <button id="queue-undo" class="btn btn-icon" title="Undo last queue change" aria-label="Undo last queue change" hidden><i data-icon="undo" data-icon-size="13"></i></button>
-              <button id="queue-clear" class="btn btn-icon" title="Clear queued songs" aria-label="Clear queued songs"><i data-icon="close" data-icon-size="12"></i></button>
-            </div>
-            <ol class="queue-list" id="queue-list"></ol>
+    <!-- ---- Song ------------------------------------------------------- -->
+    <section class="tabpanel" id="panel-song" role="tabpanel" aria-labelledby="tab-song">
+      <div class="p-pane scroll-y">
+        <div class="p-block">
+          <div class="p-block-head">
+            <span class="p-block-title">Open</span>
           </div>
-          <div class="field" id="recent-field" style="display:none">
-            <label>Recent</label>
-            <div class="file-row">
-              <select id="recent-select"><option value="">Recent files</option></select>
-              <button id="recent-clear" class="btn btn-icon" title="Clear recent files" aria-label="Clear recent files"><i data-icon="close" data-icon-size="12"></i></button>
-            </div>
+          <div class="u-row">
+            <button class="btn btn-primary u-fill" id="open-midi" type="button">
+              <i data-icon="folder"></i>Open MIDI file
+            </button>
+            <button class="btn btn-icon" id="open-audio" type="button"
+                    aria-label="Open an audio file in Forge"
+                    data-tip="Audio has to be transcribed first.&#10;Opens the Forge tab.">
+              <i data-icon="drop"></i>
+            </button>
           </div>
-          <div class="field">
-            <label>Target window</label>
-            <div class="file-row">
-              <select id="target-select"><option value="">Refresh to populate</option></select>
-              <button id="target-refresh" class="btn btn-icon" title="Refresh" aria-label="Refresh"><i data-icon="refresh" data-icon-size="13"></i></button>
-            </div>
-            <label class="check" style="margin-top:8px">
-              <input id="auto-pick-target" type="checkbox"/> Auto-select last target on launch
-            </label>
-          </div>
-          <div class="field">
-            <label>Mapping</label>
-            <div class="file-row">
-              <select id="mapping-select">
-                <option value="roblox">roblox (36 keys, no Shift, sharps play as white keys)</option>
-                <option value="roblox61">roblox61 (61 keys + Shift)</option>
-                <option value="roblox66">roblox66 (66 keys + Shift)</option>
-                <option value="roblox88">roblox88 (full 88 keys)</option>
-                <option value="roblox88ctrl">roblox88ctrl (88 keys + Ctrl)</option>
-                <option value="virtualpiano">virtualpiano (88 keys)</option>
-                <option value="virtualpiano66">virtualpiano66 (66 keys)</option>
-                <option value="drums">drums - Roblox pictured 8-pad kit</option>
-              </select>
-              <button id="mapping-browse" class="btn btn-icon" title="Custom mapping">+</button>
-            </div>
-            <div class="muted small" id="mapping-note"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="section" data-section="playback">
-        <button class="section-head" type="button">
-          <h2 class="section-title">Playback</h2>
-          <svg class="caret" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 10l5 5 5-5z" fill="currentColor"/>
-          </svg>
-        </button>
-        <div class="section-body">
-          <div class="field">
-            <label>Tempo <span class="muted" id="tempo-label">1.00&#215;</span></label>
-            <input id="tempo" type="range" min="0.25" max="3" step="0.05" value="1"/>
-            <!-- A multiplier is only meaningful if you already know the song's
-                 own tempo. This is the same control said in BPM, which is the
-                 number people actually have in mind. -->
-            <div class="field-row bpm-row">
-              <label class="bpm-set" for="tempo-bpm">BPM
-                <input id="tempo-bpm" type="number" min="20" max="400" step="1" placeholder="&#8212;" />
-              </label>
-              <span class="muted small" id="tempo-bpm-src">source &#8212;</span>
-              <button class="btn-mini" id="tempo-bpm-guess" type="button" hidden></button>
-              <button class="btn-mini" id="tempo-bpm-reset" type="button" title="Back to the file's own tempo">Original</button>
-            </div>
-          </div>
-          <div class="field">
-            <label>Transpose <span class="muted" id="transpose-label">0</span>
-              <span class="muted" id="range-warning"></span></label>
-            <div class="field-row">
-              <input id="transpose" type="range" min="-24" max="24" step="1" value="0"/>
-              <button class="btn-mini" id="transpose-fit" type="button" title="Shift the song into the mapping's range">Fit range</button>
-              <button class="btn-mini" id="transpose-reset" type="button" title="Back to the original key">Reset</button>
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label>Hands</label>
-              <select id="hand" title="Play only the notes above or below the split">
-                <option value="both">Both hands</option>
-                <option value="right">Right hand only (melody)</option>
-                <option value="left">Left hand only (bass)</option>
-              </select>
-            </div>
-            <div class="field" style="max-width:110px">
-              <label>Split at <span class="muted" id="hand-split-label">C4</span></label>
-              <input id="hand-split" type="number" min="24" max="108" value="60" title="MIDI note; notes below are the left hand"/>
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field" style="max-width:120px">
-              <label>Countdown</label>
-              <input id="countdown" type="number" min="0" max="10" value="0"/>
-            </div>
-            <div class="field" style="max-width:130px">
-              <label>Chord roll <span class="muted">ms</span></label>
-              <input id="chord-stagger" type="number" min="0" max="30" step="1" value="0" title="Spread each chord's keys by this many ms, lowest first. Fixes chords with dropped notes."/>
-            </div>
-            <div class="field">
-              <label>&nbsp;</label>
-              <label class="check"><input id="stats" type="checkbox"/> Timing stats</label>
-            </div>
-          </div>
-          <div class="muted small" id="play-report"></div>
-        </div>
-      </section>
-
-      <section class="section" data-section="settings">
-        <button class="section-head" type="button">
-          <h2 class="section-title">Settings</h2>
-          <svg class="caret" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 10l5 5 5-5z" fill="currentColor"/>
-          </svg>
-        </button>
-        <div class="section-body">
-          <div class="field">
-            <label>MIDI file</label>
-            <div class="file-row">
-              <input id="midi-path" type="text" readonly placeholder="Drag a .mid here, or browse…"/>
-              <button id="midi-browse" class="btn btn-icon" title="Browse" aria-label="Browse"><i data-icon="dots" data-icon-size="14"></i></button>
-            </div>
-          </div>
-          <label class="check" title="Hold keys down for the note's full length instead of a quick tap">
-            <input id="sustain" type="checkbox" checked/> Sustain (hold long notes)
-          </label>
-          <div class="field-row">
-            <div class="field" style="max-width:130px">
-              <label>Note colour</label>
-              <div class="file-row">
-                <input id="note-color" type="color" value="#b8e62e"/>
-                <button id="note-color-reset" class="btn btn-icon" title="Back to per-channel colours">↻</button>
-              </div>
-            </div>
-            <div class="field">
-              <label>Fall speed <span class="muted" id="fall-speed-label">1.00×</span></label>
-              <input id="fall-speed" type="range" min="0.25" max="4" step="0.05" value="1"/>
-            </div>
-          </div>
-          <div class="hotkey-label">Hotkeys</div>
-          <div class="hotkey-grid">
-            <span class="muted">Play</span>
-            <input id="hotkey-play" class="hk-capture" type="text" value="F6" data-hk="<f6>" readonly />
-            <span class="muted">Pause</span>
-            <input id="hotkey-pause" class="hk-capture" type="text" value="F8" data-hk="<f8>" readonly />
-            <span class="muted">Stop</span>
-            <input id="hotkey-stop" class="hk-capture" type="text" value="F7" data-hk="<f7>" readonly />
-            <span class="muted">Tempo +</span>
-            <input id="hotkey-tempo-up" class="hk-capture" type="text" value="" placeholder="unset" readonly />
-            <span class="muted">Tempo −</span>
-            <input id="hotkey-tempo-down" class="hk-capture" type="text" value="" placeholder="unset" readonly />
-            <span class="muted">Tempo =</span>
-            <input id="hotkey-tempo-set" class="hk-capture" type="text" value="" placeholder="unset" readonly />
-            <span class="muted">± step</span>
-            <input id="tempo-step" type="number" min="0.01" max="1" step="0.01" value="0.10" />
-            <span class="muted">= value</span>
-            <input id="tempo-preset" type="number" min="0.25" max="3" step="0.05" value="1.00" />
-            <span class="muted">Skip →</span>
-            <input id="hotkey-seek-fwd" class="hk-capture" type="text" value="" placeholder="unset" readonly />
-            <span class="muted">← Back</span>
-            <input id="hotkey-seek-back" class="hk-capture" type="text" value="" placeholder="unset" readonly />
-            <span class="muted">Next</span>
-            <input id="hotkey-next" class="hk-capture" type="text" value="" placeholder="unset" readonly />
-            <span class="muted">Prev</span>
-            <input id="hotkey-prev" class="hk-capture" type="text" value="" placeholder="unset" readonly />
-            <span class="muted">Seek s</span>
-            <input id="seek-step" type="number" min="1" max="60" step="1" value="5" />
-            <button id="hotkey-apply" class="btn">Apply</button>
-          </div>
-          <div class="muted small" id="hotkey-status" style="margin-top:10px">Defaults active.</div>
-          <div class="muted small" style="margin-top:4px">Click a box, then press the key. The &#215; unbinds it, Esc cancels. An unbound key does nothing until you set it again.</div>
-        </div>
-      </section>
-    </aside>
-
-    <i class="grip-h" data-resize="side" data-min="240" data-max="620"
-       aria-label="Resize the sidebar"></i>
-
-    <!-- ============================================================
-         Main column, visualizer / transport / log
-         ============================================================ -->
-    <section class="main-col" data-split="player-main" style="--map: 64px; --logh: 200px">
-
-      <div class="panel viz-panel">
-        <canvas id="viz" class="viz"></canvas>
-        <div class="viz-empty" id="viz-empty">
-          <div class="viz-empty-glow"></div>
-          <div class="viz-empty-text">Drag a MIDI file here</div>
-          <div class="viz-empty-cta">or click ⌄ to browse</div>
-        </div>
-        <button id="perch-btn" class="perch-btn" type="button" aria-pressed="false"
-                title="Perch: keep the roll on top of the game (Ctrl+Alt+O)">Perch</button>
-      </div>
-
-      <i class="grip-v" data-resize="map" data-axis="y" data-invert data-min="40" data-max="500"
-         aria-label="Resize the song map"></i>
-
-      <div class="panel transport-panel">
-        <div class="track-strip is-empty" id="track-strip">
-          <span class="track-name" id="track-name">No file loaded</span>
-          <span class="track-meta" id="track-meta"></span>
-          <button id="export-sheet" class="btn-mini" type="button" title="Save a Virtual Piano sheet (.vp.txt) next to the MIDI and copy it">VP sheet</button>
+          <span class="pathchip" id="song-path" hidden>
+            <span class="pathchip-dir" id="song-dir"></span>
+            <span class="pathchip-name" id="song-name"></span>
+            <button class="pathchip-reveal" id="song-reveal" type="button" aria-label="Show in Explorer">
+              <i data-icon="folder" data-icon-size="12"></i>
+            </button>
+          </span>
         </div>
 
-        <div class="transport-row">
-          <button id="play" class="btn-play" title="Play (F6)" aria-label="Play">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-          </button>
-          <button id="pause" class="btn-icon-only" disabled title="Pause (F8)" aria-label="Pause">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
-          </button>
-          <button id="stop" class="btn-icon-only" disabled title="Stop (F7)" aria-label="Stop">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg>
-          </button>
-
-          <div class="transport-time" id="time-elapsed">00:00</div>
-
-          <div class="scrubber" id="scrubber" role="slider"
-               tabindex="0" aria-label="Seek"
-               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-            <div class="scrubber-rail">
-              <div class="scrubber-hover" id="scrubber-hover"></div>
-              <div class="scrubber-fill"  id="scrubber-fill"></div>
-              <div class="scrubber-thumb" id="scrubber-thumb"></div>
-            </div>
-            <div class="scrubber-tooltip" id="scrubber-tooltip">00:00</div>
+        <div class="p-block">
+          <div class="p-block-head">
+            <span class="p-block-title">Queue</span>
+            <span class="p-block-count" id="queue-count"></span>
+            <span class="u-spacer"></span>
+            <button class="link" id="queue-undo" type="button" hidden>Undo</button>
+            <button class="btn btn-icon is-sm is-bare" id="queue-loop" type="button"
+                    aria-pressed="false" aria-label="Loop the queue" data-tip="Loop the queue">
+              <i data-icon="refresh" data-icon-size="13"></i>
+            </button>
+            <button class="btn btn-icon is-sm is-bare" id="queue-add" type="button"
+                    aria-label="Add files to the queue" data-tip="Add files">
+              <i data-icon="plus" data-icon-size="13"></i>
+            </button>
+            <button class="btn btn-icon is-sm is-bare" id="queue-clear" type="button"
+                    aria-label="Clear the queue" data-tip="Keep only the current song">
+              <i data-icon="close" data-icon-size="12"></i>
+            </button>
           </div>
-
-          <div class="transport-time right" id="time-total">00:00</div>
+          <div class="p-queue">
+            <div class="vlist" id="queue-list" aria-label="Play queue"></div>
+            <div class="state is-compact" id="queue-empty">
+              <div class="state-msg">Nothing queued. Drop <span class="mono">.mid</span> files here, or open one above.</div>
+            </div>
+          </div>
         </div>
 
-        <div class="range-editor" id="range-editor">
-          <button class="map-head" id="map-toggle" type="button" aria-expanded="true" title="Show or hide the song map">
-            <svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z" fill="currentColor"/></svg>
-            <span>Song map</span>
-            <span class="muted small" id="map-hint">drag to select a range · wheel to zoom · drag the bar above to resize</span>
-          </button>
-          <div class="map-body">
-            <div class="range-overview" id="range-overview" tabindex="0" role="slider" aria-label="Playback range" aria-valuemin="0" aria-valuemax="100">
-              <canvas id="range-canvas"></canvas>
-              <div class="range-empty" id="range-empty">Load a MIDI to see the full song</div>
-            </div>
-            <div class="range-controls">
-              <label class="range-toggle"><input type="checkbox" id="range-enabled"/> Play selection only</label>
-              <label>Start <input id="range-start" type="text" value="0:00" inputmode="decimal"/></label>
-              <label>Stop <input id="range-end" type="text" placeholder="end" inputmode="decimal"/></label>
-              <button id="range-full" class="btn btn-ghost" type="button">Full song</button>
-              <span id="range-summary" class="range-summary">Full song</span>
-            </div>
-            <div class="range-controls" id="practice-row">
-              <label class="range-toggle" title="Replay the selection until you stop"><input type="checkbox" id="range-loop"/> Loop selection</label>
-              <label title="Start slower and speed up each pass until the tempo above">Ramp from <input id="ramp-start" type="number" min="25" max="100" step="5" value="100" inputmode="numeric"/> %</label>
-              <label title="Tempo added after every pass">+ <input id="ramp-step" type="number" min="1" max="50" step="1" value="5" inputmode="numeric"/> % per pass</label>
-              <span id="practice-summary" class="range-summary"></span>
-            </div>
+        <div class="p-block" id="recent-block" hidden>
+          <div class="p-block-head">
+            <span class="p-block-title">Recent</span>
+            <span class="u-spacer"></span>
+            <button class="link" id="recent-all" type="button">See all</button>
+            <button class="btn btn-icon is-sm is-bare" id="recent-clear" type="button"
+                    aria-label="Clear recent files" data-tip="Clear the list">
+              <i data-icon="close" data-icon-size="12"></i>
+            </button>
           </div>
+          <div class="list" id="recent-list"></div>
         </div>
       </div>
-
-      <i class="grip-v" data-resize="logh" data-axis="y" data-invert data-min="38" data-max="600"
-         aria-label="Resize the log"></i>
-
-      <div class="panel log-panel is-collapsed" id="log-panel">
-        <div class="log-header" id="log-header">
-          <h2>Log</h2>
-          <div class="log-header-actions">
-            <button id="log-clear" class="btn btn-ghost" title="Clear">Clear</button>
-            <svg class="log-caret" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M7 10l5 5 5-5z" fill="currentColor"/>
-            </svg>
-          </div>
-        </div>
-        <pre id="log" class="log"></pre>
-      </div>
-
     </section>
+
+    <!-- ---- Target ----------------------------------------------------- -->
+    <section class="tabpanel" id="panel-target" role="tabpanel" aria-labelledby="tab-target" hidden>
+      <div class="p-pane scroll-y">
+        <div class="p-block">
+          <div class="p-block-head"><span class="p-block-title">Game window</span></div>
+          <div class="p-app" id="target-app">
+            <span class="p-app-icon" id="target-icon" aria-hidden="true"><i data-icon="keyboard" data-icon-size="18"></i></span>
+            <span class="p-app-text">
+              <span class="p-app-name" id="target-name">No window selected</span>
+              <span class="p-app-sub" id="target-sub">Pick the window the keys should be typed into.</span>
+            </span>
+          </div>
+          <label class="field">
+            <span class="field-label">Target</span>
+            <span class="u-row">
+              <span class="selectwrap u-fill">
+                <select class="select" id="target-select"></select>
+              </span>
+              <button class="btn btn-icon" id="target-refresh" type="button"
+                      aria-label="Refresh the window list" data-tip="Refresh the list">
+                <i data-icon="refresh"></i>
+              </button>
+            </span>
+          </label>
+          <p class="p-status-line" id="target-status">
+            <span class="dot" id="target-dot"></span><span id="target-status-text">No window selected</span>
+          </p>
+          <button class="btn btn-primary" id="focus-target" type="button">
+            <i data-icon="send"></i>Focus on target
+          </button>
+          <div class="switch-row">
+            <span class="switch-label" id="auto-pick-label">Remember this window</span>
+            <span class="switch-hint">Pick it again automatically next launch.</span>
+            <button class="switch" id="auto-pick" role="switch" aria-checked="true" aria-labelledby="auto-pick-label"></button>
+          </div>
+          <p class="field-hint">
+            Keys are typed into this window, so it has to be on screen and focused while a
+            song plays. Nothing is sent anywhere else.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---- Playback --------------------------------------------------- -->
+    <section class="tabpanel" id="panel-playback" role="tabpanel" aria-labelledby="tab-playback" hidden>
+      <div class="p-pane scroll-y">
+        <div class="p-block">
+          <div class="p-block-head"><span class="p-block-title">Mapping preset</span></div>
+          <div class="u-row">
+            <span class="selectwrap u-fill">
+              <select class="select" id="mapping-select">
+                <option value="roblox">roblox — 36 keys, no Shift</option>
+                <option value="roblox61">roblox61 — 61 keys + Shift</option>
+                <option value="roblox66">roblox66 — 66 keys + Shift</option>
+                <option value="roblox88">roblox88 — full 88 keys</option>
+                <option value="roblox88ctrl">roblox88ctrl — 88 keys + Ctrl</option>
+                <option value="virtualpiano">virtualpiano — 88 keys</option>
+                <option value="virtualpiano66">virtualpiano66 — 66 keys</option>
+                <option value="drums">drums — Roblox 8-pad kit</option>
+              </select>
+            </span>
+            <button class="btn btn-icon" id="mapping-browse" type="button"
+                    aria-label="Load a custom mapping file" data-tip="Load a custom mapping .json">
+              <i data-icon="plus"></i>
+            </button>
+            <button class="btn btn-icon" id="mapping-folder" type="button"
+                    aria-label="Open the mappings folder" data-tip="Open the mappings folder.&#10;Files kept there survive updates.">
+              <i data-icon="gear"></i>
+            </button>
+          </div>
+          <p class="field-hint" id="mapping-note"></p>
+        </div>
+
+        <div class="p-block">
+          <div class="p-block-head">
+            <span class="p-block-title">Tempo</span>
+            <span class="p-block-value mono" id="tempo-label">1.00×</span>
+            <span class="u-spacer"></span>
+            <button class="btn btn-sm" id="tempo-reset" type="button">Reset</button>
+          </div>
+          <input class="range" id="tempo" type="range" min="0.25" max="3" step="0.05" value="1"
+                 aria-label="Tempo multiplier" />
+          <div class="p-row2">
+            <span class="input-wrap">
+              <input class="input is-sm" id="tempo-bpm" type="number" min="1" max="640" step="1" aria-label="Tempo in BPM" />
+              <span class="input-affix">BPM</span>
+            </span>
+            <span class="p-bpm-src mono" id="tempo-bpm-src">source —</span>
+            <button class="btn btn-sm" id="tempo-bpm-guess" type="button" hidden></button>
+          </div>
+        </div>
+
+        <div class="p-block">
+          <div class="p-block-head">
+            <span class="p-block-title">Transpose</span>
+            <span class="p-block-value mono" id="transpose-label">0</span>
+            <span class="u-spacer"></span>
+            <button class="btn btn-sm" id="transpose-fit" type="button" data-tip="Let the engine pick a shift that fits the mapping">Fit range</button>
+            <button class="btn btn-sm" id="transpose-reset" type="button">Reset</button>
+          </div>
+          <input class="range" id="transpose" type="range" min="-24" max="24" step="1" value="0"
+                 aria-label="Transpose in semitones" />
+          <p class="field-hint" id="range-warning" hidden></p>
+        </div>
+
+        <div class="p-block">
+          <div class="p-block-head"><span class="p-block-title">Timing</span></div>
+          <div class="insp-row">
+            <span class="insp-label" id="countdown-label">Countdown</span>
+            <span class="stepper is-sm">
+              <button class="stepper-btn" type="button" data-step="-1" data-for="countdown" aria-label="Less countdown"><i data-icon="minus" data-icon-size="10"></i></button>
+              <input id="countdown" type="number" min="0" max="10" step="1" value="0" aria-labelledby="countdown-label" />
+              <button class="stepper-btn" type="button" data-step="1" data-for="countdown" aria-label="More countdown"><i data-icon="plus" data-icon-size="10"></i></button>
+              <span class="stepper-unit">s</span>
+            </span>
+          </div>
+          <div class="insp-row">
+            <span class="insp-label" id="chord-stagger-label">Chord roll</span>
+            <span class="stepper is-sm">
+              <button class="stepper-btn" type="button" data-step="-1" data-for="chord-stagger" aria-label="Less chord roll"><i data-icon="minus" data-icon-size="10"></i></button>
+              <input id="chord-stagger" type="number" min="0" max="30" step="1" value="0" aria-labelledby="chord-stagger-label" />
+              <button class="stepper-btn" type="button" data-step="1" data-for="chord-stagger" aria-label="More chord roll"><i data-icon="plus" data-icon-size="10"></i></button>
+              <span class="stepper-unit">ms</span>
+            </span>
+          </div>
+          <p class="field-hint">Chord roll spreads a chord lowest key first, so the game does not drop the rest of it.</p>
+        </div>
+
+        <div class="p-block">
+          <div class="p-block-head"><span class="p-block-title">Hands</span></div>
+          <div class="segmented is-wide" role="radiogroup" aria-label="Which hand to play" id="hand-group">
+            <button type="button" role="radio" aria-checked="true" data-hand="both">Both</button>
+            <button type="button" role="radio" aria-checked="false" data-hand="right">Right</button>
+            <button type="button" role="radio" aria-checked="false" data-hand="left">Left</button>
+          </div>
+          <div class="insp-row" id="hand-split-row">
+            <span class="insp-label" id="hand-split-label-text">Split at</span>
+            <span class="u-row">
+              <span class="stepper is-sm">
+                <button class="stepper-btn" type="button" data-step="-1" data-for="hand-split" aria-label="Lower split note"><i data-icon="minus" data-icon-size="10"></i></button>
+                <input id="hand-split" type="number" min="24" max="108" step="1" value="60" aria-labelledby="hand-split-label-text" />
+                <button class="stepper-btn" type="button" data-step="1" data-for="hand-split" aria-label="Higher split note"><i data-icon="plus" data-icon-size="10"></i></button>
+              </span>
+              <span class="mono small" id="hand-split-label">C4</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="p-block">
+          <div class="switch-row">
+            <span class="switch-label" id="sustain-label">Sustain notes</span>
+            <span class="switch-hint">Hold each key for the note's full length instead of tapping it.</span>
+            <button class="switch" id="sustain" role="switch" aria-checked="true" aria-labelledby="sustain-label"></button>
+          </div>
+          <div class="switch-row">
+            <span class="switch-label" id="loop-label">Loop playback</span>
+            <span class="switch-hint">At the end of the queue, start again from the top.</span>
+            <button class="switch" id="loop-playback" role="switch" aria-checked="false" aria-labelledby="loop-label"></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---- Preferences ------------------------------------------------ -->
+    <section class="tabpanel" id="panel-prefs" role="tabpanel" aria-labelledby="tab-prefs" hidden>
+      <div class="p-pane scroll-y">
+        <div class="p-block">
+          <div class="p-block-head">
+            <span class="p-block-title">Hotkeys</span>
+            <span class="u-spacer"></span>
+            <button class="btn btn-sm" id="hotkey-clear-all" type="button">Unbind all</button>
+          </div>
+          <p class="field-hint">
+            These work while the game has focus. Empty means <strong>unbound</strong> — including
+            play, pause and stop, so those keys stay free for the game.
+          </p>
+          <div class="p-hk" id="hotkeys"></div>
+          <p class="p-status-line" id="hotkey-status"></p>
+          <p class="field-hint">
+            Panic is the one exception: the engine has ten global slots and they are all
+            spoken for, so Panic answers only while MIDI Studio has focus. <strong>Stop</strong>
+            is the global one, and it releases every held key too.
+          </p>
+        </div>
+
+        <div class="p-block">
+          <div class="p-block-head"><span class="p-block-title">Hotkey amounts</span></div>
+          <div class="insp-row">
+            <span class="insp-label" id="tempo-step-label">Tempo step</span>
+            <span class="stepper is-sm">
+              <button class="stepper-btn" type="button" data-step="-0.05" data-for="tempo-step" aria-label="Smaller tempo step"><i data-icon="minus" data-icon-size="10"></i></button>
+              <input id="tempo-step" type="number" min="0.01" max="1" step="0.05" value="0.1" aria-labelledby="tempo-step-label" />
+              <button class="stepper-btn" type="button" data-step="0.05" data-for="tempo-step" aria-label="Larger tempo step"><i data-icon="plus" data-icon-size="10"></i></button>
+              <span class="stepper-unit">×</span>
+            </span>
+          </div>
+          <div class="insp-row">
+            <span class="insp-label" id="tempo-preset-label">Tempo preset</span>
+            <span class="stepper is-sm">
+              <button class="stepper-btn" type="button" data-step="-0.05" data-for="tempo-preset" aria-label="Lower tempo preset"><i data-icon="minus" data-icon-size="10"></i></button>
+              <input id="tempo-preset" type="number" min="0.25" max="3" step="0.05" value="1" aria-labelledby="tempo-preset-label" />
+              <button class="stepper-btn" type="button" data-step="0.05" data-for="tempo-preset" aria-label="Higher tempo preset"><i data-icon="plus" data-icon-size="10"></i></button>
+              <span class="stepper-unit">×</span>
+            </span>
+          </div>
+          <div class="insp-row">
+            <span class="insp-label" id="seek-step-label">Seek step</span>
+            <span class="stepper is-sm">
+              <button class="stepper-btn" type="button" data-step="-1" data-for="seek-step" aria-label="Shorter seek step"><i data-icon="minus" data-icon-size="10"></i></button>
+              <input id="seek-step" type="number" min="1" max="60" step="1" value="5" aria-labelledby="seek-step-label" />
+              <button class="stepper-btn" type="button" data-step="1" data-for="seek-step" aria-label="Longer seek step"><i data-icon="plus" data-icon-size="10"></i></button>
+              <span class="stepper-unit">s</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="p-block">
+          <div class="p-block-head">
+            <span class="p-block-title">Visualizer</span>
+            <span class="p-block-value mono" id="fall-speed-label">1.00×</span>
+          </div>
+          <input class="range" id="fall-speed" type="range" min="0.25" max="4" step="0.05" value="1"
+                 aria-label="Note fall speed" />
+          <div class="insp-row">
+            <span class="insp-label" id="note-color-label">Note colour</span>
+            <span class="u-row">
+              <input class="p-swatch" id="note-color" type="color" value="#b8e62e" aria-labelledby="note-color-label" />
+              <button class="btn btn-sm" id="note-color-reset" type="button">Per channel</button>
+            </span>
+          </div>
+        </div>
+
+        <div class="p-block">
+          <div class="switch-row">
+            <span class="switch-label" id="stats-label">Timing stats</span>
+            <span class="switch-hint">Report how close each keystroke landed, in the activity log.</span>
+            <button class="switch" id="stats" role="switch" aria-checked="false" aria-labelledby="stats-label"></button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </aside>
+
+  <i class="grip-h has-handle" data-resize="side" data-min="248" data-max="460"
+     aria-label="Resize the setup column"></i>
+
+  <!-- ======================================================================
+       CENTRE: what the song is doing.
+       =================================================================== -->
+  <main class="pane is-flex p-main" aria-label="Playback">
+    <header class="p-head">
+      <div class="p-head-main">
+        <h1 class="p-song u-truncate" id="head-song">No song loaded</h1>
+        <div class="p-head-meta">
+          <span class="pill" id="head-status"><span class="dot" id="head-dot"></span><span id="head-status-text">Idle</span></span>
+          <span class="p-meta mono" id="head-dur">--:--</span>
+          <span class="u-sep"></span>
+          <span class="p-meta mono" id="head-notes">0 notes</span>
+          <span class="u-sep"></span>
+          <span class="p-meta mono" id="head-bpm">-- BPM</span>
+          <span class="u-sep"></span>
+          <span class="p-meta u-truncate" id="head-mapping">roblox</span>
+        </div>
+      </div>
+      <div class="p-head-tools">
+        <span class="tag" id="chip-kind">MIDI</span>
+        <span class="tag" id="chip-piano">Piano</span>
+        <span class="tag is-accent" id="chip-mapping">36 keys</span>
+        <button class="btn btn-icon is-sm is-bare" id="head-menu" type="button"
+                aria-haspopup="menu" aria-label="More actions">
+          <i data-icon="dots"></i>
+        </button>
+      </div>
+    </header>
+
+    <div class="p-viz canvas-host" id="viz-host">
+      <canvas id="viz"></canvas>
+      <div class="state p-viz-empty" id="viz-empty">
+        <div class="state-icon"><i data-icon="keyboard" data-icon-size="28"></i></div>
+        <div class="state-title">Drop a MIDI file here</div>
+        <div class="state-msg">
+          The notes fall onto the keyboard, and every key that lights up is a keystroke
+          sent to the game window.
+        </div>
+        <div class="state-actions">
+          <button class="btn" id="viz-open" type="button"><i data-icon="folder"></i>Open MIDI file</button>
+        </div>
+      </div>
+    </div>
+
+    <i class="grip-v has-handle" id="map-grip" data-resize="map" data-axis="y"
+       data-min="56" data-max="320" data-invert aria-label="Resize the song map"></i>
+
+    <section class="p-map" id="map">
+      <header class="p-map-head">
+        <button class="p-map-toggle" id="map-toggle" type="button" aria-expanded="true" aria-controls="map-body">
+          <span class="p-map-title">Song map</span>
+        </button>
+        <span class="p-map-sum mono" id="range-summary">Full song</span>
+        <span class="u-spacer"></span>
+        <span class="p-map-hint small muted" id="map-hint">Drag to select · wheel to zoom · double-click to reset</span>
+      </header>
+      <div class="p-map-body" id="map-body">
+        <div class="canvas-host p-map-canvas" id="map-host" tabindex="0" role="group"
+             aria-label="Song map: drag to choose a playback range, click to seek">
+          <canvas id="map-canvas"></canvas>
+          <div class="state is-compact p-map-empty" id="map-empty">
+            <div class="state-msg">No song loaded.</div>
+          </div>
+        </div>
+        <div class="p-map-rows">
+          <div class="p-map-row">
+            <button class="checkbox" id="range-enabled" role="checkbox" aria-checked="false">Play selection only</button>
+            <span class="input-wrap p-time"><input class="input is-sm" id="range-start" type="text" value="0:00" aria-label="Selection start" spellcheck="false" /></span>
+            <span class="muted small">to</span>
+            <span class="input-wrap p-time"><input class="input is-sm" id="range-end" type="text" value="" aria-label="Selection end" spellcheck="false" /></span>
+            <button class="btn btn-sm" id="range-full" type="button">Full song</button>
+          </div>
+          <div class="p-map-row" id="practice-row">
+            <button class="checkbox" id="range-loop" role="checkbox" aria-checked="false">Practice loop</button>
+            <span class="stepper is-sm">
+              <button class="stepper-btn" type="button" data-step="-5" data-for="ramp-start" aria-label="Slower first pass"><i data-icon="minus" data-icon-size="10"></i></button>
+              <input id="ramp-start" type="number" min="25" max="100" step="5" value="100" aria-label="First pass tempo, percent" />
+              <button class="stepper-btn" type="button" data-step="5" data-for="ramp-start" aria-label="Faster first pass"><i data-icon="plus" data-icon-size="10"></i></button>
+              <span class="stepper-unit">%</span>
+            </span>
+            <span class="muted small">then</span>
+            <span class="stepper is-sm">
+              <button class="stepper-btn" type="button" data-step="-1" data-for="ramp-step" aria-label="Smaller step per pass"><i data-icon="minus" data-icon-size="10"></i></button>
+              <input id="ramp-step" type="number" min="1" max="50" step="1" value="5" aria-label="Percent added per pass" />
+              <button class="stepper-btn" type="button" data-step="1" data-for="ramp-step" aria-label="Bigger step per pass"><i data-icon="plus" data-icon-size="10"></i></button>
+              <span class="stepper-unit">% / pass</span>
+            </span>
+            <span class="p-map-sum mono" id="practice-summary"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="p-timeline">
+      <span class="p-time-read mono" id="time-elapsed">0:00</span>
+      <div class="p-scrub" id="scrub" role="slider" tabindex="0"
+           aria-label="Playback position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+           aria-valuetext="0:00 of 0:00">
+        <div class="p-scrub-track">
+          <div class="p-scrub-hover" id="scrub-hover"></div>
+          <div class="p-scrub-range" id="scrub-range" hidden></div>
+          <div class="p-scrub-fill" id="scrub-fill"></div>
+        </div>
+        <div class="p-scrub-cursor" id="scrub-cursor"><span class="p-scrub-thumb"></span></div>
+        <div class="p-scrub-tip mono" id="scrub-tip" hidden>0:00</div>
+      </div>
+      <span class="p-time-read mono" id="time-total">0:00</span>
+    </div>
+
+    <div class="toolbar is-bottom p-transport">
+      <div class="toolbar-group">
+        <button class="btn btn-icon" id="tr-prev" type="button" aria-label="Previous song" data-tip="Previous song">
+          <i data-icon="prev"></i>
+        </button>
+        <button class="btn btn-primary btn-lg p-play" id="tr-play" type="button" aria-label="Play">
+          <span class="p-play-ic" id="tr-play-ic"><i data-icon="play"></i></span>
+          <span id="tr-play-text">Play</span>
+        </button>
+        <button class="btn btn-icon" id="tr-stop" type="button" aria-label="Stop" data-tip="Stop">
+          <i data-icon="stop"></i>
+        </button>
+        <button class="btn btn-icon" id="tr-next" type="button" aria-label="Next song" data-tip="Next song">
+          <i data-icon="next"></i>
+        </button>
+      </div>
+      <div class="toolbar-sep"></div>
+      <div class="toolbar-group">
+        <span class="toolbar-label">Tempo</span>
+        <span class="p-read mono" id="tr-tempo">1.00×</span>
+        <span class="toolbar-label">Shift</span>
+        <span class="p-read mono" id="tr-transpose">0</span>
+        <span class="toolbar-label">Count in</span>
+        <span class="p-read mono" id="tr-countdown">0s</span>
+      </div>
+      <div class="toolbar-spacer"></div>
+      <div class="toolbar-group">
+        <button class="btn btn-sm" id="tr-focus" type="button" hidden>
+          <i data-icon="send"></i>Focus target
+        </button>
+      </div>
+    </div>
+
+    <div class="p-stats" id="stats-strip" role="group" aria-label="Song statistics">
+      <span class="p-stat"><span class="p-stat-l">Notes</span><span class="p-stat-v mono" id="st-notes">0</span></span>
+      <span class="p-stat"><span class="p-stat-l">Length</span><span class="p-stat-v mono" id="st-length">--:--</span></span>
+      <span class="p-stat"><span class="p-stat-l">Tempo</span><span class="p-stat-v mono" id="st-tempo">1.00× · -- BPM</span></span>
+      <span class="p-stat"><span class="p-stat-l">Instrument</span><span class="p-stat-v" id="st-instrument">—</span></span>
+      <span class="p-stat is-flex"><span class="p-stat-l">Mapping</span><span class="p-stat-v u-truncate" id="st-mapping">roblox</span></span>
+      <span class="u-spacer"></span>
+      <span class="pill p-live" id="st-live"><span class="dot" id="st-live-dot"></span><span id="st-live-text">Idle</span></span>
+    </div>
   </main>
 
-  <div id="drop-overlay" class="drop-overlay">
-    <div class="drop-card">
-      <svg viewBox="0 0 24 24" class="drop-icon" aria-hidden="true">
-        <path d="M19 13v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6h2v6h10v-6h2zm-6-9 5 5h-3v6h-4V9H8l5-5z"
-              fill="currentColor"/>
-      </svg>
-      <div class="drop-title">Drop to load</div>
-      <div class="drop-sub">.mid / .midi → MIDI file · .json → custom mapping</div>
+  <i class="grip-h has-handle" data-resize="rail" data-min="240" data-max="420" data-invert
+     aria-label="Resize the info column"></i>
+
+  <!-- ======================================================================
+       RIGHT: what is loaded, whether it will survive the trip to the game,
+       and the tools for when it does not.
+       =================================================================== -->
+  <aside class="pane is-fixed p-rail insp" style="width: var(--rail)" aria-label="Song information">
+    <div class="insp-sec" id="sec-now">
+      <button class="insp-sec-head" id="sec-now-head" type="button" aria-expanded="true" aria-controls="sec-now-body">Now playing</button>
+      <div class="insp-sec-body" id="sec-now-body">
+        <div class="p-now">
+          <div class="canvas-host p-art" id="art-host">
+            <canvas id="art"></canvas>
+          </div>
+          <div class="p-now-text">
+            <div class="p-now-name u-truncate" id="now-name">Nothing loaded</div>
+            <div class="p-now-sub u-truncate" id="now-folder"></div>
+            <div class="p-now-sub mono" id="now-meta"></div>
+          </div>
+        </div>
+        <div class="insp-row"><span class="insp-label">Target</span><span class="insp-value u-truncate" id="now-target">—</span></div>
+        <div class="insp-row"><span class="insp-label">Position</span><span class="insp-value" id="now-pos">0:00 / 0:00</span></div>
+        <div class="insp-row"><span class="insp-label">Sent</span><span class="insp-value" id="now-sent">0 / 0</span></div>
+      </div>
+    </div>
+
+    <div class="insp-sec" id="sec-map">
+      <button class="insp-sec-head" id="sec-map-head" type="button" aria-expanded="true" aria-controls="sec-map-body">Mapping status</button>
+      <div class="insp-sec-body" id="sec-map-body">
+        <div class="insp-row"><span class="insp-label">Preset</span><span class="insp-value u-truncate" id="ms-preset">roblox</span></div>
+        <div class="insp-row"><span class="insp-label">Status</span><span class="insp-value" id="ms-status">No song</span></div>
+        <div class="insp-row"><span class="insp-label">Keys mapped</span><span class="insp-value" id="ms-keys">0</span></div>
+        <div class="insp-row"><span class="insp-label">Last input</span><span class="insp-value u-truncate" id="ms-last">—</span></div>
+        <p class="field-hint" id="ms-desc"></p>
+        <div class="inline-note" id="warn-sharps" hidden>
+          <i data-icon="alert"></i><span id="warn-sharps-text"></span>
+        </div>
+        <div class="inline-note" id="warn-drop" hidden>
+          <i data-icon="alert"></i><span id="warn-drop-text"></span>
+        </div>
+        <div class="inline-note" id="warn-unmapped" hidden>
+          <i data-icon="alert"></i><span id="warn-unmapped-text"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="insp-sec" id="sec-tools">
+      <button class="insp-sec-head" id="sec-tools-head" type="button" aria-expanded="true" aria-controls="sec-tools-body">Tools</button>
+      <div class="insp-sec-body" id="sec-tools-body">
+        <button class="btn btn-danger p-panic" id="tool-panic" type="button">
+          <i data-icon="stop"></i>Panic (all notes off)
+        </button>
+        <p class="field-hint">Stops the engine and releases every key it is holding down.</p>
+        <button class="btn" id="tool-reload" type="button"><i data-icon="refresh"></i>Reload mapping</button>
+        <button class="btn" id="tool-test" type="button"><i data-icon="keyboard"></i>Test notes</button>
+        <button class="btn" id="tool-sheet" type="button"><i data-icon="send"></i>Copy VP sheet</button>
+        <p class="field-hint">The sheet is always written with the <span class="mono">virtualpiano</span> mapping, whichever preset is selected.</p>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- Window-level drop. The depth counter is what keeps this honest across
+     nested dragenter events. -->
+<div class="drop-veil" id="drop-veil" aria-hidden="true">
+  <div class="drop-card">
+    <div class="drop-icon"><i data-icon="drop" data-icon-size="28"></i></div>
+    <div class="drop-title">Drop to queue</div>
+    <div class="drop-sub">MIDI files join the queue. A .json becomes the custom mapping.</div>
+    <div class="drop-types">
+      <span class="tag">.mid</span><span class="tag">.midi</span><span class="tag">.json</span>
     </div>
   </div>
+</div>
 
-  <script src="../shared/icons.js"></script>
-  <script src="../shared/resize.js"></script>
-  <script src="../shared/timeline-zoom.js"></script>
-  <script src="visualizer.js"></script>
-  <script src="app.js"></script>
-  <script src="midi-library.js"></script>
+<!-- "See all": recents plus every MIDI in the transcription folder. -->
+<div class="dlg-scrim" id="songs-scrim" hidden>
+  <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="songs-title">
+    <header class="dlg-head">
+      <h2 class="dlg-title" id="songs-title">All songs</h2>
+      <span class="dlg-sub" id="songs-sub"></span>
+      <button class="dlg-x" id="songs-close" type="button" aria-label="Close"><i data-icon="close" data-icon-size="13"></i></button>
+    </header>
+    <div class="dlg-body is-flush">
+      <div class="p-songs-search">
+        <span class="search u-fill">
+          <i data-icon="search" data-icon-size="14"></i>
+          <input class="input is-sm" id="songs-search" type="text" placeholder="Search songs" aria-label="Search songs" spellcheck="false" />
+          <button class="search-clear" id="songs-search-clear" type="button" aria-label="Clear search"><i data-icon="close" data-icon-size="11"></i></button>
+        </span>
+        <button class="btn btn-sm" id="songs-folder" type="button"><i data-icon="folder"></i>Folder…</button>
+        <button class="btn btn-icon is-sm" id="songs-refresh" type="button" aria-label="Rescan the folder"><i data-icon="refresh" data-icon-size="13"></i></button>
+      </div>
+      <div class="vlist p-songs-list" id="songs-list" aria-label="All songs"></div>
+      <div class="state is-compact" id="songs-empty" hidden>
+        <div class="state-msg" id="songs-empty-msg">No songs here yet.</div>
+      </div>
+    </div>
+    <footer class="dlg-foot">
+      <span class="muted small" id="songs-count"></span>
+      <span class="u-spacer"></span>
+      <button class="btn" id="songs-queue" type="button" disabled>Add to queue</button>
+      <button class="btn btn-primary" id="songs-open" type="button" disabled>Load</button>
+    </footer>
+  </div>
+</div>
+
+<script src="../shared/tokens.js"></script>
+<script src="../shared/fmt.js"></script>
+<script src="../shared/draw.js"></script>
+<script src="../shared/bus.js"></script>
+<script src="../shared/icons.js"></script>
+<script src="../shared/vlist.js"></script>
+<script src="../shared/menu.js"></script>
+<script src="../shared/resize.js"></script>
+<script src="../shared/timeline-zoom.js"></script>
+<script src="../shared/hotkey.js"></script>
+<script src="visualizer.js"></script>
+<script src="midi-library.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

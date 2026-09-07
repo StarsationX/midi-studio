@@ -1,65 +1,347 @@
+/* review.css — the Editor tab (frame key `review`).
+   ==========================================================================
+   Everything visual here is either a shared primitive from tokens.css/ui.css or
+   a layout rule for this tab's grid. No parallel buttons, rows, panels, menus,
+   toasts or lists: if something looks missing it is reported, not forked.
+
+   Three things in this file deliberately override a shared rule, and each says
+   why on the spot:
+     1. .canvas-extent is a 1-D spacer in ui.css (height:1px, pointer-events:none).
+        The piano roll needs a 2-D extent that also hosts the sticky canvas.
+     2. #roll is position:sticky, not the absolutely-filled .canvas-host > canvas,
+        because the scroll wrapper supplies the extent (invariant 19).
+     3. the redo button reuses the shipped `undo` icon mirrored on X. The icon set
+        is closed and has no `redo`; mirroring the real glyph beats inlining a
+        one-off SVG.
+   ========================================================================== */
+
+/* tokens.css deliberately leaves html/body height alone (the shell is a grid of
+   its own). A panel that fills its frame has to say so. */
 html, body { width: 100%; height: 100%; overflow: hidden; }
-button, select, input { font: inherit; }
-/* --wave is driven by the divider under the waveform; the number is only the
-   default. The roll takes whatever is left. */
-.review { height: 100%; display: grid; grid-template-rows: 48px 42px var(--wave, 156px) 7px minmax(160px, 1fr) 54px; background: var(--bg); }
-.review.dragging { outline: 2px solid var(--accent); outline-offset: -4px; }
-.toolbar, .project-strip, .transport, .section-head { display: flex; align-items: center; }
-.toolbar { gap: 16px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.file-group, .edit-group { display: flex; align-items: center; gap: 8px; }
-.edit-group { padding-left: 16px; border-left: 1px solid var(--line); }
-.spacer { flex: 1; }
-.compact { height: 30px; padding: 0 8px; }
-.toolbtn, .transport-btn { display: inline-grid; place-items: center; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--surface-2); color: var(--text); cursor: pointer; }
-.toolbtn { width: 30px; height: 30px; font: 18px/1 var(--font-body); }
-.toolbtn:hover, .transport-btn:hover { background: var(--surface-3); }
-.toolbtn:disabled, .transport-btn:disabled { opacity: .35; cursor: default; }
-.compact-field { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
-select { height: 30px; padding: 0 8px; color: var(--text); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
-.project-strip { gap: 20px; min-width: 0; padding: 0 16px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
-.project-name { min-width: 160px; max-width: 32vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
-.candidate-tabs { display: flex; align-self: stretch; }
-.candidate { min-width: 112px; padding: 0 16px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--text-2); cursor: pointer; }
-.candidate:last-child { border-right: 1px solid var(--line); }
-.candidate strong, .candidate small { display: block; letter-spacing: 0; }
-.candidate small { color: var(--text-3); font: 12px/1.2 var(--font-mono); }
-.candidate.is-active { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
-.status { margin-left: auto; color: var(--text-3); font-size: 12px; }
-.wave-section, .roll-section { min-width: 0; background: var(--surface); border-bottom: 1px solid var(--line); }
-.section-head { height: 30px; gap: 20px; padding: 0 12px; color: var(--text-3); font: 600 12px/1 var(--font-mono); letter-spacing: 1.2px; }
-.section-head > :first-child { color: var(--text-2); }
-#waveform { display: block; width: 100%; height: 125px; background: var(--bg-2); cursor: crosshair; }
-.roll-section { position: relative; min-height: 0; display: grid; grid-template-rows: 34px minmax(0, 1fr); }
-.roll-head { height: 34px; }
-.roll-head label { display: flex; align-items: center; gap: 8px; margin-left: auto; letter-spacing: 0; }
-.roll-head label + label { margin-left: 4px; }
-.roll-head input { width: 105px; accent-color: var(--accent); }
-.roll-scroll { min-height: 0; overflow: auto; background: var(--bg-2); }
-#piano-roll { display: block; cursor: crosshair; }
-.empty { display: grid; place-content: center; justify-items: center; gap: 16px; color: var(--text-3); }
-.empty strong { color: var(--text-2); font-size: 15px; letter-spacing: 0; }
-.transport { gap: 12px; padding: 8px 16px; background: var(--surface); }
-.transport-btn { width: 38px; height: 36px; font-size: 15px; }
-.time { min-width: 175px; padding-right: 12px; border-right: 1px solid var(--line); color: var(--text-2); }
-.switch { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; white-space: nowrap; }
-.switch input { accent-color: var(--accent); }
-.transport-note { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 12px; }
-@media (max-width: 1120px) {
-  .review { grid-template-rows: 82px 42px var(--wave, 142px) 7px minmax(160px, 1fr) 54px; }
-  .toolbar { flex-wrap: wrap; align-content: center; gap: 8px 12px; }
-  .toolbar .spacer { display: none; }
-  .edit-group { border-left: 0; padding-left: 0; }
-  #to-player { margin-left: auto; }
-  #waveform { height: 111px; }
-  .candidate { min-width: 94px; padding: 0 8px; }
+
+/* --left/--right/--wave/--auto are driven by the four dividers (resize.js writes
+   them on [data-split="editor"]). The numbers here are only the defaults. */
+.ed {
+  --left: 214px;
+  --right: 306px;
+  --wave: 132px;
+  --auto: 116px;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--bg);
+  min-height: 0;
 }
 
-/* the project name is editable */
-input.project-name { padding: 4px 8px; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: var(--r-sm); }
-input.project-name:hover:not(:disabled) { border-color: var(--line-2); }
-input.project-name:focus { outline: none; border-color: var(--accent); background: var(--bg-2); }
-input.project-name:disabled { color: var(--text-3); }
+/* ---------------------------------------------------------------- head ---- */
+.ed-head {
+  gap: var(--s2);
+  padding-right: var(--s2);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.ed-head .panel-title { flex: 0 0 auto; }
+.ed-name {
+  width: 200px;
+  min-width: 90px;
+  max-width: 260px;
+}
+.ed-head .panel-tools { gap: var(--s1); flex-wrap: nowrap; }
+.ed-src-chip {
+  flex: 0 0 auto;
+  font: 600 var(--t1)/1 var(--font-mono);
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
 
-/* The canvas is viewport-sized and pinned; the wrap supplies the scroll extent. */
-.roll-wrap { position: relative; }
-#piano-roll { position: sticky; left: 0; top: 0; }
+/* ---------------------------------------------------------------- body ---- */
+.ed-body { min-height: 0; min-width: 0; }
+/* `.split > .pane` in ui.css is (0,2,0) and sets display:flex, so a single-class
+   selector here silently loses and the whole column stays a flex box: the grid
+   tracks resolve in getComputedStyle and nothing obeys them. Match its
+   specificity and win on source order instead. */
+.split > .ed-centre {
+  display: grid;
+  grid-template-rows: var(--wave, 132px) 7px var(--h-toolbar) minmax(96px, 1fr) 7px var(--auto, 116px);
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------ overview strip ---- */
+.ed-over {
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr);
+  min-height: 0;
+  background: var(--surface);
+}
+.ed-over .canvas-host { border-top: 1px solid var(--line); cursor: text; }
+.ed-mini {
+  font: 500 var(--t1)/1 var(--font-body);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.ed-over .toolbar.is-sub { gap: var(--s2); }
+
+/* ------------------------------------------------------- editor toolbar --- */
+.ed-tools {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.ed-tools .segmented { flex: 0 0 auto; }
+.ed-tools .select { min-width: 74px; }
+.ed-zoom { width: 108px; flex: 0 0 auto; }
+/* mirrored `undo`: the closed icon set has no redo mark (reported) */
+.ic-flip { transform: scaleX(-1); }
+
+/* ------------------------------------------------------------ the roll ---- */
+.ed-roll { position: relative; min-height: 0; min-width: 0; background: var(--bg-2); }
+.ed-roll .state { position: absolute; inset: 0; background: var(--bg-2); z-index: var(--z-sticky); }
+
+#roll-scroll { position: absolute; inset: 0; overflow: auto; }
+/* (1) ui.css makes .canvas-extent a 1px, pointer-transparent spacer. The roll
+   needs a real 2-D extent that also parents the sticky canvas. */
+#roll-extent { height: auto; pointer-events: auto; }
+/* (2) the canvas stays viewport-sized; the extent above supplies the scroll
+   range, so the tail of a long song draws instead of falling off Chromium's
+   16,384px canvas cap. */
+#roll {
+  display: block;
+  position: sticky;
+  left: 0;
+  top: 0;
+  touch-action: none;
+  outline: none;
+}
+#roll:focus-visible { box-shadow: inset 0 0 0 1px var(--accent-deep); }
+.ed-roll[data-tool="draw"] #roll { cursor: cell; }
+.ed-roll[data-tool="erase"] #roll { cursor: not-allowed; }
+.ed-roll[data-tool="box"] #roll { cursor: crosshair; }
+
+/* ----------------------------------------------------- automation lane ---- */
+.ed-auto {
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr);
+  min-height: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.ed-auto .canvas-host { border-top: 1px solid var(--line); }
+.ed-auto .toolbar.is-sub { gap: var(--s2); }
+.lane-note {
+  font: 500 var(--t1)/1 var(--font-body);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------- side panes ---- */
+.split > .ed-left, .split > .ed-right {
+  display: grid;
+  grid-template-rows: var(--h-tabstrip) minmax(0, 1fr);
+  min-height: 0;
+  background: var(--surface);
+  container-type: inline-size;
+}
+.split > .ed-left { width: var(--left, 214px); }
+.split > .ed-right { width: var(--right, 306px); }
+.ed-left .tabstrip, .ed-right .tabstrip { padding: 0 var(--s1); }
+.ed-pane { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.ed-pane[hidden] { display: none !important; }
+/* a .lrow rendered as a real button still has to fill its row */
+.list > button.lrow { width: 100%; }
+/* the History tab owns its own scroller (the VList), so the pane must not */
+#p-hist { display: grid; grid-template-rows: 32px minmax(0, 1fr) auto; overflow: hidden; }
+#p-hist > .toolbar.is-sub { border-bottom: 1px solid var(--line); }
+/* M/S are permanent controls, not hover affordances */
+.ed-left .lrow-actions { opacity: 1; }
+
+/* tracks -------------------------------------------------------------- */
+.trk-swatch {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--trk, var(--line-2));
+  box-shadow: inset 0 0 0 1px #0006;
+}
+.lrow.is-muted .lrow-main, .lrow.is-muted .lrow-meta { opacity: .45; }
+.lrow.is-muted .trk-swatch { opacity: .3; }
+.trk-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font: 700 10px/1 var(--font-mono);
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard),
+              background-color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
+}
+.trk-btn:hover { color: var(--text); background: var(--surface-3); }
+.trk-btn[aria-pressed="true"] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent-deep);
+}
+.trk-btn.is-mute[aria-pressed="true"] {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: var(--warn);
+}
+.ed-left .lrow-actions { gap: 3px; }
+/* The rail stand-in for a collapsed tab label: hidden while the word is showing,
+   so the two are never both in the accessible tree, and shown instead of it at
+   rail width so the button is never an empty box. The spoken name is the tab's
+   aria-label, which survives either way. */
+.ed-abbr {
+  display: none;
+  font: 700 9px/1 var(--font-mono);
+  letter-spacing: .4px;
+}
+/* the left pane collapses to a rail rather than becoming unusable */
+@container (max-width: 118px) {
+  /* 44px is the intended rail (--left below 1140px, and the grip's data-min), so
+     the two tabs split it evenly and the count badge drops out of the strip - it
+     is carried in #tab-tracks' aria-label instead of being clipped. */
+  .ed-left .tabstrip, .ed-right .tabstrip { padding: 0; }
+  .tabstrip > button { flex: 1 1 0; min-width: 0; justify-content: center; padding: 0 2px; }
+  .tabstrip > button .ed-lbl, .tabstrip > button .count { display: none; }
+  .tabstrip > button .ed-abbr { display: inline; }
+  .lrow-main, .lrow-meta, .ed-hint { display: none; }
+  .lrow { padding-left: 6px; padding-right: 6px; }
+  .lrow-actions { opacity: 1; margin-left: auto; }
+  /* a paragraph reflowed into a 44px column is noise, not an explanation */
+  .state { padding: var(--s3) 4px; }
+  .state-msg, .state-actions { display: none; }
+}
+
+/* inspector rows ------------------------------------------------------ */
+.ed-right .insp-sec-body { gap: var(--s2); }
+.insp-row.is-tight { grid-template-columns: 70px 1fr; }
+.insp-row > .selectwrap, .insp-row > .stepper, .insp-row > .input-wrap { min-width: 0; }
+.insp-row > .range { width: 100%; }
+.ed-btnrow { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.ed-btnrow > .btn { flex: 1 1 auto; }
+.ed-hint {
+  font: 500 var(--t1)/1.35 var(--font-body);
+  color: var(--text-3);
+}
+.src-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.hist-host { min-height: 0; height: 100%; }
+#hist-list { height: 100%; }
+.hist-icon {
+  font: 700 10px/1 var(--font-mono);
+  color: var(--text-3);
+  width: 14px;
+  text-align: center;
+  flex: 0 0 auto;
+}
+.lrow.is-future .lrow-name, .lrow.is-future .lrow-meta { color: var(--text-3); }
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s1) var(--s2);
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px var(--s2);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  min-width: 0;
+}
+.stat-k {
+  font: 600 var(--t1)/1 var(--font-mono);
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.stat-v {
+  font: 600 var(--t2)/1.2 var(--font-mono);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container (max-width: 232px) {
+  .stat-grid { grid-template-columns: 1fr; }
+  .insp-row { grid-template-columns: 1fr; }
+}
+
+/* -------------------------------------------------------- status footer --- */
+.ed-status {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  height: 28px;
+  padding: 0 var(--s2);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.ed-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 500 var(--t1)/1 var(--font-body);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ed-detail.is-err { color: var(--err); }
+.ed-detail.is-ok { color: var(--accent); }
+.ed-clock {
+  flex: 0 0 auto;
+  font: 600 var(--t1)/1 var(--font-mono);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------------------------------------- drop ------ */
+.ed.is-over::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 1px solid var(--accent);
+  /* the token, not a lime literal: the shell owns the accent and ships four other
+     presets plus a custom colour, and a hardcoded wash would ignore all of them */
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  z-index: var(--z-sticky);
+}
+.ed { position: relative; }
+
+/* --------------------------------------------------------- responsive ----- */
+@media (max-width: 1280px) {
+  .ed { --left: 178px; --right: 272px; }
+}
+@media (max-width: 1140px) {
+  .ed { --left: 44px; --right: 252px; --wave: 108px; --auto: 96px; }
+  .ed-tools .toolbar-label { display: none; }
+  .ed-name { width: 132px; }
+}
+@media (max-width: 1040px) {
+  /* The label goes, the icon stays: each of these three buttons carries a
+     permanent aria-label and data-tip in index.html, so the collapsed control is
+     still named, still hoverable and still paints something. */
+  .ed-head .panel-tools .btn:not(.btn-primary):not(.btn-icon) .ed-lbl { display: none; }
+  .ed-head .panel-tools .btn:not(.btn-primary):not(.btn-icon) { padding: 0 9px; }
+}
+
+/* Motion is never the only signal: the reduced-motion kill switch collapses an
+   animation to one ~0ms iteration and leaves it at its END frame. */
+@media (prefers-reduced-motion: reduce) {
+  .trk-btn, .ed-detail { transition: none; }
+}

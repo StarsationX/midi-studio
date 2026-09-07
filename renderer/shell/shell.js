@@ -1162,7 +1162,17 @@
     // The Forge tab's env verdict is the only place the GPU is actually known:
     // probing imports torch and takes tens of seconds, so whoever paid for it
     // shares the answer and the shell caches it for the next cold start.
-    window.Bus.on(T.FORGE_STATUS, (p) => { if (p && p.event === 'forge.env') adoptEnvProbe(p); });
+    // A frame's own forge:status packets land here (mirror() addresses frames
+    // only, so nothing the shell rebroadcasts comes back round). forge.env is
+    // the shell's cache; everything else -- notably the {event:'forge.job'} a
+    // tab sends to name the job it just started (11.3) -- goes to the same
+    // handler the IPC stream uses, or the strip gets a nameless row for any job
+    // whose pipeline never echoes an `Input:` line (a yt-dlp download).
+    window.Bus.on(T.FORGE_STATUS, (p) => {
+      if (!p || typeof p !== 'object') return;
+      if (p.event === 'forge.env') adoptEnvProbe(p);
+      else handleForgeStatus(p);
+    });
   }
   function frameKeyOf(meta) {
     if (!meta || !meta.source) return '';

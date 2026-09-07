@@ -121,6 +121,10 @@ function sendToRenderer(channel, payload) {
 // the main frame, so engine/forge events must be fanned out to subframes or the
 // player + forge tabs never receive anything.
 function broadcast(channel, payload) {
+  // Every path in main that writes a MIDI already broadcasts library-changed,
+  // so this is the one place the cached library scan has to be dropped: adding
+  // it here means a new write site can never forget to.
+  if (channel === 'library-changed') { try { library.invalidate(); } catch (_) {} }
   try {
     if (!win || win.isDestroyed()) return;
     const wc = win.webContents;
@@ -137,19 +141,27 @@ function broadcast(channel, payload) {
 
 // List every .mid/.midi in a folder (one level of subfolders), for the player's
 // "Songs folder" picker. Capped so a huge tree can't hang the UI.
-function listMidis(dir) {
+//
+// ASYNCHRONOUS on purpose (top_perf_items 6). This used to be a recursive
+// readdirSync executed straight inside the app:listMidis handler -- the second
+// synchronous scanner alongside library:list -- so it froze all IPC and all
+// window input for the length of the walk, including while the Library tab was
+// streaming a scan of its own. The return shape is unchanged: a flat, sorted,
+// case-insensitively ordered path array capped at 1000.
+async function listMidis(dir) {
   if (!dir || !paths.exists(dir)) return [];
   const out = [];
-  const walk = (d, depth) => {
-    let entries; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+  const walk = async (d, depth) => {
+    let entries;
+    try { entries = await fs.promises.readdir(d, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       if (out.length >= 1000) return;
       const full = path.join(d, e.name);
-      if (e.isDirectory()) { if (depth < 1) walk(full, depth + 1); }
+      if (e.isDirectory()) { if (depth < 1) await walk(full, depth + 1); }
       else if (e.isFile() && /\.midi?$/i.test(e.name)) out.push(full);
     }
   };
-  walk(dir, 0);
+  await walk(dir, 0);
   out.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   return out;
 }
@@ -888,32 +900,97 @@ function wireIpc() {
       return { ok: true, path: r.filePath };
     } catch (error) { return { ok: false, error: String(error.message || error) }; }
   });
-  // ---- Self Midi library ----------------------------------------------------
-  const libraryDirs = () => {
-    const extra = (settings.get('library.dirs') || []).filter((d) => typeof d === 'string' && d);
-    return [programOutputDir(), path.join(os.homedir(), 'Documents', 'MIDI Studio'), ...extra];
+  // ---- MIDI library: the Library tab's data surface -------------------------
+  // The scan is asynchronous and coalesced now (electron/library.js): the old
+  // synchronous recursive walk with a statSync per file ran inside this handler
+  // and froze the whole app, and library-changed makes every frame re-list at
+  // once. library:list keeps its exact shape for the shell and Self MIDI;
+  // library:scan is the Library tab's richer entry point and streams partial
+  // batches back to the frame that asked, so the table paints as it fills.
+  const libraryExtra = () => (settings.get('library.dirs') || []).filter((d) => typeof d === 'string' && d);
+  const libraryDirs = () => [programOutputDir(), path.join(os.homedir(), 'Documents', 'MIDI Studio'), ...libraryExtra()];
+  let scanSeq = 0;
+  // Only ever to the frame that asked. webContents.send reaches the main frame
+  // alone and broadcast() would fan a scan stream out to all five panels.
+  const framePush = (frame, channel, payload) => {
+    try { if (frame) frame.send(channel, payload); } catch (_) { /* frame went away mid-scan */ }
   };
-  ipcMain.handle('library:list', () => {
+
+  ipcMain.handle('library:list', async () => {
     const dirs = libraryDirs();
-    return Object.assign({ dirs, extra: settings.get('library.dirs') || [] }, library.list(dirs));
+    const r = await library.cachedScan(dirs, libraryExtra());
+    return { dirs, extra: libraryExtra(), files: r.files, truncated: r.truncated };
+  });
+  ipcMain.handle('library:scan', async (e) => {
+    const dirs = libraryDirs();
+    const extra = libraryExtra();
+    const frame = e.senderFrame;
+    const scanId = ++scanSeq;
+    const r = await library.cachedScan(dirs, extra, (files) =>
+      framePush(frame, 'library-progress', { scanId, kind: 'scan', files }));
+    const state = library.userState();
+    return { scanId, dirs, extra, files: r.files, truncated: r.truncated,
+      storage: library.storageFor(dirs[0]), tags: state.tags, usage: state.usage,
+      indexing: library.indexRunning() };
+  });
+  // Length and Notes come out of the file itself, so they are parsed lazily for
+  // the rows that have actually been on screen, at most a handful per request,
+  // and cached by path + mtime + size so an unchanged file is never re-read.
+  ipcMain.handle('library:meta', async (_e, payload) => {
+    const p = isObj(payload) ? payload : {};
+    return library.metaFor(p.paths, { roll: p.roll });
+  });
+  ipcMain.handle('library:setTags', (_e, payload) => {
+    const p = isObj(payload) ? payload : {};
+    return { ok: true, tags: library.setTags(p.path, p.tags) };
+  });
+  ipcMain.handle('library:usage', (_e, payload) => {
+    const p = isObj(payload) ? payload : {};
+    return { ok: true, usage: library.recordUsage(p.path, p.kind, p.at) };
+  });
+  ipcMain.handle('library:index', async (e, payload) => {
+    const p = isObj(payload) ? payload : {};
+    if (p.cancel) return library.cancelIndex();
+    const r = await library.cachedScan(libraryDirs(), libraryExtra());
+    const frame = e.senderFrame;
+    return library.startIndex(r.files, (msg) =>
+      framePush(frame, 'library-progress', Object.assign({ kind: 'index' }, msg)));
+  });
+  // Deleting goes to the Recycle Bin, never straight off the disk: the Library
+  // is a file manager for work the user cannot regenerate cheaply.
+  ipcMain.handle('library:delete', async (_e, payload) => {
+    const p = isObj(payload) ? payload : {};
+    const paths = (Array.isArray(p.paths) ? p.paths : []).map(String)
+      .filter((f) => f && /\.midi?$/i.test(f));
+    const trashed = [];
+    const failed = [];
+    for (const f of paths) {
+      try { await shell.trashItem(f); trashed.push(f); }
+      catch (error) { failed.push({ path: f, error: String(error.message || error) }); }
+    }
+    if (trashed.length) broadcast('library-changed', path.dirname(trashed[0]));
+    return { ok: !failed.length, trashed, failed };
   });
   ipcMain.handle('library:addFolder', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Add a folder of MIDI files',
       properties: ['openDirectory'], buttonLabel: 'Add folder' });
     if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
-    const extra = (settings.get('library.dirs') || []).filter(Boolean);
+    const extra = libraryExtra();
     const picked = path.resolve(r.filePaths[0]);
     if (!extra.some((d) => path.resolve(d).toLowerCase() === picked.toLowerCase())) extra.push(picked);
     settings.merge({ library: { dirs: extra } });
+    broadcast('library-changed', picked);
     return { ok: true, dir: picked };
   });
   ipcMain.handle('library:removeFolder', (_e, dir) => {
     const target = path.resolve(String(dir || '')).toLowerCase();
-    const extra = (settings.get('library.dirs') || []).filter((d) => path.resolve(d).toLowerCase() !== target);
+    const extra = libraryExtra().filter((d) => path.resolve(d).toLowerCase() !== target);
     settings.merge({ library: { dirs: extra } });
+    broadcast('library-changed', String(dir || ''));
     return { ok: true };
   });
   ipcMain.handle('library:reveal', (_e, p) => shell.showItemInFolder(String(p || '')));
+
 
   ipcMain.handle('forge:pause', (_e, paused) => forge.setPaused(!!paused));
   ipcMain.handle('app:openMappingsDir', () => {
@@ -962,7 +1039,7 @@ function wireIpc() {
     return d;
   });
   ipcMain.handle('app:setLibraryDir', (_e, dir) => settings.merge({ libraryDir: String(dir || '') }).libraryDir);
-  ipcMain.handle('app:listMidis', (_e, dir) => listMidis(String(dir || '')));
+  ipcMain.handle('app:listMidis', async (_e, dir) => listMidis(String(dir || '')));
   ipcMain.handle('app:pickFolder', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Choose a folder of MIDI files', properties: ['openDirectory'] });
     return r.canceled ? null : r.filePaths[0];
@@ -1160,6 +1237,9 @@ function cleanup() {
   // Settings writes are debounced now, so the last one has to be forced out
   // before the process goes away or a just-changed preference is lost.
   try { flushSettings(); } catch (_) {}
+  // The library metadata index is debounced the same way and lives in its own
+  // file, so it needs the same forced flush or a just-added tag is lost.
+  try { library.flush(); } catch (_) {}
   // The overlay is skipTaskbar and always-on-top: left behind it would be a
   // window the user can see but cannot close from anywhere.
   try { if (overlay) overlay.close(); } catch {}

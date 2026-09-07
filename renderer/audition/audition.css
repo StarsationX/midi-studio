@@ -1,92 +1,212 @@
-html, body { width: 100%; height: 100%; overflow: hidden; }
-button, select, input { font: inherit; }
-.audition { height: 100%; min-width: 0; display: grid; grid-template-rows: auto auto minmax(160px, 1fr) auto; background: var(--bg); }
-.toolbar, .file-strip, .transport-row, .settings-row { display: flex; align-items: center; }
-.toolbar { gap: 12px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.spacer { flex: 1; }
-.recent-field, .candidate-field { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; }
-select { height: 32px; padding: 0 8px; color: var(--text); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
-#recent { width: min(340px, 31vw); }
-.icon-btn { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--text-3); cursor: pointer; font-size: 18px; }
-.icon-btn:hover { color: var(--text); background: var(--surface-2); border-color: var(--line-2); }
-.file-strip { min-width: 0; gap: 24px; padding: 12px 16px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
-.file-copy { min-width: 0; display: flex; flex-direction: column; flex: 1; }
-.file-copy strong { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
-.file-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 12px; }
-#candidate { min-width: 126px; }
-.song-stats { display: flex; align-items: center; gap: 16px; color: var(--text-3); white-space: nowrap; font: 12px/1 var(--font-mono); }
-.song-stats span { padding-left: 16px; border-left: 1px solid var(--line); }
-.song-stats b { color: var(--text-2); font-weight: 600; }
-.roll-section { position: relative; min-height: 0; background: var(--bg-2); border-bottom: 1px solid var(--line); }
-#note-roll { display: block; width: 100%; height: 100%; cursor: pointer; }
-.empty, .loading { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 16px; color: var(--text-3); background: var(--bg-2); }
-.empty strong, .loading strong { color: var(--text-2); font-size: 15px; }
-.loading-bar { width: 160px; height: 3px; overflow: hidden; background: var(--line); }
-.loading-bar::after { content: ''; display: block; width: 40%; height: 100%; background: var(--accent); animation: loading 1s linear infinite; }
-@keyframes loading { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
-.transport-panel { display: grid; grid-template-rows: auto auto; background: var(--surface); }
-.transport-row { gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
-.transport-btn { width: 38px; height: 38px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 12px; }
-.transport-btn.primary { color: var(--accent); font-size: 15px; }
-.transport-btn:hover { background: var(--surface-3); }
-.transport-btn:disabled { opacity: .35; cursor: default; }
-.seek { min-width: 160px; flex: 1; accent-color: var(--accent); }
-.time { width: 126px; text-align: right; color: var(--text-2); font-size: 12px; }
-.settings-row { gap: 16px; min-width: 0; padding: 8px 16px; }
-.settings-row > label:not(.check) { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; white-space: nowrap; }
-.volume-field { min-width: 190px; flex: 0 1 250px; }
-.volume-field input { min-width: 80px; flex: 1; accent-color: var(--accent); }
-.volume-field output { width: 34px; color: var(--text-3); font: 12px/1 var(--font-mono); }
-.instrument-status { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 12px; }
-.drop-overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; pointer-events: none; opacity: 0; background: rgba(15, 16, 19, .84); transition: opacity var(--dur-2) var(--ease); }
-.drop-overlay.is-active { opacity: 1; }
-.drop-overlay div { padding: 20px 24px; border: 1px solid var(--accent); border-radius: var(--r); background: var(--surface); color: var(--accent); font-weight: 700; }
-@media (max-width: 1080px) {
-  .toolbar { gap: 8px; }
-  #recent { width: 210px; }
-  .settings-row { gap: 8px; }
-  .settings-row > label:not(.check) { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .volume-field { min-width: 150px; }
-  .instrument-status { display: none; }
+/* audition.css — Self MIDI.
+   Everything visual comes from tokens.css + ui.css. This file only does three
+   things: the three-column frame, the pieces this view owns that no other view
+   has (the hero, the stat strip, the roll overlay, the four cards), and the
+   narrow-window collapse. No parallel button, row, panel, menu or toast.
+
+   Load order is fixed: tokens.css, ui.css, then this file. */
+
+/* ---- frame ------------------------------------------------------------- */
+html, body { height: 100%; overflow: hidden; }
+/* The divider defaults live HERE, not in a style attribute on the .split: an
+   inline value would beat the narrow-window media queries at the bottom of this
+   file, and resize.js writes its own inline value the moment the user drags or
+   a stored size is restored. Both stylesheets are in <head>, so there is no
+   frame where these are unset. */
+.sm-split { height: 100%; --side: 268px; --rail: 312px; }
+
+/* The panes consume the properties resize.js drives on [data-split]; .is-fixed
+   is only flex:0 0 auto (CONTRACT §9.3), so the widths live on the panes in the
+   markup: width: var(--side) and width: var(--rail). */
+.sm-nav, .sm-rail { background: var(--surface); }
+.sm-nav { border-right: 1px solid var(--line); }
+.sm-rail { border-left: 1px solid var(--line); }
+.sm-main { background: var(--bg); }
+
+/* ---- left rail --------------------------------------------------------- */
+.sm-nav-body { flex: 1 1 auto; min-height: 0; }
+.sm-nav-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2); border-bottom: 1px solid var(--line);
+}
+.sm-nav-head > .search { flex: 1 1 auto; min-width: 0; }
+.sm-nav-head > .selectwrap { flex: 0 0 auto; width: 88px; }
+
+.sm-chooser { flex: 0 0 auto; padding: var(--s1) 0 var(--s2); border-bottom: 1px solid var(--line); }
+.sm-chooser > .list { max-height: 210px; overflow: auto; overscroll-behavior: contain; }
+.sm-eyebrow-row {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s2) var(--s1) 10px; min-width: 0;
+}
+.sm-eyebrow {
+  flex: 1 1 auto; min-width: 0;
+  font: 600 var(--t1)/1 var(--font-mono); letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--text-3); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
 }
 
-/* ---- library rail -------------------------------------------------------- */
-/* --side is driven by the divider; the number is only the default. */
-.layout { height: 100%; display: grid; grid-template-columns: var(--side, 264px) 7px minmax(0, 1fr); }
-.library { min-height: 0; display: grid; grid-template-rows: 40px auto minmax(0, 1fr) 46px; background: var(--surface); border-right: 1px solid var(--line); }
-.library-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line); }
-.library-head strong { font-size: 12px; letter-spacing: .3px; }
-#library-count { color: var(--text-3); font-size: 12px; }
-.library-tools { display: flex; gap: 8px; padding: 8px 12px; }
-#library-search { flex: 1; min-width: 0; height: 30px; padding: 0 8px; color: var(--text); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
-#library-sort { height: 30px; }
-.library-list { overflow: auto; padding: 2px 8px 8px; }
-.library-item { width: 100%; display: block; padding: 8px 8px; margin-bottom: 2px; text-align: left; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--text-2); cursor: pointer; }
-.library-item:hover { background: var(--surface-2); border-color: var(--line); }
-.library-item.is-active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
-.library-item b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 12px; }
-.library-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font: 12px/1.5 var(--font-mono); }
-.library-empty { padding: 20px 12px; color: var(--text-3); font-size: 12px; line-height: 1.6; }
-.library-foot { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-top: 1px solid var(--line); }
-.compact { height: 28px; padding: 0 8px; font-size: 12px; }
-@media (max-width: 1080px) { .layout { grid-template-columns: var(--side, 208px) 7px minmax(0, 1fr); } }
+.sm-files { flex: 1 1 auto; min-height: 80px; }
+.sm-files-empty { flex: 1 1 auto; }
+.sm-nav-foot {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s1);
+  padding: var(--s2); border-top: 1px solid var(--line); background: var(--surface);
+}
 
-/* ---- clipping fixes ------------------------------------------------------ */
-.toolbar, .file-strip, .transport-row, .settings-row { min-width: 0; flex-wrap: wrap; row-gap: 8px; }
-.transport-row, .settings-row { min-height: 52px; }
-.library-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#library-count { flex: 0 0 auto; }
-.instrument-status { flex: 1 1 120px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
-.settings-row label { min-width: 0; }
-.file-copy strong { max-width: 100%; }
-@media (max-width: 1240px) { .layout { grid-template-columns: var(--side, 232px) 7px minmax(0, 1fr); } }
-@media (max-width: 1000px) { .layout { grid-template-columns: var(--side, 190px) 7px minmax(0, 1fr); } .instrument-status { display: none; } }
-/* the rail is narrow: everything inside it must be allowed to shrink */
-.library-tools { flex-wrap: nowrap; }
-#library-sort { flex: 0 1 96px; min-width: 0; padding: 0 4px; }
-.library-head { gap: 8px; }
-.library-list { padding-right: 8px; }
-.library-item { max-width: 100%; }
+/* a source / playlist chooser row is a real .lrow, used as a button */
+.sm-pick { width: 100%; }
+.sm-pick > .lrow-meta { font-size: var(--t1); }
 
-.layout, .layout > *, .library > * { min-width: 0; }
-.library { overflow: hidden; }
+/* ---- centre: toolbars -------------------------------------------------- */
+.sm-tools, .sm-sound { flex: 0 0 auto; }
+.sm-sound { gap: var(--s1); }
+.sm-sound > .selectwrap { width: 148px; }
+.sm-volume { flex: 0 0 auto; width: 104px; }
+.sm-volume-val { width: 34px; text-align: right; }
+.sm-inst-status { max-width: 220px; text-align: right; color: var(--text-3); }
+#instrument[data-ready] { border-color: var(--accent-line); }
+
+.sm-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sm-state { flex: 1 1 auto; }
+.sm-song {
+  display: flex; flex-direction: column; gap: var(--s3);
+  padding: var(--s4); min-width: 0;
+}
+
+/* ---- hero -------------------------------------------------------------- */
+.sm-hero { display: flex; align-items: center; gap: var(--s4); min-width: 0; }
+.sm-art {
+  position: relative; flex: 0 0 auto; width: 96px; height: 96px;
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--r-lg); overflow: hidden;
+}
+.sm-art > canvas { display: block; position: absolute; inset: 0; }
+.sm-hero-copy { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sm-title {
+  margin: 0; font: 700 26px/1.15 var(--font-display);
+  letter-spacing: -.4px; color: var(--text);
+}
+.sm-artist { margin: 0; font: 600 var(--t3)/1.3 var(--font-body); color: var(--text-2); }
+.sm-sub { margin: 0; font-size: var(--t1); color: var(--text-3); }
+.sm-tags { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; margin-top: 6px; }
+
+/* ---- stat strip -------------------------------------------------------- */
+.sm-stats {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px;
+  background: var(--line); border: 1px solid var(--line); border-radius: var(--r);
+  overflow: hidden;
+}
+.sm-stat {
+  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+  padding: 8px 10px; background: var(--surface);
+}
+.sm-stat-k {
+  font: 600 var(--t1)/1 var(--font-mono); letter-spacing: 1.1px;
+  text-transform: uppercase; color: var(--text-3); white-space: nowrap;
+}
+.sm-stat-v {
+  font: 600 var(--t3)/1.1 var(--font-mono); color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---- piano roll -------------------------------------------------------- */
+.sm-roll-panel { flex: 0 0 auto; }
+.sm-roll { height: 232px; }
+/* The gesture surface starts where the drawn keyboard ends, so TimelineZoom's
+   pointer ratio and ours agree on what x means. The canvas underneath draws the
+   keyboard into that first strip. */
+.sm-lanes { position: absolute; top: 0; right: 0; bottom: 0; left: var(--sm-keys, 38px); cursor: crosshair; }
+.sm-lanes:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--accent-deep); }
+.sm-lanes[data-grab="edge"] { cursor: col-resize; }
+.sm-roll-foot { padding: 0 var(--s2) 0 var(--s3); min-height: 34px; align-items: center; display: flex; gap: var(--s2); }
+.sm-roll-foot > .mono { color: var(--text-3); min-width: 0; }
+.sm-roll-foot > .btn-group { flex: 0 0 auto; }
+@media (max-width: 1240px) { #roll-hint { display: none; } }
+
+/* ---- the four control cards ------------------------------------------- */
+.sm-cards {
+  display: grid; gap: var(--s3);
+  grid-template-columns: repeat(auto-fit, minmax(268px, 1fr));
+}
+.sm-card > .panel-body { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3); }
+.sm-card > .panel-body.is-flush { padding: 0; gap: 0; }
+.sm-card > .panel-foot { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); }
+.sm-card .field-hint { margin: 0; }
+
+.sm-ab { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.sm-time { width: 74px; text-align: center; font-family: var(--font-mono); }
+.sm-ab-to { font: 500 var(--t1)/1 var(--font-body); color: var(--text-3); }
+.sm-stepper { width: 132px; }
+.sm-presets { width: 100%; }
+.sm-mark-name { flex: 1 1 auto; min-width: 0; }
+
+.sm-marks { max-height: 148px; overflow: auto; overscroll-behavior: contain; }
+/* Jumping to a bookmark IS the point of the row, so its actions do not wait for
+   a hover the way an incidental row action does. Same slot, same primitive. */
+.sm-marks .lrow-actions { opacity: 1; }
+.sm-marks-empty { margin: 0; padding: var(--s3); }
+.sm-mark-time { font: 600 var(--t1)/1 var(--font-mono); color: var(--text-3); }
+
+/* ---- MIDI information -------------------------------------------------- */
+.sm-info { flex: 0 0 auto; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.sm-info > .insp-sec:last-child { border-bottom: 0; }
+.sm-wrap { white-space: normal; line-height: 1.5; font-family: var(--font-body); font-weight: 500; }
+
+/* ---- right rail -------------------------------------------------------- */
+.sm-rail-tools { flex: 0 0 auto; }
+.sm-rail-body { flex: 1 1 auto; min-height: 120px; }
+.sm-queue { flex: 1 1 auto; min-height: 0; }
+.sm-art-mini {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: var(--r-sm);
+  background: var(--surface-2); border: 1px solid var(--line);
+  font: 700 10px/1 var(--font-mono); letter-spacing: .5px; color: var(--text-3);
+}
+.lrow.is-playing .sm-art-mini { color: var(--accent); border-color: var(--accent-line); }
+
+.sm-recent { flex: 0 0 auto; border-top: 1px solid var(--line); }
+.sm-recent-list { max-height: 168px; overflow: auto; overscroll-behavior: contain; }
+.sm-recent-empty { margin: 0; padding: 0 var(--s3) var(--s3); }
+.sm-actions {
+  flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: var(--s1);
+  padding: var(--s2); border-top: 1px solid var(--line); background: var(--surface);
+}
+.sm-actions > .btn { justify-content: flex-start; padding: 0 8px; min-width: 0; }
+
+/* A row the shell just handed a file to, so the source of a hand-off is
+   visible. background-color only: no layout, no shadow, no filter. */
+.lrow.is-flash { background: var(--accent-soft); }
+
+/* ---- narrow windows ----------------------------------------------------
+   1040x700 is the floor. Panels become rails and labels go before any control
+   becomes unusable; nothing reflows into a phone layout. */
+@media (max-width: 1420px) {
+  .sm-split { --side: 236px; --rail: 276px; }
+  .sm-title { font-size: 22px; }
+  .sm-art { width: 76px; height: 76px; }
+}
+@media (max-width: 1240px) {
+  .sm-split { --side: 212px; --rail: 248px; }
+  .sm-roll { height: 200px; }
+  .sm-inst-status { display: none; }
+  .sm-sound > .selectwrap { width: 128px; }
+}
+@media (max-width: 1120px) {
+  .sm-split { --side: 196px; --rail: 228px; }
+  .sm-nav-head > .selectwrap { width: 72px; }
+  .sm-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sm-actions { grid-template-columns: 1fr; }
+  #volume-label, #autoplay-label { display: none; }
+  .sm-volume { width: 78px; }
+  .sm-roll { height: 176px; }
+  .sm-song { padding: var(--s3); }
+}
+
+/* ---- reduced motion ---------------------------------------------------
+   The token layer collapses every animation to one ~0ms iteration at its END
+   frame, so anything whose state is carried by motion needs a static form. The
+   only such thing here is the hand-off flash, which is a class the JS removes
+   on a timer: with motion off it simply appears and disappears, which still
+   reads. The loop band and the playhead are canvas paint, never animation. */
+@media (prefers-reduced-motion: reduce) {
+  .lrow.is-flash { box-shadow: inset 0 0 0 1px var(--accent-line); }
+}

@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' file:; connect-src 'self' file:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Library</title>
+  <link rel="stylesheet" href="../shared/tokens.css" />
+  <link rel="stylesheet" href="../shared/ui.css" />
+  <link rel="stylesheet" href="./library.css" />
+</head>
+<body>
+<div class="lib split" data-split="library">
+
+  <!-- ==================================================================== -->
+  <!-- LEFT: views, folders, storage                                        -->
+  <!-- ==================================================================== -->
+  <aside class="pane is-fixed lib-side" id="side" style="width: var(--side)" aria-label="Library browser">
+    <div class="lib-side-body scroll-y is-thin">
+      <div class="lib-sec">
+        <div class="lib-sec-head"><span class="lib-sec-title">Library</span></div>
+        <div class="list lib-views" id="views" role="listbox" aria-label="Library views">
+          <button class="lrow" role="option" type="button" aria-selected="true" data-view="all">
+            <span class="lrow-main"><span class="lrow-name">All MIDIs</span></span>
+            <span class="lrow-meta" data-count="all">—</span>
+          </button>
+          <button class="lrow" role="option" type="button" aria-selected="false" data-view="generated">
+            <span class="lrow-main"><span class="lrow-name">Generated</span></span>
+            <span class="lrow-meta" data-count="generated">—</span>
+          </button>
+          <button class="lrow" role="option" type="button" aria-selected="false" data-view="favorites">
+            <span class="lrow-main"><span class="lrow-name">Favorites</span></span>
+            <span class="lrow-meta" data-count="favorites">—</span>
+          </button>
+          <button class="lrow" role="option" type="button" aria-selected="false" data-view="recent">
+            <span class="lrow-main"><span class="lrow-name">Recent</span></span>
+            <span class="lrow-meta" data-count="recent">—</span>
+          </button>
+          <button class="lrow" role="option" type="button" aria-selected="false" data-view="imported">
+            <span class="lrow-main"><span class="lrow-name">Imported</span></span>
+            <span class="lrow-meta" data-count="imported">—</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="lib-sec">
+        <div class="lib-sec-head">
+          <span class="lib-sec-title">Folders</span>
+          <span class="lib-sec-count" id="folder-count"></span>
+          <button class="btn btn-icon is-sm is-bare" id="add-folder" type="button"
+                  aria-label="Add a folder of MIDI files" data-tip="Add a folder"><i data-icon="plus" data-icon-size="12"></i></button>
+        </div>
+        <div class="list lib-folders" id="folders" role="listbox" aria-label="Scanned folders"></div>
+      </div>
+    </div>
+
+    <!-- storage: the drive the output folder lives on -->
+    <div class="lib-store" id="store">
+      <div class="u-row lib-store-top">
+        <span class="lib-store-drive mono" id="store-drive">—</span>
+        <span class="u-spacer"></span>
+        <span class="lib-store-text mono" id="store-text">unknown</span>
+      </div>
+      <div class="meter" id="store-meter" role="progressbar" aria-label="Drive usage"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="meter-fill" id="store-fill" style="--p: 0"></div>
+      </div>
+      <span class="pill is-warn lib-store-low" id="store-low" hidden><span class="dot warn"></span>Low space</span>
+      <div class="lib-store-sub small muted" id="store-sub">Reading drive…</div>
+    </div>
+  </aside>
+
+  <i class="grip-h has-handle" data-resize="side" data-min="204" data-max="420"
+     aria-label="Resize the browser column"></i>
+
+  <!-- ==================================================================== -->
+  <!-- CENTRE: header, filters, the table / card grid                       -->
+  <!-- ==================================================================== -->
+  <section class="pane is-flex lib-main">
+    <header class="lib-head">
+      <div class="u-row lib-title-row">
+        <div class="u-col is-tight lib-titles">
+          <h1 class="lib-title">MIDI Library</h1>
+          <p class="lib-sub" id="lib-sub">Scanning…</p>
+        </div>
+        <span class="u-spacer"></span>
+        <span class="pill" id="scan-pill" hidden><span class="dot"></span><span id="scan-pill-txt">Scanning</span></span>
+        <button class="btn btn-sm" id="t-side" type="button" aria-pressed="true"
+                aria-controls="side" data-tip="Show or hide the browser">Browser</button>
+        <button class="btn btn-sm" id="t-insp" type="button" aria-pressed="true"
+                aria-controls="insp" data-tip="Show or hide the inspector">Inspector</button>
+        <button class="btn btn-icon is-sm" id="rescan" type="button"
+                aria-label="Rescan every folder" data-tip="Rescan"><i data-icon="refresh" data-icon-size="13"></i></button>
+      </div>
+
+      <div class="toolbar is-sub lib-tools">
+        <span class="search lib-search" id="searchwrap">
+          <i data-icon="search" data-icon-size="13"></i>
+          <input class="input is-sm" id="q" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="Search MIDIs, tags, artists, or folders..." aria-label="Search the library" />
+          <button class="search-clear" id="q-clear" type="button" aria-label="Clear the search">
+            <i data-icon="close" data-icon-size="10"></i>
+          </button>
+        </span>
+        <span class="u-sep"></span>
+        <span class="lib-filter">
+          <span class="toolbar-label" id="lbl-type">Type</span>
+          <span class="selectwrap"><select class="select is-sm" id="f-type" aria-labelledby="lbl-type">
+            <option value="">All types</option>
+            <option value="mid">.mid</option>
+            <option value="midi">.midi</option>
+          </select></span>
+        </span>
+        <span class="lib-filter">
+          <span class="toolbar-label" id="lbl-source">Source</span>
+          <span class="selectwrap"><select class="select is-sm" id="f-source" aria-labelledby="lbl-source">
+            <option value="">All sources</option>
+            <option value="generated">Generated</option>
+            <option value="imported">Imported</option>
+            <option value="library">Library</option>
+          </select></span>
+        </span>
+        <span class="lib-filter">
+          <span class="toolbar-label" id="lbl-tags">Tags</span>
+          <span class="selectwrap"><select class="select is-sm" id="f-tag" aria-labelledby="lbl-tags">
+            <option value="">All tags</option>
+            <option value=" none">Untagged</option>
+          </select></span>
+        </span>
+        <span class="u-sep"></span>
+        <span class="lib-filter">
+          <span class="toolbar-label" id="lbl-sort">Sort</span>
+          <span class="selectwrap"><select class="select is-sm" id="sort" aria-labelledby="lbl-sort">
+            <option value="date:-1">Newest first</option>
+            <option value="date:1">Oldest first</option>
+            <option value="name:1">Name A–Z</option>
+            <option value="name:-1">Name Z–A</option>
+            <option value="length:-1">Longest</option>
+            <option value="length:1">Shortest</option>
+            <option value="notes:-1">Most notes</option>
+            <option value="notes:1">Fewest notes</option>
+            <option value="source:1">Source</option>
+            <option value="tags:1">Tags</option>
+          </select></span>
+        </span>
+        <span class="u-spacer"></span>
+        <div class="segmented is-sm" id="viewmode" role="radiogroup" aria-label="Row layout">
+          <button type="button" role="radio" aria-checked="true" data-mode="list">List</button>
+          <button type="button" role="radio" aria-checked="false" data-mode="grid">Grid</button>
+        </div>
+      </div>
+
+      <div class="lib-selbar" id="selbar" hidden>
+        <span class="tag is-accent" id="sel-count">0 selected</span>
+        <button class="btn btn-sm" id="sel-player" type="button">Send to Player</button>
+        <button class="btn btn-sm" id="sel-fav" type="button">Favorite</button>
+        <button class="btn btn-sm" id="sel-tag" type="button">Tag…</button>
+        <span class="u-spacer"></span>
+        <button class="btn btn-sm btn-danger" id="sel-delete" type="button">Delete</button>
+        <button class="btn btn-sm btn-ghost" id="sel-clear" type="button">Clear</button>
+      </div>
+    </header>
+
+    <div class="lib-body dropzone" id="body">
+      <!-- list view: one grid template on the host, inherited by head + rows -->
+      <div class="lgrid lib-lgrid" id="grid"
+           style="--cols: 30px minmax(160px, 3fr) 74px 74px 96px 118px minmax(90px, 1.4fr) 34px">
+        <div class="lgrid-head" role="presentation">
+          <div class="lgrid-th is-check">
+            <button class="checkbox" id="check-all" type="button" role="checkbox"
+                    aria-checked="false" aria-label="Select every visible file"></button>
+          </div>
+          <div class="lgrid-th" data-col="name" aria-sort="none">
+            <button class="th-sort" type="button" aria-label="Sort by name">Name</button></div>
+          <div class="lgrid-th is-num" data-col="length">
+            <button class="th-sort" type="button" aria-label="Sort by length">Length</button></div>
+          <div class="lgrid-th is-num" data-col="notes">
+            <button class="th-sort" type="button" aria-label="Sort by notes">Notes</button></div>
+          <div class="lgrid-th" data-col="source">
+            <button class="th-sort" type="button" aria-label="Sort by source">Source</button></div>
+          <div class="lgrid-th" data-col="date" aria-sort="descending">
+            <button class="th-sort" type="button" aria-label="Sort by date added, newest first">Date added</button></div>
+          <div class="lgrid-th" data-col="tags">
+            <button class="th-sort" type="button" aria-label="Sort by tags">Tags</button></div>
+          <div class="lgrid-th" role="presentation"><span class="u-hidden-visually">Actions</span></div>
+        </div>
+        <div class="vlist" id="rows"></div>
+      </div>
+
+      <!-- grid view: the same virtualised list, one row per shelf of cards -->
+      <div class="lib-cardwrap" id="cardwrap" hidden>
+        <div class="vlist lib-cards" id="cards"></div>
+      </div>
+
+      <div class="skel lib-skel" id="skel">
+        <div class="skel-row"><span class="skel-bar" style="--w:38%"></span><span class="skel-bar is-sm" style="--w:12%"></span></div>
+        <div class="skel-row"><span class="skel-bar" style="--w:52%"></span><span class="skel-bar is-sm" style="--w:9%"></span></div>
+        <div class="skel-row"><span class="skel-bar" style="--w:30%"></span><span class="skel-bar is-sm" style="--w:14%"></span></div>
+        <div class="skel-row"><span class="skel-bar" style="--w:46%"></span><span class="skel-bar is-sm" style="--w:11%"></span></div>
+        <div class="skel-row"><span class="skel-bar" style="--w:24%"></span><span class="skel-bar is-sm" style="--w:13%"></span></div>
+        <div class="skel-row"><span class="skel-bar" style="--w:41%"></span><span class="skel-bar is-sm" style="--w:10%"></span></div>
+      </div>
+
+      <div class="state" id="empty" hidden>
+        <div class="state-icon"><i data-icon="folder" data-icon-size="28"></i></div>
+        <div class="state-title" id="empty-title">No MIDI files yet</div>
+        <div class="state-msg" id="empty-msg">Forge a song, or add a folder you already keep MIDI files in.</div>
+        <div class="state-actions">
+          <button class="btn btn-primary btn-sm" id="empty-add" type="button">Add a folder</button>
+          <button class="btn btn-sm" id="empty-clear" type="button" hidden>Clear filters</button>
+        </div>
+      </div>
+
+      <div class="lib-drop" id="dropcard" hidden>
+        <div class="drop-icon"><i data-icon="drop" data-icon-size="26"></i></div>
+        <div class="drop-title">Drop MIDI files here</div>
+        <div class="drop-sub">They open straight away; add their folder to keep them listed.</div>
+      </div>
+    </div>
+
+    <div class="toolbar is-bottom lib-foot">
+      <span class="toolbar-label" id="foot-count">—</span>
+      <span class="u-sep"></span>
+      <span class="toolbar-label" id="foot-indexed">—</span>
+      <span class="u-spacer"></span>
+      <span class="inline-note lib-trunc" id="trunc" hidden>
+        <i data-icon="alert" data-icon-size="12"></i>
+        <span>The scan hit its 4,000 file cap: this is not the whole library.</span>
+      </span>
+      <button class="btn btn-sm btn-ghost" id="index-all" type="button"
+              data-tip="Read length and note counts for every file">Index all</button>
+    </div>
+  </section>
+
+  <i class="grip-h has-handle" data-resize="insp" data-min="272" data-max="520" data-invert
+     aria-label="Resize the inspector column"></i>
+
+  <!-- ==================================================================== -->
+  <!-- RIGHT: inspector                                                     -->
+  <!-- ==================================================================== -->
+  <aside class="pane is-fixed lib-insp" id="insp" style="width: var(--insp)" aria-label="Inspector">
+    <div class="tabstrip lib-insp-tabs" role="tablist" aria-label="Inspector">
+      <button type="button" role="tab" id="tab-details" aria-selected="true" aria-controls="pane-details">Details</button>
+      <button type="button" role="tab" id="tab-history" aria-selected="false" aria-controls="pane-history">
+        History <span class="count" id="hist-count">0</span></button>
+    </div>
+
+    <div class="tabpanel" id="pane-details" role="tabpanel" aria-labelledby="tab-details" tabindex="0">
+      <div class="insp lib-insp-body">
+        <div class="lib-art canvas-host" id="art-host">
+          <canvas id="art"></canvas>
+          <div class="lib-art-empty" id="art-empty">Nothing selected</div>
+          <span class="tag lib-art-tag" id="art-tag" hidden></span>
+        </div>
+
+        <div class="lib-ident">
+          <div class="lib-fname" id="i-name">Nothing selected</div>
+          <div class="lib-fline mono" id="i-line">Pick a file to see what is in it.</div>
+          <div class="lib-fgen small" id="i-gen"></div>
+        </div>
+
+        <div class="insp-sec">
+          <button class="insp-sec-head" type="button" aria-expanded="true" aria-controls="sec-tags">
+            Tags <span class="count" id="tag-count">0</span></button>
+          <div class="insp-sec-body" id="sec-tags">
+            <div class="lib-chips" id="i-tags"></div>
+            <div class="u-row lib-tagadd">
+              <input class="input is-sm is-body" id="tag-input" type="text" autocomplete="off"
+                     placeholder="Add a tag" aria-label="Add a tag" maxlength="32" />
+              <button class="btn btn-sm" id="tag-add" type="button">Add</button>
+            </div>
+            <div class="field-hint" id="tag-hint">Tags are yours: they are saved with the library index, not in the file.</div>
+          </div>
+        </div>
+
+        <div class="insp-sec">
+          <button class="insp-sec-head" type="button" aria-expanded="true" aria-controls="sec-props">Properties</button>
+          <div class="insp-sec-body" id="sec-props">
+            <div class="insp-row"><span class="insp-label">Type</span><span class="insp-value" id="p-type">—</span></div>
+            <div class="insp-row"><span class="insp-label">Source</span><span class="insp-value" id="p-source">—</span></div>
+            <div class="insp-row"><span class="insp-label">Size</span><span class="insp-value" id="p-size">—</span></div>
+            <div class="insp-row"><span class="insp-label">Date added</span><span class="insp-value" id="p-date">—</span></div>
+            <div class="insp-row"><span class="insp-label">Last played</span><span class="insp-value" id="p-last">—</span></div>
+            <div class="insp-row"><span class="insp-label">Play count</span><span class="insp-value" id="p-plays">—</span></div>
+            <div class="insp-row is-stacked lib-pathrow">
+              <span class="insp-label">Path</span>
+              <span class="pathchip" id="p-path" title="">
+                <span class="pathchip-dir"></span><span class="pathchip-name"></span>
+                <button class="pathchip-reveal" type="button" aria-label="Show this file in Explorer">
+                  <i data-icon="folder" data-icon-size="11"></i></button>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="insp-sec">
+          <div class="lib-sec-row">
+            <button class="insp-sec-head" type="button" aria-expanded="true" aria-controls="sec-usage">Recent usage</button>
+            <button class="link lib-seeall" id="see-all" type="button">See all</button>
+          </div>
+          <div class="insp-sec-body" id="sec-usage">
+            <div class="list lib-usage" id="i-usage"></div>
+            <div class="field-hint" id="usage-empty">Nothing yet. Sending this file somewhere is what fills this in.</div>
+          </div>
+        </div>
+
+        <div class="insp-sec is-last">
+          <div class="insp-sec-body lib-actions" id="sec-actions">
+            <button class="btn btn-primary" id="a-preview" type="button">Preview</button>
+            <button class="btn" id="a-editor" type="button">Open in Editor</button>
+            <button class="btn" id="a-player" type="button">Send to Player</button>
+            <button class="btn" id="a-listen" type="button">Listen (Self MIDI)</button>
+            <button class="btn" id="a-fav" type="button" aria-pressed="false">Favorite</button>
+            <button class="btn" id="a-reveal" type="button">Reveal in Folder</button>
+            <button class="btn btn-danger" id="a-delete" type="button">Delete</button>
+            <div class="inline-note" id="a-note" hidden></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="pane-history" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
+      <div class="insp lib-insp-body">
+        <div class="insp-sec">
+          <button class="insp-sec-head" type="button" aria-expanded="true" aria-controls="sec-hist">Everything that happened</button>
+          <div class="insp-sec-body" id="sec-hist">
+            <div class="list lib-usage" id="i-history"></div>
+            <div class="field-hint" id="hist-empty">No recorded use of this file yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- the one dialog surface (CONTRACT 2.14). Toggled with el.hidden, never
+     style.display, because .dlg-scrim is display:flex. -->
+<div class="dlg-scrim" id="confirm-scrim" hidden>
+  <div class="dlg is-narrow" role="dialog" aria-modal="true"
+       aria-labelledby="confirm-title" aria-describedby="confirm-msg">
+    <div class="dlg-head"><h2 class="dlg-title" id="confirm-title">Delete</h2></div>
+    <div class="dlg-body"><p class="lib-dlg-msg" id="confirm-msg"></p></div>
+    <div class="dlg-foot">
+      <span class="u-spacer"></span>
+      <button class="btn" id="confirm-no" type="button">Cancel</button>
+      <button class="btn btn-danger" id="confirm-yes" type="button">Move to Recycle Bin</button>
+    </div>
+  </div>
+</div>
+
+<audio id="preview" preload="none"></audio>
+
+<script src="../shared/tokens.js"></script>
+<script src="../shared/fmt.js"></script>
+<script src="../shared/draw.js"></script>
+<script src="../shared/bus.js"></script>
+<script src="../shared/icons.js"></script>
+<script src="../shared/vlist.js"></script>
+<script src="../shared/menu.js"></script>
+<script src="../shared/resize.js"></script>
+<script src="./library.js"></script>
+</body>
+</html>

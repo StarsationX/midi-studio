@@ -1,0 +1,274 @@
+/* library.css: layout for the Library tab.
+   ============================================================================
+   Everything interactive in here is a primitive from ui.css. This file only
+   does three things: place the three columns, give the tab's own containers
+   (section heads, the storage block, the inspector art plate, the card shelf) a
+   look consistent with the shared layer, and collapse the side columns to
+   nothing at narrow widths before any control becomes unusable.
+
+   No component is re-implemented here. If a rule below sets a colour or a
+   height it is because that element has no primitive -- never to override one.
+   ========================================================================= */
+
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 500 var(--t2)/1.4 var(--font-body);
+  overflow: hidden;
+}
+
+.lib {
+  height: 100%;
+  /* divider defaults live here, not in a style attribute: resize.js writes the
+     stored size inline on this element, so an inline default would beat every
+     media query below. */
+  --side: 262px;
+  --insp: 316px;
+  --card-h: 132px;   /* library.js owns this number and re-writes it */
+}
+
+/* ---- LEFT COLUMN -------------------------------------------------------- */
+.lib-side {
+  background: var(--surface); border-right: 1px solid var(--line);
+}
+.lib-side-body { flex: 1 1 auto; padding: var(--s2) 0 var(--s3); }
+
+.lib-sec + .lib-sec { margin-top: var(--s3); }
+.lib-sec-head {
+  display: flex; align-items: center; gap: var(--s2);
+  height: 26px; padding: 0 var(--s2) 0 10px;
+}
+.lib-sec-title {
+  font: 600 var(--t1)/1 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--text-3); white-space: nowrap;
+}
+.lib-sec-count { color: var(--text-3); font: 500 var(--t1)/1 var(--font-mono); }
+.lib-sec-head > .btn-icon { margin-left: auto; }
+
+/* The two sidebar listboxes are not focus targets themselves: they use a roving
+   tabindex over their options (see rove() in library.js), and .lrow:focus-visible
+   in ui.css already draws the ring on the option that has focus. */
+.lib-views, .lib-folders { outline: none; }
+.lib-views > .lrow, .lib-folders > .lrow { width: 100%; }
+.lib-folders > .lrow { padding-right: 4px; }
+.lib-folders .lrow-sub { font-family: var(--font-mono); }
+.lib-folders .lrow-actions { gap: 0; }
+/* a built-in folder cannot be removed, so it says so instead of showing a
+   button that would do nothing */
+.lib-folders .lrow-tag { flex: 0 0 auto; }
+.lib-folders .lrow.is-over { background: var(--accent-soft); }
+
+/* storage: drive letter, used-of-total, one meter */
+.lib-store {
+  flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px;
+  padding: var(--s2) 10px var(--s3);
+  border-top: 1px solid var(--line); background: var(--bg-2);
+}
+.lib-store-top { gap: var(--s2); }
+.lib-store-drive {
+  font: 700 var(--t2)/1 var(--font-mono); color: var(--text);
+  letter-spacing: .5px;
+}
+.lib-store-text { font: 500 var(--t1)/1 var(--font-mono); color: var(--text-2); }
+.lib-store-sub { line-height: 1.3; }
+/* Low space is a WORD and an aria-valuetext first (the shared .pill below);
+   the colour on the number is decoration on top of that, never the signal. */
+.lib-store.is-low .lib-store-text { color: var(--warn); }
+.lib-store-low { align-self: flex-start; }
+
+/* ---- CENTRE ------------------------------------------------------------- */
+.lib-main { background: var(--bg); min-width: 0; overflow: hidden; }
+.lib-head { flex: 0 0 auto; }
+.lib-title-row {
+  height: var(--h-toolbar); padding: 0 var(--s3);
+  background: var(--surface); border-bottom: 1px solid var(--line);
+  gap: var(--s2);
+}
+.lib-titles { gap: 0; min-width: 0; }
+.lib-title {
+  margin: 0; font: 700 var(--t3)/1.1 var(--font-display);
+  letter-spacing: -.2px; color: var(--text); white-space: nowrap;
+}
+.lib-sub {
+  margin: 0; font: 500 var(--t1)/1.2 var(--font-body); color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lib-tools { gap: var(--s2); flex-wrap: nowrap; overflow: hidden; }
+.lib-search { flex: 1 1 200px; max-width: 340px; min-width: 96px; }
+.lib-filter { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lib-filter .select { max-width: 132px; }
+
+.lib-selbar {
+  display: flex; align-items: center; gap: var(--s2);
+  height: 34px; padding: 0 var(--s3);
+  background: var(--accent-soft); border-bottom: 1px solid var(--accent-line);
+}
+
+.lib-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.lib-body.dropzone { border: 1px solid transparent; }
+.lib-lgrid { flex: 1 1 auto; min-height: 0; min-width: 0; }
+.lib-lgrid .lgrid-th.is-check { align-items: center; justify-content: center; }
+.lib-lgrid .lcell.is-check { display: flex; align-items: center; justify-content: center; padding: 0; }
+.lib-lgrid .lcell.is-act { display: flex; align-items: center; justify-content: center; padding: 0; }
+.lib-lgrid .lrow.is-grid { border-bottom: 1px solid var(--line); }
+.lib-lgrid .lcell-name { display: flex; align-items: center; gap: 6px; }
+.lib-lgrid .lcell-name > .lib-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-lgrid .lcell-tags { display: flex; align-items: center; gap: 4px; overflow: hidden; }
+.lib-lgrid .lcell-tags > .tag { flex: 0 0 auto; }
+/* the source column is a word, so the colour is decoration and never the state */
+.lib-src { color: var(--text-2); }
+.lib-src.is-generated { color: var(--accent); }
+/* A favourite whose file has gone is KEPT and marked (CONTRACT 11.12): the
+   MISSING tag is the signal, this only dims the name behind it. */
+.lib-lgrid .lrow.is-missing .lib-nm { color: var(--text-3); }
+.lib-misstag { flex: 0 0 auto; }
+
+.lib-skel { position: absolute; inset: 0; pointer-events: none; }
+.lib-skel[hidden] { display: none !important; }
+
+/* the panel-local drop card: a border and a tint, not a full-screen veil */
+.lib-drop {
+  position: absolute; inset: var(--s4);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; pointer-events: none;
+  background: #0f1013e6; border: 1px dashed var(--accent); border-radius: var(--r-lg);
+  opacity: 0; transform: scale(.99);
+  transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-normal) var(--ease-enter);
+}
+.lib-drop.is-open { opacity: 1; transform: scale(1); }
+
+.lib-foot { gap: var(--s2); }
+.lib-trunc { padding: 2px 8px; }
+
+/* ---- GRID (card) VIEW ---------------------------------------------------
+   Still one VList: each virtualised row is a shelf of cards, so a few thousand
+   files cost the same handful of nodes the table does. */
+.lib-cardwrap { flex: 1 1 auto; min-height: 0; display: flex; }
+.lib-cardwrap[hidden] { display: none !important; }
+.lib-cards { flex: 1 1 auto; padding: 0; }
+.lib-shelf {
+  display: grid; grid-template-columns: repeat(var(--cards, 4), minmax(0, 1fr));
+  grid-auto-rows: var(--card-h); gap: var(--s2); padding: var(--s2) var(--s3) 0;
+  align-content: start;
+}
+.lib-card {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden;
+  padding: 8px; text-align: left; cursor: default;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r);
+  transition: background var(--motion-instant) var(--ease-standard),
+              border-color var(--motion-instant) var(--ease-standard);
+}
+.lib-card:hover { background: var(--surface-2); border-color: var(--line-2); }
+.lib-card[aria-selected="true"] { background: var(--accent-soft); border-color: var(--accent-line); }
+.lib-card.is-cursor { box-shadow: inset 0 0 0 1px var(--line-2); }
+.lib-card[aria-selected="true"].is-cursor { box-shadow: inset 0 0 0 1px var(--accent-deep); }
+.lib-card:focus-visible { outline: none; box-shadow: var(--ring); }
+.lib-card-art {
+  position: relative; flex: 0 0 auto; height: 40px; border-radius: 3px;
+  background: var(--bg-2); box-shadow: var(--well);
+  display: flex; align-items: center; justify-content: center;
+  font: 700 var(--t3)/1 var(--font-mono); color: var(--line-2);
+  overflow: hidden;
+}
+.lib-card[aria-selected="true"] .lib-card-art { color: var(--accent-deep); }
+.lib-card-art > .lib-card-bars {
+  position: absolute; inset: 6px;
+  display: flex; align-items: flex-end; gap: 2px;
+}
+.lib-card-bars > i {
+  flex: 1 1 auto; display: block; min-width: 1px;
+  background: var(--line-2); border-radius: 1px;
+  transform-origin: bottom center;
+}
+.lib-card[aria-selected="true"] .lib-card-bars > i { background: var(--accent-deep); }
+.lib-card-name {
+  flex: 0 0 auto; height: 33px; font: 600 var(--t2)/1.25 var(--font-body);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: break-word;
+}
+.lib-card-meta { font: 500 var(--t1)/1 var(--font-mono); color: var(--text-3); }
+.lib-card-foot { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+.lib-card-meta { flex: 0 0 auto; }
+/* both of these are the shared .tag, placed: the source word and the favourite
+   marker. Favourites read as a WORD, because there is no star in the icon set
+   and a colour on its own is not a state. */
+.lib-card-src { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lib-favtag { flex: 0 0 auto; }
+.lib-card.is-missing .lib-card-name { color: var(--text-3); }
+
+/* ---- RIGHT: INSPECTOR --------------------------------------------------- */
+.lib-insp {
+  background: var(--surface); border-left: 1px solid var(--line);
+}
+.lib-insp-tabs { flex: 0 0 auto; padding: 0 var(--s2); }
+.lib-insp-body { flex: 1 1 auto; }
+.lib-insp .insp-sec.is-last { border-bottom: 0; }
+.lib-sec-row { display: flex; align-items: center; }
+.lib-sec-row > .insp-sec-head { flex: 1 1 auto; }
+.lib-seeall { flex: 0 0 auto; margin-right: var(--s3); white-space: nowrap; }
+
+/* the "large file icon or art": a real piano-roll thumbnail of the file,
+   because a generic glyph tells the user nothing about the song. Draw owns the
+   canvas; this is only the plate it sits on. */
+.lib-art {
+  flex: 0 0 auto; height: 116px; margin: var(--s3) var(--s3) 0;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--bg-2); box-shadow: var(--well);
+}
+.lib-art-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--text-3); font: 500 var(--t1)/1 var(--font-body); pointer-events: none;
+}
+.lib-art-tag { position: absolute; left: 6px; top: 6px; }
+
+.lib-ident { display: flex; flex-direction: column; gap: 3px; padding: var(--s3) var(--s3) var(--s3); }
+.lib-fname {
+  font: 700 var(--t3)/1.25 var(--font-display); color: var(--text);
+  word-break: break-word;
+}
+.lib-fline { font: 500 var(--t1)/1.3 var(--font-mono); color: var(--text-2); }
+.lib-fgen { color: var(--text-3); line-height: 1.3; }
+
+.lib-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.lib-chips:empty { display: none; }
+.lib-tagadd > .input { flex: 1 1 auto; min-width: 0; }
+.lib-pathrow { gap: 4px; }
+.lib-pathrow .pathchip { max-width: 100%; }
+
+.lib-usage { gap: 0; }
+.lib-usage > .lrow { padding-left: 0; min-height: 24px; }
+.lib-usage > .lrow::before { display: none; }
+.lib-usage > .lrow:hover { background: transparent; }
+.lib-usage .lrow-name { font: 500 var(--t1)/1.2 var(--font-body); color: var(--text-2); }
+.lib-usage .lrow-meta { font-size: var(--t1); }
+.lib-usage:empty { display: none; }
+
+/* the confirm dialog's one paragraph: .dlg-body owns the padding */
+.lib-dlg-msg { margin: 0; color: var(--text-2); line-height: 1.45; }
+
+.lib-actions { gap: 6px; }
+.lib-actions > .btn { justify-content: flex-start; }
+.lib-actions > .btn-primary { justify-content: center; }
+
+/* ---- RESPONSIVE: collapse columns before controls break ----------------- */
+/* 1240px: the filter labels are the first thing to go; the selects stay. */
+@media (max-width: 1240px) {
+  .lib { --side: 224px; --insp: 288px; }
+  .lib-filter > .toolbar-label { display: none; }
+  .lib-filter .select { max-width: 112px; }
+}
+/* 1100px: the inspector's own labels tighten and the card shelf loosens. */
+@media (max-width: 1100px) {
+  .lib { --side: 208px; }
+  .insp-row { grid-template-columns: 76px 1fr; }
+  .lib-art { height: 96px; }
+}
+/* Both side columns are toggles, driven from JS (see fitColumns): at 1040px
+   there is only room for one of them plus a usable table. */
+.lib-side[hidden], .lib-insp[hidden] { display: none !important; }
+.lib-side[hidden] + .grip-h, .grip-h.is-off { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lib-drop { transition: none; }
+}

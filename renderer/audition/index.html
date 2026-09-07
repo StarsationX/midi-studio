@@ -3,121 +3,392 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Self Midi</title>
+  <!-- Self MIDI is the ONE page with a deliberately relaxed policy: soundfont
+       banks are loaded by injecting a <script src="../soundfonts/...-mp3.js">
+       and their mp3 payloads are read back out of data: URIs (invariant 30).
+       script-src stays 'self' because the bank scripts ARE 'self'; connect-src
+       and media-src additionally allow data: so the samples can be fetched in
+       one move instead of being copied byte by byte in JS. Nothing else is
+       loosened, and no remote origin is allowed anywhere. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data:;" />
+  <title>Self MIDI</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
+  <link rel="stylesheet" href="../shared/ui.css" />
   <link rel="stylesheet" href="./audition.css" />
 </head>
 <body>
-  <div class="layout" data-split="audition">
-  <aside class="library" id="library">
-    <div class="library-head">
-      <strong>Your MIDI</strong>
-      <span class="mono" id="library-count">...</span>
+<div class="split sm-split" data-split="audition">
+
+  <!-- ==================================================================== -->
+  <!-- LEFT: library / playlists / favourites                               -->
+  <!-- ==================================================================== -->
+  <aside class="pane is-fixed sm-nav" style="width: var(--side)">
+    <div class="tabstrip" role="tablist" aria-label="Library sections">
+      <button role="tab" type="button" id="nav-tab-library" data-nav="library"
+              aria-selected="true" aria-controls="nav-pane" tabindex="0">Library</button>
+      <button role="tab" type="button" id="nav-tab-playlists" data-nav="playlists"
+              aria-selected="false" aria-controls="nav-pane" tabindex="-1">Playlists
+        <span class="count" id="nav-count-playlists">0</span></button>
+      <button role="tab" type="button" id="nav-tab-favorites" data-nav="favorites"
+              aria-selected="false" aria-controls="nav-pane" tabindex="-1">Favorites
+        <span class="count" id="nav-count-favorites">0</span></button>
     </div>
-    <div class="library-tools">
-      <input id="library-search" type="search" placeholder="Search…" aria-label="Search your MIDI files" />
-      <select id="library-sort" aria-label="Sort MIDI list">
-        <option value="recent">Newest</option>
-        <option value="name">Name</option>
-        <option value="folder">Folder</option>
-      </select>
-    </div>
-    <div class="library-list" id="library-list" role="listbox" aria-label="MIDI files"></div>
-    <div class="library-foot">
-      <button class="btn compact" id="library-add" type="button">Add folder…</button>
-      <button class="btn btn-ghost compact" id="library-refresh" type="button" title="Rescan folders">Rescan</button>
+
+    <div class="tabpanel sm-nav-body" id="nav-pane" role="tabpanel" aria-labelledby="nav-tab-library">
+      <div class="sm-nav-head">
+        <span class="search" id="nav-search-wrap">
+          <i data-icon="search" data-icon-size="14"></i>
+          <input class="input is-sm is-body" id="nav-search" type="text" autocomplete="off"
+                 placeholder="Search MIDI" aria-label="Search your MIDI files" />
+          <button class="search-clear" id="nav-search-clear" type="button" aria-label="Clear search">&times;</button>
+        </span>
+        <span class="selectwrap">
+          <select class="select is-sm" id="nav-sort" aria-label="Sort order">
+            <option value="recent">Newest</option>
+            <option value="name">Name</option>
+            <option value="folder">Folder</option>
+          </select>
+        </span>
+      </div>
+
+      <!-- the chooser above the file list changes with the section -->
+      <div class="sm-chooser" id="chooser-library">
+        <div class="list" id="nav-sources" role="group" aria-label="Library views"></div>
+      </div>
+      <div class="sm-chooser" id="chooser-playlists" hidden>
+        <div class="sm-eyebrow-row">
+          <span class="sm-eyebrow">My Playlists</span>
+          <button class="btn btn-sm" type="button" id="nav-new-playlist">
+            <i data-icon="plus" data-icon-size="12"></i>New Playlist</button>
+        </div>
+        <div class="list" id="nav-playlists" role="group" aria-label="Playlists"></div>
+      </div>
+      <div class="sm-chooser" id="chooser-favorites" hidden>
+        <div class="sm-eyebrow-row"><span class="sm-eyebrow">Favorites</span>
+          <span class="mono small" id="fav-note">&mdash;</span></div>
+      </div>
+
+      <div class="vlist sm-files" id="nav-files"></div>
+      <div class="state is-compact sm-files-empty" id="nav-empty" hidden>
+        <span class="state-title" id="nav-empty-title">No MIDI files yet</span>
+        <span class="state-msg" id="nav-empty-msg">Forge results land here automatically, or add a folder you keep MIDI in.</span>
+      </div>
+
+      <div class="sm-nav-foot">
+        <span class="mono small" id="nav-count" aria-live="polite">0</span>
+        <span class="u-spacer"></span>
+        <button class="btn btn-sm" type="button" id="nav-add">Add folder</button>
+        <button class="btn btn-icon is-sm is-bare" type="button" id="nav-rescan"
+                aria-label="Rescan folders" data-tip="Rescan folders"><i data-icon="refresh" data-icon-size="14"></i></button>
+      </div>
     </div>
   </aside>
 
-  <i class="grip-h" data-resize="side" data-min="180" data-max="520"
-     aria-label="Resize the MIDI list"></i>
-  <main class="audition" id="audition">
-    <header class="toolbar">
-      <button class="btn btn-primary" id="open-midi" type="button">Open MIDI</button>
-      <span class="spacer"></span>
-      <label class="check"><input id="autoplay" type="checkbox" /> Autoplay</label>
-      <button class="btn" id="show-file" type="button" disabled>Open folder</button>
-      <button class="btn" id="to-editor" type="button" disabled title="Fix a wrong note in the Midi Editor">Edit</button>
-      <button class="btn" id="to-player" type="button" disabled>Send to Midi Player</button>
+  <i class="grip-h has-handle" data-resize="side" data-min="200" data-max="440"
+     aria-label="Resize the library list"></i>
+
+  <!-- ==================================================================== -->
+  <!-- CENTRE: the song                                                     -->
+  <!-- ==================================================================== -->
+  <main class="pane is-flex sm-main">
+    <header class="toolbar sm-tools">
+      <button class="btn btn-primary" type="button" id="open-midi">Open MIDI</button>
+      <span class="selectwrap" id="candidate-field" hidden>
+        <select class="select is-sm" id="candidate" aria-label="Version"></select>
+      </span>
+      <span class="toolbar-spacer"></span>
+      <button class="checkbox" type="button" id="favorite" role="checkbox" aria-checked="false" disabled>Favorite</button>
+      <span class="toolbar-sep"></span>
+      <span class="toolbar-label" id="autoplay-label">Autoplay</span>
+      <button class="switch" type="button" id="autoplay" role="switch" aria-checked="false"
+              aria-labelledby="autoplay-label" data-tip="Play a file as soon as it opens"></button>
     </header>
 
-    <section class="file-strip">
-      <div class="file-copy">
-        <strong id="file-name">Self Midi</strong>
-        <span class="mono" id="file-path">No MIDI loaded</span>
-      </div>
-      <label class="candidate-field" id="candidate-field" hidden>Version
-        <select id="candidate"></select>
-      </label>
-      <div class="song-stats" id="song-stats">
-        <span><b id="stat-notes">0</b> notes</span>
-        <span><b id="stat-bpm">0</b> BPM</span>
-        <span><b id="stat-length">00:00</b></span>
-      </div>
-    </section>
+    <div class="toolbar is-sub sm-sound">
+      <span class="toolbar-label">Sound</span>
+      <span class="selectwrap">
+        <select class="select is-sm" id="instrument" aria-label="Instrument">
+          <option value="grand_piano">Grand Piano</option>
+          <option value="bright_piano">Bright Piano</option>
+          <option value="electric_piano">Electric Piano</option>
+          <option value="music_box">Music Box</option>
+          <option value="vibraphone">Vibraphone</option>
+          <option value="strings">String Ensemble</option>
+          <option value="synth_lead">Synth Lead</option>
+          <option value="synth_drum">Synth Drum</option>
+        </select>
+      </span>
+      <span class="toolbar-sep"></span>
+      <span class="toolbar-label" id="sustain-label">Sustain</span>
+      <button class="switch" type="button" id="sustain" role="switch" aria-checked="true"
+              aria-labelledby="sustain-label"></button>
+      <span class="toolbar-sep"></span>
+      <span class="toolbar-label" id="volume-label">Volume</span>
+      <input class="range sm-volume" id="volume" type="range" min="0" max="100" step="1" value="65"
+             aria-labelledby="volume-label" />
+      <output class="mono small sm-volume-val" id="volume-value" for="volume">65%</output>
+      <span class="toolbar-spacer"></span>
+      <span class="mono small u-truncate sm-inst-status" id="instrument-status">Grand Piano</span>
+    </div>
 
-    <section class="roll-section" id="roll-section">
-      <canvas id="note-roll" tabindex="0" aria-label="MIDI note timeline"></canvas>
-      <div class="empty" id="empty">
-        <strong>Open or drop a MIDI file</strong>
-        <button class="btn" id="empty-open" type="button">Choose MIDI</button>
+    <div class="scroll-y sm-body" id="sm-body">
+      <!-- empty / loading / error: one block, three states -->
+      <div class="state sm-state" id="sm-state">
+        <span class="state-icon" id="sm-state-icon"><i data-icon="drop" data-icon-size="28"></i></span>
+        <span class="state-title" id="sm-state-title">Nothing loaded</span>
+        <span class="state-msg" id="sm-state-msg">Open a MIDI file, drop one here, or pick a song from your library. Self MIDI plays it inside the app.</span>
+        <span class="state-actions">
+          <button class="btn btn-primary" type="button" id="state-open">Choose MIDI</button>
+        </span>
       </div>
-      <div class="loading" id="loading" hidden>
-        <span class="loading-bar"></span>
-        <strong id="loading-text">Loading MIDI...</strong>
-      </div>
-    </section>
 
-    <section class="transport-panel">
-      <div class="transport-row">
-        <button class="transport-btn primary" id="play" type="button" title="Play or pause" aria-label="Play" disabled><i data-icon="play" data-icon-size="14"></i></button>
-        <button class="transport-btn" id="stop" type="button" title="Stop" aria-label="Stop" disabled><i data-icon="stop" data-icon-size="13"></i></button>
-        <button class="transport-btn" id="back" type="button" title="Back 5 seconds" aria-label="Back 5 seconds" disabled>−5</button>
-        <button class="transport-btn" id="forward" type="button" title="Forward 5 seconds" aria-label="Forward 5 seconds" disabled>+5</button>
-        <input id="seek" class="seek" type="range" min="0" max="1000" value="0" aria-label="Playback position" disabled />
-        <span class="time mono" id="time">00:00 / 00:00</span>
+      <div class="sm-song" id="sm-song" hidden>
+        <section class="sm-hero">
+          <div class="sm-art" id="art-host"><canvas id="art-canvas" aria-hidden="true"></canvas></div>
+          <div class="sm-hero-copy">
+            <h1 class="sm-title u-truncate" id="song-title">&mdash;</h1>
+            <p class="sm-artist u-truncate" id="song-artist">&mdash;</p>
+            <p class="sm-sub u-truncate" id="song-sub">&mdash;</p>
+            <div class="sm-tags" id="song-tags"></div>
+          </div>
+        </section>
+
+        <section class="sm-stats" aria-label="Song details">
+          <div class="sm-stat"><span class="sm-stat-k">Format</span><span class="sm-stat-v mono" id="stat-format">&mdash;</span></div>
+          <div class="sm-stat"><span class="sm-stat-k">Notes</span><span class="sm-stat-v mono" id="stat-notes">&mdash;</span></div>
+          <div class="sm-stat"><span class="sm-stat-k">Length</span><span class="sm-stat-v mono" id="stat-length">&mdash;</span></div>
+          <div class="sm-stat"><span class="sm-stat-k">Tempo</span><span class="sm-stat-v mono" id="stat-tempo">&mdash;</span></div>
+        </section>
+
+        <section class="panel sm-roll-panel">
+          <header class="panel-head">
+            <h2 class="panel-title">Piano roll</h2>
+            <div class="panel-tools">
+              <span class="mono small" id="roll-window">Whole song</span>
+              <button class="btn btn-icon is-sm is-bare" type="button" id="roll-reset"
+                      aria-label="Reset zoom" data-tip="Reset zoom"><i data-icon="refresh" data-icon-size="14"></i></button>
+            </div>
+          </header>
+          <div class="panel-body is-flush">
+            <div class="canvas-host sm-roll" id="roll-host">
+              <canvas id="note-roll" aria-hidden="true"></canvas>
+              <div class="sm-lanes" id="roll-lanes" tabindex="0" role="slider"
+                   aria-label="Playback position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"
+                   aria-valuetext="0:00"></div>
+            </div>
+          </div>
+          <footer class="panel-foot sm-roll-foot">
+            <span class="btn-group">
+              <button class="btn btn-sm" type="button" id="back" data-tip="Back 5 seconds"
+                      aria-label="Back 5 seconds">&minus;5s</button>
+              <button class="btn btn-sm" type="button" id="forward" data-tip="Forward 5 seconds"
+                      aria-label="Forward 5 seconds">+5s</button>
+            </span>
+            <span class="mono small u-truncate" id="roll-hint">Click to seek &middot; drag to pick a loop range &middot; wheel to zoom</span>
+            <span class="u-spacer"></span>
+            <span class="mono small" id="roll-clock">0:00 / 0:00</span>
+          </footer>
+        </section>
+
+        <div class="sm-cards">
+          <!-- LOOP -->
+          <section class="panel sm-card" id="card-loop">
+            <header class="panel-head">
+              <h2 class="panel-title">Loop</h2>
+              <div class="panel-tools">
+                <span class="toolbar-label" id="loop-on-label">Loop</span>
+                <button class="switch" type="button" id="loop-on" role="switch"
+                        aria-checked="false" aria-labelledby="loop-on-label"></button>
+              </div>
+            </header>
+            <div class="panel-body">
+              <div class="sm-ab">
+                <button class="btn btn-sm" type="button" id="loop-set-a" data-tip="Set A at the playhead">Set A</button>
+                <input class="input is-sm sm-time" id="loop-a" value="0:00" aria-label="Loop start" spellcheck="false" />
+                <span class="sm-ab-to">to</span>
+                <input class="input is-sm sm-time" id="loop-b" value="0:00" aria-label="Loop end" spellcheck="false" />
+                <button class="btn btn-sm" type="button" id="loop-set-b" data-tip="Set B at the playhead">Set B</button>
+                <button class="btn btn-sm btn-ghost" type="button" id="loop-reset">Reset</button>
+              </div>
+              <p class="field-hint" id="loop-hint">No range picked. Drag across the roll, or set A and B.</p>
+            </div>
+          </section>
+
+          <!-- SPEED -->
+          <section class="panel sm-card" id="card-speed">
+            <header class="panel-head"><h2 class="panel-title">Playback speed</h2></header>
+            <div class="panel-body">
+              <span class="stepper is-sm sm-stepper">
+                <button class="stepper-btn" type="button" id="speed-down" aria-label="Slower">&minus;</button>
+                <input type="number" id="speed-value" min="0.25" max="2" step="0.05" value="1" aria-label="Playback speed" />
+                <span class="stepper-unit">&times;</span>
+                <button class="stepper-btn" type="button" id="speed-up" aria-label="Faster">+</button>
+              </span>
+              <div class="segmented is-sm sm-presets" id="speed-presets" role="radiogroup" aria-label="Speed presets">
+                <button role="radio" type="button" aria-checked="false" data-value="0.5" tabindex="-1">0.5x</button>
+                <button role="radio" type="button" aria-checked="false" data-value="0.75" tabindex="-1">0.75x</button>
+                <button role="radio" type="button" aria-checked="true" data-value="1" tabindex="0">1.0x</button>
+                <button role="radio" type="button" aria-checked="false" data-value="1.25" tabindex="-1">1.25x</button>
+                <button role="radio" type="button" aria-checked="false" data-value="1.5" tabindex="-1">1.5x</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- TRANSPOSE -->
+          <section class="panel sm-card" id="card-transpose">
+            <header class="panel-head"><h2 class="panel-title">Transpose</h2></header>
+            <div class="panel-body">
+              <span class="stepper is-sm sm-stepper">
+                <button class="stepper-btn" type="button" id="pitch-down" aria-label="Down a semitone">&minus;</button>
+                <input type="number" id="pitch-value" min="-24" max="24" step="1" value="0" aria-label="Transpose in semitones" />
+                <span class="stepper-unit">st</span>
+                <button class="stepper-btn" type="button" id="pitch-up" aria-label="Up a semitone">+</button>
+              </span>
+              <div class="segmented is-sm sm-presets" id="pitch-presets" role="radiogroup" aria-label="Transpose presets">
+                <button role="radio" type="button" aria-checked="false" data-value="-12" tabindex="-1">&minus;12</button>
+                <button role="radio" type="button" aria-checked="false" data-value="-1" tabindex="-1">&minus;1</button>
+                <button role="radio" type="button" aria-checked="true" data-value="0" tabindex="0">0</button>
+                <button role="radio" type="button" aria-checked="false" data-value="1" tabindex="-1">+1</button>
+                <button role="radio" type="button" aria-checked="false" data-value="12" tabindex="-1">+12</button>
+              </div>
+              <p class="field-hint">Reloads the samples this song needs.</p>
+            </div>
+          </section>
+
+          <!-- BOOKMARKS -->
+          <section class="panel sm-card" id="card-marks">
+            <header class="panel-head">
+              <h2 class="panel-title">Bookmarks</h2>
+              <div class="panel-tools"><span class="mono small" id="marks-count">0</span></div>
+            </header>
+            <div class="panel-body is-flush">
+              <div class="list sm-marks" id="marks" role="group" aria-label="Bookmarks"></div>
+              <p class="field-hint sm-marks-empty" id="marks-empty">Nothing marked yet. Add the spot you keep coming back to.</p>
+            </div>
+            <footer class="panel-foot">
+              <input class="input is-sm is-body sm-mark-name" id="mark-name" maxlength="40"
+                     placeholder="Name this spot" aria-label="Bookmark name" />
+              <button class="btn btn-sm" type="button" id="mark-add">Add</button>
+            </footer>
+          </section>
+        </div>
+
+        <div class="insp sm-info">
+          <div class="insp-sec">
+            <button class="insp-sec-head" type="button" id="info-head" aria-expanded="false" aria-controls="info-body">
+              MIDI information</button>
+            <div class="insp-sec-body" id="info-body" hidden>
+              <div class="insp-row is-stacked"><span class="insp-label">Tracks</span>
+                <span class="insp-value sm-wrap" id="info-tracks">&mdash;</span></div>
+              <div class="insp-row is-stacked"><span class="insp-label">Instruments</span>
+                <span class="insp-value sm-wrap" id="info-instruments">&mdash;</span></div>
+              <div class="insp-row"><span class="insp-label">Time signature</span>
+                <span class="insp-value" id="info-time">&mdash;</span></div>
+              <div class="insp-row"><span class="insp-label">Key</span>
+                <span class="insp-value" id="info-key">&mdash;</span></div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="settings-row">
-        <label>Instrument
-          <select id="instrument">
-            <option value="grand_piano">Grand Piano</option>
-            <option value="bright_piano">Bright Piano</option>
-            <option value="electric_piano">Electric Piano</option>
-            <option value="music_box">Music Box</option>
-            <option value="vibraphone">Vibraphone</option>
-            <option value="strings">String Ensemble</option>
-            <option value="synth_lead">Synth Lead</option>
-            <option value="synth_drum">Synth Drum</option>
-          </select>
-        </label>
-        <label>Speed
-          <select id="speed">
-            <option value="0.5">0.5x</option><option value="0.75">0.75x</option>
-            <option value="1">1x</option><option value="1.25">1.25x</option>
-            <option value="1.5">1.5x</option><option value="2">2x</option>
-          </select>
-        </label>
-        <label>Pitch
-          <select id="pitch">
-            <option value="-12">−1 octave</option><option value="0">Original</option><option value="12">+1 octave</option>
-          </select>
-        </label>
-        <label class="volume-field">Volume
-          <input id="volume" type="range" min="0" max="100" value="65" />
-          <output id="volume-value">65%</output>
-        </label>
-        <label class="check"><input id="sustain" type="checkbox" checked /> Sustain</label>
-        <label class="check"><input id="loop" type="checkbox" /> Loop</label>
-        <span class="instrument-status mono" id="instrument-status">Grand Piano</span>
-      </div>
-    </section>
+    </div>
   </main>
-  </div>
 
-  <div class="drop-overlay" id="drop-overlay" aria-hidden="true"><div>Drop MIDI to play</div></div>
-  <script src="../shared/icons.js"></script>
-  <script src="../shared/resize.js"></script>
-  <script src="../soundfonts/player.js"></script>
-  <script src="./audition.js"></script>
+  <i class="grip-h has-handle" data-resize="rail" data-min="240" data-max="460" data-invert
+     aria-label="Resize the queue"></i>
+
+  <!-- ==================================================================== -->
+  <!-- RIGHT: queue / history, recently played, hand-off                    -->
+  <!-- ==================================================================== -->
+  <aside class="pane is-fixed sm-rail" style="width: var(--rail)">
+    <div class="tabstrip" role="tablist" aria-label="Playback lists">
+      <button role="tab" type="button" id="rail-tab-queue" data-rail="queue"
+              aria-selected="true" aria-controls="rail-pane" tabindex="0">Queue
+        <span class="count" id="queue-count">0</span></button>
+      <button role="tab" type="button" id="rail-tab-history" data-rail="history"
+              aria-selected="false" aria-controls="rail-pane" tabindex="-1">History
+        <span class="count" id="history-count">0</span></button>
+    </div>
+
+    <div class="toolbar is-sub sm-rail-tools">
+      <button class="btn btn-sm btn-ghost" type="button" id="rail-clear">Clear</button>
+      <span class="toolbar-spacer"></span>
+      <button class="btn btn-sm" type="button" id="rail-save">Save as Playlist</button>
+    </div>
+
+    <div class="tabpanel sm-rail-body" id="rail-pane" role="tabpanel" aria-labelledby="rail-tab-queue">
+      <div class="vlist sm-queue" id="rail-list"></div>
+      <div class="state is-compact" id="rail-empty" hidden>
+        <span class="state-title" id="rail-empty-title">Queue is empty</span>
+        <span class="state-msg" id="rail-empty-msg">Add songs from your library to line them up.</span>
+      </div>
+    </div>
+
+    <section class="sm-recent">
+      <div class="sm-eyebrow-row">
+        <span class="sm-eyebrow">Recently played</span>
+        <button class="link" type="button" id="recent-all">See all</button>
+      </div>
+      <div class="list sm-recent-list" id="recent-list" role="group" aria-label="Recently played"></div>
+      <p class="field-hint sm-recent-empty" id="recent-empty">Nothing played yet.</p>
+    </section>
+
+    <footer class="sm-actions">
+      <button class="btn btn-sm" type="button" id="act-queue" disabled>
+        <i data-icon="plus" data-icon-size="12"></i>Add to Queue</button>
+      <button class="btn btn-sm" type="button" id="act-editor" disabled>
+        <i data-icon="send" data-icon-size="12"></i>Open in Editor</button>
+      <button class="btn btn-sm" type="button" id="act-player" disabled>
+        <i data-icon="send" data-icon-size="12"></i>Send to Player</button>
+      <button class="btn btn-sm" type="button" id="act-reveal" disabled>
+        <i data-icon="folder" data-icon-size="12"></i>Show in Folder</button>
+    </footer>
+  </aside>
+</div>
+
+<!-- window-level drop veil (§2.16): depth-counted, data-drop on <html> -->
+<div class="drop-veil" id="drop-veil">
+  <div class="drop-card">
+    <span class="drop-icon"><i data-icon="drop" data-icon-size="28"></i></span>
+    <span class="drop-title">Drop to listen</span>
+    <span class="drop-sub">Self MIDI plays it inside MIDI Studio</span>
+    <span class="drop-types">.mid &middot; .midi &middot; .midstudio.json</span>
+  </div>
+</div>
+
+<!-- name-a-playlist sheet -->
+<div class="dlg-scrim" id="name-scrim" hidden>
+  <div class="dlg is-narrow" role="dialog" aria-modal="true" aria-labelledby="name-title" id="name-dlg">
+    <header class="dlg-head">
+      <h2 class="dlg-title" id="name-title">New playlist</h2>
+      <button class="dlg-x" type="button" id="name-x" aria-label="Close">
+        <i data-icon="close" data-icon-size="14"></i></button>
+    </header>
+    <div class="dlg-body">
+      <label class="field">
+        <span class="field-label">Name</span>
+        <input class="input is-body" id="name-input" maxlength="60" autocomplete="off" />
+        <span class="field-hint" id="name-hint">Playlists live in your settings and are yours to reorder.</span>
+      </label>
+    </div>
+    <footer class="dlg-foot">
+      <span class="u-spacer"></span>
+      <button class="btn" type="button" id="name-cancel">Cancel</button>
+      <button class="btn btn-primary" type="button" id="name-ok">Create</button>
+    </footer>
+  </div>
+</div>
+
+<script src="../shared/tokens.js"></script>
+<script src="../shared/fmt.js"></script>
+<script src="../shared/draw.js"></script>
+<script src="../shared/bus.js"></script>
+<script src="../shared/icons.js"></script>
+<script src="../shared/vlist.js"></script>
+<script src="../shared/menu.js"></script>
+<script src="../shared/resize.js"></script>
+<script src="../shared/timeline-zoom.js"></script>
+<script src="../soundfonts/player.js"></script>
+<script src="./audition.js"></script>
 </body>
 </html>
