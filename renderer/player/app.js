@@ -1166,6 +1166,7 @@
   }
 
   on($('recent-all'), 'click', openSongs);
+  on($('open-songs'), 'click', openSongs);
   on($('songs-close'), 'click', closeSongs);
   on($('songs-open'), 'click', () => chooseSong(songsList.selectedItems()[0], false));
   on($('songs-queue'), 'click', () => chooseSong(songsList.selectedItems()[0], true));

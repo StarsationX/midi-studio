@@ -39,6 +39,13 @@
               <i data-icon="drop"></i>
             </button>
           </div>
+          <!-- The songs browser used to be reachable only through "See all" in
+               the Recent files block, and that block hides itself when there is
+               nothing recent. On a fresh install the whole song list was
+               therefore unreachable from this tab. This button does not hide. -->
+          <button class="btn u-fill p-browse" id="open-songs" type="button">
+            <i data-icon="list" data-icon-size="13"></i>Browse songs
+          </button>
           <span class="pathchip" id="song-path" hidden>
             <span class="pathchip-dir" id="song-dir"></span>
             <span class="pathchip-name" id="song-name"></span>

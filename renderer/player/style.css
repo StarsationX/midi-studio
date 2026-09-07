@@ -115,6 +115,7 @@ body { background: var(--bg); color: var(--text); font: 400 var(--t2)/1.45 var(-
 .p-card-body .switch-row > .switch-hint { grid-column: 1 / -1; grid-row: 2; }
 
 .p-open { justify-content: center; height: var(--h-ctl-lg); }
+.p-browse { justify-content: center; margin-top: var(--s2); }
 
 .p-queue { display: flex; flex-direction: column; min-height: 0; }
 .p-queue > .vlist {

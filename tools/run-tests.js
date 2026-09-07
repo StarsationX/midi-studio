@@ -927,6 +927,42 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   }
 }
 
+
+// ---- Perch shares the Player visualizer -------------------------------------
+// The overlay window and the Player tab load the same visualizer.js. When the
+// Player copy moved to a caller-supplied 2D context, Perch kept calling the old
+// no-argument form and threw once per frame, painting nothing. The window still
+// opened, so the toggle looked wired, and only the renderer console said why.
+// These fail the moment the two drift apart again.
+{
+  const rd = (rel) => fs.readFileSync(path.join(root, ...rel.split('/')), 'utf8');
+  const ovHtml = rd('renderer/overlay/overlay.html');
+  const ovJs   = rd('renderer/overlay/overlay.js');
+  const vizJs  = rd('renderer/player/visualizer.js');
+
+  if (/global\.Tokens/.test(vizJs)) {
+    ok(/shared\/tokens\.js/.test(ovHtml), 'Perch loads tokens.js, which its visualizer reads');
+    ok(ovHtml.indexOf('shared/tokens.js') < ovHtml.indexOf('player/visualizer.js'),
+       'Perch loads tokens.js before the visualizer that reads it');
+  }
+  if (/global\.Draw/.test(vizJs)) {
+    ok(/shared\/draw\.js/.test(ovHtml), 'Perch loads draw.js, which its visualizer reads');
+  }
+
+  const ctor = /function Visualizer\(([^)]*)\)/.exec(vizJs);
+  ok(!!ctor, 'the Visualizer constructor is findable');
+  if (ctor && !ctor[1].trim()) {
+    ok(/new Visualizer\(\s*\)/.test(ovJs), 'Perch constructs the Visualizer with no canvas');
+  }
+
+  const rend = /Visualizer\.prototype\.render = function \(([^)]*)\)/.exec(vizJs);
+  ok(!!rend, 'the render signature is findable');
+  if (rend && rend[1].split(',').length === 3) {
+    ok(/viz\.render\([^)]*,[^)]*,[^)]*\)/.test(ovJs), 'Perch passes a context and a size to render');
+    ok(!/viz\.render\(\s*\)/.test(ovJs), 'Perch never calls the old no-argument render');
+  }
+}
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
