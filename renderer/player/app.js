@@ -119,9 +119,9 @@
     panicHotkey: '',
     transpose: 0, tempoStep: 0.1, tempoPreset: 1.0, seekStep: 5,
     targetHint: '', autoPickTarget: true,
-    openSection: 'source', leftTab: '',
+    openSection: 'source', leftClosed: '',
     noteColor: '', fallSpeed: 1,
-    mapCollapsed: false, railSections: '',
+    mapCollapsed: true, railSections: '',
     recentFiles: [], playlist: [], playlistCurrent: '', queueLoop: false,
     hand: 'both', handSplit: 60, chordStaggerMs: 0,
     rangeLoop: false, rampStart: 100, rampStep: 5
@@ -138,16 +138,10 @@
   const saveSettings = debounce(persist, 350);
   keep(() => saveSettings.flush());
 
-  // The accordion became a tab group. 'source' -> Song, 'playback' -> Playback,
-  // 'settings' and the even older 'hotkeys' -> Preferences. A returning user
-  // must not land on a blank column.
+  // Four stacked cards, every one of them collapsible and all of them open by
+  // default. The column scrolls, so 'everything closed' is a legal state and
+  // needs no defending; only what the user shut is remembered.
   const LEFT_TABS = ['song', 'target', 'playback', 'prefs'];
-  const LEGACY_SECTION = { source: 'song', playback: 'playback', settings: 'prefs', hotkeys: 'prefs' };
-  function initialTab() {
-    if (LEFT_TABS.indexOf(settings.leftTab) >= 0) return settings.leftTab;
-    const mapped = LEGACY_SECTION[settings.openSection];
-    return mapped || 'song';
-  }
 
   // Mirrored control values. Read these in the scheduled paths; never a DOM
   // control, and never a getComputedStyle.
@@ -692,39 +686,48 @@
   keep(() => { if (xport) xport.release(); });
 
   // ==========================================================================
-  // 7. LEFT COLUMN: the tab group
+  // 7. LEFT COLUMN: the four setup cards
   // ==========================================================================
-  const tabButtons = LEFT_TABS.map((k) => $('tab-' + k));
-  const tabPanels = LEFT_TABS.map((k) => $('panel-' + k));
-  let activeTab = initialTab();
+  const cardHeads = LEFT_TABS.map((k) => $('tab-' + k));
+  const cardBodies = LEFT_TABS.map((k) => $('panel-' + k));
+  const leftClosed = new Set(String(settings.leftClosed || '').split(',').filter(Boolean));
 
+  function paintCard(i) {
+    const open = !leftClosed.has(LEFT_TABS[i]);
+    cardHeads[i].setAttribute('aria-expanded', open ? 'true' : 'false');
+    cardBodies[i].hidden = !open;
+  }
+  function setCard(key, open) {
+    const i = LEFT_TABS.indexOf(key);
+    if (i < 0) return;
+    if (open) leftClosed.delete(key); else leftClosed.add(key);
+    settings.leftClosed = [...leftClosed].join(',');
+    saveSettings();
+    paintCard(i);
+  }
+  // Reveal: open the card and scroll it into view. Every caller that used to
+  // switch tabs wants exactly this.
   function showTab(key, { focus } = {}) {
     const i = LEFT_TABS.indexOf(key);
     if (i < 0) return;
-    activeTab = key;
-    for (let n = 0; n < LEFT_TABS.length; n++) {
-      const sel = n === i;
-      tabButtons[n].setAttribute('aria-selected', sel ? 'true' : 'false');
-      tabButtons[n].tabIndex = sel ? 0 : -1;
-      tabPanels[n].hidden = !sel;
-    }
-    if (focus) tabButtons[i].focus();
-    settings.leftTab = key;
-    settings.openSection = key === 'song' ? 'source' : key === 'playback' ? 'playback' : key === 'prefs' ? 'settings' : 'source';
-    saveSettings();
+    setCard(key, true);
+    try { cardHeads[i].scrollIntoView({ block: 'nearest' }); } catch (_) {}
+    if (focus) cardHeads[i].focus();
   }
-  tabButtons.forEach((btn, i) => {
-    on(btn, 'click', () => showTab(LEFT_TABS[i]));
+  cardHeads.forEach((btn, i) => {
+    const key = LEFT_TABS[i];
+    on(btn, 'click', () => setCard(key, leftClosed.has(key)));
     on(btn, 'keydown', (e) => {
       let next = -1;
-      if (e.key === 'ArrowRight') next = (i + 1) % LEFT_TABS.length;
-      else if (e.key === 'ArrowLeft') next = (i + LEFT_TABS.length - 1) % LEFT_TABS.length;
+      if (e.key === 'ArrowDown') next = (i + 1) % LEFT_TABS.length;
+      else if (e.key === 'ArrowUp') next = (i + LEFT_TABS.length - 1) % LEFT_TABS.length;
       else if (e.key === 'Home') next = 0;
       else if (e.key === 'End') next = LEFT_TABS.length - 1;
       else return;
       e.preventDefault();
-      showTab(LEFT_TABS[next], { focus: true });
+      cardHeads[next].focus();
     });
+    paintCard(i);
   });
 
   // Right rail disclosure sections, persisted as a compact string.
@@ -1258,12 +1261,14 @@
       $('target-name').textContent = hint ? hint.label : (proc || w.title || 'Window');
       $('target-name').title = w.title || '';
       $('target-sub').textContent = w.title || '';
+      $('target-sub').title = w.title || '';
       // There is no window-icon channel in the engine, so the tile is a
       // monogram taken from the process name rather than a fabricated icon.
       iconEl.textContent = (proc || w.title || '?').trim().charAt(0).toUpperCase();
     } else {
       $('target-name').textContent = 'No window selected';
       $('target-sub').textContent = 'Pick the window the keys should be typed into.';
+      $('target-sub').title = 'Pick the window the keys should be typed into.';
       iconEl.innerHTML = window.Icon.svg('keyboard', 18);
     }
     let text, kind;
@@ -1376,10 +1381,8 @@
   const tempoRange = $('tempo');
 
   function paintTempo() {
-    if (!tempoRange.matches(':active')) tempoRange.value = String(tempo);
-    tempoRange.style.setProperty('--p', String((tempo - TEMPO_MIN) / (TEMPO_MAX - TEMPO_MIN)));
-    tempoRange.setAttribute('aria-valuetext', tempo.toFixed(2) + ' times');
-    $('tempo-label').textContent = tempo.toFixed(2) + '×';
+    // Never rewrite the box under a half-typed number.
+    if (document.activeElement !== tempoRange) tempoRange.value = tempo.toFixed(2);
     $('tr-tempo').textContent = tempo.toFixed(2) + '×';
     showBpm();
     paintStats();
@@ -1457,9 +1460,7 @@
 
   // Paint on input (rAF-coalesced), commit on change.
   const paintTempoLive = coalesce(() => {
-    $('tempo-label').textContent = tempo.toFixed(2) + '×';
     $('tr-tempo').textContent = tempo.toFixed(2) + '×';
-    tempoRange.style.setProperty('--p', String((tempo - TEMPO_MIN) / (TEMPO_MAX - TEMPO_MIN)));
     showBpm();
   });
   on(tempoRange, 'input', () => {
@@ -1490,12 +1491,8 @@
   // ---- transpose -----------------------------------------------------------
   const transposeRange = $('transpose');
   function paintTranspose() {
-    if (!transposeRange.matches(':active')) transposeRange.value = String(transposeVal);
-    transposeRange.style.setProperty('--p', String((transposeVal + 24) / 48));
-    transposeRange.setAttribute('aria-valuetext', transposeVal === 0 ? 'no transpose' : (transposeVal > 0 ? '+' : '') + transposeVal + ' semitones');
-    const text = (transposeVal > 0 ? '+' : '') + transposeVal;
-    $('transpose-label').textContent = text;
-    $('tr-transpose').textContent = text;
+    if (document.activeElement !== transposeRange) transposeRange.value = String(transposeVal);
+    $('tr-transpose').textContent = (transposeVal > 0 ? '+' : '') + transposeVal;
   }
   function applyTranspose(value, auto) {
     transposeVal = clamp(Math.round(Number(value) || 0), -24, 24);
@@ -1560,10 +1557,25 @@
     const btn = e.target.closest ? e.target.closest('.stepper-btn[data-for]') : null;
     if (!btn) return;
     const id = btn.dataset.for;
-    const spec = STEP_FIELDS[id];
-    if (!spec) return;
     const input = $(id);
+    if (!input) return;
     const step = parseFloat(btn.dataset.step) || 1;
+    const spec = STEP_FIELDS[id];
+    // Tempo and Transpose own their own commit path (a restart, a re-load).
+    // Nudge the box and let their input/change handlers do the rest, so there
+    // is still exactly one code path per value.
+    if (!spec) {
+      const lo = parseFloat(input.min), hi = parseFloat(input.max);
+      let n = parseFloat(input.value);
+      if (!Number.isFinite(n)) n = Number.isFinite(lo) ? lo : 0;
+      n = Math.round((n + step) * 100) / 100;
+      if (Number.isFinite(lo)) n = Math.max(lo, n);
+      if (Number.isFinite(hi)) n = Math.min(hi, n);
+      input.value = String(n);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
     let v = (spec.int ? parseInt(input.value, 10) : parseFloat(input.value));
     if (!Number.isFinite(v)) v = spec.min;
     input.value = String(clamp(spec.int ? v + step : Math.round((v + step) * 100) / 100, spec.min, spec.max));
@@ -2060,7 +2072,11 @@
   let lastElapsedText = '';
   let lastPct = -1;
   function paintPosition(elapsed) {
-    const p = totalDuration > 0 ? clamp(elapsed / totalDuration, 0, 1) : 0;
+    // A non-finite ratio writes --p: NaN, which makes scaleX() invalid, which
+    // drops the declaration entirely and paints the fill at FULL width. An
+    // unknown position has to read as zero, not as a finished song.
+    let p = totalDuration > 0 ? clamp(elapsed / totalDuration, 0, 1) : 0;
+    if (!Number.isFinite(p)) p = 0;
     // One write: --p is set on .p-scrub and inherited by the fill and the
     // cursor layer, both of which are pure transforms.
     scrub.style.setProperty('--p', p.toFixed(5));
@@ -2634,7 +2650,6 @@
   // 19. BOOT
   // ==========================================================================
   function restoreUI() {
-    showTab(activeTab);
     mappingSelect.value = [...mappingSelect.options].some((o) => o.value === mapping) ? mapping : 'roblox';
     if (customMappingPath) {
       addCustomMappingOption(customMappingPath);

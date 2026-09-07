@@ -13,7 +13,7 @@ html, body { height: 100%; overflow: hidden; }
    file, and resize.js writes its own inline value the moment the user drags or
    a stored size is restored. Both stylesheets are in <head>, so there is no
    frame where these are unset. */
-.sm-split { height: 100%; --side: 268px; --rail: 312px; }
+.sm-split { height: 100%; --side: 288px; --rail: 336px; }
 
 /* The panes consume the properties resize.js drives on [data-split]; .is-fixed
    is only flex:0 0 auto (CONTRACT §9.3), so the widths live on the panes in the
@@ -40,10 +40,11 @@ html, body { height: 100%; overflow: hidden; }
 }
 .sm-eyebrow {
   flex: 1 1 auto; min-width: 0;
-  font: 600 var(--t1)/1.25 var(--font-mono); letter-spacing: 1.2px;
-  text-transform: uppercase; color: var(--text-3); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
+  font: 600 var(--t3)/1.25 var(--font-body); color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* the ref's full-width New Playlist button, above the list it adds to */
+.sm-newpl { width: calc(100% - var(--s3)); margin: var(--s2) auto var(--s1); justify-content: center; }
 
 .sm-files { flex: 1 1 auto; min-height: 80px; }
 .sm-files-empty { flex: 1 1 auto; }
@@ -53,13 +54,12 @@ html, body { height: 100%; overflow: hidden; }
 }
 
 /* a source / playlist chooser row is a real .lrow, used as a button */
-.sm-pick { width: 100%; }
+.sm-pick { width: 100%; min-height: 32px; }
 .sm-pick > .lrow-meta { font-size: var(--t1); }
 
 /* ---- centre: toolbars -------------------------------------------------- */
-.sm-tools, .sm-sound { flex: 0 0 auto; }
-.sm-sound { gap: var(--s1); }
-.sm-sound > .selectwrap { width: 148px; }
+.sm-tools { flex: 0 0 auto; }
+.sm-tools > .sm-inst { width: 152px; }
 .sm-volume { flex: 0 0 auto; width: 104px; }
 .sm-volume-val { width: 34px; text-align: right; }
 .sm-inst-status { max-width: 220px; text-align: right; color: var(--text-3); }
@@ -67,58 +67,78 @@ html, body { height: 100%; overflow: hidden; }
 
 .sm-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .sm-state { flex: 1 1 auto; }
+/* The ref draws the whole song -- hero, roll, cards, information -- inside one
+   rounded sheet sitting on the page. The sheet keeps the page colour and is
+   read by its border alone, so the panels INSIDE it still come forward. */
 .sm-song {
-  display: flex; flex-direction: column; gap: var(--s3);
-  padding: var(--s4); min-width: 0;
+  flex: 1 0 auto; display: flex; flex-direction: column; gap: var(--s3);
+  margin: var(--s3); padding: var(--s4); min-width: 0;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-lg);
 }
 
 /* ---- hero -------------------------------------------------------------- */
-.sm-hero { display: flex; align-items: center; gap: var(--s4); min-width: 0; }
+.sm-hero { display: flex; align-items: flex-start; gap: var(--s5); min-width: 0; }
 .sm-art {
-  position: relative; flex: 0 0 auto; width: 96px; height: 96px;
+  position: relative; flex: 0 0 auto; width: 196px; height: 196px;
   background: var(--bg-2); border: 1px solid var(--line);
   border-radius: var(--r-lg); overflow: hidden;
 }
 .sm-art > canvas { display: block; position: absolute; inset: 0; }
 .sm-hero-copy { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sm-hero-top { display: flex; align-items: flex-start; gap: var(--s3); min-width: 0; }
+.sm-hero-acts { flex: 0 0 auto; display: flex; align-items: center; gap: var(--s2); padding-top: 4px; }
 .sm-title {
-  margin: 0; font: 700 26px/1.15 var(--font-display);
-  letter-spacing: -.4px; color: var(--text);
+  flex: 1 1 auto; min-width: 0;
+  margin: 0; font: 700 30px/1.15 var(--font-display);
+  letter-spacing: -.5px; color: var(--text);
 }
-.sm-artist { margin: 0; font: 600 var(--t3)/1.3 var(--font-body); color: var(--text-2); }
-.sm-sub { margin: 0; font-size: var(--t1); color: var(--text-3); }
-.sm-tags { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; margin-top: 6px; }
+.sm-artist { margin: 2px 0 0; font: 500 var(--t3)/1.3 var(--font-body); color: var(--text); }
+.sm-sub { margin: 0; font-size: var(--t2); color: var(--text-3); }
+.sm-tags { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-top: 10px; }
+/* the hero tags are the ref's rounded word-pills; the mono one (the file
+   extension) is still the shared machine-value tag, only rounded to match */
+.sm-tags > .tag {
+  height: 28px; padding: 0 14px; border-radius: var(--r-pill);
+  font-size: var(--t2); color: var(--text);
+}
+.sm-tags > .tag.is-mono { color: var(--text-2); }
 
 /* ---- stat strip -------------------------------------------------------- */
+/* Four facts about the file, sitting on the sheet: no box, no dividers, label
+   over value -- the ref's own hierarchy. The values are short measured facts
+   read next to words ("MIDI file", "3,842 notes"), so they stay in the body
+   font with tabular figures; the mono face is kept for the clock, the loop
+   range and the counts. */
 .sm-stats {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px;
-  background: var(--line); border: 1px solid var(--line); border-radius: var(--r);
-  overflow: hidden;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s3); margin-top: var(--s4);
 }
-.sm-stat {
-  display: flex; flex-direction: column; gap: 3px; min-width: 0;
-  padding: 8px 10px; background: var(--surface);
-}
-.sm-stat-k {
-  font: 600 var(--t1)/1.25 var(--font-mono); letter-spacing: 1.1px;
-  text-transform: uppercase; color: var(--text-3); white-space: nowrap;
-}
+.sm-stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sm-stat-k { font: 500 var(--t2)/1.25 var(--font-body); color: var(--text-3); white-space: nowrap; }
 .sm-stat-v {
-  font: 600 var(--t3)/1.1 var(--font-mono); color: var(--text);
+  font: 600 var(--t3)/1.2 var(--font-body); color: var(--text);
+  font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* ---- piano roll -------------------------------------------------------- */
-.sm-roll-panel { flex: 0 0 auto; }
-.sm-roll { height: 232px; }
+/* The roll is the one part of the sheet worth more room, so the panel takes
+   what the window has spare -- but only between the ref's proportions, never
+   the whole of a tall window. The canvas fills whatever the panel got, so the
+   picture never floats in a half-empty box. */
+.sm-roll-panel { flex: 1 1 auto; min-height: 0; max-height: 340px; }
+.sm-roll { height: 100%; min-height: 176px; border-radius: var(--r); }
 /* The gesture surface starts where the drawn keyboard ends, so TimelineZoom's
    pointer ratio and ours agree on what x means. The canvas underneath draws the
    keyboard into that first strip. */
 .sm-lanes { position: absolute; top: 0; right: 0; bottom: 0; left: var(--sm-keys, 38px); cursor: crosshair; }
 .sm-lanes:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--accent-deep); }
 .sm-lanes[data-grab="edge"] { cursor: col-resize; }
-.sm-roll-foot { padding: 0 var(--s2) 0 var(--s3); min-height: 34px; align-items: center; display: flex; gap: var(--s2); }
-.sm-roll-foot > .mono { color: var(--text-3); min-width: 0; }
+.sm-roll-foot {
+  padding: 0; min-height: 30px; align-items: center; display: flex; gap: var(--s2);
+  border-top: 0; background: transparent;
+}
+.sm-roll-foot > .small, .sm-roll-foot > .mono { color: var(--text-3); min-width: 0; }
 .sm-roll-foot > .btn-group { flex: 0 0 auto; }
 @media (max-width: 1240px) { #roll-hint { display: none; } }
 
@@ -127,19 +147,51 @@ html, body { height: 100%; overflow: hidden; }
   display: grid; gap: var(--s3);
   grid-template-columns: repeat(auto-fit, minmax(268px, 1fr));
 }
-.sm-card > .panel-body { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3); }
+.sm-card > .panel-body { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s4); }
 .sm-card > .panel-body.is-flush { padding: 0; gap: 0; }
 .sm-card > .panel-foot { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); }
 .sm-card .field-hint { margin: 0; }
 
-.sm-ab { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
-.sm-time { width: 74px; text-align: center; font-family: var(--font-mono); }
-.sm-ab-to { font: 500 var(--t1)/1.25 var(--font-body); color: var(--text-3); }
-.sm-stepper { width: 132px; }
-.sm-presets { width: 100%; }
+.sm-ab { display: flex; align-items: center; gap: var(--s2); }
+/* A and B are the two big buttons the ref leads the card with */
+.sm-ab-set { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.sm-ab-set > .btn { width: 100%; }
+/* the loop range reads as one field with a dash inside it */
+.sm-range {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 2px;
+  padding: 0 var(--s2); height: var(--h-ctl);
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); box-shadow: var(--well);
+}
+.sm-range:focus-within { border-color: var(--accent-deep); }
+.sm-range > .sm-time {
+  flex: 1 1 auto; width: auto; min-width: 0; height: 22px;
+  background: transparent; border: 0; box-shadow: none; padding: 0;
+}
+.sm-time { text-align: center; font-family: var(--font-mono); }
+.sm-ab-to { flex: 0 0 auto; font: 500 var(--t2)/1.25 var(--font-body); color: var(--text-3); }
+.sm-stepper { width: 100%; height: var(--h-ctl-lg); }
+.sm-stepper > .stepper-btn { width: 38px; font-size: 15px; }
+/* "1.00 x" is one centred token: the field ends where the middle is and the
+   unit starts there, instead of the unit hanging off the far edge */
+.sm-stepper > input { flex: 1 1 0; text-align: right; padding: 0 3px 0 0; font-size: var(--t3); }
+.sm-stepper > .stepper-unit { flex: 1 1 0; text-align: left; padding: 0; }
+.sm-presets { width: 100%; display: flex; }
+.sm-presets > button { flex: 1 1 0; padding: 0 4px; }
+/* The refs mark the chosen preset with a lime outline and lime text, and the
+   button still carries aria-checked, so the state is not colour alone. */
+.sm-presets > button[aria-checked="true"] {
+  background: transparent; color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+.sm-presets > button[aria-checked="true"]::before { display: none; }
 .sm-mark-name { flex: 1 1 auto; min-width: 0; }
 
 .sm-marks { max-height: 148px; overflow: auto; overscroll-behavior: contain; }
+/* a bookmark row is a name, a time and its actions -- the ref's flag mark is
+   carried by the row's own accent bar when it is the one you are on */
+.sm-mark { padding-left: var(--s3); }
 /* Jumping to a bookmark IS the point of the row, so its actions do not wait for
    a hover the way an incidental row action does. Same slot, same primitive. */
 .sm-marks .lrow-actions { opacity: 1; }
@@ -149,28 +201,57 @@ html, body { height: 100%; overflow: hidden; }
 /* ---- MIDI information -------------------------------------------------- */
 .sm-info { flex: 0 0 auto; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .sm-info > .insp-sec:last-child { border-bottom: 0; }
-.sm-wrap { white-space: normal; line-height: 1.5; font-family: var(--font-body); font-weight: 500; }
+/* one flowing summary line, the way the ref writes it, instead of a stack of
+   label/value rows */
+.sm-info-body {
+  flex-direction: row; flex-wrap: wrap; align-items: baseline;
+  gap: var(--s1) 0; padding: 0 var(--s3) var(--s3) 28px;
+}
+.sm-fact {
+  display: inline-flex; align-items: baseline; gap: 6px; min-width: 0;
+  padding: 0 var(--s3); border-left: 1px solid var(--line);
+  font: 500 var(--t2)/1.5 var(--font-body);
+}
+.sm-fact:first-child { padding-left: 0; border-left: 0; }
+.sm-fact-k { flex: 0 0 auto; color: var(--text-3); }
+.sm-fact-v { min-width: 0; color: var(--text-2); }
 
 /* ---- right rail -------------------------------------------------------- */
 .sm-rail-tools { flex: 0 0 auto; }
 .sm-rail-body { flex: 1 1 auto; min-height: 120px; }
 .sm-queue { flex: 1 1 auto; min-height: 0; }
-.sm-art-mini {
-  flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; border-radius: var(--r-sm);
-  background: var(--surface-2); border: 1px solid var(--line);
-  font: 700 10px/1.25 var(--font-mono); letter-spacing: .5px; color: var(--text-3);
+/* the ref's per-row artwork: the same generated cover as the hero, at 34px */
+.sm-thumb {
+  flex: 0 0 auto; display: block; width: 34px; height: 34px;
+  border-radius: var(--r-sm); overflow: hidden;
+  background: var(--bg-2); box-shadow: inset 0 0 0 1px var(--line);
 }
-.lrow.is-playing .sm-art-mini { color: var(--accent); border-color: var(--accent-line); }
+.sm-thumb > canvas { display: block; width: 34px; height: 34px; }
+.sm-qrow { gap: var(--s2); padding-right: var(--s1); }
+/* The refs keep a row menu visible on every queue row, so it is not a hover
+   discovery -- but REMOVING a song is a destructive action and stays where an
+   incidental row action belongs, on hover and on focus. */
+.sm-qrow .lrow-actions { opacity: 1; }
+.sm-qrow .lrow-actions > [data-action="drop"] {
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard);
+}
+.sm-qrow:hover .lrow-actions > [data-action="drop"],
+.sm-qrow:focus-within .lrow-actions > [data-action="drop"] { opacity: 1; }
+.sm-qrow > .lrow-index { width: 20px; }
+.sm-qrow > .lrow-index.is-playing { display: flex; justify-content: flex-end; color: var(--accent); }
+.lrow.is-playing .sm-thumb { box-shadow: inset 0 0 0 1px var(--accent-line); }
 
 .sm-recent { flex: 0 0 auto; border-top: 1px solid var(--line); }
-.sm-recent-list { max-height: 168px; overflow: auto; overscroll-behavior: contain; }
+.sm-recent-list { max-height: 186px; overflow: auto; overscroll-behavior: contain; }
 .sm-recent-empty { margin: 0; padding: 0 var(--s3) var(--s3); }
 .sm-actions {
-  flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: var(--s1);
-  padding: var(--s2); border-top: 1px solid var(--line); background: var(--surface);
+  flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2);
+  padding: var(--s3); border-top: 1px solid var(--line); background: var(--surface);
 }
-.sm-actions > .btn { justify-content: flex-start; padding: 0 8px; min-width: 0; }
+.sm-actions > .btn {
+  --bh: var(--h-ctl-lg);
+  justify-content: flex-start; gap: var(--s2); padding: 0 var(--s3); min-width: 0;
+}
 
 /* A row the shell just handed a file to, so the source of a hand-off is
    visible. background-color only: no layout, no shadow, no filter. */
@@ -179,26 +260,35 @@ html, body { height: 100%; overflow: hidden; }
 /* ---- narrow windows ----------------------------------------------------
    1040x700 is the floor. Panels become rails and labels go before any control
    becomes unusable; nothing reflows into a phone layout. */
+@media (max-width: 1620px) {
+  .sm-art { width: 168px; height: 168px; }
+  .sm-title { font-size: 27px; }
+  .sm-inst-status { display: none; }
+}
 @media (max-width: 1420px) {
-  .sm-split { --side: 236px; --rail: 276px; }
-  .sm-title { font-size: 22px; }
-  .sm-art { width: 76px; height: 76px; }
+  .sm-split { --side: 250px; --rail: 292px; }
+  .sm-title { font-size: 24px; }
+  .sm-art { width: 136px; height: 136px; }
+  .sm-hero { gap: var(--s4); }
+  .sm-stats { margin-top: var(--s3); }
 }
 @media (max-width: 1240px) {
-  .sm-split { --side: 212px; --rail: 248px; }
-  .sm-roll { height: 200px; }
-  .sm-inst-status { display: none; }
-  .sm-sound > .selectwrap { width: 128px; }
+  .sm-split { --side: 220px; --rail: 258px; }
+  .sm-roll { height: 190px; }
+  .sm-tools > .sm-inst { width: 128px; }
+  .sm-title { font-size: 22px; }
+  .sm-art { width: 112px; height: 112px; }
 }
 @media (max-width: 1120px) {
-  .sm-split { --side: 196px; --rail: 228px; }
+  .sm-split { --side: 200px; --rail: 236px; }
   .sm-nav-head > .selectwrap { width: 72px; }
   .sm-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sm-actions { grid-template-columns: 1fr; }
-  #volume-label, #autoplay-label { display: none; }
+  #volume-label, #autoplay-label, #sustain-label { display: none; }
   .sm-volume { width: 78px; }
   .sm-roll { height: 176px; }
-  .sm-song { padding: var(--s3); }
+  .sm-art { width: 96px; height: 96px; }
+  .sm-song { margin: var(--s2); padding: var(--s3); }
 }
 
 /* ---- reduced motion ---------------------------------------------------

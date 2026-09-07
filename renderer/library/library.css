@@ -2,12 +2,15 @@
    ============================================================================
    Everything interactive in here is a primitive from ui.css. This file only
    does three things: place the three columns, give the tab's own containers
-   (section heads, the storage block, the inspector art plate, the card shelf) a
+   (section heads, the storage card, the inspector art plate, the card shelf) a
    look consistent with the shared layer, and collapse the side columns to
    nothing at narrow widths before any control becomes unusable.
 
    No component is re-implemented here. If a rule below sets a colour or a
    height it is because that element has no primitive -- never to override one.
+
+   TYPE: every label in this tab is title case in the body font. Monospace is
+   kept for machine values only -- durations, note counts, byte sizes, paths.
    ========================================================================= */
 
 html, body { height: 100%; }
@@ -23,54 +26,77 @@ body {
      stored size inline on this element, so an inline default would beat every
      media query below. */
   --side: 262px;
-  --insp: 316px;
+  --insp: 320px;
   --card-h: 132px;   /* library.js owns this number and re-writes it */
 }
+
+/* The file table breathes more than a generic list row: the reference is a
+   data table you read down, not a dense queue. It is declared on :root so
+   Tokens.num('h-lrow') -- which reads documentElement -- sees the same number
+   VList positions rows from, in both densities. */
+:root { --h-lrow: 36px; }
+:root[data-density="compact"] { --h-lrow: 30px; }
 
 /* ---- LEFT COLUMN -------------------------------------------------------- */
 .lib-side {
   background: var(--surface); border-right: 1px solid var(--line);
 }
-.lib-side-body { flex: 1 1 auto; padding: var(--s2) 0 var(--s3); }
+.lib-side-body { flex: 1 1 auto; padding: var(--s3) 0 var(--s3); }
 
-.lib-sec + .lib-sec { margin-top: var(--s3); }
+.lib-sec + .lib-sec { margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--line); }
 .lib-sec-head {
   display: flex; align-items: center; gap: var(--s2);
-  height: 26px; padding: 0 var(--s2) 0 10px;
+  min-height: 28px; padding: 0 var(--s3) var(--s1);
 }
 .lib-sec-title {
-  font: 600 var(--t1)/1 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase;
-  color: var(--text-3); white-space: nowrap;
+  font: 600 var(--t2)/1.3 var(--font-body);
+  color: var(--text); white-space: nowrap;
 }
-.lib-sec-count { color: var(--text-3); font: 500 var(--t1)/1 var(--font-mono); }
+.lib-sec-count { color: var(--text-3); font: 500 var(--t1)/1.3 var(--font-body); }
 .lib-sec-head > .btn-icon { margin-left: auto; }
 
 /* The two sidebar listboxes are not focus targets themselves: they use a roving
    tabindex over their options (see rove() in library.js), and .lrow:focus-visible
    in ui.css already draws the ring on the option that has focus. */
-.lib-views, .lib-folders { outline: none; }
-.lib-views > .lrow, .lib-folders > .lrow { width: 100%; }
+.lib-views, .lib-folders { outline: none; gap: 1px; padding: 0 var(--s2); }
+.lib-views > .lrow, .lib-folders > .lrow {
+  width: 100%; min-height: 36px; border-radius: var(--r);
+  padding-left: var(--s2); padding-right: var(--s2);
+}
+/* the 2px lime edge is the shared selected indicator; inside a rounded, inset
+   row it has to follow the corner */
+.lib-views > .lrow::before, .lib-folders > .lrow::before { border-radius: var(--r) 0 0 var(--r); }
+.lib-views > .lrow[aria-selected="true"] .lrow-name { color: var(--text); font-weight: 600; }
+.lib-views > .lrow[aria-selected="true"] .lrow-meta,
+.lib-folders > .lrow[aria-selected="true"] .lrow-meta { color: var(--accent); }
+.lib-views .lrow-name, .lib-folders .lrow-name { color: var(--text-2); }
+.lib-views .lrow-meta, .lib-folders .lrow-meta { font-family: var(--font-body); font-size: var(--t1); }
 .lib-folders > .lrow { padding-right: 4px; }
-.lib-folders .lrow-sub { font-family: var(--font-mono); }
 .lib-folders .lrow-actions { gap: 0; }
 /* a built-in folder cannot be removed, so it says so instead of showing a
    button that would do nothing */
 .lib-folders .lrow-tag { flex: 0 0 auto; }
 .lib-folders .lrow.is-over { background: var(--accent-soft); }
 
-/* storage: drive letter, used-of-total, one meter */
+/* storage: one card at the foot of the column -- drive, used-of-total, meter */
 .lib-store {
-  flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px;
-  padding: var(--s2) 10px var(--s3);
-  border-top: 1px solid var(--line); background: var(--bg-2);
+  flex: 0 0 auto; display: flex; flex-direction: column;
+  padding: var(--s3);
 }
+.lib-store-card {
+  display: flex; align-items: flex-start; gap: var(--s2);
+  padding: var(--s3);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-lg);
+}
+.lib-store-icon { flex: 0 0 auto; display: flex; color: var(--text-3); padding-top: 1px; }
+.lib-store-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .lib-store-top { gap: var(--s2); }
 .lib-store-drive {
-  font: 700 var(--t2)/1 var(--font-mono); color: var(--text);
-  letter-spacing: .5px;
+  font: 600 var(--t2)/1.3 var(--font-body); color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.lib-store-text { font: 500 var(--t1)/1 var(--font-mono); color: var(--text-2); }
-.lib-store-sub { line-height: 1.3; }
+.lib-store-text { font: 500 var(--t1)/1.3 var(--font-mono); color: var(--text-3); }
+.lib-store-sub { line-height: 1.35; }
 /* Low space is a WORD and an aria-valuetext first (the shared .pill below);
    the colour on the number is decoration on top of that, never the signal. */
 .lib-store.is-low .lib-store-text { color: var(--warn); }
@@ -80,41 +106,74 @@ body {
 .lib-main { background: var(--bg); min-width: 0; overflow: hidden; }
 .lib-head { flex: 0 0 auto; }
 .lib-title-row {
-  height: var(--h-toolbar); padding: 0 var(--s3);
-  background: var(--surface); border-bottom: 1px solid var(--line);
+  min-height: 58px; padding: var(--s3) var(--s4);
+  background: var(--bg); border-bottom: 0;
   gap: var(--s2);
 }
-.lib-titles { gap: 0; min-width: 0; }
+.lib-titles { gap: 2px; min-width: 0; }
 .lib-title {
-  margin: 0; font: 700 var(--t3)/1.1 var(--font-display);
-  letter-spacing: -.2px; color: var(--text); white-space: nowrap;
+  margin: 0; font: 700 calc(var(--t4) + 2px)/1.15 var(--font-display);
+  letter-spacing: -.3px; color: var(--text); white-space: nowrap;
 }
 .lib-sub {
-  margin: 0; font: 500 var(--t1)/1.2 var(--font-body); color: var(--text-3);
+  margin: 0; font: 500 var(--t2)/1.3 var(--font-body); color: var(--text-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.lib-tools { gap: var(--s2); flex-wrap: nowrap; overflow: hidden; }
-.lib-search { flex: 1 1 200px; max-width: 340px; min-width: 96px; }
-.lib-filter { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.lib-filter .select { max-width: 132px; }
+.lib-viewmode { flex: 0 0 auto; margin-left: var(--s1); }
+
+/* search sits on its own full-width line, the way the reference reads it:
+   one field, then the filters under it. */
+.lib-searchrow { padding: 0 var(--s4) var(--s3); }
+.lib-search { width: 100%; }
+.lib-search > .input { height: var(--h-ctl-lg); border-radius: var(--r-lg); }
+
+.toolbar.lib-tools {
+  gap: var(--s2); flex-wrap: nowrap; overflow: hidden;
+  height: auto; min-height: 40px; padding: 0 var(--s4) var(--s3);
+  background: var(--bg); border-bottom: 1px solid var(--line);
+}
+/* each select carries its own noun ("All types", "Sort: Newest first"), so the
+   row needs no separate micro-label to explain it */
+.lib-filter { display: flex; align-items: center; min-width: 0; }
+.lib-filter .select { max-width: 168px; border-radius: var(--r-lg); }
+.lib-filter.is-sort .select { max-width: 220px; }
 
 .lib-selbar {
   display: flex; align-items: center; gap: var(--s2);
-  height: 34px; padding: 0 var(--s3);
+  height: 34px; padding: 0 var(--s4);
   background: var(--accent-soft); border-bottom: 1px solid var(--accent-line);
 }
 
 .lib-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .lib-body.dropzone { border: 1px solid transparent; }
 .lib-lgrid { flex: 1 1 auto; min-height: 0; min-width: 0; }
+.lib-lgrid .lgrid-head {
+  height: 34px; background: var(--bg); border-bottom: 1px solid var(--line);
+  padding: 0 var(--s2);
+}
 .lib-lgrid .lgrid-th.is-check { align-items: center; justify-content: center; }
 .lib-lgrid .lcell.is-check { display: flex; align-items: center; justify-content: center; padding: 0; }
 .lib-lgrid .lcell.is-act { display: flex; align-items: center; justify-content: center; padding: 0; }
-.lib-lgrid .lrow.is-grid { border-bottom: 1px solid var(--line); }
-.lib-lgrid .lcell-name { display: flex; align-items: center; gap: 6px; }
+/* the row is the reading unit here, so it gets the table's own height token and
+   no rule under it: the reference separates rows by air, not by lines. */
+.lib-lgrid .lrow.is-grid { min-height: var(--h-lrow); padding: 0 var(--s2); border-bottom: 0; }
+.lib-lgrid .lrow.is-grid[aria-selected="true"] { box-shadow: inset 0 0 0 1px var(--accent-deep); }
+.lib-lgrid .lcell { font-size: var(--t2); color: var(--text-2); }
+.lib-lgrid .lcell.is-dim { color: var(--text-3); }
+.lib-lgrid .lcell-name { display: flex; align-items: center; gap: 6px; color: var(--text); }
 .lib-lgrid .lcell-name > .lib-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-lgrid .lrow.is-grid[aria-selected="true"] .lib-nm { font-weight: 600; }
+/* Length and Notes stay tabular mono (they are machine values) but read down
+   the left edge of their column, flush with their heading. */
+.lib-lgrid .lcell.is-num { text-align: left; }
+.lib-lgrid .lgrid-th.is-num .th-sort { justify-content: flex-start; }
 .lib-lgrid .lcell-tags { display: flex; align-items: center; gap: 4px; overflow: hidden; }
 .lib-lgrid .lcell-tags > .tag { flex: 0 0 auto; }
+/* the row menu is part of the row in the reference, not a hover reveal */
+.lib-lgrid .lrow-actions { opacity: 1; }
+.lib-lgrid .lrow-actions .btn-icon { color: var(--text-3); }
+.lib-lgrid .lrow:hover .lrow-actions .btn-icon,
+.lib-lgrid .lrow[aria-selected="true"] .lrow-actions .btn-icon { color: var(--text-2); }
 /* the source column is a word, so the colour is decoration and never the state */
 .lib-src { color: var(--text-2); }
 .lib-src.is-generated { color: var(--accent); }
@@ -137,7 +196,7 @@ body {
 }
 .lib-drop.is-open { opacity: 1; transform: scale(1); }
 
-.lib-foot { gap: var(--s2); }
+.toolbar.lib-foot { gap: var(--s2); padding: 0 var(--s4); }
 .lib-trunc { padding: 2px 8px; }
 
 /* ---- GRID (card) VIEW ---------------------------------------------------
@@ -148,14 +207,14 @@ body {
 .lib-cards { flex: 1 1 auto; padding: 0; }
 .lib-shelf {
   display: grid; grid-template-columns: repeat(var(--cards, 4), minmax(0, 1fr));
-  grid-auto-rows: var(--card-h); gap: var(--s2); padding: var(--s2) var(--s3) 0;
+  grid-auto-rows: var(--card-h); gap: var(--s2); padding: var(--s2) var(--s4) 0;
   align-content: start;
 }
 .lib-card {
   display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden;
   padding: 8px; text-align: left; cursor: default;
   background: var(--surface); color: var(--text);
-  border: 1px solid var(--line); border-radius: var(--r);
+  border: 1px solid var(--line); border-radius: var(--r-lg);
   transition: background var(--motion-instant) var(--ease-standard),
               border-color var(--motion-instant) var(--ease-standard);
 }
@@ -201,68 +260,109 @@ body {
 .lib-insp {
   background: var(--surface); border-left: 1px solid var(--line);
 }
-.lib-insp-tabs { flex: 0 0 auto; padding: 0 var(--s2); }
+.lib-insp-tabs { flex: 0 0 auto; padding: 0 var(--s4); }
 .lib-insp-body { flex: 1 1 auto; }
 .lib-insp .insp-sec.is-last { border-bottom: 0; }
+/* the reference rules a line above the property list, where the identity ends */
+.lib-taghint + .insp-sec { border-top: 1px solid var(--line); }
+.lib-insp .insp-sec-body { padding-left: var(--s4); padding-right: var(--s4); }
+.lib-insp .insp-sec-head { padding-left: var(--s4); padding-right: var(--s4); }
 .lib-sec-row { display: flex; align-items: center; }
 .lib-sec-row > .insp-sec-head { flex: 1 1 auto; }
-.lib-seeall { flex: 0 0 auto; margin-right: var(--s3); white-space: nowrap; }
+.lib-seeall { flex: 0 0 auto; margin-right: var(--s4); white-space: nowrap; }
 
-/* the "large file icon or art": a real piano-roll thumbnail of the file,
-   because a generic glyph tells the user nothing about the song. Draw owns the
-   canvas; this is only the plate it sits on. */
+/* the "large file plate": a real piano-roll thumbnail of the file, because a
+   generic glyph tells the user nothing about the song. Draw owns the canvas;
+   this is only the plate it sits on, centred the way the reference centres its
+   file icon. */
 .lib-art {
-  flex: 0 0 auto; height: 116px; margin: var(--s3) var(--s3) 0;
-  border: 1px solid var(--line); border-radius: var(--r);
+  flex: 0 0 auto; width: 156px; height: 100px;
+  margin: var(--s5) auto var(--s1);
+  border: 1px solid var(--line); border-radius: var(--r-lg);
   background: var(--bg-2); box-shadow: var(--well);
 }
 .lib-art-empty {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  color: var(--text-3); font: 500 var(--t1)/1 var(--font-body); pointer-events: none;
+  color: var(--text-3); font: 500 var(--t1)/1.3 var(--font-body); pointer-events: none;
+  text-align: center; padding: 0 8px;
 }
 .lib-art-tag { position: absolute; left: 6px; top: 6px; }
 
-.lib-ident { display: flex; flex-direction: column; gap: 3px; padding: var(--s3) var(--s3) var(--s3); }
+/* identity: name, then one machine line, then one plain-English line -- all
+   centred under the plate */
+.lib-ident {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: var(--s3) var(--s4) var(--s3); text-align: center;
+}
 .lib-fname {
-  font: 700 var(--t3)/1.25 var(--font-display); color: var(--text);
+  font: 700 var(--t3)/1.3 var(--font-display); color: var(--text);
   word-break: break-word;
 }
 .lib-fline { font: 500 var(--t1)/1.3 var(--font-mono); color: var(--text-2); }
-.lib-fgen { color: var(--text-3); line-height: 1.3; }
+.lib-fgen { color: var(--text-3); line-height: 1.35; }
 
-.lib-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+/* tags: chips and one "+" that opens the field, centred with the identity */
+.lib-tagrow {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 4px; padding: 0 var(--s4) var(--s4);
+}
+.lib-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
 .lib-chips:empty { display: none; }
+.lib-tagmore {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  background: transparent; color: var(--text-3);
+  border: 1px solid var(--line-2); border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: color var(--motion-instant) var(--ease-standard),
+              border-color var(--motion-instant) var(--ease-standard);
+}
+.lib-tagmore:hover { color: var(--text); border-color: var(--text-3); }
+.lib-tagmore:focus-visible { outline: none; box-shadow: var(--ring); }
+.lib-tagmore:disabled { opacity: .4; cursor: not-allowed; }
+.lib-tagmore[aria-expanded="true"] { color: var(--accent); border-color: var(--accent-deep); }
+.lib-tagadd { padding: 0 var(--s4) var(--s3); gap: var(--s2); }
+.lib-tagadd[hidden] { display: none !important; }
 .lib-tagadd > .input { flex: 1 1 auto; min-width: 0; }
+.lib-taghint { padding: 0 var(--s4) var(--s3); }
+.lib-taghint[hidden] { display: none !important; }
+
 .lib-pathrow { gap: 4px; }
 .lib-pathrow .pathchip { max-width: 100%; }
 
 .lib-usage { gap: 0; }
-.lib-usage > .lrow { padding-left: 0; min-height: 24px; }
+.lib-usage > .lrow { padding-left: 0; min-height: 26px; }
 .lib-usage > .lrow::before { display: none; }
 .lib-usage > .lrow:hover { background: transparent; }
-.lib-usage .lrow-name { font: 500 var(--t1)/1.2 var(--font-body); color: var(--text-2); }
+.lib-usage .lrow-name { font: 500 var(--t2)/1.25 var(--font-body); color: var(--text-2); }
 .lib-usage .lrow-meta { font-size: var(--t1); }
 .lib-usage:empty { display: none; }
 
 /* the confirm dialog's one paragraph: .dlg-body owns the padding */
 .lib-dlg-msg { margin: 0; color: var(--text-2); line-height: 1.45; }
 
-.lib-actions { gap: 6px; }
-.lib-actions > .btn { justify-content: flex-start; }
-.lib-actions > .btn-primary { justify-content: center; }
+/* actions: one primary across the top, the everyday pairs in two columns, the
+   destructive one alone at the foot */
+.insp-sec-body.lib-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.lib-actions > .btn { --bh: var(--h-ctl-lg); justify-content: center; padding: 0 8px; }
+.lib-actions > .lib-act-wide { grid-column: 1 / -1; }
+.lib-actions > .btn-primary { --bh: var(--h-ctl-xl); font-size: var(--t3); gap: var(--s2); }
+.lib-actions > .btn-primary .ic-slot { display: inline-flex; }
+.lib-actions > .inline-note { grid-column: 1 / -1; }
 
 /* ---- RESPONSIVE: collapse columns before controls break ----------------- */
-/* 1240px: the filter labels are the first thing to go; the selects stay. */
+/* 1240px: the sort select gives up its width first; the filters all stay. */
 @media (max-width: 1240px) {
-  .lib { --side: 224px; --insp: 288px; }
-  .lib-filter > .toolbar-label { display: none; }
-  .lib-filter .select { max-width: 112px; }
+  .lib { --side: 228px; --insp: 296px; }
+  .lib-filter .select { max-width: 132px; }
+  .lib-filter.is-sort .select { max-width: 160px; }
 }
-/* 1100px: the inspector's own labels tighten and the card shelf loosens. */
+/* 1100px: the inspector's own labels tighten and the plate loosens. */
 @media (max-width: 1100px) {
-  .lib { --side: 208px; }
+  .lib { --side: 210px; }
   .insp-row { grid-template-columns: 76px 1fr; }
-  .lib-art { height: 96px; }
+  .lib-art { width: 132px; height: 86px; }
+  .lib-title-row, .lib-searchrow, .lib-tools, .lib-foot { padding-left: var(--s3); padding-right: var(--s3); }
 }
 /* Both side columns are toggles, driven from JS (see fitColumns): at 1040px
    there is only room for one of them plus a usable table. */

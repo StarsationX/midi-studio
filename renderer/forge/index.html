@@ -11,113 +11,240 @@
 </head>
 <body>
 
-<div class="fg split" id="fg" data-split="forge" style="--rail: 320px; --insp: 300px">
+<div class="fg split" id="fg" data-split="forge" style="--rail: 368px; --insp: 420px">
 
   <!-- ====================================================================
        LEFT COLUMN — Input | Queue | Settings, with the primary action pinned
        ==================================================================== -->
   <aside class="pane is-fixed fg-col fg-rail" id="rail" aria-label="Input and pipeline">
 
-    <div class="fg-colbar">
-      <button class="pill fg-env" id="env-chip" type="button"
-              aria-label="Forge engine status. Opens first-time setup.">
-        <span class="dot" id="env-dot"></span><span id="env-text">Checking engine…</span>
-      </button>
-      <span class="u-spacer"></span>
-      <button class="btn btn-icon is-sm is-bare" id="env-recheck" aria-label="Re-check the Forge engine"
-              data-tip="Re-check the engine" ><i data-icon="refresh" data-icon-size="13"></i></button>
-      <span class="fg-colbar-t is-railonly">Input</span>
-      <button class="btn btn-icon is-sm is-bare fg-collapse" id="rail-collapse"
-              aria-label="Collapse the input column" aria-expanded="true"><i data-icon="caretRight" data-icon-size="12"></i></button>
-    </div>
-
-    <div class="tabstrip" role="tablist" id="rail-tabs" aria-label="Input sections">
+    <div class="tabstrip fg-coltabs" role="tablist" id="rail-tabs" aria-label="Input sections">
       <button role="tab" id="tab-input" aria-selected="true" aria-controls="tp-input" tabindex="0">Input</button>
       <button role="tab" id="tab-queue" aria-selected="false" aria-controls="tp-queue" tabindex="-1">Queue <span class="count" id="queue-count">0</span></button>
       <button role="tab" id="tab-settings" aria-selected="false" aria-controls="tp-adv" tabindex="-1">Settings</button>
+      <span class="fg-colbar-t">Input</span>
+      <div class="fg-tabtools">
+        <button class="btn btn-icon is-sm is-bare fg-collapse" id="rail-collapse" type="button"
+                aria-label="Collapse the input column" aria-expanded="true"><i data-icon="caretRight" data-icon-size="12"></i></button>
+      </div>
     </div>
 
     <!-- ---------------- INPUT ---------------- -->
     <div class="tabpanel fg-tp scroll-y" id="tp-input" role="tabpanel" aria-labelledby="tab-input">
 
       <button class="dropzone" id="dropzone" type="button">
-        <span class="dz-icon" aria-hidden="true"><i data-icon="drop" data-icon-size="20"></i></span>
+        <span class="dz-icon" aria-hidden="true"><i data-icon="drop" data-icon-size="22"></i></span>
         <span class="dz-title">Drop audio file here</span>
         <span class="dz-sub">or click to browse</span>
-        <span class="dz-types">Supports MP3, WAV, FLAC, M4A, OGG</span>
+        <span class="dz-types">Supports MP3, WAV, FLAC, M4A, OGG, etc.</span>
       </button>
 
-      <div class="fg-inputrow">
-        <span class="pathchip" id="in-chip" hidden>
-          <span class="pathchip-dir" id="in-dir"></span><span class="pathchip-name" id="in-name"></span>
-          <button class="pathchip-reveal" id="in-reveal" type="button" aria-label="Show the input file in its folder"><i data-icon="folder" data-icon-size="12"></i></button>
-        </span>
-        <button class="btn btn-sm btn-ghost" id="queue-add" type="button">Add files</button>
+      <span class="input-wrap fg-url" title="Downloads the audio, then loads it as the current input.">
+        <input class="input is-body" id="url" type="text" spellcheck="false"
+               aria-label="Paste a link to download"
+               placeholder="Paste URL (YouTube, SoundCloud, etc.)" />
+        <button class="input-affix fg-affix-btn" id="fetch" type="button" hidden>Fetch</button>
+      </span>
+
+      <div class="insp-sec fg-sec">
+        <button class="insp-sec-head" id="out-toggle" type="button" aria-expanded="true" aria-controls="out-body">Output</button>
+        <div class="insp-sec-body" id="out-body">
+          <div class="fg-outrow">
+            <span class="pathchip fg-outpath" id="out-chip">
+              <span class="fg-outicon" aria-hidden="true"><i data-icon="folder" data-icon-size="13"></i></span>
+              <span class="pathchip-dir" id="out-dir"></span><span class="pathchip-name" id="out-base"></span>
+              <button class="pathchip-reveal" id="out-reveal" type="button" aria-label="Open the output folder"><i data-icon="send" data-icon-size="12"></i></button>
+            </span>
+            <button class="btn btn-icon fg-sq" id="pick-out" type="button"
+                    aria-label="Choose the output folder" data-tip="Choose the output folder"><i data-icon="dots" data-icon-size="14"></i></button>
+          </div>
+          <div class="fg-outfoot">
+            <span class="field-hint" id="out-note">Program output folder.</span>
+            <button class="link" id="clear-out" type="button" hidden>Reset</button>
+          </div>
+
+          <div class="field" id="outname-field">
+            <label class="field-label" for="out-name">Filename</label>
+            <div class="fg-outrow">
+              <span class="input-wrap">
+                <input class="input" id="out-name" type="text" spellcheck="false" placeholder="same name as the song" />
+                <span class="input-affix">.mid</span>
+              </span>
+              <button class="btn btn-icon fg-sq" id="samename" type="button" role="switch" aria-checked="true"
+                      aria-label="Name the file after the song"
+                      data-tip="Name the file after the song"><i data-icon="check" data-icon-size="13"></i></button>
+            </div>
+            <span class="field-hint" id="samename-hint">Named after the song. Turn the tick off to name it yourself.</span>
+          </div>
+        </div>
       </div>
 
-      <label class="field">
-        <span class="field-label">Link</span>
-        <span class="input-wrap">
-          <input class="input is-body" id="url" type="text" spellcheck="false"
-                 placeholder="Paste URL (YouTube, SoundCloud, etc.)" />
-          <button class="input-affix fg-affix-btn" id="fetch" type="button">Fetch</button>
-        </span>
-        <span class="field-hint">Downloads the audio, then loads it as the current input.</span>
-      </label>
-
-      <div class="fg-group">
-        <div class="fg-group-head">
-          <span class="fg-group-title">Output</span>
-          <button class="btn btn-sm btn-ghost" id="pick-out" type="button">Browse…</button>
+      <div class="insp-sec fg-sec">
+        <button class="insp-sec-head" id="pipe-toggle" type="button" aria-expanded="true" aria-controls="pipe-body">Pipeline</button>
+        <div class="insp-sec-body fg-tiles-body" id="pipe-body">
+          <div class="tiles" id="pipeline" role="radiogroup" aria-label="Pipeline">
+            <button class="tile" role="radio" type="button" data-v="piano" aria-checked="false" tabindex="-1">
+              <span class="pmark" data-mark="piano" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+              <span class="tile-title">Piano</span>
+              <span class="tile-sub">Best for piano recordings</span>
+            </button>
+            <button class="tile" role="radio" type="button" data-v="melody" aria-checked="true" tabindex="0">
+              <span class="pmark" data-mark="melody" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+              <span class="tile-title">Melody</span>
+              <span class="tile-sub">Extract the main melody</span>
+              <span class="tile-badge">Prototype</span>
+            </button>
+            <button class="tile" role="radio" type="button" data-v="general" aria-checked="false" tabindex="-1">
+              <span class="pmark" data-mark="general" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+              <span class="tile-title">Full Song</span>
+              <span class="tile-sub">Keep all instruments</span>
+            </button>
+            <button class="tile" role="radio" type="button" data-v="drums" aria-checked="false" tabindex="-1">
+              <span class="pmark" data-mark="drums" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+              <span class="tile-title">Drums</span>
+              <span class="tile-sub">8-pad transcription</span>
+            </button>
+            <button class="tile" role="radio" type="button" data-v="fast" aria-checked="false" tabindex="-1">
+              <span class="pmark" data-mark="fast" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+              <span class="tile-title">Fast</span>
+              <span class="tile-sub">Quick preview (lower accuracy)</span>
+            </button>
+          </div>
         </div>
-        <span class="pathchip" id="out-chip">
-          <span class="pathchip-dir" id="out-dir"></span><span class="pathchip-name" id="out-base"></span>
-          <button class="pathchip-reveal" id="out-reveal" type="button" aria-label="Open the output folder"><i data-icon="folder" data-icon-size="12"></i></button>
-        </span>
-        <div class="fg-outfoot">
-          <span class="field-hint" id="out-note">Program output folder.</span>
-          <button class="link" id="clear-out" type="button" hidden>Reset</button>
-        </div>
-
-        <div class="switch-row fg-samename">
-          <span class="switch-label" id="samename-label">Filename: same as input</span>
-          <span class="switch-hint" id="samename-hint">Turn off to name the file yourself.</span>
-          <button class="switch" id="samename" role="switch" aria-checked="true" aria-labelledby="samename-label"></button>
-        </div>
-        <label class="field" id="outname-field" hidden>
-          <span class="field-label">Filename</span>
-          <span class="input-wrap">
-            <input class="input" id="out-name" type="text" spellcheck="false" placeholder="same name as the song" />
-            <span class="input-affix">.mid</span>
-          </span>
-          <span class="field-hint">Windows-illegal characters are removed. 120 characters max.</span>
-        </label>
       </div>
 
-      <div class="fg-group">
-        <div class="fg-group-head"><span class="fg-group-title">Pipeline</span></div>
-        <div class="tiles" id="pipeline" role="radiogroup" aria-label="Pipeline">
-          <button class="tile" role="radio" type="button" data-v="piano" aria-checked="false" tabindex="-1">
-            <span class="tile-title"><span class="pmark" data-mark="piano" aria-hidden="true"><span></span><span></span><span></span><span></span></span>Piano</span>
-            <span class="tile-sub">Best for piano recordings</span>
-          </button>
-          <button class="tile" role="radio" type="button" data-v="melody" aria-checked="true" tabindex="0">
-            <span class="tile-title"><span class="pmark" data-mark="melody" aria-hidden="true"><span></span><span></span><span></span><span></span></span>Melody</span>
-            <span class="tile-sub">Extract the main melody</span>
-            <span class="tile-badge">PROTOTYPE</span>
-          </button>
-          <button class="tile" role="radio" type="button" data-v="general" aria-checked="false" tabindex="-1">
-            <span class="tile-title"><span class="pmark" data-mark="general" aria-hidden="true"><span></span><span></span><span></span><span></span></span>Full Song</span>
-            <span class="tile-sub">Keep all instruments</span>
-          </button>
-          <button class="tile" role="radio" type="button" data-v="drums" aria-checked="false" tabindex="-1">
-            <span class="tile-title"><span class="pmark" data-mark="drums" aria-hidden="true"><span></span><span></span><span></span><span></span></span>Drums</span>
-            <span class="tile-sub">8-pad transcription</span>
-          </button>
-          <button class="tile" role="radio" type="button" data-v="fast" aria-checked="false" tabindex="-1">
-            <span class="tile-title"><span class="pmark" data-mark="fast" aria-hidden="true"><span></span><span></span><span></span><span></span></span>Fast</span>
-            <span class="tile-sub">Quick preview (lower accuracy)</span>
-          </button>
+      <div class="insp-sec fg-sec">
+        <button class="insp-sec-head" id="adv-toggle" type="button" aria-expanded="false" aria-controls="adv">Advanced Options</button>
+        <div class="insp-sec-body" id="adv" hidden>
+
+          <div class="fg-advtop">
+            <span class="field-hint">These are the raw transcription variables. The four cards in the middle write to the same fields.</span>
+            <button class="link" id="adv-reset" type="button">Reset tuning</button>
+          </div>
+
+          <div class="fg-advgrp">
+            <div class="fg-advgrp-t">Sound cleanup</div>
+            <div class="switch-row">
+              <span class="switch-label" id="l-LOUDNESS_NORM">Balance input volume</span>
+              <span class="switch-hint">Levels quiet and loud recordings before transcription.</span>
+              <button class="switch" id="LOUDNESS_NORM" role="switch" aria-checked="true" aria-labelledby="l-LOUDNESS_NORM"></button>
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="VELOCITY_GAMMA">Note dynamics</label>
+              <input class="input is-sm" id="VELOCITY_GAMMA" type="number" step="0.05" min="0.2" max="2" value="0.85"
+                     aria-describedby="h-VELOCITY_GAMMA" />
+            </div>
+            <p class="fg-advhint" id="h-VELOCITY_GAMMA">Contrast between soft and strong notes.</p>
+            <div class="insp-row">
+              <label class="insp-label" for="MIN_NOTE_SEC">Shortest note</label>
+              <span class="input-wrap"><input class="input is-sm" id="MIN_NOTE_SEC" type="number" step="0.01" min="0" value="0.03" /><span class="input-affix">s</span></span>
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="MIN_VELOCITY">Quiet cutoff</label>
+              <input class="input is-sm" id="MIN_VELOCITY" type="number" min="0" max="127" value="20" />
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="MAX_POLYPHONY">Chord limit</label>
+              <span class="input-wrap"><input class="input is-sm" id="MAX_POLYPHONY" type="number" step="1" min="0" max="12" value="0" /><span class="input-affix">0 = all</span></span>
+            </div>
+          </div>
+
+          <div class="fg-advgrp adv-group" data-group="piano" hidden>
+            <div class="fg-advgrp-t">Piano recognition</div>
+            <div class="switch-row">
+              <span class="switch-label" id="l-USE_TTA">Extra accuracy pass</span>
+              <span class="switch-hint">A second shifted analysis pass. About twice as slow.</span>
+              <button class="switch" id="USE_TTA" role="switch" aria-checked="false" aria-labelledby="l-USE_TTA"></button>
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="BIGSHIFTS">Passes</label>
+              <span class="input-wrap"><input class="input is-sm" id="BIGSHIFTS" type="number" min="1" max="7" value="1" /><span class="input-affix">1–7</span></span>
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="SEGMENT_HOP">Segment hop</label>
+              <span class="input-wrap"><input class="input is-sm" id="SEGMENT_HOP" type="number" min="0.1" step="0.1" placeholder="auto" /><span class="input-affix">s</span></span>
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="PIANO_MIN_PITCH">Lowest note</label>
+              <input class="input is-sm" id="PIANO_MIN_PITCH" type="number" min="0" max="127" value="21" />
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="PIANO_MAX_PITCH">Highest note</label>
+              <input class="input is-sm" id="PIANO_MAX_PITCH" type="number" min="0" max="127" value="108" />
+            </div>
+          </div>
+
+          <div class="fg-advgrp adv-group" data-group="general" hidden>
+            <div class="fg-advgrp-t">Full-song recognition</div>
+            <div class="switch-row">
+              <span class="switch-label" id="l-EXCLUDE_VOCALS">Ignore vocals</span>
+              <span class="switch-hint">Drops the vocal stem and transcribes instruments only.</span>
+              <button class="switch" id="EXCLUDE_VOCALS" role="switch" aria-checked="false" aria-labelledby="l-EXCLUDE_VOCALS"></button>
+            </div>
+          </div>
+
+          <div class="fg-advgrp adv-group" data-group="melody" hidden>
+            <div class="fg-advgrp-t">Lead melody recognition</div>
+            <div class="insp-row">
+              <label class="insp-label" for="MELODY_MIN_PITCH">Lowest lead</label>
+              <input class="input is-sm" id="MELODY_MIN_PITCH" type="number" min="24" max="96" value="45" />
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="MELODY_MAX_PITCH">Highest lead</label>
+              <input class="input is-sm" id="MELODY_MAX_PITCH" type="number" min="48" max="120" value="100" />
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="MELODY_ONSET_THRESHOLD">Sensitivity</label>
+              <span class="input-wrap"><input class="input is-sm" id="MELODY_ONSET_THRESHOLD" type="number" step="0.02" min="0.1" max="0.9" value="0.42" /><span class="input-affix">lower = more</span></span>
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="MELODY_MIN_NOTE_MS">Shortest lead</label>
+              <span class="input-wrap"><input class="input is-sm" id="MELODY_MIN_NOTE_MS" type="number" step="5" min="20" max="300" value="30" /><span class="input-affix">ms</span></span>
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="MELODY_DENSITY">Notes / sec</label>
+              <span class="input-wrap"><input class="input is-sm" id="MELODY_DENSITY" type="number" step="1" min="0" max="40" value="13" /><span class="input-affix">0 = all</span></span>
+            </div>
+            <div class="switch-row">
+              <span class="switch-label" id="l-MELODY_FOLD">Fold out-of-range notes in</span>
+              <span class="switch-hint">Moves a hook that climbs out of range back in instead of deleting it.</span>
+              <button class="switch" id="MELODY_FOLD" role="switch" aria-checked="true" aria-labelledby="l-MELODY_FOLD"></button>
+            </div>
+          </div>
+
+          <div class="fg-advgrp adv-group" data-group="drums" hidden>
+            <div class="fg-advgrp-t">Drum detection</div>
+            <div class="insp-row">
+              <label class="insp-label" for="ONSET_DELTA">Hit sensitivity</label>
+              <span class="input-wrap"><input class="input is-sm" id="ONSET_DELTA" type="number" step="0.01" min="0.02" max="0.3" value="0.07" /><span class="input-affix">lower = more</span></span>
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="DRUM_MIN_GAP_MS">Repeat gap</label>
+              <span class="input-wrap"><input class="input is-sm" id="DRUM_MIN_GAP_MS" type="number" step="10" min="20" max="200" value="50" /><span class="input-affix">ms</span></span>
+            </div>
+          </div>
+
+          <div class="fg-advgrp adv-group" data-group="fast" hidden>
+            <div class="fg-advgrp-t">Fast recognition</div>
+            <div class="insp-row">
+              <label class="insp-label" for="BP_ONSET_THRESHOLD">Note start</label>
+              <input class="input is-sm" id="BP_ONSET_THRESHOLD" type="number" step="0.05" min="0.05" max="0.95" value="0.5" />
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="BP_FRAME_THRESHOLD">Sustain</label>
+              <input class="input is-sm" id="BP_FRAME_THRESHOLD" type="number" step="0.05" min="0.05" max="0.95" value="0.3" />
+            </div>
+            <div class="insp-row">
+              <label class="insp-label" for="BP_MIN_NOTE_MS">Shortest note</label>
+              <span class="input-wrap"><input class="input is-sm" id="BP_MIN_NOTE_MS" type="number" step="10" min="10" value="120" /><span class="input-affix">ms</span></span>
+            </div>
+            <div class="switch-row">
+              <span class="switch-label" id="l-OCTAVE_FOLD">Fit notes to keyboard</span>
+              <span class="switch-hint">Moves notes by octaves until they fit the playable range.</span>
+              <button class="switch" id="OCTAVE_FOLD" role="switch" aria-checked="true" aria-labelledby="l-OCTAVE_FOLD"></button>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -131,6 +258,7 @@
           <span class="toolbar-label" id="queue-auto-lbl">Auto-continue</span>
           <span class="toolbar-spacer"></span>
           <button class="btn btn-sm btn-ghost" id="queue-undo" type="button" hidden>Undo</button>
+          <button class="btn btn-sm btn-ghost" id="queue-add" type="button">Add files</button>
           <button class="btn btn-sm btn-ghost" id="queue-clear" type="button">Clear waiting</button>
         </div>
         <div class="vlist fg-qlist" id="queue-list"></div>
@@ -147,140 +275,6 @@
     <div class="tabpanel fg-tp is-flush" id="tp-adv" role="tabpanel" aria-labelledby="tab-settings" hidden>
       <div class="insp">
         <div class="insp-sec">
-          <button class="insp-sec-head" id="adv-toggle" type="button" aria-expanded="false" aria-controls="adv">Advanced Options</button>
-          <div class="insp-sec-body" id="adv" hidden>
-
-            <div class="fg-advtop">
-              <span class="field-hint">These are the raw transcription variables. The four cards in the middle write to the same fields.</span>
-              <button class="link" id="adv-reset" type="button">Reset tuning</button>
-            </div>
-
-            <div class="fg-advgrp">
-              <div class="fg-advgrp-t">Sound cleanup</div>
-              <div class="switch-row">
-                <span class="switch-label" id="l-LOUDNESS_NORM">Balance input volume</span>
-                <span class="switch-hint">Levels quiet and loud recordings before transcription.</span>
-                <button class="switch" id="LOUDNESS_NORM" role="switch" aria-checked="true" aria-labelledby="l-LOUDNESS_NORM"></button>
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="VELOCITY_GAMMA">Note dynamics</label>
-                <input class="input is-sm" id="VELOCITY_GAMMA" type="number" step="0.05" min="0.2" max="2" value="0.85"
-                       aria-describedby="h-VELOCITY_GAMMA" />
-              </div>
-              <p class="fg-advhint" id="h-VELOCITY_GAMMA">Contrast between soft and strong notes.</p>
-              <div class="insp-row">
-                <label class="insp-label" for="MIN_NOTE_SEC">Shortest note</label>
-                <span class="input-wrap"><input class="input is-sm" id="MIN_NOTE_SEC" type="number" step="0.01" min="0" value="0.03" /><span class="input-affix">s</span></span>
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="MIN_VELOCITY">Quiet cutoff</label>
-                <input class="input is-sm" id="MIN_VELOCITY" type="number" min="0" max="127" value="20" />
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="MAX_POLYPHONY">Chord limit</label>
-                <span class="input-wrap"><input class="input is-sm" id="MAX_POLYPHONY" type="number" step="1" min="0" max="12" value="0" /><span class="input-affix">0 = all</span></span>
-              </div>
-            </div>
-
-            <div class="fg-advgrp adv-group" data-group="piano" hidden>
-              <div class="fg-advgrp-t">Piano recognition</div>
-              <div class="switch-row">
-                <span class="switch-label" id="l-USE_TTA">Extra accuracy pass</span>
-                <span class="switch-hint">A second shifted analysis pass. About twice as slow.</span>
-                <button class="switch" id="USE_TTA" role="switch" aria-checked="false" aria-labelledby="l-USE_TTA"></button>
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="BIGSHIFTS">Passes</label>
-                <span class="input-wrap"><input class="input is-sm" id="BIGSHIFTS" type="number" min="1" max="7" value="1" /><span class="input-affix">1–7</span></span>
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="SEGMENT_HOP">Segment hop</label>
-                <span class="input-wrap"><input class="input is-sm" id="SEGMENT_HOP" type="number" min="0.1" step="0.1" placeholder="auto" /><span class="input-affix">s</span></span>
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="PIANO_MIN_PITCH">Lowest note</label>
-                <input class="input is-sm" id="PIANO_MIN_PITCH" type="number" min="0" max="127" value="21" />
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="PIANO_MAX_PITCH">Highest note</label>
-                <input class="input is-sm" id="PIANO_MAX_PITCH" type="number" min="0" max="127" value="108" />
-              </div>
-            </div>
-
-            <div class="fg-advgrp adv-group" data-group="general" hidden>
-              <div class="fg-advgrp-t">Full-song recognition</div>
-              <div class="switch-row">
-                <span class="switch-label" id="l-EXCLUDE_VOCALS">Ignore vocals</span>
-                <span class="switch-hint">Drops the vocal stem and transcribes instruments only.</span>
-                <button class="switch" id="EXCLUDE_VOCALS" role="switch" aria-checked="false" aria-labelledby="l-EXCLUDE_VOCALS"></button>
-              </div>
-            </div>
-
-            <div class="fg-advgrp adv-group" data-group="melody" hidden>
-              <div class="fg-advgrp-t">Lead melody recognition</div>
-              <div class="insp-row">
-                <label class="insp-label" for="MELODY_MIN_PITCH">Lowest lead</label>
-                <input class="input is-sm" id="MELODY_MIN_PITCH" type="number" min="24" max="96" value="45" />
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="MELODY_MAX_PITCH">Highest lead</label>
-                <input class="input is-sm" id="MELODY_MAX_PITCH" type="number" min="48" max="120" value="100" />
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="MELODY_ONSET_THRESHOLD">Sensitivity</label>
-                <span class="input-wrap"><input class="input is-sm" id="MELODY_ONSET_THRESHOLD" type="number" step="0.02" min="0.1" max="0.9" value="0.42" /><span class="input-affix">lower = more</span></span>
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="MELODY_MIN_NOTE_MS">Shortest lead</label>
-                <span class="input-wrap"><input class="input is-sm" id="MELODY_MIN_NOTE_MS" type="number" step="5" min="20" max="300" value="30" /><span class="input-affix">ms</span></span>
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="MELODY_DENSITY">Notes / sec</label>
-                <span class="input-wrap"><input class="input is-sm" id="MELODY_DENSITY" type="number" step="1" min="0" max="40" value="13" /><span class="input-affix">0 = all</span></span>
-              </div>
-              <div class="switch-row">
-                <span class="switch-label" id="l-MELODY_FOLD">Fold out-of-range notes in</span>
-                <span class="switch-hint">Moves a hook that climbs out of range back in instead of deleting it.</span>
-                <button class="switch" id="MELODY_FOLD" role="switch" aria-checked="true" aria-labelledby="l-MELODY_FOLD"></button>
-              </div>
-            </div>
-
-            <div class="fg-advgrp adv-group" data-group="drums" hidden>
-              <div class="fg-advgrp-t">Drum detection</div>
-              <div class="insp-row">
-                <label class="insp-label" for="ONSET_DELTA">Hit sensitivity</label>
-                <span class="input-wrap"><input class="input is-sm" id="ONSET_DELTA" type="number" step="0.01" min="0.02" max="0.3" value="0.07" /><span class="input-affix">lower = more</span></span>
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="DRUM_MIN_GAP_MS">Repeat gap</label>
-                <span class="input-wrap"><input class="input is-sm" id="DRUM_MIN_GAP_MS" type="number" step="10" min="20" max="200" value="50" /><span class="input-affix">ms</span></span>
-              </div>
-            </div>
-
-            <div class="fg-advgrp adv-group" data-group="fast" hidden>
-              <div class="fg-advgrp-t">Fast recognition</div>
-              <div class="insp-row">
-                <label class="insp-label" for="BP_ONSET_THRESHOLD">Note start</label>
-                <input class="input is-sm" id="BP_ONSET_THRESHOLD" type="number" step="0.05" min="0.05" max="0.95" value="0.5" />
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="BP_FRAME_THRESHOLD">Sustain</label>
-                <input class="input is-sm" id="BP_FRAME_THRESHOLD" type="number" step="0.05" min="0.05" max="0.95" value="0.3" />
-              </div>
-              <div class="insp-row">
-                <label class="insp-label" for="BP_MIN_NOTE_MS">Shortest note</label>
-                <span class="input-wrap"><input class="input is-sm" id="BP_MIN_NOTE_MS" type="number" step="10" min="10" value="120" /><span class="input-affix">ms</span></span>
-              </div>
-              <div class="switch-row">
-                <span class="switch-label" id="l-OCTAVE_FOLD">Fit notes to keyboard</span>
-                <span class="switch-hint">Moves notes by octaves until they fit the playable range.</span>
-                <button class="switch" id="OCTAVE_FOLD" role="switch" aria-checked="true" aria-labelledby="l-OCTAVE_FOLD"></button>
-              </div>
-            </div>
-
-          </div>
-        </div>
-        <div class="insp-sec">
           <button class="insp-sec-head" id="diag-toggle" type="button" aria-expanded="false" aria-controls="diag">Diagnostics</button>
           <div class="insp-sec-body" id="diag" hidden>
             <button class="btn btn-sm" id="setup-open" type="button">First-time setup…</button>
@@ -292,10 +286,15 @@
     </div>
 
     <footer class="panel-foot fg-run">
-      <button class="btn btn-primary btn-lg fg-go" id="start" type="button" disabled>Forge MIDI</button>
-      <div class="fg-runinfo">
-        <span class="fg-ri"><span>PIPELINE</span><span class="mono" id="run-info-pipeline">melody</span></span>
-        <span class="fg-ri"><span>OUTPUT</span><span class="mono u-truncate" id="run-info-out">—</span></span>
+      <button class="btn btn-primary big fg-go" id="start" type="button" disabled>
+        <i data-icon="play" data-icon-size="13"></i>Forge MIDI</button>
+      <div class="fg-envrow">
+        <button class="pill fg-env" id="env-chip" type="button"
+                aria-label="Forge engine status. Opens first-time setup.">
+          <span class="dot" id="env-dot"></span><span id="env-text">Checking…</span>
+        </button>
+        <button class="btn btn-icon is-sm is-bare" id="env-recheck" type="button" aria-label="Re-check the Forge engine"
+                data-tip="Re-check the engine"><i data-icon="refresh" data-icon-size="13"></i></button>
       </div>
     </footer>
   </aside>
@@ -310,37 +309,16 @@
     <header class="fg-song">
       <div class="fg-song-main">
         <h1 class="fg-song-title u-truncate" id="song-title">No input loaded</h1>
-        <p class="fg-song-meta mono" id="song-meta">Drop an audio file, paste a link, or browse.</p>
+        <p class="fg-song-meta" id="song-meta">Drop an audio file, paste a link, or browse.</p>
       </div>
       <div class="fg-song-tools">
-        <span class="tag" id="song-fmt" hidden></span>
+        <span class="tag is-mono" id="song-fmt" hidden></span>
+        <button class="btn btn-icon is-sm" id="song-menu" type="button" aria-haspopup="menu"
+                aria-label="Input actions" data-tip="Input actions"><i data-icon="dots" data-icon-size="14"></i></button>
       </div>
     </header>
 
     <section class="panel fg-wave" id="wave-panel">
-      <header class="panel-head">
-        <h2 class="panel-title">Waveform</h2>
-        <div class="panel-tools">
-          <span class="mono small fg-readout" id="time-readout">--:--.--- / --:--.---</span>
-          <span class="toolbar-sep"></span>
-          <div class="btn-group">
-            <button class="btn btn-icon is-sm" id="preview" type="button" aria-label="Play preview"><i data-icon="play" data-icon-size="12"></i></button>
-            <button class="btn btn-icon is-sm" id="preview-stop" type="button" aria-label="Stop preview"><i data-icon="stop" data-icon-size="12"></i></button>
-          </div>
-          <span class="fg-vol">
-            <label class="u-hidden-visually" for="preview-volume">Preview volume</label>
-            <input class="range" id="preview-volume" type="range" min="0" max="100" value="80" />
-            <output class="mono small" id="preview-volume-value">80%</output>
-          </span>
-          <span class="toolbar-sep"></span>
-          <button class="btn btn-icon is-sm is-bare" id="zoom-out" type="button" aria-label="Zoom out"><i data-icon="minus" data-icon-size="12"></i></button>
-          <button class="btn btn-icon is-sm is-bare" id="zoom-in" type="button" aria-label="Zoom in"><i data-icon="plus" data-icon-size="12"></i></button>
-          <button class="btn btn-icon is-sm is-bare" id="zoom-reset" type="button" aria-label="Fit the whole song"><i data-icon="refresh" data-icon-size="12"></i></button>
-          <span class="toolbar-sep"></span>
-          <button class="btn btn-icon is-sm is-bare fg-collapse" id="wave-collapse" type="button"
-                  aria-label="Collapse the waveform" aria-expanded="true"><i data-icon="caretUp" data-icon-size="12"></i></button>
-        </div>
-      </header>
       <div class="panel-body is-flush fg-wave-body">
         <div class="canvas-host" id="wave-shell">
           <canvas id="waveform" tabindex="0" role="slider" aria-label="Audio preview and forge range"
@@ -352,22 +330,44 @@
           <button class="link" id="wave-load" type="button">Load now</button>
         </div>
       </div>
-      <footer class="panel-foot fg-range">
-        <label class="field is-row"><span class="field-label">Start</span>
-          <input class="input is-sm fg-time" id="time-start" type="text" inputmode="decimal" placeholder="0:00" /></label>
-        <label class="field is-row"><span class="field-label">End</span>
-          <input class="input is-sm fg-time" id="time-end" type="text" inputmode="decimal" placeholder="end" /></label>
-        <button class="btn btn-sm" id="time-from-playhead" type="button">Start here</button>
-        <button class="btn btn-sm" id="time-to-playhead" type="button">End here</button>
-        <button class="btn btn-sm btn-ghost" id="time-reset" type="button">Reset</button>
-        <span class="u-spacer"></span>
-        <span class="field-hint u-truncate" id="time-hint"></span>
-      </footer>
+      <div class="fg-wave-ctl">
+        <div class="fg-ctl-row is-top">
+          <span class="field-hint u-truncate" id="time-hint"></span>
+          <span class="u-spacer"></span>
+          <label class="field is-row"><span class="field-label">Start</span>
+            <input class="input is-sm fg-time" id="time-start" type="text" inputmode="decimal" placeholder="0:00" /></label>
+          <label class="field is-row"><span class="field-label">End</span>
+            <input class="input is-sm fg-time" id="time-end" type="text" inputmode="decimal" placeholder="end" /></label>
+          <button class="btn btn-sm" id="time-reset" type="button">Reset</button>
+          <span class="toolbar-sep"></span>
+          <button class="btn btn-icon is-sm is-bare" id="zoom-out" type="button" aria-label="Zoom out"><i data-icon="minus" data-icon-size="12"></i></button>
+          <button class="btn btn-icon is-sm is-bare" id="zoom-in" type="button" aria-label="Zoom in"><i data-icon="plus" data-icon-size="12"></i></button>
+          <button class="btn btn-icon is-sm is-bare" id="zoom-reset" type="button" aria-label="Fit the whole song"><i data-icon="refresh" data-icon-size="12"></i></button>
+          <button class="btn btn-icon is-sm is-bare fg-collapse" id="wave-collapse" type="button"
+                  aria-label="Collapse the waveform" aria-expanded="true"><i data-icon="caretUp" data-icon-size="12"></i></button>
+        </div>
+        <div class="fg-ctl-row is-bottom">
+          <button class="btn btn-icon fg-play" id="preview" type="button" aria-label="Play preview"><i data-icon="play" data-icon-size="15"></i></button>
+          <button class="btn btn-icon is-sm is-bare" id="preview-stop" type="button" aria-label="Stop preview"><i data-icon="stop" data-icon-size="12"></i></button>
+          <span class="mono fg-readout" id="time-readout">--:--.--- / --:--.---</span>
+          <button class="btn btn-sm" id="time-from-playhead" type="button">Start here</button>
+          <button class="btn btn-sm" id="time-to-playhead" type="button">End here</button>
+          <span class="u-spacer"></span>
+          <span class="fg-vol">
+            <label class="fg-vol-k" for="preview-volume">Volume</label>
+            <input class="range" id="preview-volume" type="range" min="0" max="100" value="80" />
+            <output class="mono small" id="preview-volume-value">80%</output>
+          </span>
+        </div>
+      </div>
       <audio id="preview-audio" preload="none"></audio>
     </section>
 
-    <section class="fg-cards" aria-label="Transcription settings">
-      <div class="fg-cards-h">Transcription Settings</div>
+    <section class="panel fg-cards" aria-label="Transcription settings">
+      <div class="fg-cards-head">
+        <h2 class="fg-cards-h">Transcription Settings</h2>
+        <p class="fg-cards-sub">Fine-tune the pipeline for the best MIDI results. These settings are optimised for clean, musical transcriptions.</p>
+      </div>
       <div class="fg-cards-grid">
         <div class="fg-card">
           <label class="fg-card-t" for="c-model">Model</label>
@@ -415,6 +415,7 @@
         <span class="u-spacer"></span>
         <div class="fg-clock">
           <span class="fg-clock-k">Elapsed</span><span class="mono" id="job-elapsed">--:--</span>
+          <span class="toolbar-sep"></span>
           <span class="fg-clock-k">ETA</span><span class="mono" id="job-eta">--:--</span>
         </div>
         <div class="fg-progacts">
@@ -425,20 +426,20 @@
       </div>
 
       <div class="tabpanel fg-tp" id="tp-progress" role="tabpanel" aria-labelledby="tab-progress">
-        <div class="fg-jobhead">
+        <div class="fg-jobhead" id="job-head" hidden>
           <span class="pill" id="job-pill" role="status" aria-live="polite"><span class="dot" id="job-dot"></span><span id="job-state">Idle</span></span>
           <span class="u-truncate mono small muted" id="job-name"></span>
           <span class="u-spacer"></span>
           <span class="mono small" id="job-pct"></span>
         </div>
         <ol class="fg-stages" id="stages" aria-label="Transcription stages">
-          <li class="stg" data-stage="load"     data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Loading audio file</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Loading audio file"><span class="bar-fill"></span></span><span class="stg-meta mono">Waiting</span></li>
-          <li class="stg" data-stage="separate" data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Analyzing audio <span class="stg-note">(UVR stems separation)</span></span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Analyzing audio"><span class="bar-fill"></span></span><span class="stg-meta mono">Waiting</span></li>
-          <li class="stg" data-stage="transcribe" data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Transcribing with AI model</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Transcribing with AI model"><span class="bar-fill"></span></span><span class="stg-meta mono">Waiting</span></li>
-          <li class="stg" data-stage="midi"     data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Generating MIDI</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Generating MIDI"><span class="bar-fill"></span></span><span class="stg-meta mono">Waiting</span></li>
-          <li class="stg" data-stage="optimize" data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Optimizing notes and timing</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Optimizing notes and timing"><span class="bar-fill"></span></span><span class="stg-meta mono">Waiting</span></li>
-          <li class="stg" data-stage="finalize" data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Finalizing output</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Finalizing output"><span class="bar-fill"></span></span><span class="stg-meta mono">Waiting</span></li>
-          <li class="stg" data-stage="done"     data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Complete</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Complete"><span class="bar-fill"></span></span><span class="stg-meta mono">Waiting</span></li>
+          <li class="stg" data-stage="load"     data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Loading audio file</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Loading audio file"><span class="bar-fill"></span></span><span class="stg-meta mono">Pending</span></li>
+          <li class="stg" data-stage="separate" data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Analyzing audio <span class="stg-note">(UVR stems separation)</span></span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Analyzing audio"><span class="bar-fill"></span></span><span class="stg-meta mono">Pending</span></li>
+          <li class="stg" data-stage="transcribe" data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Transcribing with AI model</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Transcribing with AI model"><span class="bar-fill"></span></span><span class="stg-meta mono">Pending</span></li>
+          <li class="stg" data-stage="midi"     data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Generating MIDI</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Generating MIDI"><span class="bar-fill"></span></span><span class="stg-meta mono">Pending</span></li>
+          <li class="stg" data-stage="optimize" data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Optimizing notes and timing</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Optimizing notes and timing"><span class="bar-fill"></span></span><span class="stg-meta mono">Pending</span></li>
+          <li class="stg" data-stage="finalize" data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Finalizing output</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Finalizing output"><span class="bar-fill"></span></span><span class="stg-meta mono">Pending</span></li>
+          <li class="stg" data-stage="done"     data-state="wait"><span class="stg-mark" aria-hidden="true"><i data-icon="check" data-icon-size="10"></i></span><span class="stg-name">Complete</span><span class="stg-bar bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Complete"><span class="bar-fill"></span></span><span class="stg-meta mono">Pending</span></li>
         </ol>
         <div class="inline-error fg-err" id="errcard" hidden>
           <span aria-hidden="true"><i data-icon="alert" data-icon-size="13"></i></span>
@@ -466,25 +467,24 @@
        RIGHT COLUMN — Results | History + the selected result
        ==================================================================== -->
   <aside class="pane is-fixed fg-col fg-insp" id="insp" aria-label="Results">
-    <div class="fg-colbar">
-      <button class="btn btn-icon is-sm is-bare fg-collapse" id="insp-collapse" type="button"
-              aria-label="Collapse the results column" aria-expanded="true"><i data-icon="caretRight" data-icon-size="12"></i></button>
-      <span class="fg-colbar-t">Results</span>
-      <span class="u-spacer"></span>
-    </div>
-    <div class="tabstrip" role="tablist" aria-label="Result sets">
+    <div class="tabstrip fg-coltabs" role="tablist" aria-label="Result sets">
       <button role="tab" id="tab-results" aria-selected="true" aria-controls="tp-results" tabindex="0">Results <span class="count" id="res-count">0</span></button>
       <button role="tab" id="tab-history" aria-selected="false" aria-controls="tp-results" tabindex="-1">History</button>
-    </div>
-    <div class="toolbar is-sub">
-      <span class="toolbar-label">Sort</span>
-      <span class="selectwrap"><select class="select is-sm is-well" id="res-sort" aria-label="Sort results">
-        <option value="new">Newest first</option>
-        <option value="old">Oldest first</option>
-        <option value="name">Filename</option>
-        <option value="notes">Note count</option>
-        <option value="dur">Duration</option>
-      </select></span>
+      <span class="fg-colbar-t">Results</span>
+      <div class="fg-tabtools">
+        <span class="fg-sort">
+          <span class="fg-sort-k" aria-hidden="true">Sort</span>
+          <span class="selectwrap"><select class="select is-sm" id="res-sort" aria-label="Sort results">
+            <option value="new">Newest</option>
+            <option value="old">Oldest</option>
+            <option value="name">Filename</option>
+            <option value="notes">Note count</option>
+            <option value="dur">Duration</option>
+          </select></span>
+        </span>
+        <button class="btn btn-icon is-sm is-bare fg-collapse" id="insp-collapse" type="button"
+                aria-label="Collapse the results column" aria-expanded="true"><i data-icon="caretRight" data-icon-size="12"></i></button>
+      </div>
     </div>
     <div class="tabpanel fg-tp is-flush" id="tp-results" role="tabpanel" aria-labelledby="tab-results">
       <div class="vlist fg-reslist" id="res-list"></div>
@@ -498,25 +498,27 @@
     <section class="panel fg-sel" id="sel-panel" hidden>
       <header class="panel-head">
         <h2 class="panel-title">Selected Result</h2>
-        <div class="panel-tools"><span class="tag" id="sel-badge">PRIMARY</span></div>
+        <div class="panel-tools">
+          <span class="tag" id="sel-badge">Primary</span>
+          <span class="tag is-mono">MIDI</span>
+        </div>
       </header>
       <div class="panel-body">
         <p class="fg-sel-name u-truncate" id="sel-name" title=""></p>
-        <div class="fg-sel-stats">
-          <span class="fg-stat"><span class="fg-stat-k">Notes</span><span class="fg-stat-v mono" id="sel-notes">—</span></span>
-          <span class="fg-stat"><span class="fg-stat-k">Length</span><span class="fg-stat-v mono" id="sel-dur">—</span></span>
-          <span class="fg-stat"><span class="fg-stat-k">Made</span><span class="fg-stat-v mono" id="sel-when">—</span></span>
-        </div>
+        <p class="fg-sel-meta">
+          <span id="sel-notes">—</span><span class="fg-sep" aria-hidden="true">·</span><span id="sel-dur">—</span><span class="fg-sep" aria-hidden="true">·</span><span id="sel-kind">—</span>
+        </p>
+        <p class="fg-sel-when" id="sel-when">—</p>
         <div class="fg-dens">
-          <span class="fg-dens-t">Note density</span>
           <div class="canvas-host fg-dens-host" id="dens-host"><canvas id="dens" aria-label="Note density over time" role="img"></canvas></div>
+          <span class="fg-dens-t">Preview of note density</span>
         </div>
       </div>
       <footer class="panel-foot fg-sel-acts">
-        <button class="btn btn-sm" id="act-editor" type="button">Open in Editor</button>
-        <button class="btn btn-sm" id="act-player" type="button">Send to Player</button>
-        <button class="btn btn-sm" id="act-listen" type="button">Listen (Self MIDI)</button>
-        <button class="btn btn-sm btn-ghost" id="act-folder" type="button">Show in Folder</button>
+        <button class="btn" id="act-editor" type="button"><i data-icon="send" data-icon-size="13"></i>Open in Editor</button>
+        <button class="btn" id="act-player" type="button"><i data-icon="play" data-icon-size="12"></i>Send to Player</button>
+        <button class="btn" id="act-listen" type="button"><i data-icon="keyboard" data-icon-size="13"></i>Listen (Self MIDI)</button>
+        <button class="btn" id="act-folder" type="button"><i data-icon="folder" data-icon-size="13"></i>Show in Folder</button>
       </footer>
     </section>
   </aside>

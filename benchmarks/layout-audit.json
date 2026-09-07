@@ -1,37 +1,38 @@
 {
-  "generatedAt": "2026-09-07T04:22:20.740Z",
+  "generatedAt": "2026-09-07T05:35:53.579Z",
   "sizes": [
     "1920x1080"
   ],
-  "problems": 2,
+  "problems": 0,
   "stubChannelsInvoked": [
-    "app:bootState",
     "app:forgeInfo",
     "app:getOutputDir",
     "app:getUi",
-    "app:performance",
     "app:version",
     "forge:check",
-    "forge:getSettings",
-    "library:list",
-    "overlay:state",
-    "win:state"
+    "forge:getSettings"
   ],
   "stubChannelsUnused": [
+    "app:bootState",
     "app:changeForgeFolder",
+    "app:changelog",
     "app:cleanReinstall",
     "app:getLibraryDir",
     "app:listMidis",
+    "app:notesShown",
     "app:openBootLog",
     "app:openExternal",
     "app:openForgeFolder",
     "app:openMappingsDir",
     "app:openSetupLog",
+    "app:performance",
     "app:pickFolder",
+    "app:release",
     "app:resetForgeFolder",
     "app:setLibraryDir",
     "app:setPerformance",
     "app:setUi",
+    "app:whatsNew",
     "dialog:openMapping",
     "dialog:openMidi",
     "engine:send",
@@ -47,6 +48,7 @@
     "library:addFolder",
     "library:delete",
     "library:index",
+    "library:list",
     "library:meta",
     "library:removeFolder",
     "library:reveal",
@@ -55,6 +57,7 @@
     "library:usage",
     "overlay:apply",
     "overlay:snap",
+    "overlay:state",
     "overlay:toggle",
     "review:exportMidi",
     "review:load",
@@ -63,26 +66,27 @@
     "shell:openPath",
     "shell:showItem",
     "update:apply",
-    "update:check"
+    "update:check",
+    "win:state"
   ],
   "perPage": [
     {
-      "page": "shell",
+      "page": "forge",
       "overflow": 0,
       "popover": 0,
       "escape": 0,
       "overlap": 0,
       "offscreen": 0,
-      "console": 1,
+      "console": 0,
       "truncated": 0,
-      "failed": 1
+      "failed": 0
     }
   ],
   "results": [
     {
-      "page": "shell",
+      "page": "forge",
       "size": "1920x1080",
-      "state": "boot",
+      "state": "default",
       "counts": {
         "overflow": 0,
         "popover": 0,
@@ -102,238 +106,9 @@
       "truncated": []
     },
     {
-      "page": "shell",
+      "page": "forge",
       "size": "1920x1080",
-      "state": "busy",
-      "counts": {
-        "overflow": 0,
-        "popover": 0,
-        "escape": 0,
-        "overlap": 0,
-        "offscreen": 0,
-        "console": 0,
-        "truncated": 0
-      },
-      "problems": 0,
-      "console": [],
-      "overflow": [],
-      "popover": [],
-      "escape": [],
-      "overlap": [],
-      "offscreen": [],
-      "truncated": []
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "log-open",
-      "failed": "Script failed to execute, this normally means an error was thrown. Check the renderer console for the error.",
-      "counts": {}
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "palette",
-      "counts": {
-        "overflow": 0,
-        "popover": 0,
-        "escape": 0,
-        "overlap": 0,
-        "offscreen": 0,
-        "console": 1,
-        "truncated": 0
-      },
-      "problems": 1,
-      "console": [
-        "ERROR Uncaught TypeError: Cannot read properties of null (reading 'click')  (index.html:1)"
-      ],
-      "overflow": [],
-      "popover": [],
-      "escape": [],
-      "overlap": [],
-      "offscreen": [],
-      "truncated": []
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "palette-empty",
-      "counts": {
-        "overflow": 0,
-        "popover": 0,
-        "escape": 0,
-        "overlap": 0,
-        "offscreen": 0,
-        "console": 0,
-        "truncated": 0
-      },
-      "problems": 0,
-      "console": [],
-      "overflow": [],
-      "popover": [],
-      "escape": [],
-      "overlap": [],
-      "offscreen": [],
-      "truncated": []
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "settings-appearance",
-      "counts": {
-        "overflow": 0,
-        "popover": 0,
-        "escape": 0,
-        "overlap": 0,
-        "offscreen": 0,
-        "console": 0,
-        "truncated": 0
-      },
-      "problems": 0,
-      "console": [],
-      "overflow": [],
-      "popover": [],
-      "escape": [],
-      "overlap": [],
-      "offscreen": [],
-      "truncated": []
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "settings-playback",
-      "counts": {
-        "overflow": 0,
-        "popover": 0,
-        "escape": 0,
-        "overlap": 0,
-        "offscreen": 0,
-        "console": 0,
-        "truncated": 0
-      },
-      "problems": 0,
-      "console": [],
-      "overflow": [],
-      "popover": [],
-      "escape": [],
-      "overlap": [],
-      "offscreen": [],
-      "truncated": []
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "settings-performance",
-      "counts": {
-        "overflow": 0,
-        "popover": 0,
-        "escape": 0,
-        "overlap": 0,
-        "offscreen": 0,
-        "console": 0,
-        "truncated": 0
-      },
-      "problems": 0,
-      "console": [],
-      "overflow": [],
-      "popover": [],
-      "escape": [],
-      "overlap": [],
-      "offscreen": [],
-      "truncated": []
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "settings-forge",
-      "counts": {
-        "overflow": 0,
-        "popover": 0,
-        "escape": 0,
-        "overlap": 0,
-        "offscreen": 0,
-        "console": 0,
-        "truncated": 0
-      },
-      "problems": 0,
-      "console": [],
-      "overflow": [],
-      "popover": [],
-      "escape": [],
-      "overlap": [],
-      "offscreen": [],
-      "truncated": []
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "settings-storage",
-      "counts": {
-        "overflow": 0,
-        "popover": 0,
-        "escape": 0,
-        "overlap": 0,
-        "offscreen": 0,
-        "console": 0,
-        "truncated": 0
-      },
-      "problems": 0,
-      "console": [],
-      "overflow": [],
-      "popover": [],
-      "escape": [],
-      "overlap": [],
-      "offscreen": [],
-      "truncated": []
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "settings-updates",
-      "counts": {
-        "overflow": 0,
-        "popover": 0,
-        "escape": 0,
-        "overlap": 0,
-        "offscreen": 0,
-        "console": 0,
-        "truncated": 0
-      },
-      "problems": 0,
-      "console": [],
-      "overflow": [],
-      "popover": [],
-      "escape": [],
-      "overlap": [],
-      "offscreen": [],
-      "truncated": []
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "settings-overlay",
-      "counts": {
-        "overflow": 0,
-        "popover": 0,
-        "escape": 0,
-        "overlap": 0,
-        "offscreen": 0,
-        "console": 0,
-        "truncated": 0
-      },
-      "problems": 0,
-      "console": [],
-      "overflow": [],
-      "popover": [],
-      "escape": [],
-      "overlap": [],
-      "offscreen": [],
-      "truncated": []
-    },
-    {
-      "page": "shell",
-      "size": "1920x1080",
-      "state": "settings-about",
+      "state": "running",
       "counts": {
         "overflow": 0,
         "popover": 0,

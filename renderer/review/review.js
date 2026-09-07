@@ -228,9 +228,16 @@
     C.gridBar = Tokens.rgba('line-2', 0.92);
     C.ruler = Tokens.get('surface');
     C.rulerText = Tokens.get('text-3');
-    C.keyWhite = mix(C.text, C.text3, 0.22);
-    C.keyBlack = Tokens.get('surface-2');
+    // A real keyboard: near-white keys, a dark bed behind the short black ones,
+    // a grey seam only where two white keys actually touch (E|F and B|C).
+    C.keyWhite = mix(C.text, '#ffffff', 0.30);
+    C.keyBlack = mix(C.bg, '#000000', 0.45);
+    C.keyBed = mix(C.surface2, C.bg, 0.5);
+    C.keySeam = mix(C.keyWhite, '#000000', 0.34);
+    C.keyLabel = mix(C.keyWhite, '#000000', 0.62);
     C.keyLine = Tokens.get('edge');
+    C.laneScale = Tokens.rgba('text-2', 0.9);
+    C.laneHalo = Tokens.rgba('bg-2', 0.92);
     C.loopFill = Tokens.rgba('accent', 0.09);
     C.loopEdge = Tokens.rgba('accent', 0.55);
     C.marqFill = Tokens.rgba('accent', 0.10);
@@ -240,12 +247,17 @@
     C.mono = Tokens.get('font-mono');
     C.body = Tokens.get('font-body');
 
-    const dim = mix(C.surface3 || C.surface2, C.text2, 0.68);
-    const bright = mix(C.text2, C.text, 0.70);
-    C.noteShades = ramp(dim, bright, 8);
-    C.selShades = ramp(C.accentDeep, C.accent, 8);
-    C.soundShades = ramp(C.accent, C.accent2, 8);
-    C.noteStroke = Tokens.rgba('edge', 0.85);
+    // The note field is the accent, as in the reference: a velocity ramp from a
+    // sunken deep-accent at pianissimo to the full accent at fortissimo. The two
+    // states that have to be separable ON TOP of that field therefore leave the
+    // hue behind - selection goes to white, a sounding note to near-white - so
+    // neither is "the same green, slightly different", which is the failure mode
+    // a coloured note body creates for a coloured selection.
+    const dim = mix(C.accentDeep, C.bg, 0.26);
+    C.noteShades = ramp(dim, C.accent, 8);
+    C.selShades = ramp(mix(C.accent, '#ffffff', 0.45), '#ffffff', 8);
+    C.soundShades = ramp(mix(C.accent2, '#ffffff', 0.35), mix(C.accent2, '#ffffff', 0.75), 8);
+    C.noteStroke = Tokens.rgba('edge', 0.55);
     C.gripSel = C.accentInk;
     C.gripPlain = Tokens.rgba('edge', 0.9);
     chanShades.clear();
@@ -258,7 +270,9 @@
     let s = chanShades.get(ch);
     if (!s) {
       const hue = TRACK_HUES[ch % TRACK_HUES.length];
-      s = C.noteShades.map((v) => mix(v, hue, 0.34));
+      // 0.22, not a half-and-half blend: enough to tell two channels apart,
+      // little enough that the roll still reads as one accent-coloured field.
+      s = C.noteShades.map((v) => mix(v, hue, 0.18));
       chanShades.set(ch, s);
     }
     return s;
@@ -563,6 +577,7 @@
     // paste, a delete, an undo and a take switch all change the selection, and
     // each of them used to leave the inspector showing the previous one.
     syncSelection();
+    syncHeadMeta();
     reportTransport(true);
   }
   const relayoutSoon = coalesce(relayout);
@@ -695,10 +710,6 @@
     ctx.fillStyle = C.line;
     ctx.fillRect(0, TOP_H - 1, KEY_W, 1);
     ctx.fillRect(KEY_W - 1, 0, 1, TOP_H);
-    ctx.fillStyle = C.rulerText;
-    ctx.font = '600 10px ' + C.mono;
-    ctx.textBaseline = 'middle';
-    ctx.fillText('BAR', 6, TOP_H / 2);
 
     if (followOn && playing) followPlayhead();
   }
@@ -712,7 +723,7 @@
     const barSec = beat * 4;
     if (barSec * zoom < 8) return;
     const first = Math.max(0, Math.floor((ox / zoom) / barSec));
-    ctx.font = '600 10px ' + C.mono;
+    ctx.font = '600 11px ' + C.mono;
     ctx.textBaseline = 'middle';
     for (let bar = first; ; bar++) {
       const t = bar * barSec;
@@ -747,33 +758,41 @@
     }
   }
 
+  // A keyboard, not a column of stubs: every row is a full-width white key and
+  // the five black keys of the octave are laid SHORT on top of it, which is the
+  // only way the black/white pattern reads as a keyboard at one row per pitch.
   function drawKeys(ctx, h, oy) {
-    ctx.fillStyle = C.keyBlack;
+    ctx.fillStyle = C.keyBed;
     ctx.fillRect(0, 0, KEY_W, h);
     const rows = pitchHigh - pitchLow + 1;
     const firstRow = Math.max(0, Math.floor((oy - TOP_H) / ROW_H));
     const lastRow = Math.min(rows - 1, Math.ceil((oy + h - TOP_H) / ROW_H));
-    ctx.font = '600 9px ' + C.mono;
+    const blackW = Math.round(KEY_W * 0.6);
+    ctx.font = '600 11px ' + C.mono;
     ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right';
     for (let r = firstRow; r <= lastRow; r++) {
       const p = pitchHigh - r;
       const y = TOP_H + r * ROW_H - oy;
-      const cls = p % 12;
+      const cls = ((p % 12) + 12) % 12;
       const black = cls === 1 || cls === 3 || cls === 6 || cls === 8 || cls === 10;
-      if (!black) {
-        ctx.fillStyle = sounding.has(p) ? C.accent : C.keyWhite;
-        ctx.fillRect(0, y, KEY_W - 8, ROW_H - 1);
-      } else {
-        ctx.fillStyle = sounding.has(p) ? C.accentDeep : C.keyBlack;
-        ctx.fillRect(0, y, KEY_W - 20, ROW_H - 1);
+      const lit = sounding.has(p);
+      ctx.fillStyle = lit && !black ? C.accent : C.keyWhite;
+      ctx.fillRect(0, y, KEY_W - 1, ROW_H);
+      // the seam is drawn only where two white keys really meet: F|E and C|B
+      if (cls === 5 || cls === 0) {
+        ctx.fillStyle = C.keySeam;
+        ctx.fillRect(0, y + ROW_H - 1, KEY_W - 1, 1);
       }
-      ctx.fillStyle = C.keyLine;
-      ctx.fillRect(0, y + ROW_H - 1, KEY_W, 1);
-      if (cls === 0) {
-        ctx.fillStyle = C.text3;
-        ctx.fillText(Fmt.note(p), KEY_W - 22, y + ROW_H / 2);
+      if (black) {
+        ctx.fillStyle = lit ? C.accentDeep : C.keyBlack;
+        ctx.fillRect(0, y, blackW, ROW_H - 1);
+      } else if (cls === 0) {
+        ctx.fillStyle = lit ? C.accentInk : C.keyLabel;
+        ctx.fillText(Fmt.note(p), KEY_W - 5, y + ROW_H / 2 + 0.5);
       }
     }
+    ctx.textAlign = 'left';
     ctx.fillStyle = C.line;
     ctx.fillRect(KEY_W - 1, 0, 1, h);
   }
@@ -797,10 +816,13 @@
 
     // loop range + playhead are the only per-frame parts
     const xf = (t) => (t - win.start) / win.span * w;
-    if (loopB > loopA) {
+    const whole = loopA <= 0.001 && loopB >= duration - 0.001;
+    if (loopB > loopA && !(whole && !loopOn)) {
       const a = xf(loopA), b = xf(loopB);
-      ctx.fillStyle = C.loopFill;
-      ctx.fillRect(a, 0, b - a, h);
+      if (loopOn) {
+        ctx.fillStyle = C.loopFill;
+        ctx.fillRect(a, 0, b - a, h);
+      }
       ctx.fillStyle = loopOn ? C.loopEdge : C.rowLine;
       ctx.fillRect(Math.round(a), 0, 1, h);
       ctx.fillRect(Math.round(b) - 1, 0, 1, h);
@@ -876,53 +898,72 @@
     }
     if (!peaks && !notes.length) {
       ctx.fillStyle = C.text3;
-      ctx.font = '500 11px ' + C.body;
+      ctx.font = '500 12px ' + C.body;
       ctx.textBaseline = 'middle';
       ctx.fillText('No overview yet', 8, h / 2);
     } else if (!peaks) {
       ctx.fillStyle = C.text3;
-      ctx.font = '600 10px ' + C.mono;
+      ctx.font = '500 12px ' + C.body;
       ctx.textBaseline = 'top';
-      ctx.fillText('NOTE DENSITY — no source audio in this project', 8, 6);
+      ctx.fillText('Note density — no source audio in this project', 8, 6);
     }
   }
 
   // ---- automation lane ------------------------------------------------------
+  // The lane canvas begins where the picker column ends, but the roll's content
+  // begins after its keyboard, so everything the lane plots is drawn back by the
+  // difference: a velocity stem stands under its own note, and laneApply's
+  // read-back adds the same number so the two stay exact inverses.
+  const laneOx = () => Math.max(0, autoHost.offsetLeft - rollScroll.offsetLeft);
+
   function drawAuto() {
     const vw = autoHost.clientWidth, vh = autoHost.clientHeight;
     if (vw < 4 || vh < 4) return;
     const fit = Draw.fitCanvas(autoCanvas, vw, vh);
     const ctx = fit.ctx, w = fit.w, h = fit.h;
+    const shift = laneOx();
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, w, h);
 
-    // guide lines at the four velocities everybody reads for
-    ctx.font = '600 9px ' + C.mono;
+    // guide lines at the four velocities everybody reads for. The scale sits
+    // BEHIND the bars: the picker owns the gutter the numbers used to have, and
+    // a shifted-out gutter would have cost the lane its alignment with the roll.
+    ctx.font = '600 11px ' + C.mono;
     ctx.textBaseline = 'middle';
     const span = Math.max(1, h - LANE_PAD);
+    const scale = [];
     for (const v of [32, 64, 96, 127]) {
       const y = Math.round(h - (v / 127) * span) - 0.5;
       ctx.fillStyle = C.gridSub;
-      ctx.fillRect(KEY_W, y, w - KEY_W, 1);
-      ctx.fillStyle = C.text3;
-      ctx.fillText(String(v), 6, y);
+      ctx.fillRect(0, y, w, 1);
+      scale.push([String(v), y]);
     }
-    ctx.fillStyle = C.line;
-    ctx.fillRect(KEY_W - 1, 0, 1, h);
+    // The picker owns the gutter the scale used to have, and a shifted gutter
+    // would have cost the lane its alignment with the roll, so the numbers are
+    // drawn LAST, over the bars, with a halo that survives a dense passage.
+    const drawScale = () => {
+      ctx.lineWidth = 3;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = C.laneHalo;
+      ctx.fillStyle = C.laneScale;
+      for (const s of scale) { ctx.strokeText(s[0], 5, s[1]); ctx.fillText(s[0], 5, s[1]); }
+      ctx.lineWidth = 1;
+    };
 
     if (lane !== 'velocity' || !loaded()) {
+      drawScale();
       ctx.fillStyle = C.text3;
-      ctx.font = '500 11px ' + C.body;
-      ctx.fillText(loaded() ? 'No data in this lane' : '', KEY_W + 10, h / 2);
+      ctx.font = '500 12px ' + C.body;
+      ctx.fillText(loaded() ? 'No data in this lane' : '', 34, h / 2);
       return;
     }
 
     ensureSorted();
     ensureExtent();
-    const ox = sx;
-    const fromTime = ox / zoom;
-    const toTime = (ox + w) / zoom;
+    const ox = sx + shift;
+    const fromTime = Math.max(0, (ox - KEY_W) / zoom);
+    const toTime = (ox + w - KEY_W) / zoom;
     const onlySel = linkOn && selected.size > 0;
     // The lane plots ONSETS, so the plain lower bound is exact here.
     let i = lowerBound(fromTime);
@@ -931,18 +972,20 @@
       if (n.start > toTime) break;
       if (!audible(n.channel)) continue;
       const x = Math.round(xForTime(n.start) - ox);
-      if (x < KEY_W - 2 || x > w) continue;
+      if (x < -8 || x > w) continue;
       const sel = selected.has(n.id);
       if (onlySel && !sel) { ctx.globalAlpha = 0.22; } else { ctx.globalAlpha = 1; }
       const bh = (n.velocity / 127) * span;
-      const wSt = Math.max(2, Math.min(6, zoom * (n.end - n.start)));
+      const wSt = Math.max(2, Math.min(4, zoom * (n.end - n.start)));
       ctx.fillStyle = sel ? C.accent : shadesFor(n.channel, 0)[shadeIdx(n.velocity)];
       ctx.fillRect(x, h - bh, wSt, bh);
+      ctx.fillRect(x - 1, h - bh - 2, wSt + 2, 3);
       ctx.globalAlpha = 1;
     }
+    drawScale();
     // playhead
     const px = Math.round(xForTime(playhead) - ox) + 0.5;
-    if (px >= KEY_W && px <= w) {
+    if (px >= 0 && px <= w) {
       ctx.strokeStyle = C.accent;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -2190,7 +2233,8 @@
     // the host's border box is one pixel taller than the surface drawAuto plots on
     // and its origin is one pixel above it.
     if (!autoRect) autoRect = Draw.measure(autoCanvas);
-    const x = ev.clientX - autoRect.left + sx;
+    // + laneOx(): the exact inverse of the shift drawAuto plots with
+    const x = ev.clientX - autoRect.left + sx + laneOx();
     const y = ev.clientY - autoRect.top;
     const h = Math.max(1, autoRect.h);
     // The exact inverse of drawAuto: the bar grows upward from y = h across
@@ -2264,20 +2308,25 @@
     $('tracks-empty').hidden = tracks.length > 0;
     for (const t of tracks) {
       const row = document.createElement('div');
-      row.className = 'lrow' + (muted.has(t.channel) || (soloed.size && !soloed.has(t.channel)) ? ' is-muted' : '');
+      row.className = 'lrow is-lg trk-row' +
+        (muted.has(t.channel) || (soloed.size && !soloed.has(t.channel)) ? ' is-muted' : '');
       row.setAttribute('role', 'listitem');
       const hue = TRACK_HUES[t.channel % TRACK_HUES.length];
       row.innerHTML =
         '<span class="trk-swatch" style="--trk:' + hue + '" aria-hidden="true"></span>' +
         '<span class="lrow-main"><span class="lrow-name"></span><span class="lrow-sub"></span></span>' +
-        '<span class="lrow-meta"></span>' +
         '<span class="lrow-actions">' +
         '<button class="trk-btn is-mute" data-act="m" aria-pressed="false" title="Mute">M</button>' +
         '<button class="trk-btn" data-act="s" aria-pressed="false" title="Solo">S</button></span>';
       row.querySelector('.lrow-name').textContent = t.name;
-      row.querySelector('.lrow-sub').textContent = 'Ch ' + (t.channel + 1) +
-        (t.program !== null ? ' · prog ' + (t.program + 1) : '');
-      row.querySelector('.lrow-meta').textContent = t.count.toLocaleString();
+      // The note count is the line the reference puts under the name; the patch
+      // number is the part that does not survive a 248px rail, so it moves to the
+      // row title rather than being clipped out of existence.
+      row.querySelector('.lrow-sub').textContent =
+        t.count.toLocaleString() + ' notes · Ch ' + (t.channel + 1);
+      row.title = t.name + ' · channel ' + (t.channel + 1) +
+        (t.program !== null ? ' · program ' + (t.program + 1) : '') +
+        ' · ' + t.count.toLocaleString() + ' notes';
       const m = row.querySelector('[data-act="m"]');
       const s = row.querySelector('[data-act="s"]');
       m.setAttribute('aria-pressed', muted.has(t.channel) ? 'true' : 'false');
@@ -2342,16 +2391,20 @@
     const host = $('src-list');
     host.textContent = '';
     const names = Object.keys(documents);
-    $('src-chip').textContent = names.length > 1 ? candidate.toUpperCase() + ' TAKE' : '';
     for (const name of names) {
       const d = documents[name];
       const row = document.createElement('button');
-      row.className = 'lrow' + (name === candidate ? ' is-selected' : '');
+      row.className = 'lrow is-lg src-row' + (name === candidate ? ' is-selected' : '');
       row.type = 'button';
       row.setAttribute('aria-pressed', name === candidate ? 'true' : 'false');
       row.innerHTML = '<span class="lrow-main"><span class="lrow-name"></span>' +
-        '<span class="lrow-sub src-badges"></span></span><span class="lrow-meta"></span>';
+        '<span class="lrow-sub"></span></span><span class="src-badges"></span>';
       row.querySelector('.lrow-name').textContent = name.charAt(0).toUpperCase() + name.slice(1);
+      const sub = row.querySelector('.lrow-sub');
+      sub.textContent = (d.notes ? d.notes.length : 0).toLocaleString() + ' notes · ' +
+        Fmt.duration(Number(d.duration) || 0);
+      // the inspector narrows to 232px: the line that gets clipped keeps its text
+      sub.title = sub.textContent;
       const badges = row.querySelector('.src-badges');
       const mk = (text, cls) => {
         const s = document.createElement('span');
@@ -2359,15 +2412,32 @@
         s.textContent = text;
         badges.appendChild(s);
       };
-      mk((d.notes ? d.notes.length : 0).toLocaleString() + ' notes');
+      if (name === candidate) mk('Open', 'is-accent');
       if (d.bpmEstimated) mk('BPM guess', 'is-warn');
-      if ((hist[name] || []).length) mk((hist[name] || []).length + ' edits', 'is-accent');
-      if (!(project && project.candidates && project.candidates[name])) mk('unsaved', 'is-warn');
-      row.querySelector('.lrow-meta').textContent = Fmt.duration(Number(d.duration) || 0);
+      if ((hist[name] || []).length) mk((hist[name] || []).length + ' edits');
+      if (!(project && project.candidates && project.candidates[name])) mk('Unsaved', 'is-warn');
       row.setAttribute('aria-label', name + ' take, ' + (d.notes ? d.notes.length : 0) + ' notes');
       row.addEventListener('click', () => switchCandidate(name));
       host.appendChild(row);
     }
+    syncHeadMeta();
+  }
+
+  // The one line under the document name: what this document is, how big it is
+  // and which take is open. It replaces the uppercase source chip that used to
+  // sit beside the name and the pipeline footer's worth of the same facts.
+  function syncHeadMeta() {
+    const el = $('head-meta');
+    if (!el) return;
+    if (!loaded()) { el.textContent = 'MIDI Editor'; return; }
+    const parts = ['MIDI Editor', notes.length.toLocaleString() + ' notes',
+      Fmt.clock(duration)];
+    if (tracks.length) {
+      parts.push(tracks.length > 1 ? tracks[0].name + ' (multi-track)' : tracks[0].name);
+    }
+    const takes = Object.keys(documents);
+    if (takes.length > 1) parts.push(candidate.charAt(0).toUpperCase() + candidate.slice(1) + ' take');
+    el.textContent = parts.join(' · ');
   }
 
   function switchCandidate(name) {
@@ -2515,6 +2585,7 @@
       $('n-pitch').value = '';
       $('n-pitch-name').textContent = '—';
       $('n-vel-num').value = '';
+      $('n-vel-out').textContent = '—';
       $('n-len').value = '';
       return;
     }
@@ -2525,6 +2596,7 @@
     const vel = uniform((n) => n.velocity) ? first.velocity : Math.round(list.reduce((a, n) => a + n.velocity, 0) / list.length);
     $('n-vel').value = String(vel);
     $('n-vel').style.setProperty('--p', String((vel - 1) / 126));
+    $('n-vel-out').textContent = String(vel);
     $('n-vel-num').value = String(vel);
     const len = Math.round((uniform((n) => n.end - n.start) ? (first.end - first.start)
       : list.reduce((a, n) => a + (n.end - n.start), 0) / list.length) * 1000);
@@ -2584,13 +2656,14 @@
 
   function laneNote() {
     if (!loaded()) return '';
+    // Short, because it now sits over the lane itself. The long form is the
+    // picker's title, on the four buttons the sentence is actually about.
     if (lane === 'velocity') {
       const ccs = countCcs();
-      return notes.length.toLocaleString() + ' notes · ' +
-        (ccs ? ccs + ' control changes preserved on save · ' : '') +
-        'modulation, expression, sustain and pan are not captured by transcription yet';
+      return notes.length.toLocaleString() + ' notes' +
+        (ccs ? ' · ' + ccs + ' control changes preserved on save' : '');
     }
-    return 'Transcription does not capture this controller yet — nothing is written or dropped.';
+    return 'Not captured by transcription yet';
   }
   // Nothing is silently dropped on save: whatever the document carries beyond
   // notes (a future `controls` array included) round-trips untouched, because we
@@ -2796,6 +2869,7 @@
   onEl($('q-strength'), 'input', () => {
     const el = $('q-strength');
     el.style.setProperty('--p', String(Number(el.value) / 100));
+    $('q-strength-out').textContent = Math.round(Number(el.value)) + '%';
   });
   onEl($('nudge-back'), 'click', () => { nudge(-1, false); flushGesture(); renderHistory(); });
   onEl($('nudge-fwd'), 'click', () => { nudge(1, false); flushGesture(); renderHistory(); });

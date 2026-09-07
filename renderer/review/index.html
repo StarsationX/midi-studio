@@ -20,10 +20,17 @@
 
   <!-- ================================================== contextual actions -->
   <header class="panel-head ed-head">
-    <h1 class="panel-title">Editor</h1>
-    <input class="input is-sm is-body ed-name" id="proj-name" spellcheck="false" disabled
-           aria-label="Project name" title="Rename. The next Save or Export writes under this name." />
-    <span class="ed-src-chip" id="src-chip"></span>
+    <!-- The tab strip above already says Editor; the visible words here are the
+         document's, so the heading stays for the outline and not for the eye. -->
+    <h1 class="u-hidden-visually">Editor</h1>
+    <!-- The same #status-pill the footer used to carry, moved to the head of the
+         band: one status, one element. -->
+    <span class="pill ed-state" id="status-pill"><span class="dot" id="status-dot"></span><span id="status-txt">Ready</span></span>
+    <span class="ed-ident">
+      <input class="input is-sm is-body ed-name" id="proj-name" spellcheck="false" disabled
+             aria-label="Project name" title="Rename. The next Save or Export writes under this name." />
+      <span class="ed-meta" id="head-meta">MIDI Editor</span>
+    </span>
     <!-- A plain dot, not .dot.is-paused: an unsaved document is a lasting state,
          and a permanently blinking mark is exactly the idle animation the rules
          forbid. The word and .is-warn carry the state instead. -->
@@ -33,20 +40,21 @@
       <!-- Each of the three carries its own name and an icon, because below 1040px
            the label collapses (review.css) and a label-only button would be left as
            an unnamed empty box - Save included. -->
-      <button class="btn btn-sm" id="a-forge" disabled
+      <button class="btn" id="a-forge" disabled
               aria-label="Back to Forge Result" data-tip="Back to Forge Result">
         <i data-icon="undo" data-icon-size="14" aria-hidden="true"></i><span class="ed-lbl">Back to Forge Result</span>
       </button>
-      <button class="btn btn-sm" id="a-save" disabled
+      <button class="btn" id="a-save" disabled
               aria-label="Save project" data-tip="Save &middot; Ctrl+S">
         <i data-icon="drop" data-icon-size="14" aria-hidden="true"></i><span class="ed-lbl">Save</span>
       </button>
-      <button class="btn btn-sm btn-primary" id="a-saveplay" disabled>Save &amp; Play</button>
-      <button class="btn btn-sm" id="a-listen" disabled
+      <button class="btn btn-primary" id="a-saveplay" disabled>
+        <i data-icon="play" data-icon-size="13" aria-hidden="true"></i>Save &amp; Play</button>
+      <button class="btn" id="a-listen" disabled
               aria-label="Listen in Self MIDI" data-tip="Listen in Self MIDI">
         <i data-icon="send" data-icon-size="14" aria-hidden="true"></i><span class="ed-lbl">Listen in Self MIDI</span>
       </button>
-      <button class="btn btn-icon is-sm is-bare" id="a-more" aria-label="More editor actions"
+      <button class="btn btn-icon is-bare" id="a-more" aria-label="More editor actions"
               aria-haspopup="menu" data-tip="More actions"><i data-icon="dots"></i></button>
     </div>
   </header>
@@ -65,12 +73,12 @@
              mark with it. title= is the safe carrier on a tabstrip button. -->
         <button role="tab" id="tab-tracks" aria-selected="true" aria-controls="p-tracks" data-panel="p-tracks"
                 aria-label="Tracks" title="Tracks">
-          <span class="ed-lbl">Tracks</span><span class="ed-abbr" aria-hidden="true">TRK</span>
+          <span class="ed-lbl">Tracks</span><span class="ed-abbr" aria-hidden="true">Trk</span>
           <span class="count" id="tracks-count">0</span>
         </button>
         <button role="tab" id="tab-markers" aria-selected="false" aria-controls="p-markers" data-panel="p-markers"
                 tabindex="-1" aria-label="Markers" title="Markers">
-          <span class="ed-lbl">Markers</span><span class="ed-abbr" aria-hidden="true">MRK</span>
+          <span class="ed-lbl">Markers</span><span class="ed-abbr" aria-hidden="true">Mrk</span>
         </button>
       </div>
       <div class="tabpanel ed-pane" id="p-tracks" role="tabpanel" aria-labelledby="tab-tracks">
@@ -102,7 +110,6 @@
       <!-- overview strip -->
       <section class="ed-over">
         <header class="toolbar is-sub">
-          <span class="toolbar-label">Overview</span>
           <button class="switch" role="switch" id="t-audio" aria-checked="false" disabled
                   aria-label="Play the original audio alongside the MIDI"></button>
           <span class="ed-mini">Audio</span>
@@ -189,20 +196,21 @@
 
       <!-- automation lane -->
       <section class="ed-auto">
-        <header class="toolbar is-sub">
-          <span class="toolbar-label">Lane</span>
-          <div class="segmented is-sm" role="radiogroup" id="lane-pick" aria-label="Automation lane">
-            <button role="radio" aria-checked="true" data-lane="velocity">Velocity</button>
-            <button role="radio" aria-checked="false" data-lane="mod" tabindex="-1" disabled>Modulation</button>
-            <button role="radio" aria-checked="false" data-lane="expr" tabindex="-1" disabled>Expression</button>
-            <button role="radio" aria-checked="false" data-lane="sustain" tabindex="-1" disabled>Sustain</button>
-            <button role="radio" aria-checked="false" data-lane="pan" tabindex="-1" disabled>Pan</button>
-          </div>
-          <span class="toolbar-spacer"></span>
-          <span class="lane-note" id="lane-note"></span>
-        </header>
+        <!-- The lane picker reads down the left of the lane, beside the values it
+             switches, rather than as a strip of chrome above it. Same radiogroup,
+             same roving tabindex, same handler. -->
+        <div class="lane-pick" role="radiogroup" id="lane-pick" aria-label="Automation lane"
+             title="Transcription captures velocity only. Modulation, expression, sustain and pan are neither written nor dropped — whatever the document already carries round-trips untouched.">
+          <button role="radio" aria-checked="true" data-lane="velocity">Velocity</button>
+          <button role="radio" aria-checked="false" data-lane="mod" tabindex="-1" disabled>Modulation</button>
+          <button role="radio" aria-checked="false" data-lane="expr" tabindex="-1" disabled>Expression</button>
+          <button role="radio" aria-checked="false" data-lane="sustain" tabindex="-1" disabled>Sustain</button>
+          <button role="radio" aria-checked="false" data-lane="pan" tabindex="-1" disabled>Pan</button>
+        </div>
         <div class="canvas-host" id="auto-host">
           <canvas id="auto" aria-label="Velocity lane. Drag over a note to set its velocity."></canvas>
+          <!-- pointer-transparent: the whole lane surface is a velocity drag -->
+          <span class="lane-note" id="lane-note"></span>
         </div>
       </section>
     </div>
@@ -257,8 +265,11 @@
             </div>
             <div class="insp-row">
               <span class="insp-label">Strength</span>
-              <input class="range" id="q-strength" type="range" min="0" max="100" value="100" step="1"
-                     aria-label="Quantize strength percent" disabled />
+              <span class="ed-slider">
+                <input class="range" id="q-strength" type="range" min="0" max="100" value="100" step="1"
+                       aria-label="Quantize strength percent" disabled />
+                <output class="ed-readout" id="q-strength-out" for="q-strength">100%</output>
+              </span>
             </div>
             <div class="insp-row">
               <span class="insp-label">Snap</span>
@@ -342,38 +353,46 @@
         <div class="insp-sec">
           <button class="insp-sec-head" aria-expanded="true" aria-controls="s-note">Note Properties</button>
           <div class="insp-sec-body" id="s-note">
-            <div class="insp-row is-tight">
-              <span class="insp-label">Pitch</span>
-              <span class="input-wrap">
-                <input class="input is-sm" id="n-pitch" type="number" min="0" max="127" step="1"
-                       aria-label="Pitch of the selected notes" disabled />
-                <span class="input-affix" id="n-pitch-name">—</span>
-              </span>
+            <!-- Four short values paired two to a line, like the ref. Each pair is
+                 still label + control; the grid collapses to one column under the
+                 container query at the bottom of review.css. -->
+            <div class="ed-pairs">
+              <div class="ed-pair">
+                <span class="insp-label">Pitch</span>
+                <span class="input-wrap">
+                  <input class="input is-sm" id="n-pitch" type="number" min="0" max="127" step="1"
+                         aria-label="Pitch of the selected notes" disabled />
+                  <span class="input-affix" id="n-pitch-name">—</span>
+                </span>
+              </div>
+              <div class="ed-pair">
+                <span class="insp-label">Velocity</span>
+                <span class="input-wrap">
+                  <input class="input is-sm" id="n-vel-num" type="number" min="1" max="127" step="1"
+                         aria-label="Velocity value" disabled />
+                  <span class="input-affix">1–127</span>
+                </span>
+              </div>
+              <div class="ed-pair">
+                <span class="insp-label">Length</span>
+                <span class="input-wrap">
+                  <input class="input is-sm" id="n-len" type="number" min="10" max="60000" step="10"
+                         aria-label="Length of the selected notes in milliseconds" disabled />
+                  <span class="input-affix">ms</span>
+                </span>
+              </div>
+              <div class="ed-pair">
+                <span class="insp-label">Channel</span>
+                <span class="selectwrap"><select class="select is-sm" id="n-chan" aria-label="Channel of the selected notes" disabled></select></span>
+              </div>
             </div>
             <div class="insp-row is-tight">
               <span class="insp-label">Velocity</span>
-              <input class="range" id="n-vel" type="range" min="1" max="127" value="96" step="1"
-                     aria-label="Velocity of the selected notes" disabled />
-            </div>
-            <div class="insp-row is-tight">
-              <span class="insp-label"></span>
-              <span class="input-wrap">
-                <input class="input is-sm" id="n-vel-num" type="number" min="1" max="127" step="1"
-                       aria-label="Velocity value" disabled />
-                <span class="input-affix">1–127</span>
+              <span class="ed-slider">
+                <input class="range" id="n-vel" type="range" min="1" max="127" value="96" step="1"
+                       aria-label="Velocity of the selected notes" disabled />
+                <output class="ed-readout" id="n-vel-out" for="n-vel">—</output>
               </span>
-            </div>
-            <div class="insp-row is-tight">
-              <span class="insp-label">Length</span>
-              <span class="input-wrap">
-                <input class="input is-sm" id="n-len" type="number" min="10" max="60000" step="10"
-                       aria-label="Length of the selected notes in milliseconds" disabled />
-                <span class="input-affix">ms</span>
-              </span>
-            </div>
-            <div class="insp-row is-tight">
-              <span class="insp-label">Channel</span>
-              <span class="selectwrap"><select class="select is-sm" id="n-chan" aria-label="Channel of the selected notes" disabled></select></span>
             </div>
             <p class="ed-hint" id="n-hint">Select notes on the roll to edit them.</p>
           </div>
@@ -448,7 +467,6 @@
 
   <!-- ============================================================ status -->
   <div class="ed-status">
-    <span class="pill" id="status-pill"><span class="dot" id="status-dot"></span><span id="status-txt">Ready</span></span>
     <span class="ed-detail" id="detail"></span>
     <span class="ed-clock" id="clock">--:--.--- / --:--.---</span>
   </div>

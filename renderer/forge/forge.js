@@ -240,6 +240,9 @@
       if (i >= 0) select(i, false);
     });
     on(strip, 'keydown', (e) => {
+      // The strip now also carries the sort select and the collapse control:
+      // an arrow key inside one of those is theirs, not the tab ring's.
+      if (!(e.target && e.target.closest && e.target.closest('button[role="tab"]'))) return;
       const cur = btns.findIndex((b) => b.getAttribute('aria-selected') === 'true');
       if (cur < 0) return;
       let next = -1;
@@ -267,6 +270,16 @@
       resultTab = id === 'tab-history' ? 'history' : 'results';
       renderResults();
     });
+
+  // The rail's Output / Pipeline / Advanced Options carets are one primitive:
+  // .insp-sec-head already draws and rotates the chevron off aria-expanded.
+  for (const [head, body] of [['out-toggle', 'out-body'], ['pipe-toggle', 'pipe-body']]) {
+    on($(head), 'click', () => {
+      const open = $(head).getAttribute('aria-expanded') !== 'true';
+      $(head).setAttribute('aria-expanded', open ? 'true' : 'false');
+      $(body).hidden = !open;
+    });
+  }
 
   // =========================================================================
   // COLUMN COLLAPSE
@@ -446,10 +459,6 @@
     for (const g of document.querySelectorAll('.adv-group')) g.hidden = g.dataset.group !== pipeline;
     $('c-model').value = pipeline;
     $('c-model-h').textContent = PIPELINE_HINT[pipeline] || '';
-    $('run-info-pipeline').textContent = pipeline;
-    const dir = outputDir || defaultOutDir;
-    $('run-info-out').textContent = dir ? dir.split(/[\\/]/).slice(-2).join('\\') : 'not set';
-    $('run-info-out').title = dir || '';
   }
 
   function setPipeline(v, persist) {
@@ -500,9 +509,14 @@
       return;
     }
     const base = Fmt.basename(p) || p;
-    const dir = p.slice(0, Math.max(0, p.length - base.length));
+    let dir = p.slice(0, Math.max(0, p.length - base.length));
+    let lead = '';
+    // .pathchip-dir clips from the left with direction:rtl, and a trailing
+    // separator is a neutral character there -- it gets reordered to the FRONT
+    // of the visible string. The separator belongs to the basename's side.
+    if (/[\\/]$/.test(dir)) { lead = dir.slice(-1); dir = dir.slice(0, -1); }
     dirSpan.textContent = dir;
-    nameSpan.textContent = base;
+    nameSpan.textContent = lead + base;
     chip.title = p;
   }
 
@@ -534,16 +548,16 @@
     if (dir && S.openPath) S.openPath(dir);
     else if (dir && F.openPath) F.openPath(dir);
   });
-  on($('in-reveal'), 'click', (e) => {
-    e.preventDefault();
-    if (inputPath && Bus) Bus.send(T.FILE_REVEAL, { path: inputPath });
-  });
-
   const sameAsInput = () => $('samename').getAttribute('aria-checked') === 'true';
   function syncSameName() {
     const same = sameAsInput();
-    $('outname-field').hidden = same;
-    $('samename-hint').textContent = same ? 'Turn off to name the file yourself.' : 'The engine will use the name below.';
+    // The reference keeps the filename visible at all times, so the tick
+    // disables the field instead of hiding it: the name in force stays
+    // readable whichever way the switch is set.
+    $('out-name').disabled = same;
+    $('samename-hint').textContent = same
+      ? 'Named after the song. Turn the tick off to name it yourself.'
+      : 'The engine will use the name above.';
     $('out-name').placeholder = inputPath ? Fmt.stem(inputPath) : 'same name as the song';
   }
   function toggleSameName() {
@@ -852,7 +866,9 @@
       else if (Bus) Bus.send(T.FORGE_STATUS, { event: 'forge.job', jobId: id, name: jobName, kind: 'download' });
     }).catch((err) => failJob(String((err && err.message) || err)));
   }
+  function syncFetch() { $('fetch').hidden = !$('url').value.trim(); }
   on($('fetch'), 'click', doFetch);
+  on($('url'), 'input', syncFetch);
   on($('url'), 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doFetch(); } });
 
   // =========================================================================
@@ -863,15 +879,12 @@
       $('song-title').textContent = 'No input loaded';
       $('song-meta').textContent = 'Drop an audio file, paste a link, or browse.';
       $('song-fmt').hidden = true;
-      $('in-chip').hidden = true;
       return;
     }
     $('song-title').textContent = Fmt.stem(inputPath);
     $('song-title').title = inputPath;
     $('song-fmt').hidden = false;
     $('song-fmt').textContent = (Fmt.ext(inputPath) || '').replace('.', '').toUpperCase() || 'AUDIO';
-    setPathChip($('in-chip'), $('in-dir'), $('in-name'), inputPath, '');
-    $('in-chip').hidden = false;
     paintSongMeta();
   }
 
@@ -882,10 +895,28 @@
     const dur = audioMeta.seconds || waveDuration;
     bits.push(dur ? Fmt.clock(dur) : '--:--');
     if (audioMeta.rate) bits.push((audioMeta.rate / 1000).toFixed(1).replace(/\.0$/, '') + ' kHz');
-    if (audioMeta.channels) bits.push(audioMeta.channels === 1 ? 'mono' : audioMeta.channels === 2 ? 'stereo' : audioMeta.channels + ' ch');
+    if (audioMeta.channels) bits.push(audioMeta.channels === 1 ? 'Mono' : audioMeta.channels === 2 ? 'Stereo' : audioMeta.channels + ' ch');
     if (audioMeta.bytes) bits.push(Fmt.bytes(audioMeta.bytes));
     $('song-meta').textContent = bits.join('  ·  ');
   }
+
+  // The reference has no input path chip in the rail -- the file is the centre
+  // heading -- so reveal-in-folder, browse-more and clear live in the heading's
+  // own menu instead of a second row of chrome.
+  on($('song-menu'), 'click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const items = [];
+    if (inputPath) {
+      items.push({ group: Fmt.basename(inputPath) });
+      items.push({ label: 'Show in folder', icon: 'folder', run: () => { if (Bus) Bus.send(T.FILE_REVEAL, { path: inputPath }); } });
+    }
+    items.push({ label: 'Add files to the queue…', icon: 'plus', run: () => browse('queue') });
+    if (inputPath) {
+      items.push({ sep: true });
+      items.push({ label: 'Clear the input', icon: 'close', danger: true, run: () => setInput('') });
+    }
+    window.Menu.open(items, { x: r.right, y: r.bottom + 4, ariaLabel: 'Input actions', returnFocusTo: e.currentTarget });
+  });
 
   function setInput(p) {
     stopPreview();
@@ -1266,7 +1297,7 @@
       else msg = 'Forging ' + Fmt.clock(t.start || 0) + ' to ' + (t.end == null ? 'the end' : Fmt.clock(t.end)) + '.';
     }
     const hint = $('time-hint');
-    if (hint.textContent !== msg) hint.textContent = msg;
+    if (hint.textContent !== msg) { hint.textContent = msg; hint.title = msg; }
     hint.classList.toggle('is-error', !ok);
     $('time-start').classList.toggle('is-invalid', !ok);
     $('time-end').classList.toggle('is-invalid', !ok);
@@ -1483,7 +1514,7 @@
       li.dataset.state = 'wait';
       li.classList.remove('is-fresh');
       li.removeAttribute('aria-current');
-      li.querySelector('.stg-meta').textContent = 'Waiting';
+      li.querySelector('.stg-meta').textContent = 'Pending';
       const fill = li.querySelector('.bar-fill');
       fill.classList.remove('indet');
       fill.style.setProperty('--p', '0');
@@ -1605,6 +1636,10 @@
   }
 
   function syncBusy() {
+    // The reference carries no idle status row here -- the shell's activity
+    // strip is where "nothing is running" belongs -- so the job head appears
+    // only once a run has something to say.
+    $('job-head').hidden = !busy && (activeState === 'ready' || activeState === 'idle');
     $('pause').hidden = !busy;
     $('cancel').hidden = !busy;
     $('fetch').disabled = busy;
@@ -1707,7 +1742,16 @@
   // RESULTS + HISTORY
   // =========================================================================
   const BADGE = { primary: 'Primary', clean: 'Clean', alternate: 'Alternate', drums: 'Drums' };
+  const KIND = { piano: 'Piano', melody: 'Melody', general: 'Full', drums: 'Drums', fast: 'Fast' };
+  const kindOf = (it) => KIND[it && it.pipeline] || 'MIDI';
+  // Fmt.count does not group thousands and a note count is exactly where that
+  // reads badly ("2841 notes"), so this one string is grouped locally.
+  const notesText = (n) => (n == null ? '— notes'
+    : Number(n).toLocaleString() + (Number(n) === 1 ? ' note' : ' notes'));
   let sessionResults = [], history = [], resList = null;
+  // A result row is a two-line card with a gap around it, not a flush list row:
+  // the gap is inside the pitch so VList still positions from one number.
+  const resRowHeight = () => (Tokens ? Tokens.num('h-row-lg', 40) : 40) + 24;
 
   function loadHistory() {
     try {
@@ -1803,7 +1847,7 @@
   }
 
   resList = window.VList($('res-list'), {
-    rowHeight: Tokens ? Tokens.num('h-row-lg', 40) : 40,
+    rowHeight: resRowHeight(),
     ariaLabel: 'Forge results',
     key: (it) => lower(it.path),
     createRow() {
@@ -1811,17 +1855,21 @@
       n.className = 'lrow is-lg';
       n.innerHTML =
         '<span class="lrow-main"><span class="lrow-name u-truncate"></span><span class="lrow-sub u-truncate"></span></span>' +
-        '<span class="lrow-meta"><span class="tag fg-badge"></span><span class="mono small"></span></span>';
+        '<span class="lrow-meta"><span class="tag fg-badge"></span><span class="fg-when"></span></span>' +
+        '<span class="lrow-actions"><button class="btn btn-icon is-sm is-bare" type="button" data-action="menu" tabindex="-1" aria-label="More actions"></button></span>';
+      // Icon.apply only walks the document once, at load; a row built later
+      // fills its own glyph the way the queue rows do.
+      n.lastElementChild.firstElementChild.innerHTML = window.Icon.svg('dots', 14);
       return n;
     },
     renderRow(node, it) {
       const main = node.children[0], meta = node.children[1];
       main.children[0].textContent = Fmt.basename(it.path);
-      const notes = it.notes == null ? '—' : Fmt.count(it.notes, 'note');
+      const notes = notesText(it.notes);
       const dur = it.seconds == null ? '—' : Fmt.clock(it.seconds);
-      main.children[1].textContent = notes + ' · ' + dur;
+      main.children[1].textContent = notes + ' · ' + dur + ' · ' + kindOf(it);
       meta.children[0].textContent = BADGE[it.badge] || 'Primary';
-      meta.children[0].classList.toggle('is-accent', it.badge === 'primary' || it.badge === 'clean');
+      meta.children[0].classList.toggle('is-primary', it.badge === 'primary');
       meta.children[1].textContent = Fmt.when(it.at);
       meta.children[1].title = Fmt.stamp(it.at);
       node.title = it.path;
@@ -1837,8 +1885,18 @@
     // silently, so this does not loop.
     onSelectionChange(keys, rows) { select(rows && rows.length ? rows[rows.length - 1] : null); },
     onActivate(it) { if (Bus) Bus.send(T.NAV_OPEN_EDITOR, { projectPath: it.project || '', midiPath: it.path }); },
+    onAction(action, it, index, ev) {
+      if (action !== 'menu') return;
+      const btn = ev.target.closest('[data-action]');
+      const r = btn.getBoundingClientRect();
+      rowMenu(it, r.right, r.bottom + 4, resList.host);
+    },
     onContextMenu(it, index, ev) {
       ev.preventDefault();
+      rowMenu(it, ev.clientX, ev.clientY, resList.host);
+    },
+  });
+  function rowMenu(it, x, y, back) {
       window.Menu.open([
         { group: Fmt.basename(it.path) },
         { label: 'Open in Editor', icon: 'send', run: () => Bus.send(T.NAV_OPEN_EDITOR, { projectPath: it.project || '', midiPath: it.path }) },
@@ -1847,9 +1905,8 @@
         { sep: true },
         { label: 'Show in folder', icon: 'folder', run: () => Bus.send(T.FILE_REVEAL, { path: it.path }) },
         { label: 'Forget this result', icon: 'close', danger: true, run: () => forget(it) },
-      ], { x: ev.clientX, y: ev.clientY, ariaLabel: Fmt.basename(it.path), returnFocusTo: resList.host });
-    },
-  });
+      ], { x: x, y: y, ariaLabel: Fmt.basename(it.path), returnFocusTo: back });
+  }
   keep(() => resList.destroy());
   on($('res-sort'), 'change', renderResults);
 
@@ -1873,7 +1930,9 @@
     $('sel-badge').textContent = BADGE[selected.badge] || 'Primary';
     $('sel-name').textContent = Fmt.basename(selected.path);
     $('sel-name').title = selected.path;
-    $('sel-when').textContent = Fmt.when(selected.at);
+    $('sel-badge').classList.toggle('is-primary', selected.badge === 'primary');
+    $('sel-kind').textContent = kindOf(selected);
+    $('sel-when').textContent = 'Generated ' + Fmt.when(selected.at);
     $('sel-when').title = Fmt.stamp(selected.at);
     paintSelStats();
     if (resList) resList.selectKeys([lower(selected.path)], true);
@@ -1883,7 +1942,7 @@
   }
   function paintSelStats() {
     if (!selected) return;
-    $('sel-notes').textContent = selected.notes == null ? '—' : String(selected.notes);
+    $('sel-notes').textContent = notesText(selected.notes);
     $('sel-dur').textContent = selected.seconds == null ? '—' : Fmt.clock(selected.seconds);
   }
 
@@ -2085,7 +2144,10 @@
     const chip = $('env-chip');
     chip.className = 'pill fg-env' + (kind ? ' is-' + kind : '');
     $('env-dot').className = 'dot' + (kind === 'ok' ? ' ok' : kind === 'err' ? ' err' : kind === 'warn' ? ' warn' : '');
-    $('env-text').textContent = text;
+    // The chip shares its row with the tabs now, so it carries the verdict and
+    // the detail ("Ready", not "Ready - NVIDIA GeForce RTX 4070 Laptop GPU")
+    // goes to the tooltip. The shell's activity strip still spells it out.
+    $('env-text').textContent = String(text).split(' · ')[0];
     chip.title = text + (envMissing.length ? '\nMissing: ' + envMissing.join(', ') : '') + '\nClick to open first-time setup.';
   }
 
@@ -2370,6 +2432,7 @@
         logLine('Downloaded ' + Fmt.basename(result.downloadedPath), { level: 'ok' });
         if (Bus) Bus.send(T.UI_TOAST, { severity: 'ok', title: 'Downloaded', message: Fmt.basename(result.downloadedPath), key: 'forge-dl' });
         $('url').value = '';
+        syncFetch();
       } else if (result.midiPath) {
         jobPercent = 100;
         jobPctSeenAt = Date.now();
@@ -2420,7 +2483,7 @@
       { id: 'forge.outputFolder', label: 'Forge: change the output folder', group: 'Forge', run: () => $('pick-out').click() },
       { id: 'forge.preview', label: 'Forge: play or pause the audio preview', group: 'Forge', enabled: () => !!inputPath, run: togglePreview },
       { id: 'forge.fitZoom', label: 'Forge: fit the whole song in the waveform', group: 'Forge', run: () => zoom.reset() },
-      { id: 'forge.advanced', label: 'Forge: show Advanced Options', group: 'Forge', run: () => { railTabs.select(2, false); if ($('adv').hidden) $('adv-toggle').click(); $('adv-toggle').focus(); } },
+      { id: 'forge.advanced', label: 'Forge: show Advanced Options', group: 'Forge', run: () => { railTabs.select(0, false); if ($('adv').hidden) $('adv-toggle').click(); $('adv-toggle').focus(); } },
       { id: 'forge.log', label: 'Forge: show the pipeline log', group: 'Forge', run: () => progTabs.select(1, false) },
       { id: 'forge.copyLog', label: 'Forge: copy the pipeline log', group: 'Forge', run: () => copyLog('the log') },
       { id: 'forge.openResult', label: 'Forge: open the last result in the Editor', group: 'Forge', enabled: () => !!selected, run: () => $('act-editor').click() },
@@ -2440,7 +2503,7 @@
       if (Array.isArray(p.inputPaths)) paths.push(...p.inputPaths);
       if (p.inputPath) paths.unshift(p.inputPath);
       if (paths.length) addInputs(paths, 'replace');
-      if (p.url) { $('url').value = String(p.url); railTabs.select(0, false); $('url').focus(); }
+      if (p.url) { $('url').value = String(p.url); syncFetch(); railTabs.select(0, false); $('url').focus(); }
     }));
     // The source panel flashes the row a file came from. Ours are result rows.
     keep(Bus.on(T.FILE_OPEN, (p) => {
@@ -2454,7 +2517,7 @@
     const reRow = () => {
       const h = queueRowHeight();
       if (queueList) queueList.rowHeight(h);
-      if (resList) resList.rowHeight(h);
+      if (resList) resList.rowHeight(resRowHeight());
       waveLayer.invalidate();
       waveHandle.invalidate();
     };

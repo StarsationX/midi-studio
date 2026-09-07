@@ -57,10 +57,10 @@
         <div class="list" id="nav-sources" role="group" aria-label="Library views"></div>
       </div>
       <div class="sm-chooser" id="chooser-playlists" hidden>
+        <button class="btn sm-newpl" type="button" id="nav-new-playlist">
+          <i data-icon="plus" data-icon-size="14"></i>New Playlist</button>
         <div class="sm-eyebrow-row">
           <span class="sm-eyebrow">My Playlists</span>
-          <button class="btn btn-sm" type="button" id="nav-new-playlist">
-            <i data-icon="plus" data-icon-size="12"></i>New Playlist</button>
         </div>
         <div class="list" id="nav-playlists" role="group" aria-label="Playlists"></div>
       </div>
@@ -98,16 +98,8 @@
         <select class="select is-sm" id="candidate" aria-label="Version"></select>
       </span>
       <span class="toolbar-spacer"></span>
-      <button class="checkbox" type="button" id="favorite" role="checkbox" aria-checked="false" disabled>Favorite</button>
-      <span class="toolbar-sep"></span>
-      <span class="toolbar-label" id="autoplay-label">Autoplay</span>
-      <button class="switch" type="button" id="autoplay" role="switch" aria-checked="false"
-              aria-labelledby="autoplay-label" data-tip="Play a file as soon as it opens"></button>
-    </header>
-
-    <div class="toolbar is-sub sm-sound">
       <span class="toolbar-label">Sound</span>
-      <span class="selectwrap">
+      <span class="selectwrap sm-inst">
         <select class="select is-sm" id="instrument" aria-label="Instrument">
           <option value="grand_piano">Grand Piano</option>
           <option value="bright_piano">Bright Piano</option>
@@ -128,9 +120,12 @@
       <input class="range sm-volume" id="volume" type="range" min="0" max="100" step="1" value="65"
              aria-labelledby="volume-label" />
       <output class="mono small sm-volume-val" id="volume-value" for="volume">65%</output>
-      <span class="toolbar-spacer"></span>
+      <span class="toolbar-sep"></span>
+      <span class="toolbar-label" id="autoplay-label">Autoplay</span>
+      <button class="switch" type="button" id="autoplay" role="switch" aria-checked="false"
+              aria-labelledby="autoplay-label" data-tip="Play a file as soon as it opens"></button>
       <span class="mono small u-truncate sm-inst-status" id="instrument-status">Grand Piano</span>
-    </div>
+    </header>
 
     <div class="scroll-y sm-body" id="sm-body">
       <!-- empty / loading / error: one block, three states -->
@@ -147,29 +142,28 @@
         <section class="sm-hero">
           <div class="sm-art" id="art-host"><canvas id="art-canvas" aria-hidden="true"></canvas></div>
           <div class="sm-hero-copy">
-            <h1 class="sm-title u-truncate" id="song-title">&mdash;</h1>
+            <div class="sm-hero-top">
+              <h1 class="sm-title u-truncate" id="song-title">&mdash;</h1>
+              <span class="sm-hero-acts">
+                <button class="checkbox" type="button" id="favorite" role="checkbox" aria-checked="false" disabled>Favorite</button>
+                <button class="btn btn-icon is-bare" type="button" id="song-menu" disabled
+                        aria-label="More actions for this song" data-tip="More actions"><i data-icon="dots" data-icon-size="16"></i></button>
+              </span>
+            </div>
             <p class="sm-artist u-truncate" id="song-artist">&mdash;</p>
             <p class="sm-sub u-truncate" id="song-sub">&mdash;</p>
             <div class="sm-tags" id="song-tags"></div>
+
+            <section class="sm-stats" aria-label="Song details">
+              <div class="sm-stat"><span class="sm-stat-k">Format</span><span class="sm-stat-v" id="stat-format">&mdash;</span></div>
+              <div class="sm-stat"><span class="sm-stat-k">Notes</span><span class="sm-stat-v" id="stat-notes">&mdash;</span></div>
+              <div class="sm-stat"><span class="sm-stat-k">Length</span><span class="sm-stat-v" id="stat-length">&mdash;</span></div>
+              <div class="sm-stat"><span class="sm-stat-k">Tempo</span><span class="sm-stat-v" id="stat-tempo">&mdash;</span></div>
+            </section>
           </div>
         </section>
 
-        <section class="sm-stats" aria-label="Song details">
-          <div class="sm-stat"><span class="sm-stat-k">Format</span><span class="sm-stat-v mono" id="stat-format">&mdash;</span></div>
-          <div class="sm-stat"><span class="sm-stat-k">Notes</span><span class="sm-stat-v mono" id="stat-notes">&mdash;</span></div>
-          <div class="sm-stat"><span class="sm-stat-k">Length</span><span class="sm-stat-v mono" id="stat-length">&mdash;</span></div>
-          <div class="sm-stat"><span class="sm-stat-k">Tempo</span><span class="sm-stat-v mono" id="stat-tempo">&mdash;</span></div>
-        </section>
-
-        <section class="panel sm-roll-panel">
-          <header class="panel-head">
-            <h2 class="panel-title">Piano roll</h2>
-            <div class="panel-tools">
-              <span class="mono small" id="roll-window">Whole song</span>
-              <button class="btn btn-icon is-sm is-bare" type="button" id="roll-reset"
-                      aria-label="Reset zoom" data-tip="Reset zoom"><i data-icon="refresh" data-icon-size="14"></i></button>
-            </div>
-          </header>
+        <section class="panel is-flat sm-roll-panel" aria-label="Piano roll">
           <div class="panel-body is-flush">
             <div class="canvas-host sm-roll" id="roll-host">
               <canvas id="note-roll" aria-hidden="true"></canvas>
@@ -185,9 +179,13 @@
               <button class="btn btn-sm" type="button" id="forward" data-tip="Forward 5 seconds"
                       aria-label="Forward 5 seconds">+5s</button>
             </span>
-            <span class="mono small u-truncate" id="roll-hint">Click to seek &middot; drag to pick a loop range &middot; wheel to zoom</span>
+            <span class="small u-truncate" id="roll-hint">Click to seek &middot; drag to pick a loop range &middot; wheel to zoom</span>
             <span class="u-spacer"></span>
             <span class="mono small" id="roll-clock">0:00 / 0:00</span>
+            <span class="toolbar-sep"></span>
+            <span class="small" id="roll-window">Whole song</span>
+            <button class="btn btn-icon is-sm is-bare" type="button" id="roll-reset"
+                    aria-label="Reset zoom" data-tip="Reset zoom"><i data-icon="refresh" data-icon-size="14"></i></button>
           </footer>
         </section>
 
@@ -203,26 +201,33 @@
               </div>
             </header>
             <div class="panel-body">
-              <div class="sm-ab">
-                <button class="btn btn-sm" type="button" id="loop-set-a" data-tip="Set A at the playhead">Set A</button>
-                <input class="input is-sm sm-time" id="loop-a" value="0:00" aria-label="Loop start" spellcheck="false" />
-                <span class="sm-ab-to">to</span>
-                <input class="input is-sm sm-time" id="loop-b" value="0:00" aria-label="Loop end" spellcheck="false" />
-                <button class="btn btn-sm" type="button" id="loop-set-b" data-tip="Set B at the playhead">Set B</button>
-                <button class="btn btn-sm btn-ghost" type="button" id="loop-reset">Reset</button>
+              <div class="sm-ab-set">
+                <button class="btn" type="button" id="loop-set-a" data-tip="Set the loop start at the playhead"
+                        aria-label="Set the loop start at the playhead">A</button>
+                <button class="btn" type="button" id="loop-set-b" data-tip="Set the loop end at the playhead"
+                        aria-label="Set the loop end at the playhead">B</button>
               </div>
-              <p class="field-hint" id="loop-hint">No range picked. Drag across the roll, or set A and B.</p>
+              <div class="sm-ab">
+                <span class="sm-range">
+                  <input class="input is-sm sm-time" id="loop-a" value="0:00" aria-label="Loop start" spellcheck="false" />
+                  <span class="sm-ab-to">&ndash;</span>
+                  <input class="input is-sm sm-time" id="loop-b" value="0:00" aria-label="Loop end" spellcheck="false" />
+                </span>
+                <button class="btn btn-icon" type="button" id="loop-reset"
+                        aria-label="Clear the loop range" data-tip="Clear the loop range"><i data-icon="refresh" data-icon-size="14"></i></button>
+              </div>
+              <p class="field-hint" id="loop-hint">Drag across the roll, or set A and B.</p>
             </div>
           </section>
 
           <!-- SPEED -->
           <section class="panel sm-card" id="card-speed">
-            <header class="panel-head"><h2 class="panel-title">Playback speed</h2></header>
+            <header class="panel-head"><h2 class="panel-title">Playback Speed</h2></header>
             <div class="panel-body">
-              <span class="stepper is-sm sm-stepper">
+              <span class="stepper sm-stepper">
                 <button class="stepper-btn" type="button" id="speed-down" aria-label="Slower">&minus;</button>
-                <input type="number" id="speed-value" min="0.25" max="2" step="0.05" value="1" aria-label="Playback speed" />
-                <span class="stepper-unit">&times;</span>
+                <input type="number" id="speed-value" min="0.25" max="2" step="0.05" value="1.00" aria-label="Playback speed" />
+                <span class="stepper-unit">x</span>
                 <button class="stepper-btn" type="button" id="speed-up" aria-label="Faster">+</button>
               </span>
               <div class="segmented is-sm sm-presets" id="speed-presets" role="radiogroup" aria-label="Speed presets">
@@ -239,7 +244,7 @@
           <section class="panel sm-card" id="card-transpose">
             <header class="panel-head"><h2 class="panel-title">Transpose</h2></header>
             <div class="panel-body">
-              <span class="stepper is-sm sm-stepper">
+              <span class="stepper sm-stepper">
                 <button class="stepper-btn" type="button" id="pitch-down" aria-label="Down a semitone">&minus;</button>
                 <input type="number" id="pitch-value" min="-24" max="24" step="1" value="0" aria-label="Transpose in semitones" />
                 <span class="stepper-unit">st</span>
@@ -276,17 +281,17 @@
 
         <div class="insp sm-info">
           <div class="insp-sec">
-            <button class="insp-sec-head" type="button" id="info-head" aria-expanded="false" aria-controls="info-body">
-              MIDI information</button>
-            <div class="insp-sec-body" id="info-body" hidden>
-              <div class="insp-row is-stacked"><span class="insp-label">Tracks</span>
-                <span class="insp-value sm-wrap" id="info-tracks">&mdash;</span></div>
-              <div class="insp-row is-stacked"><span class="insp-label">Instruments</span>
-                <span class="insp-value sm-wrap" id="info-instruments">&mdash;</span></div>
-              <div class="insp-row"><span class="insp-label">Time signature</span>
-                <span class="insp-value" id="info-time">&mdash;</span></div>
-              <div class="insp-row"><span class="insp-label">Key</span>
-                <span class="insp-value" id="info-key">&mdash;</span></div>
+            <button class="insp-sec-head" type="button" id="info-head" aria-expanded="true" aria-controls="info-body">
+              MIDI Information</button>
+            <div class="insp-sec-body sm-info-body" id="info-body">
+              <span class="sm-fact"><span class="sm-fact-k">Tracks:</span>
+                <span class="sm-fact-v" id="info-tracks">&mdash;</span></span>
+              <span class="sm-fact"><span class="sm-fact-k">Instruments:</span>
+                <span class="sm-fact-v" id="info-instruments">&mdash;</span></span>
+              <span class="sm-fact"><span class="sm-fact-k">Time Signature:</span>
+                <span class="sm-fact-v" id="info-time">&mdash;</span></span>
+              <span class="sm-fact"><span class="sm-fact-k">Key:</span>
+                <span class="sm-fact-v" id="info-key">&mdash;</span></span>
             </div>
           </div>
         </div>
@@ -311,8 +316,8 @@
     </div>
 
     <div class="toolbar is-sub sm-rail-tools">
-      <button class="btn btn-sm btn-ghost" type="button" id="rail-clear">Clear</button>
       <span class="toolbar-spacer"></span>
+      <button class="btn btn-sm" type="button" id="rail-clear">Clear</button>
       <button class="btn btn-sm" type="button" id="rail-save">Save as Playlist</button>
     </div>
 
@@ -326,22 +331,22 @@
 
     <section class="sm-recent">
       <div class="sm-eyebrow-row">
-        <span class="sm-eyebrow">Recently played</span>
-        <button class="link" type="button" id="recent-all">See all</button>
+        <span class="sm-eyebrow">Recently Played</span>
+        <button class="link" type="button" id="recent-all">See All</button>
       </div>
       <div class="list sm-recent-list" id="recent-list" role="group" aria-label="Recently played"></div>
       <p class="field-hint sm-recent-empty" id="recent-empty">Nothing played yet.</p>
     </section>
 
     <footer class="sm-actions">
-      <button class="btn btn-sm" type="button" id="act-queue" disabled>
-        <i data-icon="plus" data-icon-size="12"></i>Add to Queue</button>
-      <button class="btn btn-sm" type="button" id="act-editor" disabled>
-        <i data-icon="send" data-icon-size="12"></i>Open in Editor</button>
-      <button class="btn btn-sm" type="button" id="act-player" disabled>
-        <i data-icon="send" data-icon-size="12"></i>Send to Player</button>
-      <button class="btn btn-sm" type="button" id="act-reveal" disabled>
-        <i data-icon="folder" data-icon-size="12"></i>Show in Folder</button>
+      <button class="btn" type="button" id="act-queue" disabled>
+        <i data-icon="plus" data-icon-size="14"></i>Add to Queue</button>
+      <button class="btn" type="button" id="act-editor" disabled>
+        <i data-icon="send" data-icon-size="14"></i>Open in Editor</button>
+      <button class="btn" type="button" id="act-player" disabled>
+        <i data-icon="play" data-icon-size="14"></i>Send to Player</button>
+      <button class="btn" type="button" id="act-reveal" disabled>
+        <i data-icon="folder" data-icon-size="14"></i>Show in Folder</button>
     </footer>
   </aside>
 </div>

@@ -15,17 +15,21 @@
 html, body { height: 100%; overflow: hidden; }
 body { background: var(--bg); }
 
-/* chrome metrics; both tighten under compact density */
+/* chrome metrics; all of them tighten under compact density. The strip is
+   two text lines tall when something is running and a single quiet line when
+   nothing is; the transport stacks the scrub line over the buttons. */
 :root {
   --h-tbar: 44px;
-  --h-astrip: 34px;
-  --h-xport: 56px;
+  --h-astrip: 50px;
+  --h-astrip-idle: 34px;
+  --h-xport: 68px;
   --w-setnav: 176px;
 }
 [data-density="compact"] {
   --h-tbar: 40px;
-  --h-astrip: 30px;
-  --h-xport: 50px;
+  --h-astrip: 44px;
+  --h-astrip-idle: 30px;
+  --h-xport: 60px;
   --w-setnav: 158px;
 }
 
@@ -161,113 +165,147 @@ body[data-maximized="1"] .wctl-restore { display: block; }
 
 /* ===========================================================================
    2. ACTIVITY STRIP
+   ONE clean context line for the active workflow, never a row of competing
+   items. The primary context gets the state word, the name, one metadata line,
+   its progress and its actions; everything else that is live collapses to a
+   chip in .as-alts and comes forward when it is clicked. The engine chip and
+   the log count stay small, at the end. The update notice is its own row.
    ======================================================================== */
 .astrip {
   flex: 0 0 auto; display: flex; flex-direction: column;
   background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .astrip-row {
-  display: flex; align-items: stretch; min-height: var(--h-astrip);
-  padding-right: var(--s2);
+  display: flex; align-items: center; gap: var(--s3);
+  min-height: var(--h-astrip); padding: 0 var(--s2) 0 var(--s3);
 }
+/* Nothing is running: the strip shrinks out of the way rather than shouting a
+   placeholder at the same weight as a real job. */
+.astrip[data-state="idle"] { --h-astrip: var(--h-astrip-idle); }
 
-/* --- activity items ----------------------------------------------------- */
-.as-items { display: flex; align-items: stretch; flex: 1 1 auto; min-width: 0; overflow: hidden; }
-/* A wrapper, so the row's own click target and its action buttons are
-   siblings: a <button> inside a <button> is invalid and gets hoisted out. */
-.aitem {
-  display: flex; align-items: stretch; min-width: 0;
-  border-right: 1px solid var(--line);
-  padding-right: var(--s2);
-}
-.aitem.is-primary { flex: 1 1 auto; }
-.aitem-main {
-  display: flex; align-items: center; gap: var(--s2);
-  flex: 1 1 auto; min-width: 0; padding: 0 var(--s3);
-  border: 0; background: transparent;
+/* --- the one primary context ------------------------------------------- */
+.as-ctx { display: flex; align-items: center; gap: var(--s3); flex: 1 1 auto; min-width: 0; }
+.as-ctx-main {
+  display: flex; align-items: center; gap: var(--s3);
+  flex: 0 1 auto; min-width: 0; height: 100%; padding: 4px var(--s2);
+  border: 0; border-radius: var(--r-sm); background: transparent;
   color: var(--text-2); text-align: left; cursor: pointer;
-  font: 500 var(--t1)/1.25 var(--font-body);
   transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
-.aitem-main:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
-.aitem-main:focus-visible { box-shadow: inset var(--ring); }
-.aitem-main:disabled { cursor: default; }
-.aitem.is-quiet .aitem-main { color: var(--text-3); }
-.aitem-kind {
-  flex: 0 0 auto; font: 700 var(--t1)/1.25 var(--font-mono);
-  letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3);
-}
-.aitem.is-live .aitem-kind { color: var(--accent); }
-.aitem-acts { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; align-self: center; }
-.aitem-name { min-width: 4ch; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-/* `flex: 0 1 auto` + min-width:0, NOT `0 0 auto`. A nowrap run that refuses to
-   shrink is the whole reason the strip forced itself 310px wider than its own
-   box at 1040px and pushed the ETA clean out of the clipped .as-items. It
-   truncates now, and shell.js puts the whole string in the title. */
-.aitem-meta {
-  flex: 0 1 auto; min-width: 0; color: var(--text-3);
-  font-family: var(--font-mono); font-size: var(--t1); line-height: 1.25;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.aitem-bar { flex: 0 1 132px; min-width: 36px; }
+.as-ctx-main:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.as-ctx-main:focus-visible { box-shadow: var(--ring); }
+.as-ctx-main:disabled { cursor: default; }
 
-/* --- status chips ------------------------------------------------------- */
-.as-chips { display: flex; align-items: stretch; flex: 0 0 auto; }
+.as-ctx-badge {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 26px; height: 26px; border-radius: var(--r-pill);
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  transition: border-color var(--motion-normal) var(--ease-standard);
+}
+.as-ctx.is-live .as-ctx-badge { border-color: var(--accent-line); background: var(--accent-soft); }
+.astrip[data-state="idle"] .as-ctx-badge { display: none; }
+
+.as-ctx-lines { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.as-ctx-head { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+/* Ordinary sentence text in the body font. The reference frames read
+   "Forging", "Now Playing", "Editing" -- not a tracked-out mono micro-label. */
+.as-ctx-state {
+  flex: 0 0 auto; font: 600 var(--t2)/1.3 var(--font-body); color: var(--text-2);
+}
+.as-ctx.is-live .as-ctx-state { color: var(--accent); }
+.as-ctx.is-quiet .as-ctx-state { color: var(--text-3); }
+.as-ctx-name {
+  flex: 0 1 auto; min-width: 0;
+  font: 600 var(--t2)/1.3 var(--font-body); color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.as-ctx.is-quiet .as-ctx-name { color: var(--text-2); font-weight: 500; }
+/* The metadata is a SECOND LINE, which is the whole reason nothing on this row
+   has to be truncated any more: it is no longer competing with the name, the
+   progress bar and the actions for the same horizontal run. */
+.as-ctx-meta {
+  min-width: 0; color: var(--text-3);
+  font: 500 var(--t1)/1.3 var(--font-body);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.as-ctx-meta:empty { display: none; }
+.astrip[data-state="idle"] .as-ctx-lines { flex-direction: row; align-items: baseline; gap: var(--s2); }
+
+.as-ctx-bar { flex: 1 1 auto; min-width: 90px; max-width: 660px; }
+
+/* --- the other live contexts, one chip each ------------------------------ */
+.as-alts { display: flex; align-items: center; gap: var(--s1); flex: 0 0 auto; }
+.as-alt {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--h-ctl-sm); padding: 0 10px;
+  background: var(--surface-2); color: var(--text-2);
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  cursor: pointer; white-space: nowrap;
+  font: 600 var(--t1)/1 var(--font-body);
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+.as-alt:hover { background: var(--surface-3); color: var(--text); border-color: var(--line-2); }
+.as-alt:focus-visible { box-shadow: var(--ring); }
+.as-alt.is-live { border-color: var(--accent-line); color: var(--text); }
+
+/* --- the primary context's own actions ---------------------------------- */
+.as-acts { display: flex; align-items: center; gap: var(--s1); flex: 0 0 auto; }
+.as-acts:empty { display: none; }
+
+/* --- status chips: small, and at the end -------------------------------- */
+.as-chips { display: flex; align-items: center; gap: var(--s1); flex: 0 0 auto; margin-left: auto; }
 .as-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 0 var(--s3); border: 0; border-left: 1px solid var(--line);
-  background: transparent; color: var(--text-3); cursor: pointer;
-  font: 500 var(--t1)/1.25 var(--font-body); white-space: nowrap;
-  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+  height: var(--h-ctl-sm); padding: 0 10px; border-radius: var(--r-pill);
+  background: transparent; color: var(--text-3);
+  border: 1px solid transparent; cursor: pointer;
+  font: 500 var(--t1)/1 var(--font-body); white-space: nowrap;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
 }
-.as-chip:hover { background: var(--surface-2); color: var(--text); }
-.as-chip:focus-visible { box-shadow: inset var(--ring); }
+.as-chip:hover { background: var(--surface-2); color: var(--text); border-color: var(--line); }
+.as-chip:focus-visible { box-shadow: var(--ring); }
 .as-chip.is-ok { color: var(--text-2); }
 .as-chip.is-warn { color: var(--warn); }
 .as-chip.is-err { color: var(--err); }
-
-/* --- update row -------------------------------------------------------- */
-/* `flex: 0 1 auto` with min-width:0: this block appears without warning when an
-   update lands, and as `0 0 auto` it took ~230px out of the strip that the
-   activity items then had to overflow to pay for. It compresses instead -- the
-   sub line ellipsises, and below 1160px it goes entirely (the same words are in
-   Settings > Updates). The Update button and the dismiss X never shrink. */
-.as-update {
-  display: flex; align-items: center; gap: var(--s2); flex: 0 1 auto;
-  padding: 0 var(--s2) 0 var(--s3);
-  border-left: 1px solid var(--line);
-  background: var(--accent-soft);
-}
-.as-upd-mark { color: var(--accent); display: flex; }
-.as-upd-text { display: flex; flex-direction: column; gap: 1px; min-width: 6ch; max-width: 34ch; }
-/* The block is shrinkable now, so its title has to truncate rather than spill:
-   squeezed to 12px it was still painting 139px of text across the strip. */
-.as-upd-title {
-  font: 600 var(--t1)/1.2 var(--font-body); color: var(--text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.as-upd-sub { font-size: var(--t1); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.as-upd-bar { width: 90px; flex: 0 0 auto; }
 
 /* --- the log's one remaining affordance on the strip -------------------- */
 /* The log lives in its own tab now. What stays here is discoverability: an
    error must be findable from any tab, and this switches to that tab. */
 .as-errors {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 0 var(--s3); border: 0; border-left: 1px solid var(--line);
-  background: transparent; color: var(--err); cursor: pointer;
-  font: 600 var(--t1)/1.25 var(--font-body); white-space: nowrap;
-  transition: background-color var(--motion-fast) var(--ease-standard),
-              color var(--motion-fast) var(--ease-standard);
+  height: var(--h-ctl-sm); padding: 0 10px; border-radius: var(--r-pill);
+  background: transparent; color: var(--err);
+  border: 1px solid transparent; cursor: pointer;
+  font: 500 var(--t1)/1 var(--font-body); white-space: nowrap;
+  transition: background-color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
 }
-.as-errors:hover { background: var(--err-soft); }
-.as-errors:focus-visible { box-shadow: inset var(--ring); }
+.as-errors:hover { background: var(--err-soft); border-color: #5a2a2a; }
+.as-errors:focus-visible { box-shadow: var(--ring); }
 .as-err-count {
   padding: 0 5px; border-radius: var(--r-pill);
   background: var(--err-soft); color: var(--err);
   font: 600 var(--t1)/1.5 var(--font-mono);
 }
 .as-err-txt { color: var(--text-3); }
+
+/* --- update notice: its own transient row ------------------------------- */
+/* It arrives without warning, so it never takes horizontal space away from the
+   context line. It is a full-width band under it, and it leaves the same way.
+   The version chip in the titlebar carries the same news quietly. */
+.as-update {
+  display: flex; align-items: center; gap: var(--s2);
+  min-height: 34px; padding: 4px var(--s2) 4px var(--s3);
+  border-top: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+}
+.as-upd-mark { color: var(--accent); display: flex; flex: 0 0 auto; }
+.as-upd-text { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; flex: 1 1 auto; }
+.as-upd-title { font: 600 var(--t2)/1.3 var(--font-body); color: var(--text); white-space: nowrap; }
+.as-upd-sub {
+  min-width: 0; font: 500 var(--t1)/1.3 var(--font-body); color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.as-upd-bar { width: 120px; flex: 0 0 auto; }
 
 /* ===========================================================================
    3. TAB STAGE
@@ -291,28 +329,48 @@ body.is-covered .tabframe { visibility: hidden; }
 
 /* ===========================================================================
    4. BOTTOM TRANSPORT
+   Artwork + title + subtitle on the left; the scrub line and the transport
+   buttons stacked and centred; discrete Tempo and Transpose steppers and a
+   volume slider on the right. No uppercase mono slider labels anywhere.
    ======================================================================== */
 .xport {
-  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s3);
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s4);
   height: var(--h-xport); padding: 0 var(--s3);
   background: #1a1b20; border-top: 1px solid var(--line);
 }
 .xport[data-owner=""] .xp-name { color: var(--text-3); }
 
-.xp-now { display: flex; align-items: center; gap: var(--s2); flex: 0 1 250px; min-width: 132px; }
+.xp-now { display: flex; align-items: center; gap: var(--s2); flex: 1 1 260px; min-width: 132px; }
 .xp-art {
-  flex: 0 0 auto; width: 30px; height: 30px; border-radius: var(--r-sm);
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: var(--r-sm);
   display: grid; place-items: center;
   background: var(--bg-2); border: 1px solid var(--line-2); color: var(--text-3);
   transition: color var(--motion-normal) var(--ease-standard), border-color var(--motion-normal) var(--ease-standard);
 }
 .xport.is-live .xp-art { color: var(--accent); border-color: var(--accent-line); }
-.xp-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
-.xp-name { font: 600 var(--t2)/1.25 var(--font-body); color: var(--text); }
-.xp-sub { font: 500 var(--t1)/1.25 var(--font-body); color: var(--text-3); }
+.xp-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 0 1 auto; }
+.xp-name { font: 600 var(--t2)/1.3 var(--font-body); color: var(--text); }
+.xp-sub { font: 500 var(--t1)/1.3 var(--font-body); color: var(--text-3); }
 .xp-status { flex: 0 0 auto; }
 
-.xp-buttons { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+/* The centre block. `flex: 0 1 auto` with an explicit basis, and the two side
+   blocks growing, is what keeps the buttons optically centred in the window
+   whatever the song title does. */
+.xp-center {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  flex: 0 1 640px; min-width: 260px;
+}
+
+/* No hard min-width: the default `min-width: auto` on a flex item IS its
+   min-content width, and that is the only floor that stays correct when the
+   clocks get wider (a literal 140px was narrower than two clocks plus a scrub,
+   and with "show milliseconds" on it would have been wrong by even more). */
+.xp-time { display: flex; align-items: center; gap: var(--s3); width: 100%; }
+.xp-clock { flex: 0 0 auto; font-size: var(--t1); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.xp-clock.is-total { color: var(--text-3); }
+.xp-scrub { flex: 1 1 auto; min-width: 48px; }
+
+.xp-buttons { display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto; }
 .xp-play {
   position: relative; width: 34px; height: 34px; border-radius: var(--r-pill);
   background: var(--surface-2); border-color: var(--line-2); color: var(--text);
@@ -341,38 +399,36 @@ body.is-covered .tabframe { visibility: hidden; }
 }
 #xp-repeat[data-repeat="one"] .xp-rep-1 { opacity: 1; stroke: var(--accent); }
 
-/* No hard min-width: the default `min-width: auto` on a flex item IS its
-   min-content width, and that is the only floor that stays correct when the
-   clocks get wider. A literal 140px was narrower than the row's own minimum
-   (two clocks + a 60px scrub + two gaps = 152px), so the footer squeezed the
-   block below its content and cut the total time off -- and with "show
-   milliseconds" on, a fixed floor would have been wrong by even more. */
-.xp-time { display: flex; align-items: center; gap: var(--s2); flex: 1 1 auto; }
-.xp-clock { flex: 0 0 auto; font-size: var(--t1); color: var(--text-2); font-variant-numeric: tabular-nums; }
-.xp-clock.is-total { color: var(--text-3); }
-.xp-scrub { flex: 1 1 auto; min-width: 48px; }
-
-.xp-knobs { display: flex; align-items: center; gap: var(--s3); flex: 0 0 auto; }
-.xp-knob { display: flex; align-items: center; gap: 6px; }
+/* --- tempo / transpose / volume ----------------------------------------- */
+.xp-right { display: flex; align-items: center; justify-content: flex-end; gap: var(--s3); flex: 1 1 260px; min-width: 0; }
+.xp-knobs { display: flex; align-items: center; justify-content: flex-end; gap: var(--s4); flex: 0 1 auto; min-width: 0; }
+.xp-knob { display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto; }
+/* Ordinary sentence text, sized from the scale. Monospace stays where a real
+   machine value is: the stepper's own number and the volume readout. */
 .xp-knob-k {
-  font: 700 var(--t1)/1.25 var(--font-mono); letter-spacing: .6px;
-  color: var(--text-3); white-space: nowrap;
+  font: 500 var(--t2)/1.25 var(--font-body); color: var(--text-2);
+  white-space: nowrap;
 }
-.xp-knob .range { width: 58px; flex: 0 0 auto; }
+.xp-step > input { min-width: 52px; }
+#xp-knob-transpose .stepper > input { min-width: 44px; }
+.xp-knob.is-vol { gap: var(--s2); }
+.xp-vol-ic { display: flex; color: var(--text-3); flex: 0 0 auto; }
+.xp-knob .range { width: 92px; flex: 0 0 auto; }
 .xp-knob-v {
-  min-width: 40px; text-align: right; font-size: var(--t1);
-  color: var(--text-2); font-variant-numeric: tabular-nums;
+  min-width: 26px; text-align: right; font-size: var(--t1);
+  color: var(--text-3); font-variant-numeric: tabular-nums;
 }
 .xp-knob.is-off { opacity: .4; }
 
 .xp-perch { flex: 0 0 auto; gap: 6px; }
 
 /* The knobs are duplicated in the owning panel, so they are the first thing to
-   give ground when the window is narrow: labels first, then the two secondary
-   ranges. Tempo, the transport buttons and Perch never go. */
-@media (max-width: 1080px) { .xp-knob-k { display: none; } }
-@media (max-width: 980px) {
-  #xp-knob-transpose .range, #xp-knob-volume .range { display: none; }
+   give ground when the window is narrow: the two words first, then Transpose
+   entirely. Tempo, the transport buttons, volume and Perch never go. */
+@media (max-width: 1180px) { .xp-knob-k { display: none; } }
+@media (max-width: 1040px) {
+  .xp-knobs { gap: var(--s3); }
+  .xp-knob .range { width: 64px; }
   .xp-now { flex-basis: 200px; }
 }
 
@@ -404,31 +460,19 @@ body.is-covered .tabframe { visibility: hidden; }
 .nav-item { min-width: 0; }
 .nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* The activity strip runs out of room before anything else, because each item
-   carries real buttons that must stay clickable. Secondary items shed their
-   duplicated text first: the progress meta is in the owning tab, and the kind
-   word is already implied by the row's dot and its buttons. */
-@media (max-width: 1240px) {
-  .aitem:not(.is-primary) .aitem-meta,
-  .aitem:not(.is-primary) .aitem-kind { display: none; }
-  .aitem:not(.is-primary) .aitem-name { max-width: 22ch; }
-}
-/* Below 1160 the update notice keeps its mark, its progress bar, its Update
-   button and its dismiss X, and drops only the sentence -- which Settings >
-   Updates says in full. The words were costing the activity items ~130px they
-   did not have, and a squeezed sentence is worth less than a legible job row.
-   No min-width:0 on the block itself: once the sentence is gone every remaining
-   part (mark, bar, Update, dismiss) is a control, and a 0 floor let the row
-   squash all four of them into 131px. min-width:auto -- a flex item's
-   min-content -- is the correct floor for a row of controls. */
-@media (max-width: 1160px) { .as-upd-text { display: none; } }
+/* The strip carries ONE context now, so there is far less to give up when the
+   window narrows -- and what is left is ordered by how much of it is a second
+   copy of something else. The alt chips are the first to lose their words (the
+   dot and the tooltip still say which is which), then the progress bar, which
+   the bottom transport's scrub shows anyway. The name, the state word and the
+   actions never go. */
+@media (max-width: 1240px) { .as-ctx-bar { max-width: 320px; } }
 @media (max-width: 1120px) {
-  .aitem:not(.is-primary) .aitem-name { max-width: 16ch; }
-  /* Last to go, and only on a secondary row: this bar is the same progress the
-     bottom transport's scrub already shows, and it is the difference between a
-     readable song name and a 9px-crushed one at the 1040px minimum. */
-  .aitem:not(.is-primary) .aitem-bar { display: none; }
+  .as-alt-t { display: none; }
+  .as-alt { padding: 0 8px; }
+  .as-err-txt { display: none; }
 }
+@media (max-width: 1060px) { .as-ctx-bar { display: none; } }
 
 /* The toast host is `bottom: var(--s4)` in ui.css, which is correct for a page
    with nothing pinned to its bottom edge. The shell has the transport there, so
@@ -538,8 +582,8 @@ body.is-covered .tabframe { visibility: hidden; }
 .set-sec { display: flex; flex-direction: column; gap: var(--s3); }
 .set-sec-h { display: flex; flex-direction: column; gap: 3px; }
 .set-sec-h h3 {
-  margin: 0; font: 700 var(--t1)/1.2 var(--font-mono);
-  letter-spacing: 1.8px; text-transform: uppercase; color: var(--text-3);
+  margin: 0; font: 600 var(--t3)/1.25 var(--font-body);
+  letter-spacing: 0; color: var(--text);
 }
 .set-sec-h p { margin: 0; color: var(--text-2); font-size: var(--t2); max-width: 56ch; line-height: 1.5; }
 .set-sec.is-danger { padding-top: var(--s3); border-top: 1px solid var(--line); }
@@ -684,3 +728,68 @@ body.is-covered .tabframe { visibility: hidden; }
    ======================================================================== */
 .nav-item.is-cue { color: var(--text); }
 .nav-item.is-cue .nav-key { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+
+/* ===========================================================================
+   9. WHAT'S NEW
+   A .dlg with a reading column inside it. Section headings are title case in
+   the BODY font, exactly like the rest of the app's prose: the only monospace
+   here is on genuine machine values -- the version string, the date and the
+   per-section count.
+   ======================================================================== */
+/* The dialog IS the measure: a 68ch column inside an 880px sheet left two
+   thirds of the sheet empty and made the bullets look like a stray paragraph. */
+.wn { width: min(580px, 100%); max-height: min(760px, 100%); }
+/* The body is focused on open so PageDown and the arrow keys scroll the notes.
+   A scroll container is not a control, so it must not draw the focus ring --
+   and the ring here is a box-shadow, so clearing `outline` alone did nothing. */
+.wn-body:focus, .wn-body:focus-visible { outline: none; box-shadow: none; }
+.wn-head { align-items: flex-start; gap: var(--s3); padding: var(--s4); }
+.wn-mark {
+  flex: 0 0 auto; width: 34px; height: 34px; margin-top: 1px;
+  display: flex; align-items: center; justify-content: center;
+}
+.wn-mark .brand-img { width: 34px; height: 34px; }
+.wn-titles { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wn-eyebrow { font: 500 var(--t1)/1.2 var(--font-body); color: var(--text-3); }
+.wn-title { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; font-size: var(--t4); }
+.wn-ver { font: 600 var(--t4)/1.15 var(--font-mono); color: var(--text); letter-spacing: -.2px; }
+.wn-name { font: 500 var(--t3)/1.2 var(--font-body); color: var(--text-2); }
+.wn-name:empty { display: none; }
+.wn-date {
+  flex: 0 0 auto; align-self: center;
+  font: 400 var(--t1)/1.35 var(--font-mono); color: var(--text-3); white-space: nowrap;
+}
+.wn-date:empty { display: none; }
+
+.wn-body { padding: 0 var(--s4) var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
+.wn-modes { align-self: flex-start; margin-top: var(--s1); }
+.wn-offer { margin: 0; }
+
+/* The reading column. Bullets in a changelog are sentences, so they get prose
+   line-height and a measure that stops the eye running off the end of a line. */
+.wn-sections { display: flex; flex-direction: column; gap: var(--s4); }
+.wn-intro { margin: 0; font: 400 var(--t2)/1.6 var(--font-body); color: var(--text-2); }
+.wn-sec { display: flex; flex-direction: column; gap: var(--s2); }
+.wn-sec-h {
+  margin: 0; display: flex; align-items: baseline; gap: var(--s2);
+  font: 600 var(--t3)/1.2 var(--font-body); color: var(--text);
+  padding-bottom: var(--s2); border-bottom: 1px solid var(--line);
+}
+/* A count is a machine value, so it is mono -- the heading beside it is not. */
+.wn-sec-n { font: 400 var(--t1)/1.35 var(--font-mono); color: var(--text-3); }
+.wn-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s2); }
+.wn-item {
+  position: relative; padding-left: var(--s4);
+  font: 400 var(--t2)/1.6 var(--font-body); color: var(--text-2);
+}
+.wn-item::before {
+  content: ""; position: absolute; left: 3px; top: .62em;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--line-2);
+}
+.wn-lead { font-weight: 600; color: var(--text); }
+.wn-note { margin: 0 0 0 var(--s4); font: 400 var(--t1)/1.5 var(--font-body); color: var(--text-3); }
+.wn-fallback { margin: var(--s5) auto; }
+
+@media (max-width: 720px) {
+  .wn-date { display: none; }
+}

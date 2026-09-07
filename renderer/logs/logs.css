@@ -29,8 +29,8 @@ body { background: var(--bg); overflow: hidden; }
 .lgrid.is-log .lgrid-head { height: var(--h-ctl-sm); }
 .lgrid.is-log .lgrid-th {
   align-items: center; padding: 0 10px;
-  font: 700 var(--t1)/1 var(--font-mono);
-  letter-spacing: 1px; text-transform: uppercase; color: var(--text-3);
+  font: 600 var(--t2)/1 var(--font-body);
+  color: var(--text-2);
 }
 .lgrid.is-log .lgrid-th + .lgrid-th { border-left: 1px solid var(--line); }
 
@@ -44,7 +44,9 @@ body { background: var(--bg); overflow: hidden; }
 }
 .lgrid.is-log .lcell { padding: 0 10px; }
 .lg-t { color: var(--text-3); font-variant-numeric: tabular-nums; }
-.lg-src { color: var(--text-3); text-transform: uppercase; letter-spacing: .6px; }
+/* The source stays mono: it is a fixed machine token (forge / player / setup /
+   shell), and a column of them reads as data rather than as prose. */
+.lg-src { color: var(--text-3); }
 .lg-lvl { color: var(--text-3); letter-spacing: .6px; }
 .lg-msg { color: var(--text-2); }
 

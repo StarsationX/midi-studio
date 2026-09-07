@@ -88,6 +88,7 @@
     f.navEl = $(f.nav);
     f.loaded = false;      // the iframe has fired 'load' at least once
     f.busReady = false;    // the panel announced frame:ready over the bus
+    f.readyForLoad = false;// ...and it was THIS document that announced it
     f.queue = [];          // hand-offs waiting for it
     f.onscreen = false;
     byKey[f.key] = f;
@@ -135,6 +136,8 @@
     failedFrames.add(f.key);
     f.failReason = desc ? `${desc}. Its interface file is missing from this build.` : '';
     f.loaded = false;
+    f.busReady = false;
+    f.readyForLoad = false;
     f.queue.length = 0;
     logPush(`${f.label} panel failed to load: ${desc || 'unknown error'}`, 'error', 'app');
     renderStage();
@@ -170,7 +173,15 @@
     if (activity.panels[f.key]) { delete activity.panels[f.key]; renderStrip(); }
     renderStage();
     f.loaded = true;
-    f.busReady = false;               // a reload retracts the announcement
+    // A reload retracts the announcement -- but a panel sends frame:ready from
+    // its own script, which runs BEFORE this load event fires, so clearing it
+    // unconditionally threw away the handshake of the document that had just
+    // arrived. The shell then believed the panel was not listening and every
+    // later push to it was dropped (this is what stopped log:append reaching
+    // the Logs tab). Retract only when THIS document never announced itself,
+    // which is exactly the legacy-panel case the retraction is for.
+    if (!f.readyForLoad) f.busReady = false;
+    f.readyForLoad = false;
     skinFrame(f);
     stampFrame(f);
     markVisibility();
@@ -481,52 +492,58 @@
 
   // ==========================================================================
   // 7. THE ACTIVITY STRIP RENDER
-  // Items are built once and then patched in place: the strip is on screen for
-  // the whole session, and a 20Hz progress stream must not churn the DOM.
+  // ONE context line, never a competition. Everything that is live is described
+  // as a context object; the most important one owns the row -- state word,
+  // name, one metadata line, its progress and its own actions -- and every
+  // other live context collapses to a chip that brings it forward on click.
+  // The nodes are built once and patched in place: the strip is on screen for
+  // the whole session and a 20Hz progress stream must not churn the DOM.
   // ==========================================================================
-  const itemsHost = $('as-items');
-  const itemCache = new Map();   // id -> {el, parts, lastPct}
+  const stripEl = $('astrip');
+  const ctxHost = $('as-ctx'), altHost = $('as-alts'), actHost = $('as-acts');
 
-  function itemNode(id) {
-    let rec = itemCache.get(id);
-    if (rec) return rec;
-    // A wrapper div, not a button: the row itself is clickable (its own button)
-    // and the actions are siblings, because a button inside a button is invalid
-    // markup and Chromium hoists the inner one out of the DOM.
-    const el = document.createElement('div');
-    el.className = 'aitem';
-    el.dataset.item = id;
-    el.innerHTML = '<button type="button" class="aitem-main">'
-      + '<span class="dot"></span><span class="aitem-kind"></span>'
-      + '<span class="aitem-name"></span>'
-      + '<div class="bar is-sm aitem-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden><div class="bar-fill" style="--p:0"></div></div>'
-      + '<span class="aitem-meta"></span></button>'
-      + '<span class="aitem-acts"></span>';
-    const main = el.firstElementChild;
-    rec = {
-      el, main,
-      dot: main.children[0], kind: main.children[1], name: main.children[2],
-      bar: main.children[3], fill: main.children[3].firstElementChild,
-      meta: main.children[4], acts: el.children[1],
-      pct: -1, actKey: ''
+  ctxHost.innerHTML = '<button type="button" class="as-ctx-main">'
+    + '<span class="as-ctx-badge" aria-hidden="true"><span class="dot"></span></span>'
+    + '<span class="as-ctx-lines">'
+    +   '<span class="as-ctx-head"><span class="as-ctx-state"></span><span class="as-ctx-name"></span></span>'
+    +   '<span class="as-ctx-meta"></span>'
+    + '</span></button>'
+    + '<div class="bar is-sm as-ctx-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden>'
+    +   '<div class="bar-fill" style="--p:0"></div></div>';
+
+  const ctxUI = (() => {
+    const main = ctxHost.firstElementChild;
+    const lines = main.children[1];
+    const bar = ctxHost.children[1];
+    return {
+      main: main,
+      dot: main.children[0].firstElementChild,
+      state: lines.children[0].children[0],
+      name: lines.children[0].children[1],
+      meta: lines.children[1],
+      bar: bar,
+      fill: bar.firstElementChild
     };
-    itemCache.set(id, rec);
-    return rec;
-  }
+  })();
 
-  function setActions(rec, defs) {
+  // The one the user brought forward by clicking its chip. Dropped as soon as
+  // that context stops being live, so a pin can never strand the strip.
+  let ctxPin = null;
+  const ctxLast = { id: '', pct: -3, actKey: '', meta: '', name: '' };
+
+  function setActions(defs) {
     const key = defs.map((d) => d.id).join(',');
-    if (rec.actKey === key) return;
-    rec.actKey = key;
-    rec.acts.textContent = '';
+    if (ctxLast.actKey === key) return;
+    ctxLast.actKey = key;
+    actHost.textContent = '';
     for (const d of defs) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'btn btn-sm ' + (d.primary ? 'btn-primary' : d.danger ? 'btn-danger' : 'btn-ghost');
+      b.className = 'btn btn-sm ' + (d.primary ? 'btn-primary' : d.danger ? 'btn-danger' : '');
       b.textContent = d.label;
       b.dataset.act = d.id;
       b.addEventListener('click', (e) => { e.stopPropagation(); d.run(); });
-      rec.acts.appendChild(b);
+      actHost.appendChild(b);
     }
   }
 
@@ -539,222 +556,265 @@
     return window.Fmt ? window.Fmt.duration(left) + ' left' : Math.round(left) + 's left';
   }
 
-  const renderStrip = coalesce(() => {
-    const order = [];
+  // The refs group thousands ("2,841 notes"); Fmt.count only pluralises a word.
+  const countOf = (n) => {
+    const v = Number(n) || 0;
+    try { return v.toLocaleString(); } catch (_) { return String(v); }
+  };
+
+  // ---- the model, as an ordered list of contexts ---------------------------
+  // Order IS the priority: a Forge job outranks live playback, playback
+  // outranks an unsaved document, and so on down to the idle placeholder.
+  function stripContexts() {
+    const out = [];
 
     // -- a Forge job -------------------------------------------------------
     if (activity.forge) {
       const j = activity.forge;
-      const rec = itemNode('forge');
-      rec.el.classList.toggle('is-live', !j.paused);
-      rec.el.classList.remove('is-quiet');
-      rec.dot.className = 'dot ' + (j.paused ? 'is-paused' : 'is-live');
-      rec.kind.textContent = j.paused ? 'Paused' : (j.kind === 'yt' ? 'Fetching' : 'Forging');
-      rec.name.textContent = j.name || 'transcription';
-      rec.name.title = j.name || '';
-      const pct = j.percent;
-      rec.bar.hidden = false;
-      if (pct == null || pct < 0) {
-        if (!rec.fill.classList.contains('indet')) { rec.fill.classList.add('indet'); rec.fill.style.setProperty('--p', 1); }
-        rec.bar.removeAttribute('aria-valuenow');
-        if (rec.pct !== -2) { rec.meta.textContent = j.stage || 'working'; rec.pct = -2; }
-      } else {
-        rec.fill.classList.remove('indet');
-        const ip = Math.round(pct);
-        if (ip !== rec.pct) {           // integer-change guard: no per-packet text write
-          rec.pct = ip;
-          rec.fill.style.setProperty('--p', (ip / 100).toFixed(3));
-          rec.bar.setAttribute('aria-valuenow', String(ip));
-          const eta = etaText(j.startedAt, ip);
-          rec.meta.textContent = `${j.stage || ''} ${ip}%${eta ? ' · ' + eta : ''}`.trim();
-        }
-      }
-      rec.main.setAttribute('aria-label', `Forge: ${j.name || 'job'} ${j.stage || ''}. Open the Forge tab.`);
-      rec.main.disabled = false;
-      rec.main.onclick = () => activate('forge');
-      setActions(rec, [
-        { id: 'details', label: 'View details', run: () => activate('forge') },
-        { id: 'cancel', label: 'Cancel', danger: true, run: cancelForgeJob }
-      ]);
-      order.push(rec);
+      const indet = j.percent == null || j.percent < 0;
+      const ip = indet ? -1 : Math.round(j.percent);
+      const eta = indet ? '' : etaText(j.startedAt, ip);
+      out.push({
+        id: 'forge',
+        live: !j.paused,
+        dot: j.paused ? 'is-paused' : 'is-live',
+        state: j.paused ? 'Paused' : (j.kind === 'yt' ? 'Fetching' : 'Forging'),
+        name: j.name || 'transcription',
+        title: j.name || '',
+        meta: indet ? (j.stage || 'Working') : [j.stage, ip + '%', eta].filter(Boolean).join(' · '),
+        pct: ip,
+        chip: j.paused ? 'Paused' : 'Forging',
+        aria: 'Forge: ' + (j.name || 'job') + ' ' + (j.stage || '') + '. Open the Forge tab.',
+        open: () => activate('forge'),
+        actions: [
+          { id: 'details', label: 'View details', run: () => activate('forge') },
+          { id: 'cancel', label: 'Cancel', danger: true, run: cancelForgeJob }
+        ]
+      });
+    }
+
+    // -- live playback -----------------------------------------------------
+    const pb = activity.playback;
+    if (pb && pb.owner && pb.status !== 'idle') {
+      const live = pb.status === 'playing' || pb.status === 'counting';
+      const caps = pb.caps || {};
+      const home = pb.owner === 'selfmidi' ? 'audition' : pb.owner === 'editor' ? 'review' : 'player';
+      const bits = [];
+      if (caps.target) bits.push('Playing on ' + String(caps.target).split(' - ')[0]);
+      bits.push(fmtClock(pb.position) + ' / ' + fmtClock(pb.duration));
+      if (caps.notes) bits.push(countOf(caps.notes) + ' notes');
+      out.push({
+        id: 'play',
+        live: live,
+        dot: live ? 'is-live' : pb.status === 'blocked' ? 'is-blocked' : 'is-paused',
+        state: pb.status === 'blocked' ? 'Blocked' : pb.status === 'paused' ? 'Paused'
+          : pb.status === 'counting' ? 'Counting in' : 'Now playing',
+        name: pb.label || 'untitled',
+        title: pb.label || '',
+        meta: bits.join(' · '),
+        pct: pb.duration > 0 ? clamp(Math.round(pb.position / pb.duration * 100), 0, 100) : -3,
+        chip: live ? 'Playing' : 'Paused',
+        aria: 'Now playing ' + (pb.label || '') + '. Open the ' + byKey[home].label + ' tab.',
+        open: () => activate(home),
+        actions: (caps.target ? [{ id: 'target', label: String(caps.target), run: () => activate(home) }] : [])
+          .concat([{ id: 'focus', label: 'Focus', run: () => activate(home) }])
+      });
+    }
+
+    // -- an unsaved Editor document ---------------------------------------
+    if (activity.editor && activity.editor.dirty) {
+      const e = activity.editor;
+      out.push({
+        id: 'edit',
+        live: false,
+        dot: 'warn',
+        state: 'Editing',
+        name: e.name || 'untitled',
+        title: e.name || '',
+        meta: (e.notes ? countOf(e.notes) + ' notes · ' : '') + 'Unsaved changes',
+        pct: -3,
+        chip: 'Editing',
+        aria: 'Editor has unsaved changes to ' + (e.name || 'the document') + '. Open the Editor tab.',
+        open: () => activate('review'),
+        actions: [
+          { id: 'save', label: 'Save', primary: true, run: () => runCommand('editor.save', 'review') },
+          { id: 'saveplay', label: 'Save & Play', run: () => runCommand('editor.savePlay', 'review') }
+        ]
+      });
     }
 
     // -- a finished transcription on offer ----------------------------------
     // With auto-queue off the finished MIDI is an OFFER, and an offer has to
     // outlive a 7s toast: the settings hint promises the strip, and a user who
     // steps away must still find it. Cleared by Dismiss or by the next job.
+    // The actions never close over the record -- a second offer would otherwise
+    // reuse the first offer's buttons -- so they read the model at click time.
     if (activity.forged) {
       const g = activity.forged;
-      const rec = itemNode('forged');
-      rec.el.classList.remove('is-live', 'is-quiet');
-      rec.dot.className = 'dot ok';
-      rec.kind.textContent = 'Forged';
-      rec.name.textContent = g.name || 'transcription';
-      rec.name.title = g.midiPath || '';
-      rec.bar.hidden = true;
-      rec.meta.textContent = 'ready';
-      rec.main.setAttribute('aria-label', `${g.name || 'A transcription'} is ready. Show it in the Library.`);
-      rec.main.disabled = false;
-      rec.main.onclick = () => handoff('library', { selectPath: g.midiPath }, { from: 'forge' });   // rebuilt every render
-      // setActions caches by the id list, so these must never close over `g`:
-      // a second offer would otherwise reuse the first offer's buttons and queue
-      // the wrong file. They read the model at click time instead.
-      setActions(rec, [
-        { id: 'queue', label: 'Add to queue', primary: true, run: () => {
+      out.push({
+        id: 'forged',
+        live: false,
+        dot: 'ok',
+        state: 'Forged',
+        name: g.name || 'transcription',
+        title: g.midiPath || '',
+        meta: 'Ready',
+        pct: -3,
+        chip: 'Forged',
+        aria: (g.name || 'A transcription') + ' is ready. Show it in the Library.',
+        open: () => {
           const f = activity.forged;
-          if (!f) return;
-          handoff('player', { midiPath: f.midiPath, play: false, queue: true }, { from: 'forge', focus: false });
-          toast({ severity: 'ok', title: `Added ${f.name} to the Player queue` });
-          clearForged();
-        } },
-        { id: 'edit', label: 'Edit', run: () => {
-          const f = activity.forged;
-          if (!f) return;
-          handoff('review', { projectPath: f.projectPath, midiPath: f.midiPath }, { from: 'forge' });
-          clearForged();
-        } },
-        { id: 'dismiss', label: 'Dismiss', run: clearForged }
-      ]);
-      order.push(rec);
-    }
-
-    // -- live playback -----------------------------------------------------
-    const pb = activity.playback;
-    if (pb && pb.owner && pb.status !== 'idle') {
-      const rec = itemNode('play');
-      const live = pb.status === 'playing' || pb.status === 'counting';
-      rec.el.classList.toggle('is-live', live);
-      rec.el.classList.remove('is-quiet');
-      rec.dot.className = 'dot ' + (live ? 'is-live' : pb.status === 'blocked' ? 'is-blocked' : 'is-paused');
-      rec.kind.textContent = pb.status === 'blocked' ? 'Blocked' : pb.status === 'paused' ? 'Paused' : pb.status === 'counting' ? 'Counting in' : 'Now playing';
-      rec.name.textContent = pb.label || 'untitled';
-      rec.name.title = pb.label || '';
-      rec.bar.hidden = !(pb.duration > 0);
-      if (pb.duration > 0) {
-        const ip = Math.round(pb.position / pb.duration * 100);
-        if (ip !== rec.pct) {
-          rec.pct = ip;
-          rec.fill.classList.remove('indet');
-          rec.fill.style.setProperty('--p', (clamp(ip, 0, 100) / 100).toFixed(3));
-          rec.bar.setAttribute('aria-valuenow', String(clamp(ip, 0, 100)));
-        }
-      }
-      const caps = pb.caps || {};
-      const bits = [];
-      if (caps.target) bits.push(String(caps.target));
-      bits.push(fmtClock(pb.position) + ' / ' + fmtClock(pb.duration));
-      if (caps.notes) bits.push(caps.notes + ' notes');
-      rec.meta.textContent = bits.join(' · ');
-      const home = pb.owner === 'selfmidi' ? 'audition' : pb.owner === 'editor' ? 'review' : 'player';
-      rec.main.setAttribute('aria-label', `Now playing ${pb.label || ''}. Open the ${byKey[home].label} tab.`);
-      rec.main.disabled = false;
-      rec.main.onclick = () => activate(home);
-      setActions(rec, [{ id: 'focus', label: 'Focus', run: () => activate(home) }]);
-      order.push(rec);
-    }
-
-    // -- an unsaved Editor document ---------------------------------------
-    if (activity.editor && activity.editor.dirty) {
-      const e = activity.editor;
-      const rec = itemNode('edit');
-      rec.el.classList.remove('is-live', 'is-quiet');
-      rec.dot.className = 'dot warn';
-      rec.kind.textContent = 'Editing';
-      rec.name.textContent = e.name || 'untitled';
-      rec.name.title = e.name || '';
-      rec.bar.hidden = true;
-      rec.meta.textContent = (e.notes ? e.notes + ' notes · ' : '') + 'unsaved';
-      rec.main.setAttribute('aria-label', `Editor has unsaved changes to ${e.name || 'the document'}. Open the Editor tab.`);
-      rec.main.disabled = false;
-      rec.main.onclick = () => activate('review');
-      setActions(rec, [
-        { id: 'save', label: 'Save', primary: true, run: () => runCommand('editor.save', 'review') },
-        { id: 'saveplay', label: 'Save & Play', run: () => runCommand('editor.savePlay', 'review') }
-      ]);
-      order.push(rec);
+          if (f) handoff('library', { selectPath: f.midiPath }, { from: 'forge' });
+        },
+        actions: [
+          { id: 'queue', label: 'Add to queue', primary: true, run: () => {
+            const f = activity.forged;
+            if (!f) return;
+            handoff('player', { midiPath: f.midiPath, play: false, queue: true }, { from: 'forge', focus: false });
+            toast({ severity: 'ok', title: 'Added ' + f.name + ' to the Player queue' });
+            clearForged();
+          } },
+          { id: 'edit', label: 'Edit', run: () => {
+            const f = activity.forged;
+            if (!f) return;
+            handoff('review', { projectPath: f.projectPath, midiPath: f.midiPath }, { from: 'forge' });
+            clearForged();
+          } },
+          { id: 'dismiss', label: 'Dismiss', run: clearForged }
+        ]
+      });
     }
 
     // -- a panel's own long determinate operation ---------------------------
     // The strip exists for work that outlives a toast, and a folder rescan over
     // a few thousand files is exactly that. A `frame:busy` carrying a numeric
-    // `percent` gets a row here; one without a percent is still only logged,
-    // because a row that can never finish is worse than a log line.
+    // `percent` gets a context here; one without a percent is still only
+    // logged, because a row that can never finish is worse than a log line.
     for (const pkey of Object.keys(activity.panels)) {
       const q = activity.panels[pkey];
       const pf = byKey[pkey];
       if (!pf) continue;
-      const rec = itemNode('panel:' + pkey);
-      rec.el.classList.remove('is-live', 'is-quiet');
-      rec.dot.className = 'dot is-live';
-      rec.kind.textContent = pf.label;
-      rec.name.textContent = q.label || 'working';
-      rec.name.title = q.label || '';
-      rec.bar.hidden = false;
-      rec.fill.classList.remove('indet');
       const ip = Math.round(q.percent);
-      if (ip !== rec.pct) {
-        rec.pct = ip;
-        rec.fill.style.setProperty('--p', (ip / 100).toFixed(3));
-        rec.bar.setAttribute('aria-valuenow', String(ip));
-        rec.meta.textContent = ip + '%';
-      }
-      rec.main.setAttribute('aria-label', `${pf.label}: ${q.label || 'working'} ${ip}%. Open the ${pf.label} tab.`);
-      rec.main.disabled = false;
-      rec.main.onclick = () => activate(pkey);
-      setActions(rec, []);
-      order.push(rec);
+      out.push({
+        id: 'panel:' + pkey,
+        live: true,
+        dot: 'is-live',
+        state: pf.label,
+        name: q.label || 'working',
+        title: q.label || '',
+        meta: ip + '%',
+        pct: ip,
+        chip: pf.label,
+        aria: pf.label + ': ' + (q.label || 'working') + ' ' + ip + '%. Open the ' + pf.label + ' tab.',
+        open: () => activate(pkey),
+        actions: []
+      });
     }
 
     // -- a hand-off in flight ---------------------------------------------
     if (activity.pending) {
       const p = activity.pending;
-      const rec = itemNode('pending');
-      rec.el.classList.remove('is-live');
-      rec.el.classList.add('is-quiet');
-      rec.dot.className = 'dot';
-      rec.kind.textContent = 'Opening';
-      rec.name.textContent = p.name || '';
-      rec.name.title = p.name || '';
-      rec.bar.hidden = true;
-      rec.meta.textContent = 'in ' + (byKey[p.frame] ? byKey[p.frame].label : p.frame);
-      rec.main.setAttribute('aria-label', `Opening ${p.name} in ${byKey[p.frame] ? byKey[p.frame].label : p.frame}`);
-      rec.main.onclick = null;
-      rec.main.disabled = true;
-      setActions(rec, []);
-      order.push(rec);
+      const where = byKey[p.frame] ? byKey[p.frame].label : p.frame;
+      out.push({
+        id: 'pending',
+        live: false,
+        quiet: true,
+        dot: '',
+        state: 'Opening',
+        name: p.name || '',
+        title: p.name || '',
+        meta: 'in ' + where,
+        pct: -3,
+        chip: 'Opening',
+        aria: 'Opening ' + p.name + ' in ' + where,
+        open: null,
+        actions: []
+      });
     }
 
-    // -- nothing is happening ---------------------------------------------
-    if (!order.length) {
-      const rec = itemNode('idle');
-      rec.el.classList.remove('is-live');
-      rec.el.classList.add('is-quiet');
-      rec.dot.className = 'dot';
-      rec.kind.textContent = 'Idle';
-      rec.name.textContent = activity.reaped || 'Nothing running';
-      rec.name.title = '';
-      rec.bar.hidden = true;
-      rec.meta.textContent = '';
-      rec.main.onclick = null;
-      rec.main.disabled = true;
-      rec.main.removeAttribute('aria-label');
-      setActions(rec, []);
-      order.push(rec);
+    return out;
+  }
+
+  const renderStrip = coalesce(() => {
+    const list = stripContexts();
+
+    // A pin only survives while the context it points at is still live, so it
+    // can never strand the strip on something that has finished.
+    if (ctxPin && !list.some((c) => c.id === ctxPin)) ctxPin = null;
+    let primary = (ctxPin ? list.find((c) => c.id === ctxPin) : null) || list[0] || null;
+
+    const idle = !primary;
+    stripEl.dataset.state = idle ? 'idle' : 'live';
+    if (idle) {
+      primary = {
+        id: 'idle', live: false, quiet: true, dot: '',
+        state: 'Idle', name: activity.reaped || 'Nothing running',
+        title: '', meta: '', pct: -3, open: null, actions: [], aria: ''
+      };
     }
 
-    // Reconcile in one pass. The first item is the wide one.
-    for (let i = 0; i < order.length; i++) {
-      order[i].el.classList.toggle('is-primary', i === 0);
-      // The meta truncates with an ellipsis in a narrow window, so the whole
-      // string has to be readable somewhere. Compared before writing: this runs
-      // on every render, and a 20Hz progress stream must not write an attribute
-      // 20 times a second for a string that did not change.
-      const m = order[i].meta;
-      const t = m.textContent;
-      if (m.title !== t) m.title = t;
-      if (itemsHost.children[i] !== order[i].el) itemsHost.insertBefore(order[i].el, itemsHost.children[i] || null);
+    const fresh = ctxLast.id !== primary.id;
+    ctxLast.id = primary.id;
+
+    ctxHost.classList.toggle('is-live', !!primary.live);
+    ctxHost.classList.toggle('is-quiet', !!primary.quiet);
+    ctxUI.dot.className = 'dot' + (primary.dot ? ' ' + primary.dot : '');
+    ctxUI.state.textContent = primary.state;
+    if (fresh || ctxLast.name !== primary.name) {
+      ctxLast.name = primary.name;
+      ctxUI.name.textContent = primary.name;
+      ctxUI.name.title = primary.title || primary.name || '';
     }
-    while (itemsHost.children.length > order.length) itemsHost.lastElementChild.remove();
+    // The meta line is rebuilt on every render but written only when it really
+    // changed: a 20Hz progress stream must not touch the DOM 20 times a second.
+    if (fresh || ctxLast.meta !== primary.meta) {
+      ctxLast.meta = primary.meta;
+      ctxUI.meta.textContent = primary.meta;
+      ctxUI.meta.title = primary.meta;
+    }
+
+    // progress: -3 = no bar, -1 = indeterminate, 0..100 = determinate
+    const pct = primary.pct;
+    ctxUI.bar.hidden = pct === -3;
+    if (pct === -1) {
+      if (!ctxUI.fill.classList.contains('indet')) { ctxUI.fill.classList.add('indet'); ctxUI.fill.style.setProperty('--p', 1); }
+      ctxUI.bar.removeAttribute('aria-valuenow');
+      ctxLast.pct = -1;
+    } else if (pct >= 0) {
+      ctxUI.fill.classList.remove('indet');
+      if (fresh || ctxLast.pct !== pct) {
+        ctxLast.pct = pct;
+        ctxUI.fill.style.setProperty('--p', (pct / 100).toFixed(3));
+        ctxUI.bar.setAttribute('aria-valuenow', String(pct));
+      }
+    }
+
+    if (primary.aria) ctxUI.main.setAttribute('aria-label', primary.aria);
+    else ctxUI.main.removeAttribute('aria-label');
+    ctxUI.main.disabled = !primary.open;
+    ctxUI.main.onclick = primary.open || null;
+    if (fresh) ctxLast.actKey = null;           // force a rebuild across a switch
+    setActions(primary.actions || []);
+
+    // -- everything else that is live, as one small chip each ---------------
+    const alts = list.filter((c) => c.id !== primary.id);
+    const altKey = alts.map((c) => c.id + ':' + c.chip + ':' + c.dot).join(',');
+    if (altHost.dataset.key !== altKey) {
+      altHost.dataset.key = altKey;
+      altHost.textContent = '';
+      for (const c of alts) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'as-alt' + (c.live ? ' is-live' : '');
+        b.dataset.tip = c.chip + ': ' + (c.title || c.name) + '. Show it on the strip.';
+        b.setAttribute('aria-label', 'Also running — ' + c.chip + ': ' + (c.name || '') + '. Show it on the strip.');
+        b.innerHTML = '<span class="dot' + (c.dot ? ' ' + c.dot : '') + '"></span><span class="as-alt-t"></span>';
+        b.lastElementChild.textContent = c.chip;
+        const id = c.id;
+        b.addEventListener('click', () => { ctxPin = id; renderStrip(); });
+        altHost.appendChild(b);
+      }
+    }
   });
 
   function clearForged() {
@@ -928,7 +988,7 @@
     if (!appVersion) return;
     const chip = $('version-chip');
     chip.textContent = 'v' + appVersion;
-    chip.setAttribute('aria-label', 'Version ' + appVersion + ', check for updates');
+    chip.setAttribute('aria-label', 'Version ' + appVersion + ', what’s new');
     $('s-version').textContent = 'v' + appVersion;
     $('s-about-version').textContent = appVersion + (releaseName ? ' \u201c' + releaseName + '\u201d' : '');
   }
@@ -1019,7 +1079,7 @@
     document.body.classList.toggle('is-covered', on);
     markVisibility();
   }
-  const anyOverlayOpen = () => !$('pal-scrim').hidden || !$('set-scrim').hidden || dropDepth > 0;
+  const anyOverlayOpen = () => !$('pal-scrim').hidden || !$('set-scrim').hidden || !$('wn-scrim').hidden || dropDepth > 0;
   const syncCovered = () => setCovered(anyOverlayOpen());
 
   // ==========================================================================
@@ -1119,6 +1179,7 @@
       });
       if (!f) return;
       f.busReady = true;
+      f.readyForLoad = true;
       f.loaded = true;
       skinFrame(f); stampFrame(f); markVisibility();
       flushQueue(f);
@@ -1328,34 +1389,49 @@
     const v = clamp(p, 0, 1).toFixed(4);
     if (el.dataset.p !== v) { el.dataset.p = v; el.style.setProperty('--p', v); }
   }
+  // Tempo and Transpose are steppers now, so the value IS the control's own
+  // text and there is no separate readout to write. `:focus` rather than
+  // `:active`: a number input is being typed into while it holds focus, and an
+  // echoed state must not overwrite half-typed digits.
   function knob(which, value) {
     const wrap = $('xp-knob-' + which);
     const input = $('xp-' + which);
-    const out = $('xp-' + which + '-val');
     const off = value == null || Number.isNaN(value);
     wrap.classList.toggle('is-off', off);
     input.disabled = off;
-    if (off) { out.textContent = which === 'tempo' ? '—' : '—'; return; }
+    for (const b of wrap.querySelectorAll('.stepper-btn')) b.disabled = off;
+    if (off) return;
     if (which === 'tempo') {
       const pct = clamp(Math.round(value * 100), 25, 300);
-      if (!input.matches(':active')) input.value = String(pct);
-      setRange(input, (pct - 25) / 275);
-      out.textContent = (pct / 100).toFixed(2) + '×';
-      input.setAttribute('aria-valuetext', (pct / 100).toFixed(2) + ' times');
+      if (!input.matches(':focus')) input.value = (pct / 100).toFixed(2);
     } else if (which === 'transpose') {
       const n = clamp(Math.round(value), -24, 24);
-      if (!input.matches(':active')) input.value = String(n);
-      setRange(input, (n + 24) / 48);
-      out.textContent = (n > 0 ? '+' : '') + n;
-      input.setAttribute('aria-valuetext', n === 0 ? 'no transpose' : (n > 0 ? '+' : '') + n + ' semitones');
+      if (!input.matches(':focus')) input.value = String(n);
     } else {
       const n = clamp(Math.round(value * 100), 0, 100);
       if (!input.matches(':active')) input.value = String(n);
       setRange(input, n / 100);
-      out.textContent = String(n);
+      $('xp-volume-val').textContent = String(n);
       input.setAttribute('aria-valuetext', n + ' percent');
     }
   }
+
+  // The -/+ buttons of the two transport steppers. One delegated handler: the
+  // input's own step arithmetic does the clamping, and the synthetic events are
+  // the same ones typing fires, so there is exactly one code path per value.
+  $('xp-knobs').addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('.stepper-btn');
+    if (!b || b.disabled) return;
+    const input = $(b.dataset.for);
+    if (!input || input.disabled) return;
+    const step = Number(b.dataset.step) || 0;
+    const min = Number(input.min), max = Number(input.max);
+    const dec = input.step && Number(input.step) < 1 ? 2 : 0;
+    const next = clamp(Number(input.value) + step, min, max);
+    input.value = next.toFixed(dec);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
 
   // Ask the owning frame to change something the transport protocol does not
   // carry. Commands.run dispatches to whichever frame published the id.
@@ -1434,9 +1510,7 @@
     const tempo = $('xp-tempo');
     const push = debounce((v) => { setEcho('rate', v); if (window.Transport) window.Transport.rate(v); }, 120);
     tempo.addEventListener('input', () => {
-      const pct = clamp(Number(tempo.value), 25, 300);
-      setRange(tempo, (pct - 25) / 275);
-      $('xp-tempo-val').textContent = (pct / 100).toFixed(2) + '×';
+      const pct = clamp(Math.round(Number(tempo.value) * 100), 25, 300);
       push(pct / 100);
     });
     // flush() invokes, so the pending value goes out here. An arrow-key press
@@ -1444,20 +1518,18 @@
     // path for a keyboard adjustment.
     tempo.addEventListener('change', () => {
       if (push.pending()) { push.flush(); return; }
-      const v = clamp(Number(tempo.value), 25, 300) / 100;
+      const v = clamp(Math.round(Number(tempo.value) * 100), 25, 300) / 100;
       setEcho('rate', v);
       if (window.Transport) window.Transport.rate(v);
     });
   }
   {
+    // Nothing on 'input': a stepper writes its own text, and a half-typed
+    // value must not be sent. 'change' clamps what was typed and sends it once.
     const tr = $('xp-transpose');
-    tr.addEventListener('input', () => {
-      const n = clamp(Math.round(Number(tr.value)), -24, 24);
-      setRange(tr, (n + 24) / 48);
-      $('xp-transpose-val').textContent = (n > 0 ? '+' : '') + n;
-    });
     tr.addEventListener('change', () => {
       const n = clamp(Math.round(Number(tr.value)), -24, 24);
+      if (String(n) !== tr.value) tr.value = String(n);
       setEcho('transpose', n);
       ownerCommand('transpose', n);
     });
@@ -2070,11 +2142,16 @@
     if (studio.checkForUpdates) studio.checkForUpdates({ manual: true });
     closeSettings();
   });
+  // The chip is the app's version news, so it opens What's New: the notes for
+  // the running build, or the notes for an update on offer when the updater has
+  // them. Checking for updates has not gone anywhere -- it is the modal's own
+  // secondary action, this pane's "Check now", and app.updates in the palette.
   $('version-chip').addEventListener('click', () => {
     activity.update.dismissed = false;
-    if (activity.update.state === 'available') { renderUpdate(); return; }
-    if (studio.checkForUpdates) studio.checkForUpdates({ manual: true });
+    renderUpdate();
+    openWhatsNew();
   });
+  $('s-whatsnew').addEventListener('click', () => openWhatsNew());
   $('s-repo').addEventListener('click', () => studio.openExternal && studio.openExternal('https://github.com/StarsationX/midi-studio'));
 
   // ---- Overlay (Perch) ----------------------------------------------------
@@ -2197,6 +2274,255 @@
     routePaths(paths, 'shell');
   });
 
+
+  // ==========================================================================
+  // 13b. WHAT'S NEW
+  //
+  // One modal, two sources:
+  //   'installed' — CHANGELOG.md, parsed by renderer/shell/changelog.js. Read
+  //                 once per session, lazily, and NEVER on the boot path.
+  //   'available' — the release notes the updater already fetched with the
+  //                 'available' status. No second request is ever made, and
+  //                 nothing here waits on the network: with no notes in hand
+  //                 the mode simply is not offered.
+  //
+  // A missing, unreadable or malformed changelog degrades to the .wn-fallback
+  // state with a link to the releases page. The parser cannot throw, and this
+  // screen cannot end up blank.
+  // ==========================================================================
+  const wnScrim = $('wn-scrim'), wnDlg = $('wn-dlg'), wnBody = $('wn-body');
+  const WN_FOCUS = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  let wnOpen = false, wnReturn = null;
+  let wnDoc = null, wnDocPromise = null;      // the parsed CHANGELOG.md
+  let wnMode = 'installed';
+  let wnReleasesUrl = 'https://github.com/StarsationX/midi-studio/releases';
+
+  function loadChangelog() {
+    if (wnDocPromise) return wnDocPromise;
+    const fail = (error) => { wnDoc = { ok: false, error: error, releases: [] }; return wnDoc; };
+    wnDocPromise = (studio.changelog ? studio.changelog() : Promise.resolve(null))
+      .then((r) => {
+        if (!r) return fail('unavailable');
+        if (!r.ok) return fail(r.error || 'unavailable');
+        if (!window.Changelog) return fail('no parser');
+        const parsed = window.Changelog.parse(r.text);
+        if (!parsed.ok) logPush('CHANGELOG.md could not be read (' + parsed.error + ').', 'warn', 'app');
+        wnDoc = parsed;
+        return wnDoc;
+      })
+      .catch((e) => fail(String((e && e.message) || e)));
+    return wnDocPromise;
+  }
+
+  // The notes for an update on OFFER, straight out of the status we already have.
+  function wnAvailable() {
+    const u = activity.update;
+    if (u.state !== 'available' || !u.version) return null;
+    const parsed = window.Changelog ? window.Changelog.parseNotes(u.notes || '', { version: u.version }) : null;
+    const release = parsed && parsed.ok && (window.Changelog.count(parsed.release) + parsed.release.intro.length)
+      ? parsed.release : null;
+    return { version: u.version, htmlUrl: u.htmlUrl || '', staged: !!u.staged, canSelf: u.canSelfUpdate !== false, release };
+  }
+  function wnInstalled() {
+    if (!wnDoc || !wnDoc.ok || !window.Changelog) return null;
+    return window.Changelog.find(wnDoc.releases, appVersion) || wnDoc.releases[0] || null;
+  }
+
+  function wnRenderSections(release) {
+    const host = $('wn-secs');
+    host.textContent = '';
+    const frag = document.createDocumentFragment();
+    for (const para of (release.intro || [])) {
+      const p = document.createElement('p');
+      p.className = 'wn-intro';
+      p.textContent = para;
+      frag.appendChild(p);
+    }
+    for (const sec of (release.sections || [])) {
+      const s = document.createElement('section');
+      s.className = 'wn-sec';
+      const h = document.createElement('h3');
+      h.className = 'wn-sec-h';
+      h.textContent = sec.title;
+      if (sec.items.length > 1) {
+        const n = document.createElement('span');
+        n.className = 'wn-sec-n mono';
+        n.textContent = String(sec.items.length);
+        h.appendChild(n);
+      }
+      s.appendChild(h);
+      if (sec.items.length) {
+        const ul = document.createElement('ul');
+        ul.className = 'wn-list';
+        for (const it of sec.items) {
+          const li = document.createElement('li');
+          li.className = 'wn-item';
+          if (it.lead) {
+            const b = document.createElement('b');
+            b.className = 'wn-lead';
+            b.textContent = it.lead;
+            li.appendChild(b);
+            li.appendChild(document.createTextNode(' '));
+          }
+          li.appendChild(document.createTextNode(it.text));
+          ul.appendChild(li);
+        }
+        s.appendChild(ul);
+      }
+      for (const t of (sec.notes || [])) {
+        const p = document.createElement('p');
+        p.className = 'wn-note';
+        p.textContent = t;
+        s.appendChild(p);
+      }
+      frag.appendChild(s);
+    }
+    host.appendChild(frag);
+  }
+
+  function renderWhatsNew() {
+    const av = wnAvailable();
+    const inst = wnInstalled();
+    // The offered release only wins the toggle when its notes actually exist.
+    if (wnMode === 'available' && !(av && av.release)) wnMode = 'installed';
+
+    const modes = $('wn-modes');
+    const both = !!(av && av.release) && !!inst;
+    modes.hidden = !both;
+    if (both) {
+      $('wn-mode-available').textContent = 'Coming in ' + av.version;
+      $('wn-mode-installed').textContent = 'Installed ' + appVersion;
+      for (const b of modes.querySelectorAll('button[role=radio]')) {
+        const on = b.dataset.mode === wnMode;
+        b.setAttribute('aria-checked', on ? 'true' : 'false');
+        b.tabIndex = on ? 0 : -1;
+      }
+    }
+
+    const offering = wnMode === 'available' && !!(av && av.release);
+    const release = offering ? av.release : inst;
+
+    $('wn-eyebrow').textContent = offering ? 'Coming in this update' : 'What’s new';
+    $('wn-ver').textContent = (release && release.version) || (offering ? av.version : appVersion) || '—';
+    $('wn-name').textContent = release && release.name ? '“' + release.name + '”'
+      : (!offering && releaseName ? '“' + releaseName + '”' : '');
+    $('wn-date').textContent = (release && release.date) || '';
+
+    // The one line that keeps the two apart: notes for a version you are not
+    // running have to say so, or they read as a description of what you have.
+    const offer = $('wn-offer');
+    if (offering) {
+      offer.hidden = false;
+      offer.textContent = 'These are the notes for ' + av.version + '. You are running '
+        + (appVersion || 'this build') + '.';
+    } else offer.hidden = true;
+
+    const empty = !release || !window.Changelog
+      || !(window.Changelog.count(release) + (release.intro || []).length);
+    $('wn-fallback').hidden = !empty;
+    $('wn-secs').hidden = empty;
+    if (empty) {
+      $('wn-secs').textContent = '';
+      const why = offering ? 'This release published no notes.'
+        : !wnDoc ? 'Reading the changelog…'
+          : wnDoc.ok ? 'There is no entry for this version yet.'
+            : wnDoc.error === 'not found' ? 'This build does not carry a changelog file.'
+              : 'The changelog could not be read (' + wnDoc.error + ').';
+      $('wn-fb-title').textContent = offering ? 'No notes for ' + av.version : 'No release notes here';
+      $('wn-fb-msg').textContent = why + ' The full history is on the releases page.';
+    } else {
+      wnRenderSections(release);
+    }
+
+    const apply = $('wn-apply');
+    apply.hidden = !(offering && av.staged && av.canSelf);
+    // A failed apply left the button reading "Working…" for ever; the state that
+    // decides whether it is shown is the state that owns its label.
+    if (!apply.hidden && activity.update.state === 'available') {
+      apply.disabled = false;
+      apply.textContent = 'Update & restart';
+    }
+    $('wn-check').hidden = offering;
+    $('wn-full').textContent = offering ? 'Open the release page' : 'Full changelog';
+  }
+
+  function wnFullUrl() {
+    const av = wnAvailable();
+    if (wnMode === 'available' && av && av.htmlUrl) return av.htmlUrl;
+    return wnReleasesUrl;
+  }
+
+  function openWhatsNew(opts) {
+    opts = opts || {};
+    if (setOpen) closeSettings();
+    if (palOpen) closePalette();
+    const av = wnAvailable();
+    wnMode = opts.mode || ((av && av.release) ? 'available' : 'installed');
+    if (wnOpen) { renderWhatsNew(); wnBody.focus(); return; }
+    wnOpen = true;
+    wnReturn = document.activeElement;
+    wnScrim.hidden = false;
+    syncCovered();
+    raf(() => wnScrim.classList.add('is-open'));
+    renderWhatsNew();
+    // The file read is off the open path: the sheet is already on screen and
+    // re-renders itself when the parse lands.
+    loadChangelog().then(() => { if (wnOpen) renderWhatsNew(); });
+    wnBody.scrollTop = 0;
+    wnBody.focus();
+  }
+  function closeWhatsNew() {
+    if (!wnOpen) return;
+    wnOpen = false;
+    wnScrim.classList.remove('is-open');
+    setTimeout(() => { if (!wnOpen) { wnScrim.hidden = true; syncCovered(); } }, 140);
+    syncCovered();
+    if (wnReturn && wnReturn.focus) { try { wnReturn.focus(); } catch (_) {} }
+    wnReturn = null;
+  }
+
+  // A real modal: Tab cannot leave it, and Enter closes it unless the focus is
+  // on a control that has its own answer to Enter.
+  wnDlg.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      if (e.target && e.target.closest && e.target.closest('button, a, input, select, textarea')) return;
+      closeWhatsNew();
+      e.preventDefault();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const nodes = [...wnDlg.querySelectorAll(WN_FOCUS)].filter((n) => !n.hidden && n.offsetParent !== null);
+    if (!nodes.length) { wnBody.focus(); e.preventDefault(); return; }
+    const first = nodes[0], last = nodes[nodes.length - 1];
+    const at = nodes.indexOf(document.activeElement);
+    if (e.shiftKey && at <= 0) { last.focus(); e.preventDefault(); }
+    else if (!e.shiftKey && (at === -1 || at === nodes.length - 1)) { first.focus(); e.preventDefault(); }
+  });
+  wnScrim.addEventListener('mousedown', (e) => { if (e.target === wnScrim) closeWhatsNew(); });
+  $('wn-close').addEventListener('click', closeWhatsNew);
+  $('wn-done').addEventListener('click', closeWhatsNew);
+  // The same radiogroup helper every other segmented control in the shell uses,
+  // so this one gets the arrow-key roving for free instead of reinventing it.
+  wireRadios('wn-modes', (b) => {
+    if (!b.dataset.mode || b.dataset.mode === wnMode) return;
+    wnMode = b.dataset.mode;
+    renderWhatsNew();
+    wnBody.scrollTop = 0;
+  });
+  const wnOpenFull = () => { if (studio.openExternal) studio.openExternal(wnFullUrl()); };
+  $('wn-full').addEventListener('click', wnOpenFull);
+  $('wn-fb-open').addEventListener('click', wnOpenFull);
+  $('wn-check').addEventListener('click', () => {
+    activity.update.dismissed = false;
+    renderUpdate();
+    if (studio.checkForUpdates) studio.checkForUpdates({ manual: true });
+  });
+  $('wn-apply').addEventListener('click', () => {
+    const b = $('wn-apply');
+    b.disabled = true; b.textContent = 'Working…';
+    if (studio.applyUpdate) studio.applyUpdate();
+  });
+
   // ==========================================================================
   // 14. KEY ROUTER
   // Ctrl+1..6 is handled here AND in main via before-input-event, because the
@@ -2207,6 +2533,7 @@
   window.addEventListener('keydown', (e) => {
     // Escape has one precedence order and affects exactly one thing.
     if (e.key === 'Escape') {
+      if (wnOpen) { closeWhatsNew(); e.preventDefault(); return; }
       if (palOpen) { closePalette(); e.preventDefault(); return; }
       if (setOpen) { closeSettings(); e.preventDefault(); return; }
       if (!$('as-update').hidden) { activity.update.dismissed = true; renderUpdate(); e.preventDefault(); }
@@ -2219,7 +2546,7 @@
       if (e.key === ',') { openSettings(); e.preventDefault(); return; }
     }
     if (e.ctrlKey && e.altKey && (e.key === 'l' || e.key === 'L')) { activate('logs'); e.preventDefault(); return; }
-    if (palOpen || setOpen) return;
+    if (palOpen || setOpen || wnOpen) return;
     // Space belongs to the transport owner, but never while a field has focus.
     if (e.key === ' ' && spaceTransport && !isFormFocus()) {
       if (window.Transport && window.Transport.owner()) { window.Transport.toggle(); e.preventDefault(); }
@@ -2271,6 +2598,9 @@
     if (s.state === 'none') toast({ severity: 'ok', title: `You are on the latest version (v${s.current})` });
     if (s.state === 'error') logPush('Update failed: ' + (s.message || 'unknown error'), 'error', 'update');
     renderUpdate();
+    // The What's New modal offers the fetched notes for an available update, so
+    // a status arriving while it is open changes what it has to show.
+    if (wnOpen) renderWhatsNew();
   });
 
   if (studio.onEngineError) studio.onEngineError((msg) => {
@@ -2478,6 +2808,9 @@
       { id: 'app.settings', label: 'Open settings', group: 'Application', keys: 'Ctrl+,', run: () => openSettings() },
       { id: 'app.updates', label: 'Check for updates', group: 'Application', keywords: ['version', 'upgrade'],
         run: () => { activity.update.dismissed = false; if (studio.checkForUpdates) studio.checkForUpdates({ manual: true }); } },
+      { id: 'app.whatsNew', label: 'What’s new', group: 'Application',
+        keywords: ['changelog', 'release notes', 'version', 'what changed'],
+        run: () => openWhatsNew() },
       { id: 'app.log', label: 'Open Logs', group: 'Application', keys: 'Ctrl+Alt+L',
         keywords: ['console', 'output', 'errors', 'activity log'], run: () => activate('logs') },
       { id: 'app.copyLog', label: 'Copy the activity log', group: 'Application', run: () => copyLog() },
@@ -2509,6 +2842,13 @@
   const bootSeen = Object.create(null);
   let bootDone = false;
   const bootStart = Date.now();
+  // Anything that wants to put a sheet on screen at startup waits for this: a
+  // modal opened behind the splash is a modal nobody ever saw.
+  const bootWaiters = [];
+  function onBooted(fn) {
+    if (bootDone) { setTimeout(fn, 0); return; }
+    bootWaiters.push(fn);
+  }
 
   function bootMark(step, label) {
     if (bootDone) return;
@@ -2541,7 +2881,11 @@
     raf(() => {
       document.body.dataset.boot = 'ready';
       splash.classList.add('is-out');
-      setTimeout(() => { splash.hidden = true; }, 280);
+      setTimeout(() => {
+        splash.hidden = true;
+        const waiting = bootWaiters.splice(0, bootWaiters.length);
+        for (const fn of waiting) { try { fn(); } catch (_) {} }
+      }, 280);
     });
   }
   // A stuck sidecar, a slow disk or a panel that never fires 'load' must not
@@ -2585,6 +2929,21 @@
   bootMark('interface');
 
   if (studio.getRelease) studio.getRelease().then((r) => { releaseName = String(r || ''); applyVersion(appVersion); }).catch(() => {});
+
+  // What's New, automatically, exactly once per installed version. Main answers
+  // autoShow only when this process was started with --post-update AND the
+  // version it is running is not the one whose notes were last shown, and the
+  // mark is written the moment the sheet goes up rather than when it is closed,
+  // so a window killed with the notes still open does not owe them again.
+  if (studio.whatsNew) studio.whatsNew().then((w) => {
+    if (!w) return;
+    if (w.releasesUrl) wnReleasesUrl = String(w.releasesUrl);
+    if (w.name && !releaseName) { releaseName = String(w.name); applyVersion(appVersion); }
+    if (!w.autoShow) return;
+    const shown = String(w.version || appVersion || '');
+    if (studio.markNotesShown) studio.markNotesShown(shown).catch(() => {});
+    onBooted(() => openWhatsNew({ mode: 'installed' }));
+  }).catch(() => {});
   if (studio.getVersion) studio.getVersion().then((v) => {
     applyVersion(v);
     activity.update.current = v;

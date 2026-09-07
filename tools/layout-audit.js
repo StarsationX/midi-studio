@@ -240,6 +240,24 @@ const okPath = () => '';
 const HANDLERS = {
   // ---- app / shell -------------------------------------------------------
   'app:version': () => require(path.join(ROOT, 'package.json')).version,
+  'app:release': () => require(path.join(ROOT, 'package.json')).releaseName || '',
+  // What's New reads the real CHANGELOG.md, so the harness hands over the real
+  // file: this state's whole job is to catch that file's own longest heading and
+  // longest bullet overflowing the reading column.
+  'app:changelog': () => {
+    const file = path.join(ROOT, 'CHANGELOG.md');
+    try { return { ok: true, file, text: fs.readFileSync(file, 'utf-8') }; }
+    catch (e) { return { ok: false, error: String((e && e.message) || e), file, text: '' }; }
+  },
+  'app:whatsNew': () => ({
+    version: require(path.join(ROOT, 'package.json')).version,
+    name: require(path.join(ROOT, 'package.json')).releaseName || '',
+    // autoShow stays false: the harness drives the sheet from its own state so
+    // the earlier states are not covered by it.
+    postUpdate: false, shownFor: '', autoShow: false,
+    releasesUrl: 'https://github.com/StarsationX/midi-studio/releases',
+  }),
+  'app:notesShown': (v) => String(v || ''),
   'app:getUi': () => Object.assign({}, UI),
   'app:setUi': (patch) => Object.assign(UI, patch || {}),
   'app:performance': () => Object.assign({}, PERFORMANCE),
@@ -626,7 +644,6 @@ const PAGES = [
     states: [
       { name: 'boot' },
       { name: 'busy', main: shellBusy, js: SHELL_TRANSPORT },
-      { name: 'log-open', js: `document.getElementById('as-log-toggle').click(), 'ok'` },
       { name: 'palette', js: `(() => {
           document.getElementById('search-trigger').click();
           const i = document.getElementById('pal-input');
@@ -659,6 +676,133 @@ const PAGES = [
       { name: 'settings-updates', js: settingsPane('updates') },
       { name: 'settings-overlay', js: settingsPane('overlay') },
       { name: 'settings-about', js: settingsPane('about') },
+      {
+        // THE UNWATCHED RUN. Frames are lazy, so the Logs tab may never have
+        // been opened when a Forge job produces its output -- and that output
+        // must not be lost. These lines are pushed while renderer/logs/ has
+        // never been loaded at all; the logs-tab state below then opens the tab
+        // and checks every one of them arrived in the catch-up log:sync.
+        name: 'logs-unwatched',
+        js: `(async () => {
+          if (document.getElementById('frame-logs').getAttribute('src')) return 'FAIL: the Logs frame was already loaded';
+          for (let i = 0; i < 60; i++) {
+            window.Bus.send(window.Bus.TYPES.FORGE_STATUS,
+              { event: 'forge.log', jobId: 'j-unwatched', line: 'unwatched line ' + i }, { local: true });
+          }
+          for (let i = 0; i < 8; i++) await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 20)));
+          return 'pushed 60 lines with the Logs frame never loaded';
+        })()`,
+      },
+      {
+        // End to end, and the only place the shell -> Logs path is exercised as
+        // a whole: switch to the tab, push real lines through the shell's one
+        // public door (ui:status), then read the numbers back out of the frame.
+        // It proves the shell still owns the buffer, that the publish arrives
+        // BATCHED (hundreds of lines, one message), that the list is
+        // virtualised, and that both filters and the search work on real data.
+        name: 'logs-tab',
+        // Exactly the route Ctrl+6 takes when focus is inside a panel: main's
+        // before-input-event forwards 'shell-shortcut' with {tab}, because the
+        // stage swallowed the keydown. The two key maps are asserted equal in
+        // run-tests.js; this is the delivery end of that pair.
+        main: async (win) => { win.webContents.send('shell-shortcut', { tab: 'logs' }); },
+        js: `(async () => {
+          document.getElementById('set-close').click();
+          const viaMain = document.getElementById('nav-logs').getAttribute('aria-selected') === 'true';
+          document.getElementById('nav-logs').click();
+          const fr = document.getElementById('frame-logs');
+          const ready = () => { try { return fr.contentWindow && fr.contentWindow.Bus && fr.contentWindow.document.getElementById('counts'); } catch (_) { return null; } };
+          for (let i = 0; i < 100 && !ready(); i++) await new Promise((r) => setTimeout(r, 100));
+          if (!ready()) return 'FAIL: the Logs frame never came up';
+          const w = fr.contentWindow, doc = w.document;
+          let appends = 0, appended = 0;
+          w.Bus.on(w.Bus.TYPES.LOG_APPEND, (p) => { appends++; appended += ((p && p.lines) || []).length; });
+          for (let i = 0; i < 400; i++) {
+            w.Bus.send(w.Bus.TYPES.UI_STATUS, { frame: 'logs', text: 'harness line ' + i, severity: i % 40 === 0 ? 'err' : 'info' });
+          }
+          for (let i = 0; i < 20; i++) await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 20)));
+          const nodes = doc.querySelectorAll('#list .lrow').length;
+          const all = doc.getElementById('counts').textContent;
+          const q0 = doc.getElementById('q');
+          q0.value = 'unwatched line';
+          q0.dispatchEvent(new Event('input', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 300));
+          const caught = doc.getElementById('counts').textContent;
+          q0.value = '';
+          q0.dispatchEvent(new Event('input', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 250));
+          doc.getElementById('f-level').value = 'error';
+          doc.getElementById('f-level').dispatchEvent(new Event('change', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 120));
+          const errOnly = doc.getElementById('counts').textContent;
+          doc.getElementById('f-level').value = 'all';
+          doc.getElementById('f-level').dispatchEvent(new Event('change', { bubbles: true }));
+          const q = doc.getElementById('q');
+          q.value = 'line 17';
+          q.dispatchEvent(new Event('input', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 300));
+          const searched = doc.getElementById('counts').textContent;
+          const strip = document.getElementById('as-errors').hidden ? 'hidden' : document.getElementById('as-log-count').textContent;
+          if (appends === 0) return 'FAIL: no log:append reached the Logs tab';
+          if (appended < 400) return 'FAIL: only ' + appended + ' of 400 lines arrived';
+          if (appends > 8) return 'FAIL: ' + appends + ' messages for ' + appended + ' lines -- the publish is not batched';
+          if (nodes > 120) return 'FAIL: ' + nodes + ' row nodes -- the list is not virtualised';
+          if (!viaMain) return 'FAIL: the shell-shortcut tab message did not select the Logs tab';
+          if (caught.indexOf('60 of') !== 0) return 'FAIL: the unwatched lines did not survive: ' + caught;
+          return 'Ctrl+6 via main: ok | unwatched catch-up: ' + caught + ' | ' + appended + ' lines in ' + appends + ' batched message(s) | ' + nodes + ' row nodes | all: '
+               + all + ' | errors: ' + errOnly + ' | search "line 17": ' + searched + ' | strip errors: ' + strip;
+        })()`,
+      },
+      {
+        // WHAT'S NEW, both sources. First the installed release, parsed from the
+        // real CHANGELOG.md: this is the state that catches a heading, a section
+        // or a bullet overflowing its column.
+        name: 'whatsnew',
+        js: `(async () => {
+          const c = document.getElementById('set-close'); if (c) c.click();
+          document.getElementById('version-chip').click();
+          for (let i = 0; i < 60 && document.getElementById('wn-secs').children.length === 0; i++) {
+            await new Promise((r) => setTimeout(r, 50));
+          }
+          const secs = [...document.querySelectorAll('#wn-secs .wn-sec-h')].map((h) => h.firstChild.textContent);
+          const items = document.querySelectorAll('#wn-secs .wn-item').length;
+          if (!secs.length) return 'FAIL: no sections rendered (fallback: '
+            + document.getElementById('wn-fb-msg').textContent + ')';
+          const trapped = document.activeElement && document.getElementById('wn-dlg').contains(document.activeElement);
+          return 'v' + document.getElementById('wn-ver').textContent + ' '
+            + document.getElementById('wn-name').textContent + ' '
+            + document.getElementById('wn-date').textContent
+            + ' | ' + secs.join(', ') + ' | ' + items + ' bullets | focus inside: ' + trapped;
+        })()`,
+      },
+      {
+        // Then the notes for an update on OFFER. They come from the status the
+        // updater already sent, never a second request, and they have to be
+        // labelled as a version the user is NOT running.
+        name: 'whatsnew-available',
+        main: async (win) => {
+          push(win, 'update-status', {
+            state: 'available', version: '3.1.0', current: '3.0.0', size: 96 * 1024 * 1024,
+            canSelfUpdate: true, htmlUrl: 'https://github.com/StarsationX/midi-studio/releases/tag/v3.1.0',
+            notes: '### New\n- **Stem picker.** Choose which separated stem is transcribed.\n'
+              + '- Drum maps can be edited in the Editor.\n\n### Fixed\n'
+              + '- The Library scan no longer restarts when a tag is written mid-scan.\n'
+              + '- Perch remembered a monitor that was no longer attached.\n',
+          });
+          await new Promise((r) => setTimeout(r, 250));
+        },
+        js: `(async () => {
+          const modes = document.getElementById('wn-modes');
+          if (modes.hidden) return 'FAIL: the two-source toggle never appeared';
+          document.getElementById('wn-mode-available').click();
+          await new Promise((r) => setTimeout(r, 120));
+          const offer = document.getElementById('wn-offer');
+          if (offer.hidden) return 'FAIL: the offered notes are not labelled as a version being offered';
+          const items = document.querySelectorAll('#wn-secs .wn-item').length;
+          return 'offered ' + document.getElementById('wn-ver').textContent + ' | '
+            + items + ' bullets | ' + offer.textContent;
+        })()`,
+      },
     ],
   },
   {
@@ -729,6 +873,52 @@ const PAGES = [
           push(win, 'engine-event', MIDI_LOADED);
           await new Promise((r) => setTimeout(r, 300));
         },
+      },
+    ],
+  },
+  {
+    name: 'logs', file: 'renderer/logs/index.html',
+    states: [
+      // The empty state, then a realistic buffer. The page only ever receives
+      // lines over the bus, so the fill posts a real log:sync envelope at
+      // itself: in the top window parent === window, which is exactly the
+      // source bus.js trusts.
+      { name: 'default' },
+      {
+        name: 'filled',
+        js: `(() => {
+          const SRC = ['forge', 'setup', 'player', 'app', 'update', 'library'];
+          const LVL = ['info', 'info', 'info', 'ok', 'warn', 'error'];
+          const TEXT = [
+            'Input: C:\\Users\\stars\\Music\\Clair de Lune (Debussy, 1905) - remastered.flac',
+            'Separating stems with demucs htdemucs_ft, batch 2, 12 threads',
+            'transcribe 46% eta 00:02:41',
+            'Player engine ready.',
+            'onnxruntime: falling back to CPU for one operator, this is slower',
+            'Failed Clair de Lune.flac: CUDA out of memory (tried to allocate 2.10 GiB)'
+          ];
+          const lines = [];
+          for (let i = 0; i < 480; i++) {
+            const d = new Date(Date.now() - (480 - i) * 900);
+            lines.push({
+              id: i + 1, src: SRC[i % SRC.length], level: LVL[i % LVL.length],
+              text: TEXT[i % TEXT.length],
+              clock: String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0')
+            });
+          }
+          window.postMessage({ ns: 'midi-studio', v: 1, kind: 'event', type: 'log:sync',
+            payload: { lines, cap: 600, seq: lines.length } }, location.origin);
+          return 'posted ' + lines.length;
+        })()`,
+      },
+      {
+        name: 'filtered-empty',
+        js: `(() => {
+          const q = document.getElementById('q');
+          q.value = 'zzzznotathing';
+          q.dispatchEvent(new Event('input', { bubbles: true }));
+          return 'filtered';
+        })()`,
       },
     ],
   },

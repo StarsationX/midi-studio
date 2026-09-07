@@ -81,7 +81,7 @@
     loop: false, autoplay: false, recent: [], lastMidiPath: '', lastProjectPath: '',
     // new in the rewrite
     queue: [], history: [], bookmarks: {}, repeat: 'off',
-    navTab: 'library', navSource: 'all', navSort: 'recent', railTab: 'queue', infoOpen: false,
+    navTab: 'library', navSource: 'all', navSort: 'recent', railTab: 'queue', infoOpen: true,
   };
   let prefs = { ...defaults };
   try {
@@ -802,7 +802,7 @@
     const key = projectPath || midiPath;
     if (!key) return;
     prefs.recent = [
-      { midiPath: midiPath || '', projectPath: projectPath || '', label: label || window.Fmt.basename(key) },
+      { midiPath: midiPath || '', projectPath: projectPath || '', label: label || window.Fmt.basename(key), at: Date.now() },
       ...prefs.recent.filter((item) => lower(item.projectPath || item.midiPath) !== lower(key)),
     ].slice(0, 10);
     renderRecent();
@@ -867,7 +867,7 @@
     host.textContent = '';
     list.forEach((mark, index) => {
       const row = document.createElement('div');
-      row.className = 'lrow';
+      row.className = 'lrow sm-mark';
       const main = document.createElement('span');
       main.className = 'lrow-main';
       const name = document.createElement('span');
@@ -950,10 +950,10 @@
     const has = loop.b - loop.a >= 0.25;
     const hint = $('loop-hint');
     const text = !has
-      ? 'No range picked. Drag across the roll, or set A and B.'
+      ? 'Drag across the roll, or set A and B.'
       : loop.on
-        ? `Looping ${window.Fmt.clock(loop.a)} to ${window.Fmt.clock(loop.b)} · ${window.Fmt.duration(loop.b - loop.a)}`
-        : `Range ${window.Fmt.clock(loop.a)} to ${window.Fmt.clock(loop.b)} · loop is off`;
+        ? `Looping ${window.Fmt.duration(loop.b - loop.a)}`
+        : `${window.Fmt.duration(loop.b - loop.a)} range · loop is off`;
     if (hint.textContent !== text) hint.textContent = text;
     $('loop-set-b').disabled = !player.duration;
     $('loop-set-a').disabled = !player.duration;
@@ -1387,6 +1387,47 @@
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
+  // A deterministic, symmetric block field in graphite only. The accent is
+  // functional in this app, so a generated placeholder does not get to use it.
+  // The hero and every list thumbnail paint the SAME field, so a song is the
+  // same picture wherever it appears -- which is what the artwork in the ref is
+  // doing for a file that carries no cover of its own.
+  function paintField(ctx, w, h, seed) {
+    ctx.fillStyle = window.Tokens.get('bg-2', '#0f1013');
+    ctx.fillRect(0, 0, w, h);
+    const cells = 8;
+    const cw = w / cells, ch = h / cells;
+    for (let y = 0; y < cells; y += 1) {
+      for (let x = 0; x < cells / 2; x += 1) {
+        // one nibble per cell: three of the four values paint, so the field is
+        // dense enough to read as a cover at 196px and still as a mark at 34px
+        const bit = (seed >>> ((y * 5 + x * 3) % 29)) & 3;
+        if (!bit) continue;
+        ctx.fillStyle = bit === 1 ? window.Tokens.rgba('line-2', 0.55)
+          : bit === 2 ? window.Tokens.rgba('surface-3', 0.95)
+            : window.Tokens.rgba('text-3', 0.2);
+        ctx.fillRect(Math.floor(x * cw), Math.floor(y * ch), Math.ceil(cw), Math.ceil(ch));
+        ctx.fillRect(Math.floor((cells - 1 - x) * cw), Math.floor(y * ch), Math.ceil(cw), Math.ceil(ch));
+      }
+    }
+  }
+
+  // One list thumbnail. Called from a row render, never from a loop: it is a
+  // few dozen rects on a 34px canvas and VList reuses the node underneath it.
+  const THUMB = 34;
+  function paintThumb(canvas, path) {
+    if (!canvas) return;
+    const fit = window.Draw.fitCanvas(canvas, THUMB, THUMB);
+    const ctx = fit.ctx, w = fit.w, h = fit.h;
+    ctx.clearRect(0, 0, w, h);
+    if (!path) {
+      ctx.fillStyle = window.Tokens.get('surface-2', '#25272d');
+      ctx.fillRect(0, 0, w, h);
+      return;
+    }
+    paintField(ctx, w, h, hash32(lower(path)));
+  }
+
   function drawArt() {
     if (!hasBox(artHost)) return;
     const fit = window.Draw.fitCanvas(artCanvas, artHost.clientWidth, artHost.clientHeight);
@@ -1396,25 +1437,11 @@
     ctx.fillRect(0, 0, w, h);
     const path = currentPath();
     if (!path) return;
-    // A deterministic, symmetric block field in graphite only. The accent is
-    // functional in this app, so a generated placeholder does not get to use it.
-    const seed = hash32(lower(path));
-    const cells = 6;
-    const cw = w / cells, ch = h / cells;
-    for (let y = 0; y < cells; y += 1) {
-      for (let x = 0; x < cells / 2; x += 1) {
-        const bit = (seed >>> ((y * 3 + x) % 29)) & 3;
-        if (!bit) continue;
-        ctx.fillStyle = bit === 1 ? window.Tokens.rgba('line-2', 0.5)
-          : bit === 2 ? window.Tokens.rgba('surface-3', 0.9)
-            : window.Tokens.rgba('text-3', 0.16);
-        ctx.fillRect(Math.floor(x * cw), Math.floor(y * ch), Math.ceil(cw), Math.ceil(ch));
-        ctx.fillRect(Math.floor((cells - 1 - x) * cw), Math.floor(y * ch), Math.ceil(cw), Math.ceil(ch));
-      }
-    }
+    paintField(ctx, w, h, hash32(lower(path)));
+    const band = Math.max(30, Math.round(h * 0.19));
     ctx.fillStyle = window.Tokens.rgba('bg-2', 0.72);
-    ctx.fillRect(0, h / 2 - 15, w, 30);
-    ctx.font = `700 17px ${window.Tokens.get('font-mono', 'monospace')}`;
+    ctx.fillRect(0, h / 2 - band / 2, w, band);
+    ctx.font = `700 ${Math.max(17, Math.round(h * 0.13))}px ${window.Tokens.get('font-mono', 'monospace')}`;
     ctx.fillStyle = window.Tokens.get('text-2', '#9b9ea6');
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -1462,12 +1489,14 @@
 
     // tags: derived facts only. Tags as USER data belong to the Library tab.
     const tags = [];
-    tags.push({ text: window.Fmt.ext(path).toUpperCase() || 'MID', kind: '' });
+    // The file extension is a machine value, so it keeps the mono tag. Every
+    // other tag is a word and is set as one.
+    tags.push({ text: window.Fmt.ext(path).toUpperCase() || 'MID', kind: 'is-mono' });
     const drums = doc.__drums;
-    tags.push({ text: drums ? 'DRUMS' : 'MELODIC', kind: '' });
-    if (doc.bpmEstimated) tags.push({ text: 'TEMPO EST.', kind: 'is-warn' });
-    if (isFav(path)) tags.push({ text: 'FAVORITE', kind: 'is-accent' });
-    if (names.length > 1) tags.push({ text: `${names.length} VERSIONS`, kind: '' });
+    tags.push({ text: drums ? 'Drums' : 'Melodic', kind: '' });
+    if (doc.bpmEstimated) tags.push({ text: 'Tempo estimated', kind: 'is-warn' });
+    if (isFav(path)) tags.push({ text: 'Favorite', kind: 'is-accent' });
+    if (names.length > 1) tags.push({ text: `${names.length} versions`, kind: '' });
     const host = $('song-tags');
     host.textContent = '';
     for (const tag of tags) {
@@ -1477,11 +1506,15 @@
       host.appendChild(el);
     }
 
-    $('stat-format').textContent = player.projectPath ? 'PROJECT' : 'MIDI';
-    $('stat-notes').textContent = doc.notes.length.toLocaleString();
+    // Short enough to survive a narrow column; the long form is the tooltip.
+    $('stat-format').textContent = player.projectPath ? 'Project' : 'MIDI file';
+    $('stat-format').title = player.projectPath
+      ? 'A MIDI Studio project: the MIDI, its versions and the settings that made them.'
+      : 'A plain MIDI file.';
+    $('stat-notes').textContent = `${doc.notes.length.toLocaleString()} notes`;
     $('stat-length').textContent = window.Fmt.clock(player.duration);
     $('stat-tempo').textContent = doc.bpmEstimated
-      ? `${window.Fmt.bpm(doc.bpm)} ?` : window.Fmt.bpm(doc.bpm);
+      ? `${window.Fmt.bpm(doc.bpm)} BPM (est.)` : `${window.Fmt.bpm(doc.bpm)} BPM`;
     $('stat-tempo').title = doc.bpmEstimated
       ? 'Estimated from the note onsets: this file has no tempo track.'
       : 'From the file\'s tempo track.';
@@ -1512,7 +1545,7 @@
   }
 
   function enableActions(enabled) {
-    for (const id of ['act-queue', 'act-editor', 'act-player', 'act-reveal', 'back', 'forward']) {
+    for (const id of ['act-queue', 'act-editor', 'act-player', 'act-reveal', 'back', 'forward', 'song-menu']) {
       $(id).disabled = !enabled;
     }
     $('mark-add').disabled = !enabled;
@@ -1873,6 +1906,9 @@
 
   // ---- the file VList -----------------------------------------------------
   const rowHeightBig = () => window.Tokens.num('h-row-lg', 40);
+  // The queue row carries artwork, so it is taller than a file row -- but it is
+  // still derived from the token, so it still follows the density switch.
+  const rowHeightRail = () => rowHeightBig() + 10;
 
   const fileList = window.VList($('nav-files'), {
     rowHeight: rowHeightBig(),
@@ -1955,36 +1991,44 @@
   // 16. RIGHT RAIL: queue / history / recently played
   // ==========================================================================
   const railList = window.VList($('rail-list'), {
-    rowHeight: rowHeightBig(),
+    rowHeight: rowHeightRail(),
     overscan: 6,
     selectable: true,
     ariaLabel: 'Queue',
     key: (item, index) => `${item.path}#${index}`,
     createRow() {
       const node = document.createElement('div');
-      node.className = 'lrow is-lg';
-      node.innerHTML = '<span class="sm-art-mini"></span>'
+      node.className = 'lrow is-lg sm-qrow';
+      node.innerHTML = '<span class="lrow-index"></span>'
+        + '<span class="sm-thumb"><canvas aria-hidden="true"></canvas></span>'
         + '<span class="lrow-main"><span class="lrow-name"></span><span class="lrow-sub"></span></span>'
         + '<span class="lrow-meta"></span>'
-        + `<span class="lrow-actions"><button class="btn btn-icon is-sm is-bare" type="button" data-action="drop" aria-label="Remove">${window.Icon.svg('close', 12)}</button></span>`;
+        + `<span class="lrow-actions"><button class="btn btn-icon is-sm is-bare" type="button" data-action="menu" aria-label="More actions">${window.Icon.svg('dots', 14)}</button>`
+        + `<button class="btn btn-icon is-sm is-bare" type="button" data-action="drop" aria-label="Remove from the queue">${window.Icon.svg('close', 12)}</button></span>`;
       return node;
     },
-    renderRow(node, item) {
-      node.firstChild.textContent = initials(item.name);
-      const main = node.children[1];
+    renderRow(node, item, index) {
+      const playing = lower(item.path) === lower(currentPath());
+      const lead = node.firstChild;
+      // The playing row says so with a mark, not only with the accent.
+      if (playing) { lead.innerHTML = window.Icon.svg('play', 11); lead.classList.add('is-playing'); }
+      else { lead.textContent = String(index + 1); lead.classList.remove('is-playing'); }
+      paintThumb(node.children[1].firstChild, item.path);
+      const main = node.children[2];
       main.firstChild.textContent = item.name;
       main.lastChild.textContent = item.sub;
       const cached = metaFor(item.path);
-      node.children[2].textContent = cached && cached.duration ? window.Fmt.clock(cached.duration) : '—';
-      node.children[3].hidden = railTab !== 'queue';
-      node.classList.toggle('is-playing', lower(item.path) === lower(currentPath()));
+      node.children[3].textContent = cached && cached.duration ? window.Fmt.clock(cached.duration) : '—';
+      node.children[4].lastChild.hidden = railTab !== 'queue';
+      node.classList.toggle('is-playing', playing);
       node.title = item.path;
       node.setAttribute('aria-label', `${item.name}, ${item.sub}`);
     },
     onClick(item) { void loadAudition(item.path, '', { play: true }); },
     onActivate(item) { void loadAudition(item.path, '', { play: true }); },
-    onAction(action, item) {
+    onAction(action, item, index, event) {
       if (action === 'drop' && railTab === 'queue') removeFromQueue(item.path);
+      else if (action === 'menu') rowMenu(item.path, item.name, event);
     },
     onContextMenu(item, index, event) {
       event.preventDefault();
@@ -2042,20 +2086,32 @@
       if (!path) continue;
       const row = document.createElement('button');
       row.type = 'button';
-      row.className = 'lrow';
+      row.className = 'lrow is-lg sm-qrow';
       if (lower(path) === lower(currentPath())) row.classList.add('is-playing');
       row.title = path;
+      const thumb = document.createElement('span');
+      thumb.className = 'sm-thumb';
+      const canvas = document.createElement('canvas');
+      canvas.setAttribute('aria-hidden', 'true');
+      thumb.appendChild(canvas);
       const main = document.createElement('span');
       main.className = 'lrow-main';
       const name = document.createElement('span');
       name.className = 'lrow-name';
       name.textContent = item.label || window.Fmt.stem(path);
       main.appendChild(name);
+      if (item.at) {
+        const when = document.createElement('span');
+        when.className = 'lrow-sub';
+        when.textContent = window.Fmt.when(item.at);
+        main.appendChild(when);
+      }
       const meta = document.createElement('span');
       meta.className = 'lrow-meta';
       const cached = metaFor(path);
       meta.textContent = cached && cached.duration ? window.Fmt.clock(cached.duration) : '';
-      row.append(main, meta);
+      row.append(thumb, main, meta);
+      paintThumb(canvas, path);
       row.addEventListener('click', () => loadAudition(item.midiPath || '', item.projectPath || '', { play: true }));
       row.addEventListener('contextmenu', (event) => {
         event.preventDefault();
@@ -2133,7 +2189,10 @@
   // ==========================================================================
   function syncSpeedUI() {
     const input = $('speed-value');
-    if (input.value !== String(ctl.speed)) input.value = String(ctl.speed);
+    // Two decimals, like the ref -- but never while the field has focus, or a
+    // half-typed "1.2" would be rewritten to "1.20" under the caret.
+    const shown = Number(ctl.speed).toFixed(2);
+    if (document.activeElement !== input && input.value !== shown) input.value = shown;
     for (const button of $('speed-presets').children) {
       const on = Number(button.dataset.value) === ctl.speed;
       button.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -2208,6 +2267,10 @@
     layer.invalidate();
     rollHandle.invalidate();
     artHandle.invalidate();
+    // The thumbnails are painted from the same tokens but live in list rows,
+    // so they are repainted by re-rendering those rows, not by the scheduler.
+    railList.refresh();
+    renderRecent();
   });
 
   const redrawSoon = coalesce(() => {
@@ -2309,6 +2372,10 @@
   $('forward').addEventListener('click', () => seek(songTime() + 5));
 
   $('favorite').addEventListener('click', () => toggleFav(currentPath()));
+  $('song-menu').addEventListener('click', (event) => {
+    const path = currentPath();
+    if (path) rowMenu(path, songLabel(), event);
+  });
   $('roll-reset').addEventListener('click', () => zoom.reset());
 
   $('info-head').addEventListener('click', () => {
@@ -2565,14 +2632,12 @@
   }));
 
   window.addEventListener('midi-studio:density', () => {
-    const h = rowHeightBig();
-    fileList.rowHeight(h);
-    railList.rowHeight(h);
+    fileList.rowHeight(rowHeightBig());
+    railList.rowHeight(rowHeightRail());
   });
   offs.push(window.Bus.on(T.UI_DENSITY, () => {
-    const h = rowHeightBig();
-    fileList.rowHeight(h);
-    railList.rowHeight(h);
+    fileList.rowHeight(rowHeightBig());
+    railList.rowHeight(rowHeightRail());
   }));
 
   // ==========================================================================

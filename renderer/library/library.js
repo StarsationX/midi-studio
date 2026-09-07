@@ -469,7 +469,7 @@
   function notesOf(f) { return f.bad ? EM : (f.notes === null ? EM : String(f.notes)); }
 
   const rowList = window.VList($('rows'), {
-    rowHeight: window.Tokens ? window.Tokens.num('h-row', 28) : 28,
+    rowHeight: window.Tokens ? window.Tokens.num('h-lrow', 36) : 36,
     selectable: 'multi',
     ariaLabel: 'MIDI files',
     // Defensive on purpose: VList's refreshState() runs synchronously from
@@ -1223,7 +1223,7 @@
       { label: 'Open in Editor', run: () => sendTo('editor', targets) },
       { sep: true },
       { label: 'Favorite', checked: fav, run: () => setFav(targets, !fav) },
-      { label: 'Add a tag…', run: () => { showInspector(); setTab('details'); $('tag-input').focus(); } },
+      { label: 'Add a tag…', run: () => { showInspector(); setTab('details'); openTagAdd(); } },
       { sep: true },
       !many && { label: 'Reveal in Explorer', icon: 'folder', run: () => reveal(file.path) },
       { label: many ? 'Copy paths' : 'Copy path', run: () => copyPaths(targets) },
@@ -1342,12 +1342,14 @@
       row.dataset.dir = dir;
       row.title = dir;
       const base = Fmt.basename(dir) || dir;
-      row.innerHTML = '<span class="lrow-main"><span class="lrow-name"></span>'
-        + '<span class="lrow-sub"></span></span><span class="lrow-meta" data-fcount>0</span>'
+      // One line, the way the reference reads a folder list: the whole path is
+      // on row.title above and on the "open in Explorer" button beside it.
+      row.innerHTML = '<span class="lrow-icon"><i data-icon="folder" data-icon-size="13"></i></span>'
+        + '<span class="lrow-main"><span class="lrow-name"></span></span>'
+        + '<span class="lrow-meta" data-fcount>0</span>'
         + '<span class="lrow-actions"></span>';
-      row.children[0].children[0].textContent = base;
-      row.children[0].children[1].textContent = dir;
-      const actions = row.children[2];
+      row.children[1].children[0].textContent = base;
+      const actions = row.children[3];
       if (entry.builtin) {
         // library:removeFolder only filters the USER list, so a remove button
         // on either built-in would do nothing at all (CONTRACT 11.12).
@@ -1432,7 +1434,7 @@
     const meter = $('store-meter'), fill = $('store-fill'), box = $('store');
     const lowPill = $('store-low');
     if (!s || !Number.isFinite(s.totalBytes) || !s.totalBytes) {
-      drive.textContent = s && s.root ? s.root.replace(/\\$/, '') : '—';
+      drive.textContent = 'Storage' + (s && s.root ? ' (' + s.root.replace(/\\$/, '') + ')' : '');
       text.textContent = 'unknown';
       sub.textContent = 'The drive would not report its size.';
       fill.style.setProperty('--p', '0');
@@ -1447,7 +1449,7 @@
     // Low space is a WORD (the pill) and an aria-valuetext, not a colour on its
     // own: rule 11, and a forced-colours mode gets no colour at all.
     const tight = s.freeBytes < 5 * 1024 * 1024 * 1024;
-    drive.textContent = (s.root || '').replace(/\\$/, '') || 'Drive';
+    drive.textContent = 'Storage (' + ((s.root || '').replace(/\\$/, '') || 'drive') + ')';
     text.textContent = Fmt.gb(used) + ' of ' + Fmt.gb(total) + ' used';
     sub.textContent = (tight ? 'Low: only ' : '') + Fmt.bytes(s.freeBytes)
       + ' free for new transcriptions.';
@@ -1590,9 +1592,11 @@
     input.disabled = !file && !many;
     input.placeholder = many ? 'Tag all ' + state.sel.length : 'Add a tag';
     $('tag-add').disabled = input.disabled;
+    $('tag-more').disabled = input.disabled;
     $('tag-hint').textContent = many
       ? 'Adding a tag here applies it to every selected file.'
       : 'Tags are yours: they are saved with the library index, not in the file.';
+    if (input.disabled) closeTagAdd();
   }
 
   function renderProps(file, many) {
@@ -1648,7 +1652,8 @@
     const gone = !!(file && file.missing) && !many;
     const playing = !!previewPath;
     const prev = $('a-preview');
-    prev.textContent = playing ? 'Stop preview' : 'Preview';
+    $('a-preview-t').textContent = playing ? 'Stop preview' : 'Preview';
+    if (window.Icon) $('a-preview-i').innerHTML = window.Icon.svg(playing ? 'stop' : 'play', 15);
     prev.disabled = !has || many || gone || (!playing && !canPreview(state.focusPath));
     $('a-editor').disabled = !has || gone;
     $('a-player').disabled = !has || gone;
@@ -1683,6 +1688,21 @@
       renderInspector();
       apply();
     }, () => {});
+  }
+
+  // The chips row carries one "+"; the field itself is the disclosure behind
+  // it, so the inspector stays as quiet as the reference until you ask.
+  function openTagAdd() {
+    if ($('tag-input').disabled) return;
+    $('tagadd').hidden = false;
+    $('tag-hint').hidden = false;
+    $('tag-more').setAttribute('aria-expanded', 'true');
+    $('tag-input').focus();
+  }
+  function closeTagAdd() {
+    $('tagadd').hidden = true;
+    $('tag-hint').hidden = true;
+    $('tag-more').setAttribute('aria-expanded', 'false');
   }
 
   function addTagFromInput() {
@@ -1741,6 +1761,7 @@
     parts.push(shown === total ? Fmt.count(total, 'file') : shown.toLocaleString() + ' of ' + total.toLocaleString() + ' files');
     parts.push(Fmt.count(folderRows().length, 'folder'));
     if (state.truncated) parts.push('capped at ' + (4000).toLocaleString());
+    parts.push('Organize, search, preview and manage your collection.');
     $('lib-sub').textContent = state.loading && !total ? 'Scanning…' : parts.join(' · ');
   }
 
@@ -2090,10 +2111,13 @@
     });
   }
 
+  on($('tag-more'), 'click', () => {
+    if ($('tagadd').hidden) openTagAdd(); else closeTagAdd();
+  });
   on($('tag-add'), 'click', addTagFromInput);
   on($('tag-input'), 'keydown', (ev) => {
     if (ev.key === 'Enter') { ev.preventDefault(); addTagFromInput(); }
-    else if (ev.key === 'Escape') { ev.stopPropagation(); $('tag-input').value = ''; }
+    else if (ev.key === 'Escape') { ev.stopPropagation(); $('tag-input').value = ''; closeTagAdd(); $('tag-more').focus(); }
   });
   on($('p-path').querySelector('.pathchip-reveal'), 'click', () => reveal(state.focusPath));
 
@@ -2112,7 +2136,7 @@
 
   on($('sel-player'), 'click', () => sendTo('player', state.sel.slice()));
   on($('sel-fav'), 'click', () => setFav(state.sel.slice(), !selectedFiles().every((f) => f.fav)));
-  on($('sel-tag'), 'click', () => { showInspector(true); setTab('details'); $('tag-input').focus(); });
+  on($('sel-tag'), 'click', () => { showInspector(true); setTab('details'); openTagAdd(); });
   on($('sel-delete'), 'click', () => remove(state.sel.slice()));
   on($('sel-clear'), 'click', () => clearSelection());
 
@@ -2223,7 +2247,7 @@
   function onDensity() {
     if (!window.Tokens) return;
     window.Tokens.refresh();
-    rowList.rowHeight(window.Tokens.num('h-row', 28));
+    rowList.rowHeight(window.Tokens.num('h-lrow', 36));
     if (state.mode === 'grid' && measureShelf()) rebuildShelves();
     artHandle.invalidate();
   }

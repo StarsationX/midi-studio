@@ -158,20 +158,14 @@ html, body {
 .muted { color: var(--text-3); }
 .small { font-size: 12px; }
 
-/* numbered section label, "01 INPUT" rail. Containers that set a section
-   counter (e.g. forge .work) make the number increment automatically. */
+/* Section label. Ordinary title-case sentence text in the body font -- the
+   reference design has no uppercase mono micro-labels and no "01" counter rail.
+   Monospace is reserved for machine values (clocks, counts, paths, hotkeys). */
 .lbl {
   display: flex; align-items: center; gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 12px; font-weight: 600; letter-spacing: 2px;
-  text-transform: uppercase; color: var(--text-3);
+  font: 600 var(--t2)/1.3 var(--font-body); letter-spacing: 0;
+  text-transform: none; color: var(--text-2);
   margin-bottom: var(--s3);
-}
-.lbl::before {
-  counter-increment: section;
-  content: counter(section, decimal-leading-zero);
-  color: var(--accent-deep);
-  font-weight: 700;
 }
 
 /* ---- buttons: flat precision ---- */
@@ -190,7 +184,7 @@ html, body {
 .btn:disabled, .btn[disabled] { opacity: .4; cursor: not-allowed; }
 .btn.big {
   height: var(--h-ctl-xl); padding: 0 32px;
-  font: 700 15px/1 var(--font-body); letter-spacing: 1.5px; text-transform: uppercase;
+  font: 700 15px/1 var(--font-body); letter-spacing: .2px;
   border-radius: var(--r);
 }
 
@@ -400,9 +394,9 @@ body.is-resizing iframe { pointer-events: none; }
   /* t1/t2 hold at the 12px floor; only the two heading steps come down. */
   --t3: 14px; --t4: 16px;
 }
-[data-density="compact"] .btn.big { padding: 0 22px; letter-spacing: 1px; }
+[data-density="compact"] .btn.big { padding: 0 22px; }
 [data-density="compact"] .seg button { padding: 9px 12px 9px 28px; }
-[data-density="compact"] .lbl { margin-bottom: var(--s2); letter-spacing: 1.5px; }
+[data-density="compact"] .lbl { margin-bottom: var(--s2); }
 
 /* Native form controls, scrollbar corners and autofill all key off this. */
 html { color-scheme: dark; }

@@ -608,6 +608,323 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     ok(contract.indexOf(name) >= 0, `CONTRACT documents ${name}`);
   }
   ok(/library\.list\(\)/.test(contract), 'CONTRACT documents the Library data surface');
+
+  // 10. THE SIX-TAB MAP. Ctrl+1..6 is handled twice -- in the shell, and again in
+  // main's before-input-event, because the stage swallows the keydown once focus
+  // is inside a panel. The two maps have to list the same six frame keys in the
+  // same order or the app disagrees with itself about what Ctrl+6 means, and
+  // nothing at runtime notices.
+  const NAV_ORDER = ['forge', 'review', 'player', 'audition', 'library', 'logs'];
+  {
+    const mainSrc2 = rd('electron/main.js');
+    const html = rd('renderer/index.html');
+
+    // the shell's FRAMES array, in order
+    const framesBlock = shellSrc.slice(shellSrc.indexOf('const FRAMES = ['),
+                                       shellSrc.indexOf('const ORDER = FRAMES.map'));
+    const shellKeys = (framesBlock.match(/\{ key: '([a-z]+)'/g) || []).map((m) => m.slice(8, -1));
+    ok(String(shellKeys) === String(NAV_ORDER),
+      'shell FRAMES is the six tabs in nav order (got ' + shellKeys + ')');
+
+    // main's before-input-event map, in order
+    const mapLine = (mainSrc2.match(/const tab = \{[^}]*\}\[input\.key\]/) || [''])[0];
+    const mainKeys = (mapLine.match(/'([a-z]+)'/g) || []).map((m) => m.slice(1, -1));
+    ok(String(mainKeys) === String(NAV_ORDER),
+      'main before-input-event maps the same six tabs in the same order (got ' + mainKeys + ')');
+    ok(/\b6: 'logs'/.test(mapLine), 'main maps Ctrl+6 to the Logs tab');
+
+    // the shell's own digit handler must cover all six
+    ok(/'123456'\.indexOf\(e\.key\)/.test(shellSrc), 'the shell key router covers Ctrl+1..6');
+
+    // and the chrome has to exist for all six
+    for (const k of NAV_ORDER) {
+      ok(html.indexOf('data-frame="' + k + '"') >= 0, 'index.html has the ' + k + ' nav item and frame');
+    }
+    ok(html.indexOf('id="nav-logs"') >= 0 && /nav-logs[\s\S]{0,220}\^6/.test(html),
+      'the Logs nav item carries the ^6 hint chip');
+    ok(html.indexOf('data-src="./logs/index.html"') >= 0, 'the Logs frame is lazily loaded from logs/index.html');
+    ok(fs.existsSync(path.join(root, 'renderer', 'logs', 'index.html'))
+      && fs.existsSync(path.join(root, 'renderer', 'logs', 'logs.js'))
+      && fs.existsSync(path.join(root, 'renderer', 'logs', 'logs.css')),
+      'the Logs tab ships all three of its files');
+  }
+
+  // 11. THE DRAWER IS GONE. Two log UIs is worse than either one, and the drawer
+  // was the one that could not be reached from a tab that had focus.
+  {
+    const html = rd('renderer/index.html');
+    const logsJs = rd('renderer/logs/logs.js');
+    for (const dead of ['as-log-toggle', 'id="alog"', 'alog-list', 'alog-filter', 'alog-copy', 'alog-clear', 'alog-close']) {
+      ok(html.indexOf(dead) < 0, 'the log drawer markup is gone: ' + dead);
+    }
+    for (const dead of ['setLogOpen', 'alog', 'logPinned', 'logVisible']) {
+      ok(shellSrc.indexOf(dead) < 0, 'the log drawer code is gone from the shell: ' + dead);
+    }
+    ok(!/\.alog|\.as-log-toggle|--h-logdrawer/.test(shellCss), 'the log drawer CSS is gone');
+    ok(shellSrc.indexOf('logOpen') < 0, 'the drawer open/closed preference is gone');
+    ok(/id="as-errors"/.test(html) && /\$\('as-errors'\)\.addEventListener\('click', \(\) => activate\('logs'\)\)/.test(shellSrc),
+      'the strip keeps an error count that switches to the Logs tab');
+    ok(/activate\('logs'\); e\.preventDefault\(\)/.test(shellSrc), 'Ctrl+Alt+L goes to the Logs tab');
+
+    // The shell still OWNS the buffer: it must collect whether or not the tab
+    // has ever been opened (frames load lazily), and publish in BATCHES.
+    ok(/const LOG_CAP = 600/.test(shellSrc) && /function logPush/.test(shellSrc),
+      'the shell still owns the capped ring buffer');
+    ok(/logOut\.push\(line\)/.test(shellSrc) && /T\.LOG_APPEND, \{ lines: batch \}/.test(shellSrc),
+      'the shell publishes log lines in coalesced batches, not one message per line');
+    ok(/if \(f\.key === 'logs'\) logSync\(f\.frame\)/.test(shellSrc),
+      'a freshly opened Logs tab gets a full sync on frame:ready');
+    ok(/Bus\.on\(T\.LOG_CLEAR, \(\) => logClear\(\)\)/.test(shellSrc),
+      'Clear is a request to the buffer owner, not a local act in the viewer');
+
+    // A panel sends frame:ready from its own script, which runs BEFORE the
+    // iframe's load event, so the load handler must NOT clear busReady
+    // unconditionally: doing so retracted the handshake of the document that
+    // had just arrived, and every later push to that panel was dropped. That
+    // is silent, and it is what stopped log:append reaching the Logs tab.
+    ok(!/f\.busReady = false;\s*\/\/ a reload retracts/.test(shellSrc),
+      'the load handler no longer clobbers a frame:ready it already received');
+    ok(/if \(!f\.readyForLoad\) f\.busReady = false;/.test(shellSrc)
+      && /f\.readyForLoad = true;/.test(shellSrc),
+      'busReady is retracted only for a document that never announced itself');
+
+    // and the viewer is a viewer: no second buffer, no hand-rolled rAF
+    ok(/Bus\.send\(T\.FRAME_READY, \{ frame: FRAME/.test(logsJs), 'the Logs tab sends frame:ready');
+    ok(/Draw\.register\(/.test(logsJs) && !/requestAnimationFrame/.test(logsJs),
+      'the Logs tab paints through the Draw scheduler, never its own rAF');
+    ok(/window\.VList\(listHost/.test(logsJs), 'the Logs tab virtualises the scrollback');
+    ok(!/Transport\.claim/.test(logsJs), 'the Logs tab claims no transport');
+    ok(/n\.className = 'lrow is-grid'/.test(logsJs) && !/n\.className =/.test(logsJs.slice(logsJs.indexOf('renderRow'))),
+      'the Logs rows are built once and never have className reassigned in renderRow');
+
+    const busSrc = rd('renderer/shared/bus.js');
+    for (const t of ["'log:sync'", "'log:append'", "'log:clear'", "'nav:open-logs'"]) {
+      ok(busSrc.indexOf(t) >= 0, 'bus.js declares ' + t);
+      ok(contract.indexOf(t.replace(/'/g, '`')) >= 0 || contract.indexOf(t.slice(1, -1)) >= 0,
+        'CONTRACT documents ' + t);
+    }
+  }
+
+  // 12. The version and its release name. The chip stays bare; the About pane is
+  // where the release name is spelt out.
+  {
+    const pkg2 = require(path.join(root, 'package.json'));
+    ok(pkg2.version === '3.0.0', 'package version is 3.0.0');
+    ok(pkg2.releaseName === 'Graphite', 'package declares the release name');
+    const mainSrc3 = rd('electron/main.js');
+    ok(/ipcMain\.handle\('app:release'/.test(mainSrc3), 'main exposes the release name');
+    ok(/getRelease/.test(rd('electron/preload.js')), 'preload exposes getRelease');
+    ok(/chip\.textContent = 'v' \+ appVersion/.test(shellSrc), 'the titlebar chip shows just the version');
+    ok(/s-about-version'\)\.textContent = appVersion \+ \(releaseName/.test(shellSrc),
+      'the About pane shows the version and the release name');
+  }
+
+  // 13. The real logo. The CSS waveform mark is gone; the artwork on the
+  // first-paint path is the 7.7KB badge, and the 151KB lockup is splash-only.
+  {
+    const html = rd('renderer/index.html');
+    ok(fs.existsSync(path.join(root, 'renderer', 'shared', 'mark.png'))
+      && fs.existsSync(path.join(root, 'renderer', 'shared', 'lockup.png')),
+      'both optimised logo assets ship');
+    ok(/class="brand-img" src="\.\/shared\/mark\.png"/.test(html), 'the titlebar shows the real badge');
+    ok(/class="splash-logo" src="\.\/shared\/lockup\.png"/.test(html), 'the splash shows the real lockup');
+    ok(html.indexOf('class="wf"') < 0 && !/\.wf\b/.test(shellCss), 'the CSS waveform mark is gone');
+    ok(html.indexOf('logo.png') < 0, 'the 597KB source logo is never on a page');
+    // transform/opacity only, one-shot, and a static reduced-motion form: the
+    // blanket kill switch leaves an animation at its END frame.
+    const logoIn = shellCss.slice(shellCss.indexOf('@keyframes logo-in'), shellCss.indexOf('@keyframes logo-in') + 160);
+    ok(/transform: scale/.test(logoIn) && !/width|height/.test(logoIn), 'the splash logo animates transform and opacity only');
+    const rm = shellCss.slice(shellCss.indexOf('@media (prefers-reduced-motion'));
+    ok(/\.splash-logo[^{]*\{[^}]*animation: none/.test(rm), 'the splash logo has a static reduced-motion form');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WHAT'S NEW. The parser reads a file a user can edit and release notes fetched
+// from GitHub, so "it must not throw" is the whole contract: every failure has
+// to come back as { ok:false } and let the screen degrade to a link.
+// ---------------------------------------------------------------------------
+{
+  const fs = require('fs');
+  const rd = (rel) => fs.readFileSync(path.join(root, ...rel.split('/')), 'utf8');
+  const C = require(path.join(root, 'renderer', 'shell', 'changelog.js'));
+  const pkg = JSON.parse(rd('package.json'));
+
+  // ---- 1. a well-formed file: the project's own CHANGELOG.md ---------------
+  const parsed = C.parse(rd('CHANGELOG.md'));
+  ok(parsed.ok && parsed.releases.length >= 1, 'CHANGELOG.md parses');
+  const rel = C.find(parsed.releases, pkg.version);
+  ok(!!rel, `CHANGELOG.md carries an entry for the shipping version (${pkg.version})`);
+  if (rel) {
+    ok(rel.version === pkg.version, `the entry's version is ${pkg.version} (got ${rel.version})`);
+    ok(rel.name === pkg.releaseName, `the entry's release name is ${pkg.releaseName} (got ${rel.name})`);
+    ok(/^\d{4}-\d{2}-\d{2}$/.test(rel.date), `the entry carries a date (got "${rel.date}")`);
+    ok(rel.intro.length >= 1, 'the entry keeps its intro paragraph');
+    const titles = rel.sections.map((s) => s.title);
+    ok(titles[0] === 'New', `New is rendered first (got ${titles.join(', ')})`);
+    ok(titles.indexOf('Known issues') === titles.length - 1,
+      'Known issues is rendered last: it is the caveat, not the news');
+    ok(titles.indexOf('Changed') > 0 && titles.indexOf('Fixed') > titles.indexOf('Changed'),
+      'Changed then Fixed, between the two');
+    ok(C.count(rel) >= 25, `every bullet survives the parse (got ${C.count(rel)})`);
+    // A wrapped bullet is ONE bullet, joined, not one per source line.
+    const lib = rel.sections[0].items[0];
+    ok(lib.lead === 'Library.', `a leading bold run becomes the bullet's lead (got "${lib.lead}")`);
+    ok(/note count and length/.test(lib.text) && !/\n/.test(lib.text),
+      'a bullet wrapped over four source lines is joined into one');
+    // '**Forge** is one workspace' is mid-sentence emphasis. Pulling it out as a
+    // lead left the bullet reading 'Forge' / 'is one three-column workspace'.
+    const forge = rel.sections[1].items.find((i) => /^Forge is one/.test(i.text));
+    ok(!!forge && forge.lead === '', 'mid-sentence bold is flattened, never promoted to a lead');
+    ok(!/[*_`]/.test(rel.sections.map((s) => s.items.map((i) => i.lead + i.text).join(' ')).join(' ')),
+      'no markdown syntax survives into the rendered text');
+  }
+
+  // ---- 2. a MISSING file ---------------------------------------------------
+  // main answers { ok:false, error:'not found' } and the renderer never gets a
+  // string to parse; the parser has to be safe with what it does get anyway.
+  ok(C.parse('').ok === false && C.parse('').releases.length === 0, 'an empty changelog degrades, not throws');
+  for (const bad of [null, undefined, 0, [], {}, () => {}]) {
+    const r = C.parse(bad);
+    ok(r && r.ok === false && Array.isArray(r.releases), `parse(${typeof bad}) degrades cleanly`);
+  }
+  ok(typeof p.changelogFile === 'function' && /CHANGELOG\.md$/.test(p.changelogFile()),
+    'paths resolves CHANGELOG.md the way it resolves every other bundled resource');
+  ok(fs.existsSync(p.changelogFile()), 'the resolved changelog exists in a dev tree');
+  {
+    const mainSrc = rd('electron/main.js');
+    const h = mainSrc.slice(mainSrc.indexOf("ipcMain.handle('app:changelog'"), mainSrc.indexOf("ipcMain.handle('app:whatsNew'"));
+    ok(/paths\.exists\(file\)/.test(h) && /'not found'/.test(h),
+      'app:changelog answers "not found" instead of throwing on a missing file');
+    ok(/try \{/.test(h) && /catch/.test(h), 'app:changelog cannot reject');
+    // Packaged, CHANGELOG.md lives inside the asar next to package.json, so it
+    // has to be in build.files or the screen is permanently degraded in a real
+    // install while working perfectly in dev.
+    ok((pkg.build.files || []).includes('CHANGELOG.md'),
+      'CHANGELOG.md is packaged, so What’s New works in an installed build');
+  }
+
+  // ---- 3. MALFORMED input --------------------------------------------------
+  ok(C.parse('# Changelog\n\njust prose, no releases\n\n- and a stray bullet').ok === false,
+    'a file with no release heading degrades');
+  ok(C.parse('## Changelog\n### New\n- x').ok === false,
+    '"## Changelog" is not read as a release called "Changelog"');
+  {
+    // Half a heading, an unterminated bold run, a stray bracket, 60KB of one
+    // line, control bytes: none of it may throw and none of it may hang.
+    const nasty = [
+      '## 3.0.0 "Graphite\n### New\n- **unterminated bold\n- [link](\n',
+      '##3.0.0\n###New\n-nospace',
+      '## 1.0.0\n' + '- ' + 'x'.repeat(60000) + '\n',
+      '## 1.0.0 - \n### \n- \n-\n\n###\n',
+      '## 1.0.0\n �\n- a\r\n- b\r\n',
+      '## 1.0\n### New\n\t- tabbed\n      - deeply indented\n',
+      '**'.repeat(4000),
+      '## 9.9.9 "X" - 2026-01-01\n'.repeat(500),
+    ];
+    let threw = 0, hung = 0;
+    const t0 = Date.now();
+    for (const s of nasty) {
+      try { const r = C.parse(s); if (!r || typeof r.ok !== 'boolean') threw++; }
+      catch (_) { threw++; }
+      try { C.parseNotes(s, { version: '1.0.0' }); } catch (_) { threw++; }
+    }
+    if (Date.now() - t0 > 2000) hung++;
+    ok(threw === 0, `${nasty.length} malformed inputs, none throws (${threw} did)`);
+    ok(hung === 0, 'the parser is linear: no input makes it spin');
+    // A heading that IS well formed still yields a release even when its body is
+    // rubbish, so a half-written entry shows what it has rather than nothing.
+    const half = C.parse('## 3.1.0 "Slate" - 2026-10-01\n### New\n- one real bullet\n### \n- \n');
+    ok(half.ok && half.releases[0].version === '3.1.0' && half.releases[0].name === 'Slate',
+      'a good heading over a ragged body still parses');
+    ok(C.count(half.releases[0]) === 1, 'empty bullets are dropped, not rendered as blank rows');
+  }
+
+  // ---- 4. GitHub release notes (the AVAILABLE-update path) -----------------
+  {
+    const n = C.parseNotes('### New\n- **A.** one\n- two\n\n### Fixed\n- three\n', { version: '3.1.0' });
+    ok(n.ok && n.release.version === '3.1.0' && n.release.sections[0].title === 'New',
+      'a GitHub body with no version heading parses into one release');
+    ok(C.count(n.release) === 3, 'every bullet in a release body survives');
+    const loose = C.parseNotes('- just\n- bullets\n', { version: '3.1.0' });
+    ok(loose.ok && loose.release.sections[0].title === 'Notes',
+      'bullets with no heading still get a group');
+    ok(C.parseNotes('', { version: '3.1.0' }).ok === false, 'an empty release body degrades');
+    ok(C.parseNotes(null).ok === false, 'a missing release body degrades');
+  }
+
+  // ---- 5. the screen's wiring ---------------------------------------------
+  {
+    const shellSrc = rd('renderer/shell/shell.js');
+    const html = rd('renderer/index.html');
+    const pre = rd('electron/preload.js');
+    const mainSrc = rd('electron/main.js');
+
+    ok(/<script src="\.\/shell\/changelog\.js"><\/script>[\s\S]{0,80}<script src="\.\/shell\/shell\.js">/.test(html),
+      'the parser loads before the shell that uses it');
+    for (const id of ['wn-scrim', 'wn-dlg', 'wn-body', 'wn-secs', 'wn-fallback', 'wn-modes',
+                      'wn-full', 'wn-done', 'wn-check', 'wn-apply', 'wn-close']) {
+      ok(html.indexOf(`id="${id}"`) > 0, `index.html carries #${id}`);
+    }
+    ok(/class="dlg-scrim" id="wn-scrim"/.test(html) && /class="dlg wn"/.test(html),
+      'What’s New is built from the CONTRACT dialog primitives, not a parallel one');
+    ok(/role="dialog" aria-modal="true"/.test(html.slice(html.indexOf('id="wn-dlg"') - 200, html.indexOf('id="wn-dlg"') + 200)),
+      'the dialog announces itself as modal');
+
+    // A fixed overlay is composited UNDER an iframe, so the strip's frames have
+    // to be told they are covered or the panel draws straight through the modal.
+    ok(/anyOverlayOpen = \(\) =>[^;]*wn-scrim/.test(shellSrc),
+      'the modal counts as an overlay, so the tab frames go off-screen behind it');
+    // Escape order, and the modal is the topmost thing when it is up.
+    const esc = shellSrc.slice(shellSrc.indexOf("if (e.key === 'Escape') {"), shellSrc.indexOf("if (e.ctrlKey && !e.altKey"));
+    ok(esc.indexOf('wnOpen') >= 0 && esc.indexOf('wnOpen') < esc.indexOf('palOpen'),
+      'Escape closes What’s New before anything else');
+    ok(/wnDlg\.addEventListener\('keydown'[\s\S]{0,900}e\.key !== 'Tab'/.test(shellSrc),
+      'the modal traps Tab');
+    ok(/closeWhatsNew\(\);\s*\n\s*e\.preventDefault\(\);/.test(shellSrc), 'Enter closes it');
+    ok(/wnReturn && wnReturn\.focus/.test(shellSrc), 'closing restores the focus it took');
+
+    // Four ways in, and checking for updates is still one click away.
+    ok(/\$\('version-chip'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,120}openWhatsNew\(\)/.test(shellSrc),
+      'the titlebar version chip opens the notes');
+    ok(/\$\('s-whatsnew'\)\.addEventListener/.test(shellSrc) && /id="s-whatsnew"/.test(html),
+      'Settings > Updates offers What’s New');
+    ok(/id: 'app\.whatsNew'/.test(shellSrc), 'the command palette offers What’s New');
+    ok(/id: 'app\.updates', label: 'Check for updates'/.test(shellSrc)
+      && /id="s-recheck"/.test(html) && /\$\('wn-check'\)\.addEventListener/.test(shellSrc),
+      'checking for updates survives in the palette, in Settings and in the modal');
+
+    // Once, and only once. autoShow is main's answer; the renderer records the
+    // version the moment the sheet goes up, not when it is dismissed.
+    const wn = mainSrc.slice(mainSrc.indexOf("ipcMain.handle('app:whatsNew'"), mainSrc.indexOf("ipcMain.handle('app:notesShown'"));
+    ok(/POST_UPDATE && shownFor !== version/.test(wn),
+      'autoShow needs BOTH --post-update and a version whose notes have not been shown');
+    ok(/settings\.merge\(\{ ui: \{ notesShownFor: version \} \}\)/.test(mainSrc),
+      'the shown version is persisted in settings, so a restart does not repeat it');
+    ok(/if \(!w\.autoShow\) return;[\s\S]{0,240}markNotesShown\(shown\)[\s\S]{0,120}onBooted\(\(\) => openWhatsNew/.test(shellSrc),
+      'the renderer marks it shown BEFORE opening, and never opens in front of the splash');
+
+    // The offered update reuses the notes the updater already fetched.
+    ok(/notes: rel\.body/.test(rd('electron/updater.js')) && /parseNotes\(u\.notes/.test(shellSrc),
+      'the available-update notes come from the status already in hand, not a second request');
+    ok(!/fetch\(|XMLHttpRequest/.test(shellSrc), 'the shell makes no network request of its own');
+
+    // Additive only: the IPC the screen needs, and nothing removed.
+    for (const ch of ['app:changelog', 'app:whatsNew', 'app:notesShown']) {
+      ok(pre.indexOf(ch) > 0 && mainSrc.indexOf(`ipcMain.handle('${ch}'`) > 0, `${ch} is wired end to end`);
+    }
+    ok(/getVersion:|checkForUpdates:|applyUpdate:/.test(pre), 'the existing update surface is untouched');
+
+    // The type floor and the label treatment: section headings are body-font
+    // title case, and the only mono in this screen is on machine values.
+    const wnCss = rd('renderer/shell/shell.css');
+    const block = wnCss.slice(wnCss.indexOf('9. WHAT\'S NEW'));
+    ok(/\.wn-sec-h \{[^}]*var\(--font-body\)/.test(block), 'section headings are in the body font');
+    ok(!/\.wn-sec-h \{[^}]*text-transform: uppercase/.test(block), 'section headings are not uppercased');
+    ok(/\.wn-ver \{[^}]*var\(--font-mono\)/.test(block), 'the version string is mono');
+    ok(/\.wn-date \{[\s\S]{0,240}?var\(--font-mono\)/.test(block), 'the date is mono');
+    ok(!/font(?:-size)?:[^;}]*\b(?:8(?:\.5)?|9|10|11)px\b/.test(block), 'What’s New keeps the 12px type floor');
+  }
 }
 
   console.log(`\n${pass} passed, ${fail} failed`);

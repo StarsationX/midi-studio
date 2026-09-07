@@ -44,6 +44,14 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 const OPEN_DEVTOOLS = process.argv.includes('--dev');
 const POST_UPDATE = process.argv.includes('--post-update');
+// The project's releases page. The What's New screen's "Full changelog" action
+// opens it, so the one spelling of it lives here.
+const RELEASES_URL = 'https://github.com/StarsationX/midi-studio/releases';
+// package.json carries the release NAME ("Graphite"); app.getVersion() carries
+// the number. Both halves are the app's identity, so they are read in one place.
+function releaseName() {
+  try { return String(require('../package.json').releaseName || ''); } catch (_) { return ''; }
+}
 const CONFIGURE_FORGE_INDEX = process.argv.indexOf('--configure-forge-storage');
 const CONFIGURE_FORGE_STORAGE = CONFIGURE_FORGE_INDEX >= 0
   ? String(process.argv[CONFIGURE_FORGE_INDEX + 1] || '').trim()
@@ -1010,8 +1018,43 @@ function wireIpc() {
   ipcMain.handle('app:openExternal', (_e, url) => (/^https?:\/\//i.test(String(url)) ? shell.openExternal(url) : null));
   ipcMain.handle('app:version', () => app.getVersion());
   // The release name is package.json's, not Electron's, so it comes from there.
-  ipcMain.handle('app:release', () => {
-    try { return String(require('../package.json').releaseName || ''); } catch (_) { return ''; }
+  ipcMain.handle('app:release', () => releaseName());
+
+  // ---- What's New ---------------------------------------------------------
+  // Main hands over the raw file and the renderer parses it: the parser is
+  // shared with the tests and the screen owns its own degraded state, so a
+  // malformed file has to reach the thing that can show a link instead.
+  ipcMain.handle('app:changelog', () => {
+    const file = paths.changelogFile();
+    try {
+      if (!paths.exists(file)) return { ok: false, error: 'not found', file, text: '' };
+      // A hand-edited file has no business being megabytes long, and reading one
+      // synchronously on the IPC thread would stall every other channel.
+      const size = fs.statSync(file).size;
+      if (size > 1024 * 1024) return { ok: false, error: 'too large', file, text: '' };
+      return { ok: true, file, text: fs.readFileSync(file, 'utf-8') };
+    } catch (e) { return { ok: false, error: String((e && e.message) || e), file, text: '' }; }
+  });
+  // Whether the notes for the RUNNING version are still owed to the user. They
+  // are owed exactly once: --post-update says an installer just ran, and the
+  // version we have already shown is remembered in settings, so a restart (or a
+  // second launch that still carries the flag) does not show them again.
+  ipcMain.handle('app:whatsNew', () => {
+    const version = app.getVersion();
+    const shownFor = String(settings.get('ui.notesShownFor') || '');
+    return {
+      version,
+      name: releaseName(),
+      postUpdate: POST_UPDATE,
+      shownFor,
+      autoShow: POST_UPDATE && shownFor !== version,
+      releasesUrl: RELEASES_URL,
+    };
+  });
+  ipcMain.handle('app:notesShown', (_e, v) => {
+    const version = String(v || app.getVersion());
+    settings.merge({ ui: { notesShownFor: version } });
+    return version;
   });
   // The window is frameless, so the three window buttons are the renderer's and
   // it needs these. Nothing here can act on a window it does not own.

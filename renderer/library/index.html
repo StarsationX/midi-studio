@@ -57,17 +57,22 @@
 
     <!-- storage: the drive the output folder lives on -->
     <div class="lib-store" id="store">
-      <div class="u-row lib-store-top">
-        <span class="lib-store-drive mono" id="store-drive">—</span>
-        <span class="u-spacer"></span>
-        <span class="lib-store-text mono" id="store-text">unknown</span>
+      <div class="lib-store-card">
+        <span class="lib-store-icon"><i data-icon="folder" data-icon-size="16"></i></span>
+        <div class="lib-store-main">
+          <div class="u-row lib-store-top">
+            <span class="lib-store-drive" id="store-drive">Storage</span>
+            <span class="u-spacer"></span>
+            <span class="pill is-warn lib-store-low" id="store-low" hidden><span class="dot warn"></span>Low space</span>
+          </div>
+          <div class="lib-store-text mono" id="store-text">unknown</div>
+          <div class="meter" id="store-meter" role="progressbar" aria-label="Drive usage"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="meter-fill" id="store-fill" style="--p: 0"></div>
+          </div>
+          <div class="lib-store-sub small muted" id="store-sub">Reading drive…</div>
+        </div>
       </div>
-      <div class="meter" id="store-meter" role="progressbar" aria-label="Drive usage"
-           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-        <div class="meter-fill" id="store-fill" style="--p: 0"></div>
-      </div>
-      <span class="pill is-warn lib-store-low" id="store-low" hidden><span class="dot warn"></span>Low space</span>
-      <div class="lib-store-sub small muted" id="store-sub">Reading drive…</div>
     </div>
   </aside>
 
@@ -92,29 +97,34 @@
                 aria-controls="insp" data-tip="Show or hide the inspector">Inspector</button>
         <button class="btn btn-icon is-sm" id="rescan" type="button"
                 aria-label="Rescan every folder" data-tip="Rescan"><i data-icon="refresh" data-icon-size="13"></i></button>
+        <div class="segmented is-sm lib-viewmode" id="viewmode" role="radiogroup" aria-label="Row layout">
+          <button type="button" role="radio" aria-checked="true" data-mode="list">List</button>
+          <button type="button" role="radio" aria-checked="false" data-mode="grid">Grid</button>
+        </div>
       </div>
 
-      <div class="toolbar is-sub lib-tools">
+      <div class="lib-searchrow">
         <span class="search lib-search" id="searchwrap">
-          <i data-icon="search" data-icon-size="13"></i>
-          <input class="input is-sm" id="q" type="text" autocomplete="off" spellcheck="false"
+          <i data-icon="search" data-icon-size="14"></i>
+          <input class="input" id="q" type="text" autocomplete="off" spellcheck="false"
                  placeholder="Search MIDIs, tags, artists, or folders..." aria-label="Search the library" />
           <button class="search-clear" id="q-clear" type="button" aria-label="Clear the search">
             <i data-icon="close" data-icon-size="10"></i>
           </button>
         </span>
-        <span class="u-sep"></span>
+      </div>
+
+      <!-- Each select says its own noun, so the row needs no micro-labels. -->
+      <div class="toolbar is-sub lib-tools">
         <span class="lib-filter">
-          <span class="toolbar-label" id="lbl-type">Type</span>
-          <span class="selectwrap"><select class="select is-sm" id="f-type" aria-labelledby="lbl-type">
+          <span class="selectwrap"><select class="select is-sm" id="f-type" aria-label="Filter by file type">
             <option value="">All types</option>
             <option value="mid">.mid</option>
             <option value="midi">.midi</option>
           </select></span>
         </span>
         <span class="lib-filter">
-          <span class="toolbar-label" id="lbl-source">Source</span>
-          <span class="selectwrap"><select class="select is-sm" id="f-source" aria-labelledby="lbl-source">
+          <span class="selectwrap"><select class="select is-sm" id="f-source" aria-label="Filter by source">
             <option value="">All sources</option>
             <option value="generated">Generated</option>
             <option value="imported">Imported</option>
@@ -122,33 +132,26 @@
           </select></span>
         </span>
         <span class="lib-filter">
-          <span class="toolbar-label" id="lbl-tags">Tags</span>
-          <span class="selectwrap"><select class="select is-sm" id="f-tag" aria-labelledby="lbl-tags">
+          <span class="selectwrap"><select class="select is-sm" id="f-tag" aria-label="Filter by tag">
             <option value="">All tags</option>
             <option value=" none">Untagged</option>
           </select></span>
         </span>
-        <span class="u-sep"></span>
-        <span class="lib-filter">
-          <span class="toolbar-label" id="lbl-sort">Sort</span>
-          <span class="selectwrap"><select class="select is-sm" id="sort" aria-labelledby="lbl-sort">
-            <option value="date:-1">Newest first</option>
-            <option value="date:1">Oldest first</option>
-            <option value="name:1">Name A–Z</option>
-            <option value="name:-1">Name Z–A</option>
-            <option value="length:-1">Longest</option>
-            <option value="length:1">Shortest</option>
-            <option value="notes:-1">Most notes</option>
-            <option value="notes:1">Fewest notes</option>
-            <option value="source:1">Source</option>
-            <option value="tags:1">Tags</option>
+        <span class="u-spacer"></span>
+        <span class="lib-filter is-sort">
+          <span class="selectwrap"><select class="select is-sm" id="sort" aria-label="Sort order">
+            <option value="date:-1">Sort: Date added (newest)</option>
+            <option value="date:1">Sort: Date added (oldest)</option>
+            <option value="name:1">Sort: Name (A–Z)</option>
+            <option value="name:-1">Sort: Name (Z–A)</option>
+            <option value="length:-1">Sort: Longest</option>
+            <option value="length:1">Sort: Shortest</option>
+            <option value="notes:-1">Sort: Most notes</option>
+            <option value="notes:1">Sort: Fewest notes</option>
+            <option value="source:1">Sort: Source</option>
+            <option value="tags:1">Sort: Tags</option>
           </select></span>
         </span>
-        <span class="u-spacer"></span>
-        <div class="segmented is-sm" id="viewmode" role="radiogroup" aria-label="Row layout">
-          <button type="button" role="radio" aria-checked="true" data-mode="list">List</button>
-          <button type="button" role="radio" aria-checked="false" data-mode="grid">Grid</button>
-        </div>
       </div>
 
       <div class="lib-selbar" id="selbar" hidden>
@@ -165,7 +168,7 @@
     <div class="lib-body dropzone" id="body">
       <!-- list view: one grid template on the host, inherited by head + rows -->
       <div class="lgrid lib-lgrid" id="grid"
-           style="--cols: 30px minmax(160px, 3fr) 74px 74px 96px 118px minmax(90px, 1.4fr) 34px">
+           style="--cols: 30px minmax(160px, 3fr) 78px 82px 104px 124px minmax(90px, 1.4fr) 34px">
         <div class="lgrid-head" role="presentation">
           <div class="lgrid-th is-check">
             <button class="checkbox" id="check-all" type="button" role="checkbox"
@@ -260,22 +263,23 @@
           <div class="lib-fgen small" id="i-gen"></div>
         </div>
 
-        <div class="insp-sec">
-          <button class="insp-sec-head" type="button" aria-expanded="true" aria-controls="sec-tags">
-            Tags <span class="count" id="tag-count">0</span></button>
-          <div class="insp-sec-body" id="sec-tags">
-            <div class="lib-chips" id="i-tags"></div>
-            <div class="u-row lib-tagadd">
-              <input class="input is-sm is-body" id="tag-input" type="text" autocomplete="off"
-                     placeholder="Add a tag" aria-label="Add a tag" maxlength="32" />
-              <button class="btn btn-sm" id="tag-add" type="button">Add</button>
-            </div>
-            <div class="field-hint" id="tag-hint">Tags are yours: they are saved with the library index, not in the file.</div>
-          </div>
+        <!-- Tags read as chips with one "+", the way the reference shows them;
+             the field itself opens from that button. -->
+        <div class="lib-tagrow">
+          <div class="lib-chips" id="i-tags"></div>
+          <button class="lib-tagmore" id="tag-more" type="button" aria-expanded="false"
+                  aria-controls="tagadd" aria-label="Add a tag" data-tip="Add a tag">
+            <i data-icon="plus" data-icon-size="11"></i></button>
+          <span class="u-hidden-visually" id="tag-count">0</span>
         </div>
+        <div class="u-row lib-tagadd" id="tagadd" hidden>
+          <input class="input is-sm is-body" id="tag-input" type="text" autocomplete="off"
+                 placeholder="Add a tag" aria-label="Add a tag" maxlength="32" />
+          <button class="btn btn-sm" id="tag-add" type="button">Add</button>
+        </div>
+        <div class="field-hint lib-taghint" id="tag-hint" hidden>Tags are yours: they are saved with the library index, not in the file.</div>
 
         <div class="insp-sec">
-          <button class="insp-sec-head" type="button" aria-expanded="true" aria-controls="sec-props">Properties</button>
           <div class="insp-sec-body" id="sec-props">
             <div class="insp-row"><span class="insp-label">Type</span><span class="insp-value" id="p-type">—</span></div>
             <div class="insp-row"><span class="insp-label">Source</span><span class="insp-value" id="p-source">—</span></div>
@@ -307,13 +311,15 @@
 
         <div class="insp-sec is-last">
           <div class="insp-sec-body lib-actions" id="sec-actions">
-            <button class="btn btn-primary" id="a-preview" type="button">Preview</button>
+            <button class="btn btn-primary lib-act-wide" id="a-preview" type="button">
+              <span class="ic-slot" id="a-preview-i"><i data-icon="play" data-icon-size="15"></i></span>
+              <span id="a-preview-t">Preview</span></button>
             <button class="btn" id="a-editor" type="button">Open in Editor</button>
             <button class="btn" id="a-player" type="button">Send to Player</button>
             <button class="btn" id="a-listen" type="button">Listen (Self MIDI)</button>
-            <button class="btn" id="a-fav" type="button" aria-pressed="false">Favorite</button>
             <button class="btn" id="a-reveal" type="button">Reveal in Folder</button>
-            <button class="btn btn-danger" id="a-delete" type="button">Delete</button>
+            <button class="btn lib-act-wide" id="a-fav" type="button" aria-pressed="false">Favorite</button>
+            <button class="btn btn-danger lib-act-wide" id="a-delete" type="button">Delete</button>
             <div class="inline-note" id="a-note" hidden></div>
           </div>
         </div>

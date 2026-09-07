@@ -30,7 +30,8 @@
     "files": [
       "electron/**/*",
       "renderer/**/*",
-      "package.json"
+      "package.json",
+      "CHANGELOG.md"
     ],
     "extraResources": [
       {

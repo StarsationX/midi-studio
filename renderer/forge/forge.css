@@ -5,6 +5,10 @@
    that are genuinely Forge's own (the pipeline mark, the stage checklist, the
    density strip). The two dividers drive --rail and --insp on #fg, which is
    what resize.js persists as forge:rail / forge:insp.
+
+   Type rule for this sheet: a LABEL is title case in the body font. Monospace
+   is kept for machine values only — timecodes, percentages, note counts, file
+   paths, log lines.
    ------------------------------------------------------------------------- */
 
 html, body { height: 100%; }
@@ -24,8 +28,8 @@ body {
 .fg-col { background: var(--bg); }
 /* The grip drives --rail / --insp on the [data-split] ancestor; the panes are
    what consume them (CONTRACT §9.3 — .pane.is-fixed is only flex:0 0 auto). */
-.fg-rail { width: var(--rail, 320px); border-right: 1px solid var(--line); }
-.fg-insp { width: var(--insp, 300px); border-left: 1px solid var(--line); }
+.fg-rail { width: var(--rail, 368px); border-right: 1px solid var(--line); }
+.fg-insp { width: var(--insp, 420px); border-left: 1px solid var(--line); }
 .fg-centre { min-width: 0; overflow-x: hidden; overflow-y: auto; }
 
 /* Collapsed columns: an icon rail, never a hidden column with no way back.
@@ -38,55 +42,51 @@ body {
    hidden outright. */
 @media (min-width: 901px) {
 .fg-rail.is-collapsed { width: 34px; flex: 0 0 34px; }
-.fg-rail.is-collapsed > .tabstrip,
 .fg-rail.is-collapsed > .tabpanel,
 .fg-rail.is-collapsed > .toolbar,
 .fg-rail.is-collapsed > .panel,
 .fg-rail.is-collapsed > .panel-foot,
-.fg-rail.is-collapsed .fg-colbar > *:not(.fg-collapse):not(.fg-colbar-t) { display: none; }
-.fg-rail.is-collapsed .fg-colbar {
+.fg-rail.is-collapsed .fg-coltabs > button[role="tab"] { display: none; }
+.fg-rail.is-collapsed .fg-coltabs {
   flex-direction: column; height: auto; padding: var(--s2) 0; gap: var(--s2);
+  border-bottom: 0; overflow: visible;
 }
-.fg-rail.is-collapsed .fg-colbar-t {
-  writing-mode: vertical-rl;
-  font: 600 var(--t1)/1 var(--font-mono);
-  letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-3);
-}
+.fg-rail.is-collapsed .fg-colbar-t { display: block; }
 .fg-rail.is-collapsed .fg-collapse i { transform: rotate(180deg); }
-/* The left bar carries the env chip when open, so its title is collapsed-only. */
-.fg-colbar-t.is-railonly { display: none; }
-.fg-rail.is-collapsed .fg-colbar-t.is-railonly { display: block; }
 .fg[data-rail="off"] > .grip-h[data-resize="rail"] { display: none; }
 }
 @media (min-width: 1181px) {
 .fg-insp.is-collapsed { width: 34px; flex: 0 0 34px; }
-.fg-insp.is-collapsed > .tabstrip,
 .fg-insp.is-collapsed > .tabpanel,
 .fg-insp.is-collapsed > .toolbar,
 .fg-insp.is-collapsed > .panel,
 .fg-insp.is-collapsed > .panel-foot,
-.fg-insp.is-collapsed .fg-colbar > *:not(.fg-collapse):not(.fg-colbar-t) { display: none; }
-.fg-insp.is-collapsed .fg-colbar {
+.fg-insp.is-collapsed .fg-coltabs > button[role="tab"],
+.fg-insp.is-collapsed .fg-sort { display: none; }
+.fg-insp.is-collapsed .fg-coltabs {
   flex-direction: column; height: auto; padding: var(--s2) 0; gap: var(--s2);
+  border-bottom: 0; overflow: visible;
 }
-.fg-insp.is-collapsed .fg-colbar-t {
-  writing-mode: vertical-rl;
-  font: 600 var(--t1)/1 var(--font-mono);
-  letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-3);
-}
+.fg-insp.is-collapsed .fg-colbar-t { display: block; }
 .fg-insp.is-collapsed .fg-collapse i { transform: rotate(180deg); }
 .fg[data-insp="off"] > .grip-h[data-resize="insp"] { display: none; }
 }
 
-/* ---- column top bar (env chip / collapse) ------------------------------ */
-.fg-colbar {
-  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s1);
-  height: 32px; padding: 0 var(--s1) 0 var(--s2);
-  border-bottom: 1px solid var(--line); background: var(--bg);
+/* ---- the column tab bars ------------------------------------------------
+   The reference puts the tab strip at the very top of each side column, with
+   nothing above it, so the old 32px chrome row was folded into this one: the
+   column title only exists while the column is collapsed, and the tools sit at
+   the right of the same bar. */
+.fg-coltabs { overflow: visible; padding-right: var(--s2); }
+.fg-coltabs > button[role="tab"] { padding: 0 16px; }
+.fg-tabtools {
+  display: flex; align-items: center; gap: var(--s1);
+  margin-left: auto; flex: 0 1 auto; min-width: 0;
 }
 .fg-colbar-t {
-  font: 600 var(--t1)/1 var(--font-mono);
-  letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3);
+  display: none;
+  writing-mode: vertical-rl;
+  font: 600 var(--t1)/1 var(--font-body); color: var(--text-3);
 }
 .fg-env {
   max-width: 100%; min-width: 0; cursor: pointer;
@@ -99,17 +99,16 @@ body {
 .fg-env.is-ok   { background: var(--ok-soft);  color: var(--ok);   border-color: var(--accent-line); }
 .fg-env.is-err  { background: var(--err-soft); color: var(--err);  border-color: #5a2a2a; }
 .fg-env.is-warn { background: var(--warn-soft); color: var(--warn); border-color: #4a4020; }
-.fg-collapse { margin-left: auto; }
 .fg-collapse i { transition: transform var(--motion-fast) var(--ease-standard); }
 
 /* ---- tab panels -------------------------------------------------------- */
-.fg-tp { padding: var(--s3); gap: var(--s3); overflow: auto; }
+.fg-tp { padding: var(--s5); gap: var(--s4); overflow: auto; }
 .fg-tp.is-flush { padding: 0; gap: 0; overflow: hidden; }
 .fg-tp[hidden] { display: none !important; }
 
 /* ---- input tab --------------------------------------------------------- */
 .dropzone {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
   width: 100%; padding: var(--s5) var(--s3);
   background: var(--bg-2);
   border: 1px dashed var(--line-2); border-radius: var(--r-lg);
@@ -119,17 +118,17 @@ body {
               background-color var(--motion-fast) var(--ease-standard);
 }
 .dropzone:hover { border-color: var(--line-2); background: var(--surface); }
-.dropzone .dz-icon { color: var(--text-3); }
+.dropzone .dz-icon { color: var(--text-2); margin-bottom: var(--s1); }
 .dropzone:hover .dz-icon, .dropzone.is-over .dz-icon { color: var(--accent); }
-.dz-title { font: 600 var(--t2)/1.3 var(--font-body); color: var(--text); }
-.dz-sub { font-size: var(--t1); color: var(--text-2); }
-.dz-types { margin-top: var(--s1); font: 500 var(--t1)/1.3 var(--font-mono); color: var(--text-3); }
+.dz-title { font: 600 var(--t3)/1.3 var(--font-body); color: var(--text); }
+.dz-sub { font-size: var(--t2); color: var(--text-2); }
+.dz-types { margin-top: var(--s2); font: 400 var(--t1)/1.3 var(--font-body); color: var(--text-3); }
 
-.fg-inputrow { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
-.fg-inputrow > .pathchip { flex: 1 1 auto; min-width: 0; }
-.fg-inputrow > .btn { flex: 0 0 auto; }
+/* the link field: one well, and the Fetch affix only once there is a link */
+.fg-url { width: 100%; }
+.fg-url > .input { font-family: var(--font-body); }
 .fg-affix-btn {
-  height: 24px; padding: 0 8px; margin: 0 -2px 0 0;
+  height: 24px; padding: 0 10px; margin: 0 4px 0 0;
   background: var(--surface-2); color: var(--text);
   border: 1px solid var(--line-2); border-radius: var(--r-sm);
   font: 600 var(--t1)/1 var(--font-body); cursor: pointer;
@@ -138,55 +137,99 @@ body {
 .fg-affix-btn:hover { background: var(--surface-3); }
 .fg-affix-btn:disabled { opacity: .45; cursor: not-allowed; }
 
-.fg-group {
-  display: flex; flex-direction: column; gap: var(--s2);
-  padding: var(--s3);
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
+/* ---- the rail's disclosure groups (Output / Pipeline / Advanced) --------
+   .insp-sec-head already draws the reference's caret and rotates it off
+   aria-expanded; only the indents are Forge's own. */
+.fg-sec { display: flex; flex-direction: column; }
+.fg-rail .insp-sec-head { height: 26px; padding: 0 0 0 2px; color: var(--text); font-size: var(--t3); }
+.fg-rail .insp-sec-head:hover { background: transparent; color: var(--accent); }
+.fg-rail .insp-sec-body { padding: var(--s3) 0 0; gap: var(--s3); }
+.fg-rail .fg-tiles-body { padding-top: var(--s2); }
+.fg-rail #adv-toggle {
+  height: var(--h-ctl-lg); padding: 0 var(--s3);
+  background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r);
+  color: var(--text-2); font-size: var(--t2);
 }
-.fg-group-head { display: flex; align-items: center; gap: var(--s2); min-height: 22px; }
-.fg-group-title {
-  font: 600 var(--t1)/1 var(--font-mono);
-  letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-2);
+.fg-rail #adv-toggle:hover { background: var(--surface-3); color: var(--text); }
+.fg-rail #adv-toggle::before { margin-right: 4px; }
+
+.fg-outrow { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.fg-outrow > .pathchip, .fg-outrow > .input-wrap { flex: 1 1 auto; min-width: 0; }
+/* .pathchip gaps its three slots evenly; here the directory and the basename
+   are one string, so only the reveal button keeps a gap. */
+.fg-outpath { height: var(--h-input); padding-left: 10px; gap: 0; font-family: var(--font-body); }
+.fg-outpath > .fg-outicon { margin-right: 8px; }
+.fg-outpath > .pathchip-reveal { margin-left: auto; }
+.fg-outicon { flex: 0 0 auto; display: flex; color: var(--text-3); }
+/* A square companion button matching the well's height, for Browse and for the
+   name-after-the-song tick. */
+.fg-sq {
+  flex: 0 0 auto; --bh: var(--h-input); width: var(--h-input);
 }
-.fg-group-head > .btn { margin-left: auto; }
-.fg-outfoot { display: flex; align-items: baseline; gap: var(--s2); }
+.fg-sq[aria-checked="true"] {
+  background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent);
+}
+.fg-outfoot { display: flex; align-items: baseline; gap: var(--s2); margin-top: -4px; }
 .fg-outfoot > .field-hint { flex: 1 1 auto; min-width: 0; }
-.fg-samename { padding-top: var(--s1); border-top: 1px solid var(--line); }
+#outname-field { gap: 6px; }
 
 /* the pipeline tile mark: four bars, a different signature per pipeline. Not
    an icon — icons.js owns those and its name list is closed. */
-.fg-rail .tile-title { display: flex; align-items: center; gap: 7px; }
 .pmark {
   flex: 0 0 auto; display: inline-flex; align-items: flex-end; gap: 2px;
-  width: 18px; height: 12px; color: var(--text-3);
+  width: 22px; height: 15px; color: var(--text-2);
 }
-.pmark > span { display: block; width: 3px; background: currentColor; border-radius: 1px; }
-.pmark[data-mark="piano"]   > span:nth-child(1) { height: 4px; }
-.pmark[data-mark="piano"]   > span:nth-child(2) { height: 12px; }
-.pmark[data-mark="piano"]   > span:nth-child(3) { height: 8px; }
-.pmark[data-mark="piano"]   > span:nth-child(4) { height: 12px; }
-.pmark[data-mark="melody"]  > span:nth-child(1) { height: 3px; }
-.pmark[data-mark="melody"]  > span:nth-child(2) { height: 7px; }
-.pmark[data-mark="melody"]  > span:nth-child(3) { height: 12px; }
-.pmark[data-mark="melody"]  > span:nth-child(4) { height: 6px; }
-.pmark[data-mark="general"] > span:nth-child(1) { height: 10px; }
-.pmark[data-mark="general"] > span:nth-child(2) { height: 12px; }
-.pmark[data-mark="general"] > span:nth-child(3) { height: 9px; }
-.pmark[data-mark="general"] > span:nth-child(4) { height: 11px; }
-.pmark[data-mark="drums"]   > span:nth-child(1) { height: 12px; }
-.pmark[data-mark="drums"]   > span:nth-child(2) { height: 4px; }
-.pmark[data-mark="drums"]   > span:nth-child(3) { height: 12px; }
-.pmark[data-mark="drums"]   > span:nth-child(4) { height: 4px; }
-.pmark[data-mark="fast"]    > span:nth-child(1) { height: 4px; }
-.pmark[data-mark="fast"]    > span:nth-child(2) { height: 3px; }
-.pmark[data-mark="fast"]    > span:nth-child(3) { height: 5px; }
-.pmark[data-mark="fast"]    > span:nth-child(4) { height: 3px; }
-.tile:hover .pmark { color: var(--text-2); }
-.tile[aria-checked="true"] .pmark { color: var(--accent); }
+.pmark > span { display: block; width: 4px; background: currentColor; border-radius: 1px; }
+.pmark[data-mark="piano"]   > span:nth-child(1) { height: 5px; }
+.pmark[data-mark="piano"]   > span:nth-child(2) { height: 15px; }
+.pmark[data-mark="piano"]   > span:nth-child(3) { height: 10px; }
+.pmark[data-mark="piano"]   > span:nth-child(4) { height: 15px; }
+.pmark[data-mark="melody"]  > span:nth-child(1) { height: 4px; }
+.pmark[data-mark="melody"]  > span:nth-child(2) { height: 9px; }
+.pmark[data-mark="melody"]  > span:nth-child(3) { height: 15px; }
+.pmark[data-mark="melody"]  > span:nth-child(4) { height: 7px; }
+.pmark[data-mark="general"] > span:nth-child(1) { height: 12px; }
+.pmark[data-mark="general"] > span:nth-child(2) { height: 15px; }
+.pmark[data-mark="general"] > span:nth-child(3) { height: 11px; }
+.pmark[data-mark="general"] > span:nth-child(4) { height: 14px; }
+.pmark[data-mark="drums"]   > span:nth-child(1) { height: 15px; }
+.pmark[data-mark="drums"]   > span:nth-child(2) { height: 5px; }
+.pmark[data-mark="drums"]   > span:nth-child(3) { height: 15px; }
+.pmark[data-mark="drums"]   > span:nth-child(4) { height: 5px; }
+.pmark[data-mark="fast"]    > span:nth-child(1) { height: 5px; }
+.pmark[data-mark="fast"]    > span:nth-child(2) { height: 4px; }
+.pmark[data-mark="fast"]    > span:nth-child(3) { height: 6px; }
+.pmark[data-mark="fast"]    > span:nth-child(4) { height: 4px; }
+
+/* The pipeline picker is the .tile primitive with the mark in the leading
+   column and the radio ring moved to the trailing one, where the reference
+   puts it: a single lime dot on the chosen row. The ring is still a real mark,
+   so the state is never colour alone. */
+#pipeline { gap: 6px; }
+#pipeline .tile {
+  grid-template-columns: 26px minmax(0, 1fr) auto 8px;
+  align-items: center; gap: 0 var(--s3);
+  padding: 8px 12px;
+}
+#pipeline .tile-badge {
+  grid-column: 3; grid-row: 1 / span 2;
+  font-family: var(--font-body); letter-spacing: 0;
+}
+#pipeline .pmark { grid-column: 1; grid-row: 1 / span 2; }
+#pipeline .tile-title { font-size: var(--t2); line-height: 1.25; }
+#pipeline .tile-sub { line-height: 1.3; }
+#pipeline .tile::before {
+  grid-column: 4; grid-row: 1 / span 2;
+  width: 8px; height: 8px; border: 0; background: transparent; box-shadow: none;
+}
+#pipeline .tile:hover::before { background: var(--line-2); }
+#pipeline .tile[aria-checked="true"]::before { background: var(--accent); box-shadow: none; }
+#pipeline .tile:hover .pmark { color: var(--text); }
+#pipeline .tile[aria-checked="true"] .pmark { color: var(--accent); }
 
 /* ---- queue ------------------------------------------------------------- */
 .fg-queue { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
-.fg-qbar { border-bottom: 1px solid var(--line); }
+.fg-qbar { border-bottom: 1px solid var(--line); flex-wrap: wrap; height: auto; min-height: var(--h-toolbar); }
 .fg-qbar > .toolbar-label { cursor: default; }
 .fg-qlist { flex: 1 1 auto; }
 .fg-qlist .lrow-index { color: var(--text-3); font-variant-numeric: tabular-nums; }
@@ -203,35 +246,31 @@ body {
   border-top: 1px solid var(--line);
 }
 .fg-advgrp:first-of-type { border-top: 0; }
-.fg-advgrp-t {
-  font: 600 var(--t1)/1 var(--font-mono);
-  letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3);
-}
-.fg-advgrp .insp-row { grid-template-columns: 104px 1fr; }
+.fg-advgrp-t { font: 600 var(--t2)/1.2 var(--font-body); color: var(--text-2); }
+.fg-advgrp .insp-row { grid-template-columns: 116px 1fr; }
 .fg-advgrp .input-wrap { min-width: 0; }
 .fg-advhint { margin: -4px 0 0; font-size: var(--t1); color: var(--text-3); }
 
-/* ---- primary action footer -------------------------------------------- */
-.fg-run { flex-direction: column; align-items: stretch; gap: var(--s2); padding: var(--s3); }
-.fg-go { width: 100%; justify-content: center; }
-.fg-runinfo { display: flex; gap: var(--s3); min-width: 0; }
-.fg-ri { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.fg-ri > span:first-child {
-  font: 600 10px/1 var(--font-mono); letter-spacing: 1.2px; color: var(--text-3);
-  font-size: var(--t1);
-}
-.fg-ri > span:last-child { font-size: var(--t1); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fg-envrow { display: flex; align-items: center; gap: var(--s1); min-width: 0; }
+.fg-envrow > .fg-env { flex: 0 1 auto; }
+
+/* ---- primary action footer --------------------------------------------
+   The reference's rail ends on the button. The engine verdict is live state
+   rather than an echo of a setting, so it keeps a quiet line of its own under
+   the button instead of a mono status footer above it. */
+.fg-run { flex-direction: column; align-items: stretch; gap: var(--s2); padding: var(--s4) var(--s5); }
+.fg-go { width: 100%; justify-content: center; gap: var(--s2); }
 
 /* ---- centre: song header --------------------------------------------- */
 .fg-song {
-  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s3);
-  padding: var(--s3) var(--s4) var(--s2);
+  flex: 0 0 auto; display: flex; align-items: flex-start; gap: var(--s3);
+  padding: var(--s4) var(--s4) var(--s3);
   min-width: 0;
 }
 .fg-song-main { flex: 1 1 auto; min-width: 0; }
-.fg-song-title { margin: 0; font: 600 var(--t4)/1.25 var(--font-display); color: var(--text); }
-.fg-song-meta { margin: 2px 0 0; font-size: var(--t1); color: var(--text-3); }
-.fg-song-tools { flex: 0 0 auto; }
+.fg-song-title { margin: 0; font: 600 20px/1.25 var(--font-display); color: var(--text); }
+.fg-song-meta { margin: 4px 0 0; font-size: var(--t2); color: var(--text-3); }
+.fg-song-tools { flex: 0 0 auto; display: flex; align-items: center; gap: var(--s2); padding-top: 3px; }
 
 /* ---- centre: scrolling stack ----------------------------------------- */
 .fg-centre > .fg-wave,
@@ -240,80 +279,98 @@ body {
 .fg-wave { flex: 0 0 auto; }
 .fg-wave-body {
   position: relative; display: flex; flex-direction: column;
-  height: 168px;
+  height: 178px; padding: var(--s2);
 }
 /* .canvas-host fills its parent; the canvas inside it is absolutely placed,
    so without this the host collapses to zero height and nothing paints. */
 .fg-wave-body > .canvas-host { flex: 1 1 auto; min-height: 0; }
 .fg-wave.is-collapsed .fg-wave-body,
-.fg-wave.is-collapsed .fg-range { display: none; }
+.fg-wave.is-collapsed .fg-ctl-row.is-top > .field,
+.fg-wave.is-collapsed .fg-ctl-row.is-top > .btn,
+.fg-wave.is-collapsed .fg-ctl-row.is-top > .toolbar-sep { display: none; }
+.fg-wave.is-collapsed .fg-wave-ctl { border-top: 0; }
 .fg-wave.is-collapsed .fg-collapse i { transform: rotate(180deg); }
 #waveform { display: block; cursor: text; }
 #waveform:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent-deep); }
 .fg-wave-note {
-  position: absolute; left: var(--s3); top: var(--s2);
+  position: absolute; left: var(--s3); top: var(--s3);
   display: flex; align-items: center; gap: 6px;
   padding: 3px 8px;
   background: #0a0b0de6; border: 1px solid var(--line); border-radius: var(--r-pill);
-  font: 500 var(--t1)/1 var(--font-mono); color: var(--text-2);
+  font: 500 var(--t1)/1 var(--font-body); color: var(--text-2);
 }
 .fg-wave-note.is-action { gap: var(--s2); }
-.fg-readout { color: var(--text-2); font-variant-numeric: tabular-nums; }
-.fg-vol { display: flex; align-items: center; gap: 6px; }
-.fg-vol > .range { width: 74px; }
-.fg-vol > output { color: var(--text-3); min-width: 30px; text-align: right; }
-.fg-range { flex-wrap: wrap; }
-.fg-range .field.is-row > .field-label { color: var(--text-3); }
-.fg-time { width: 76px; font-variant-numeric: tabular-nums; }
-.fg-range .field-hint.is-error { color: var(--err); }
+
+/* the control block under the canvas: range and zoom on top, the preview
+   transport and its volume beneath — the reference's arrangement. */
+.fg-wave-ctl {
+  flex: 0 0 auto; display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s3); border-top: 1px solid var(--line);
+}
+.fg-ctl-row { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.fg-ctl-row.is-top > .field.is-row > .field-label { color: var(--text-3); }
+.fg-ctl-row > .field-hint { min-width: 0; }
+.fg-play {
+  --bh: 40px; width: 40px; border-radius: 50%;
+  background: var(--surface-2); color: var(--text);
+}
+.fg-play:hover { background: var(--surface-3); }
+.fg-readout {
+  color: var(--text-2); font-size: var(--t2); font-variant-numeric: tabular-nums;
+  margin-right: var(--s2);
+}
+.fg-vol { display: flex; align-items: center; gap: var(--s2); }
+.fg-vol-k { font: 500 var(--t2)/1 var(--font-body); color: var(--text-3); }
+.fg-vol > .range { width: 96px; }
+.fg-vol > output { color: var(--text-3); min-width: 34px; text-align: right; }
+.fg-time { width: 82px; font-variant-numeric: tabular-nums; }
+.fg-ctl-row .field-hint.is-error { color: var(--err); }
 
 /* ---- centre: the four cards ------------------------------------------ */
-.fg-cards { flex: 0 0 auto; }
-.fg-cards-h {
-  font: 600 var(--t1)/1 var(--font-mono);
-  letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-2);
-  margin-bottom: var(--s2);
-}
+.fg-cards { flex: 0 0 auto; padding: var(--s4); }
+.fg-cards-head { margin-bottom: var(--s3); }
+.fg-cards-h { margin: 0; font: 600 var(--t3)/1.3 var(--font-body); color: var(--text); }
+.fg-cards-sub { margin: 4px 0 0; font-size: var(--t2); color: var(--text-3); }
 .fg-cards-grid {
   display: grid; gap: var(--s2);
   grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
 }
 .fg-card {
-  display: flex; flex-direction: column; gap: 5px; min-width: 0;
-  padding: var(--s2) var(--s3) 10px;
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  display: flex; flex-direction: column; gap: 7px; min-width: 0;
+  padding: var(--s3);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r);
 }
-.fg-card-t {
-  font: 600 var(--t1)/1.2 var(--font-body); color: var(--text-2); letter-spacing: .2px;
-}
+.fg-card-t { font: 600 var(--t2)/1.2 var(--font-body); color: var(--text); }
 .fg-card-h { font-size: var(--t1); line-height: 1.35; color: var(--text-3); min-height: 2.7em; }
 .fg-card.is-custom { border-color: var(--accent-line); }
 .fg-card.is-custom .fg-card-h { color: var(--text-2); }
 
 /* ---- centre: progress / log ------------------------------------------ */
 .fg-prog { flex: 1 1 auto; min-height: 190px; }
-.fg-prog > .tabstrip { padding-right: var(--s2); gap: var(--s1); }
+.fg-prog > .tabstrip { padding-right: var(--s3); gap: var(--s1); }
 .fg-prog > .tabstrip > .u-spacer { min-width: var(--s2); }
 /* Pause/Cancel live inside the tabstrip, and `.tabstrip > button` would strip
    them back to tab styling — so they sit in their own wrapper. */
 .fg-progacts { display: flex; align-items: center; gap: var(--s1); flex: 0 0 auto; }
-.fg-clock { display: flex; align-items: center; gap: 6px; font-size: var(--t1); }
+.fg-clock { display: flex; align-items: center; gap: var(--s2); font-size: var(--t2); }
 .fg-clock-k { color: var(--text-3); }
 .fg-clock .mono { color: var(--text); font-variant-numeric: tabular-nums; }
-.fg-jobhead { display: flex; align-items: center; gap: var(--s2); min-width: 0; margin-bottom: var(--s2); }
+.fg-jobhead { display: flex; align-items: center; gap: var(--s2); min-width: 0; margin-bottom: var(--s3); }
 .fg-jobhead .mono.small { min-width: 0; }
+.fg-prog > .tabpanel { padding: var(--s4); }
+.fg-prog > .tabpanel.is-flush { padding: 0; }
 
 .fg-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .stg {
   display: grid; align-items: center;
-  grid-template-columns: 18px minmax(0, 1fr) 132px 92px;
-  gap: var(--s2);
-  min-height: 26px;
+  grid-template-columns: 22px minmax(0, auto) minmax(0, 1fr) 132px;
+  gap: var(--s3);
+  min-height: 30px;
   color: var(--text-3);
 }
 .stg-mark {
-  position: relative; width: 14px; height: 14px; justify-self: center;
-  border: 1px solid var(--line-2); border-radius: 50%;
+  position: relative; width: 17px; height: 17px; justify-self: center;
+  border: 1.5px solid var(--line-2); border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   color: var(--accent-ink);
   transition: background-color var(--motion-fast) var(--ease-standard),
@@ -330,13 +387,14 @@ body {
 .stg[data-state="active"] .stg-bar { opacity: 1; }
 .stg[data-state="active"] .stg-meta { color: var(--accent); }
 .stg[data-state="done"] { color: var(--text-2); }
-.stg[data-state="done"] .stg-mark { background: var(--accent); border-color: var(--accent-deep); }
+.stg[data-state="done"] .stg-mark { background: var(--accent); border-color: var(--accent); }
 .stg[data-state="done"] .stg-mark .ic { transform: scale(1); }
 .stg[data-state="done"].is-fresh .stg-mark .ic { animation: stg-tick var(--motion-normal) var(--ease-enter) 1; }
 @keyframes stg-tick { from { transform: scale(.2); } to { transform: scale(1); } }
 .stg[data-state="fail"] .stg-mark { border-color: var(--err); background: var(--err); }
 .stg[data-state="fail"] .stg-meta { color: var(--err); }
-.fg-err { margin-top: var(--s2); }
+.fg-err { margin-top: var(--s3); }
+#prog-foot { margin-top: var(--s3); }
 
 .fg-log { flex: 1 1 auto; background: var(--bg-2); box-shadow: var(--well); }
 .fg-log .lrow {
@@ -349,41 +407,98 @@ body {
 .fg-log .lrow.is-ok { color: var(--accent); }
 
 /* ---- right column ----------------------------------------------------- */
-.fg-reslist { flex: 1 1 auto; }
-.fg-reslist .lrow-name { font-weight: 500; }
-/* In a 260-300px column the badge and the relative time cannot sit on one line
-   beside the filename: stack them so the name keeps the width it needs. */
+/* "Sort  Newest" reads as one control in the reference: a dim label and a
+   borderless select sharing a single well. */
+.fg-sort {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  height: var(--h-ctl-sm); padding: 0 2px 0 10px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  box-shadow: var(--well);
+}
+.fg-sort-k { font: 500 var(--t1)/1 var(--font-body); color: var(--text-3); }
+.fg-sort .select {
+  height: calc(var(--h-ctl-sm) - 4px); padding: 0 24px 0 2px;
+  background: transparent; border: 0; color: var(--text);
+}
+.fg-sort .select:hover { background: transparent; }
+.fg-sort .selectwrap::after { right: 8px; }
+
+.fg-reslist { flex: 1 1 auto; padding: var(--s3) var(--s3) 0; }
+/* The reference's results are separated cards rather than a flush list. VList
+   positions from one uniform pitch, so the gap is padding INSIDE the row and
+   the card is the row's own background — the pitch never changes. */
+.fg-reslist .lrow {
+  padding: 0; background: transparent; border-radius: var(--r);
+  box-shadow: none;
+}
+.fg-reslist .lrow > .lrow-main,
+.fg-reslist .lrow > .lrow-meta,
+.fg-reslist .lrow > .lrow-actions { position: relative; z-index: 1; }
+.fg-reslist .lrow::before {
+  content: ""; position: absolute; inset: 4px 0; width: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  transform: none;
+  transition: background var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
+}
+.fg-reslist .lrow:hover::before { background: var(--surface-2); }
+.fg-reslist .lrow[aria-selected="true"],
+.fg-reslist .lrow.is-selected { background: transparent; }
+.fg-reslist .lrow[aria-selected="true"]::before,
+.fg-reslist .lrow.is-selected::before {
+  transform: none;
+  background: var(--accent-soft); border-color: var(--accent);
+}
+.fg-reslist .lrow-actions { opacity: 1; }
+.fg-reslist .lrow-actions .btn { color: var(--text-3); }
+.fg-reslist .lrow:hover .lrow-actions .btn { color: var(--text); }
+.fg-reslist .lrow { padding-left: var(--s3); padding-right: 6px; }
+.fg-reslist .lrow-name { font-weight: 600; font-size: var(--t2); }
+.fg-reslist .lrow-sub { color: var(--text-3); }
 .fg-reslist .lrow-meta {
-  display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+  display: flex; align-items: center; gap: var(--s2);
   margin-left: var(--s2);
 }
-.fg-reslist .lrow-meta > .mono { color: var(--text-3); }
-.fg-reslist .tag { height: 17px; padding: 0 4px; }
+.fg-when { font: 400 var(--t1)/1.25 var(--font-body); color: var(--text-3); white-space: nowrap; }
+.fg-reslist .tag { height: 20px; padding: 0 8px; border-radius: var(--r-pill); }
+.fg-reslist .tag.is-primary {
+  background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+}
 .fg-reslist .lrow.is-fresh { animation: res-in var(--motion-normal) var(--ease-enter) 1; }
 @keyframes res-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-/* .tag already resolves to 600 var(--t1)/1 var(--font-mono); only the tracking
-   is Forge's own. 12px is the type floor in both densities (rule 12). */
-.fg-badge { letter-spacing: .8px; }
+
 .fg-sel { flex: 0 0 auto; margin: 0; border-width: 1px 0 0; border-radius: 0; }
 .fg-sel.is-in { animation: res-in var(--motion-normal) var(--ease-enter) 1; }
-.fg-sel > .panel-body { padding: var(--s3); }
-.fg-sel-name { margin: 0 0 var(--s2); font: 600 var(--t2)/1.35 var(--font-body); color: var(--text); }
-.fg-sel-stats { display: flex; gap: var(--s3); flex-wrap: wrap; }
-.fg-stat { display: flex; flex-direction: column; gap: 1px; }
-.fg-stat-k { font-size: var(--t1); color: var(--text-3); }
-.fg-stat-v { font-size: var(--t2); color: var(--text); font-variant-numeric: tabular-nums; }
-.fg-dens { margin-top: var(--s3); }
-.fg-dens-t { display: block; font-size: var(--t1); color: var(--text-3); margin-bottom: 5px; }
-.fg-dens-host { position: relative; height: 42px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.fg-sel > .panel-head { background: transparent; border-bottom: 0; }
+.fg-sel .panel-title { font-size: var(--t3); }
+.fg-sel > .panel-body { padding: 0 var(--s4) var(--s3); text-align: center; }
+.fg-sel .tag.is-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.fg-sel-name { margin: 0; font: 600 var(--t3)/1.35 var(--font-body); color: var(--text); }
+.fg-sel-meta { margin: 4px 0 0; font-size: var(--t2); color: var(--text-2); }
+.fg-sel-meta .fg-sep { color: var(--text-3); margin: 0 6px; }
+.fg-sel-when { margin: 2px 0 0; font-size: var(--t2); color: var(--text-3); }
+.fg-dens {
+  margin-top: var(--s3); padding: var(--s2) var(--s2) 6px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r);
+}
+.fg-dens-t { display: block; margin-top: 5px; font-size: var(--t1); color: var(--text-3); }
+.fg-dens-host { position: relative; height: 46px; }
 .fg-dens-host canvas { display: block; }
 .fg-sel-acts {
-  display: grid; grid-template-columns: 1fr 1fr; gap: var(--s1) var(--s2);
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2);
+  padding: var(--s3) var(--s4) var(--s4);
 }
-.fg-sel-acts > .btn { justify-content: center; min-width: 0; }
+.fg-sel-acts > .btn {
+  justify-content: center; min-width: 0; gap: var(--s2);
+  --bh: var(--h-ctl-lg);
+}
+.fg-sel-acts > .btn > .ic { color: var(--text-2); }
 
 /* ---- setup modal ------------------------------------------------------ */
 .fg-dlgh { flex: 1 1 auto; min-width: 0; }
 .fg-setup-store { display: flex; flex-direction: column; gap: var(--s2); }
+.fg-group-head { display: flex; align-items: center; gap: var(--s2); min-height: 22px; }
+.fg-group-title { font: 600 var(--t2)/1.2 var(--font-body); color: var(--text); }
 .fg-setup-row { display: flex; align-items: center; gap: var(--s2); min-width: 0; flex-wrap: wrap; }
 .fg-setup-row > .pathchip { flex: 1 1 220px; min-width: 0; }
 #setup-free.is-low { color: var(--err); }
@@ -404,9 +519,10 @@ body {
   .fg {
     display: grid;
     grid-template-columns: auto auto minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 268px);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 300px);
   }
-  .fg-rail { grid-row: 1; grid-column: 1; }
+  /* A 368px rail is right beside a wide canvas and wrong beside a narrow one. */
+  .fg-rail { width: min(var(--rail, 368px), 312px); grid-row: 1; grid-column: 1; }
   .fg > .grip-h[data-resize="rail"] { grid-row: 1; grid-column: 2; margin: 0; }
   .fg-centre { grid-row: 1; grid-column: 3; }
   .fg > .grip-h[data-resize="insp"] { display: none; }
@@ -424,25 +540,30 @@ body {
      cannot beat it, whatever the source order. */
   .fg.split > .fg-insp {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    grid-template-rows: auto minmax(0, 1fr);
     column-gap: 0;
   }
-  .fg-insp > .fg-colbar  { grid-column: 1 / -1; grid-row: 1; }
-  .fg-insp > .tabstrip   { grid-column: 1; grid-row: 2; }
-  .fg-insp > .toolbar    { grid-column: 2; grid-row: 2; justify-content: flex-end; border-bottom: 1px solid var(--line); }
-  .fg-insp > #tp-results { grid-column: 1; grid-row: 3; }
-  .fg-insp > .fg-sel     { grid-column: 2; grid-row: 3; border-top: 0; border-left: 1px solid var(--line); }
-  .fg-insp .fg-sel-acts > .btn { flex: 1 1 auto; }
-  .fg-insp .tabstrip, .fg-insp .toolbar.is-sub { padding-left: var(--s3); }
+  .fg-insp > .fg-coltabs { grid-column: 1 / -1; grid-row: 1; }
+  .fg-insp > #tp-results { grid-column: 1; grid-row: 2; }
+  .fg-insp > .fg-sel     { grid-column: 2; grid-row: 2; border-top: 0; border-left: 1px solid var(--line); }
+  .fg-insp .fg-sel-acts > .btn { flex: 1 1 auto; --bh: var(--h-ctl); }
+  /* The inspector is a short bottom strip here, and the Selected Result panel
+     cannot show everything in it. The density preview is the one part that is
+     decoration rather than fact, so it is what goes -- leaving it in only
+     scrolled the canvas out of its own clipping box, where it never painted. */
+  .fg-insp .fg-dens { display: none; }
+  .fg-insp .fg-sel > .panel-body { padding-bottom: var(--s2); }
+  .fg-insp .fg-sel-acts { padding: var(--s2) var(--s3) var(--s3); }
 }
 @media (max-width: 1120px) {
   /* Labels go before controls do. */
   .fg-clock-k { display: none; }
   .fg-readout { display: none; }
+  .fg-vol-k { display: none; }
 }
 @media (max-width: 1000px) {
-  .stg { grid-template-columns: 18px minmax(0, 1fr) 88px 76px; }
+  .stg { grid-template-columns: 22px minmax(0, auto) minmax(0, 1fr) 96px; }
 }
 @media (max-width: 900px) {
   .fg {
@@ -458,21 +579,23 @@ body {
   .fg > .grip-h { display: none; }
   .fg-collapse { display: none; }
   .fg-centre > .fg-wave, .fg-centre > .fg-cards, .fg-centre > .fg-prog { margin: 0 var(--s3) var(--s2); }
-  .fg-song { padding: var(--s2) var(--s3); }
-  .fg-song-title { font-size: var(--t3); }
+  .fg-song { padding: var(--s3); }
+  .fg-song-title { font-size: var(--t4); }
   .fg-wave-body { height: 128px; }
+  .fg-tp { padding: var(--s3); gap: var(--s3); }
+  .fg-run { padding: var(--s3); }
 }
 @media (max-height: 820px) {
-  .fg-wave-body { height: 124px; }
+  .fg { grid-template-rows: minmax(0, 1fr) minmax(0, 244px); }
+  .fg-wave-body { height: 132px; }
   .fg-card-h { min-height: 0; }
-  .fg-cards-h { margin-bottom: 6px; }
-  .fg-song { padding: var(--s2) var(--s4) 6px; }
-  .fg-song-title { font-size: var(--t3); }
+  .fg-song { padding: var(--s3) var(--s4) var(--s2); }
+  .fg-song-title { font-size: var(--t4); }
   .fg-centre > .fg-wave, .fg-centre > .fg-cards, .fg-centre > .fg-prog { margin-bottom: var(--s2); }
+  .fg-tp { padding: var(--s4); gap: var(--s3); }
 }
 @media (max-width: 760px) {
   .fg-cards-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
-  .fg-runinfo { display: none; }
 }
 
 /* ---- reduced motion: every animated state keeps a static form --------- */
@@ -480,5 +603,5 @@ body {
   .stg[data-state="done"] .stg-mark .ic { animation: none; transform: scale(1); }
   .fg-reslist .lrow.is-fresh, .fg-sel.is-in { animation: none; }
   /* A fresh row still has to be identifiable without the entrance. */
-  .fg-reslist .lrow.is-fresh { box-shadow: inset 2px 0 0 var(--accent); }
+  .fg-reslist .lrow.is-fresh::before { box-shadow: inset 2px 0 0 var(--accent); }
 }

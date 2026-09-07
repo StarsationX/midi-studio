@@ -526,7 +526,7 @@ a full-screen veil.
 
 | Class | Use |
 |---|---|
-| `.state` (+`.is-error`, `.is-loading`, `.is-compact`) | the one empty/loading/error block for all five tabs |
+| `.state` (+`.is-error`, `.is-loading`, `.is-compact`) | the one empty/loading/error block for every tab |
 | `.state-icon` `.state-title` `.state-msg` `.state-actions` | its slots |
 | `.inline-error` | a failure attached to one panel or control |
 | `.inline-note` | a neutral note in the same shape |
@@ -1703,7 +1703,7 @@ only the **low-rate** events onto the bus, for panels that prefer it:
 `forge.provision.error`).
 
 The high-rate streams — engine progress packets, `forge.log`, `forge.progress` —
-are deliberately **not** mirrored: doubling a 20Hz stream across five frames is
+are deliberately **not** mirrored: doubling a 20Hz stream across six frames is
 exactly the fan-out cost the perf review flagged as the hottest main-thread path.
 Use `window.api.onEngineEvent` / `window.forge.onStatus` for those; every frame
 has them. `update-status` is never mirrored at all.
@@ -1715,14 +1715,14 @@ handle everything twice.
 
 | Key | Action | Caught where |
 |---|---|---|
-| `Ctrl+1..5` | Forge / Editor / Player / Self MIDI / Library | shell **and** `main` (`before-input-event`) |
+| `Ctrl+1..6` | Forge / Editor / Player / Self MIDI / Library / Logs | shell **and** `main` (`before-input-event`) |
 | `Ctrl+K` | command palette | shell **and** `main` |
 | `Ctrl+,` | settings sheet | shell **and** `main` |
-| `Ctrl+Alt+L` | activity log drawer | shell **and** `main` |
+| `Ctrl+Alt+L` | go to the Logs tab | shell **and** `main` |
 | `Ctrl+Alt+O` / `Ctrl+Alt+P` | Perch open/close, Perch click-through | `main`, as global shortcuts |
 | `Space` | play / pause on the transport owner | shell, ignored inside a form control |
 | `Home` | stop | shell, ignored inside a form control |
-| `Escape` | palette, then settings, then the log drawer, then the update row | shell |
+| `Escape` | palette, then settings, then the update row | shell |
 | Arrow Left/Right, Home, End | move between nav items when one has focus | shell |
 
 Anything caught in `main` is forwarded to the shell frame as `shell-shortcut`
@@ -1749,15 +1749,14 @@ is yours.
 
 * **Splash** `splash` `splash-mark` `splash-status`
 * **Titlebar** `titlebar` `brand` `nav` `nav-ind` `nav-forge` `nav-review`
-  `nav-player` `nav-audition` `nav-library` `search-trigger` `version-chip`
-  `settings-btn` `win-min` `win-max` `win-close`
+  `nav-player` `nav-audition` `nav-library` `nav-logs` `search-trigger`
+  `version-chip` `settings-btn` `win-min` `win-max` `win-close`
 * **Activity strip** `astrip` `as-items` `as-engine` `as-game` `as-update`
   `as-upd-title` `as-upd-sub` `as-upd-bar` `as-upd-fill` `as-upd-apply`
-  `as-upd-x` `as-log-toggle` `as-log-count`
-* **Log drawer** `alog` `alog-filter` `alog-copy` `alog-clear` `alog-close`
-  `alog-list` `alog-empty`
+  `as-upd-x` `as-errors` `as-log-count`
 * **Stage** `stage` `frame-forge` `frame-review` `frame-player` `frame-audition`
-  `frame-library` `tab-fallback` `tf-title` `tf-msg` `tf-retry` `tf-log`
+  `frame-library` `frame-logs` `tab-fallback` `tf-title` `tf-msg` `tf-retry`
+  `tf-log`
 * **Transport** `xport` `xp-art` `xp-name` `xp-sub` `xp-status` `xp-status-txt`
   `xp-shuffle` `xp-prev` `xp-play` `xp-next` `xp-repeat` `xp-stop` `xp-elapsed`
   `xp-scrub` `xp-total` `xp-knobs` `xp-knob-tempo` `xp-tempo` `xp-tempo-val`
@@ -1812,7 +1811,7 @@ toggleMaximize, close, state}`, `onWindowState`, `bootState`, `onBootMilestone`,
 `showItem`.
 
 Other main-process changes: the window is `frame: false` with `backgroundColor`
-set to the app's own `--bg`; `Ctrl+1..5` plus the three app keys are forwarded
+set to the app's own `--bg`; `Ctrl+1..6` plus the three app keys are forwarded
 from `before-input-event`; a **subframe** `did-fail-load` no longer triggers the
 shell's reload recovery; settings writes are debounced (600ms) with a guaranteed
 flush on window close and on `before-quit`; and the two escaped-backslash bugs
@@ -1837,7 +1836,7 @@ restored and the first panel has loaded — **the panel document, not the initia
 `about:blank`**. Every frame starts with only `data-src` (frames load lazily), and
 Chromium fires `load` for a src-less iframe's own empty document, so both the
 `load` handler and the splash gate test that the frame has actually been navigated
-before believing it. Without that test all five frames are "loaded" at boot and the
+before believing it. Without that test all six frames are "loaded" at boot and the
 hand-over reveals an empty stage, which is the one thing this gate exists to stop.
 A boot faster than 700ms settles the bar
 animation immediately instead of waiting out its stagger. A 6s watchdog hands

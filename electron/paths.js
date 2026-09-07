@@ -207,6 +207,16 @@ function rendererIndexHtml() {
     ? path.join(app.getAppPath(), 'renderer', 'index.html')
     : path.join(DEV_ROOT, 'renderer', 'index.html');
 }
+// CHANGELOG.md, read by the What's New screen. It ships inside the app bundle,
+// so packaged it lives next to package.json under app.getAppPath() -- the same
+// place rendererIndexHtml() looks -- and NOT under resourcesPath, which only
+// carries extraResources. package.json's build.files must list it or this
+// resolves to a path that does not exist in an installed build.
+function changelogFile() {
+  return isPackaged()
+    ? path.join(app.getAppPath(), 'CHANGELOG.md')
+    : path.join(DEV_ROOT, 'CHANGELOG.md');
+}
 function overlayHtml() {
   return isPackaged()
     ? path.join(app.getAppPath(), 'renderer', 'overlay', 'overlay.html')
@@ -235,6 +245,6 @@ module.exports = {
   pythonEngineDir, bundledPlayerPython,
   forgeEnvDir, defaultForgeEnvDir, legacyDefaultForgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
   candidateForgeEnvDirs, findReadyForgeEnv,
-  modelsDir, rendererIndexHtml, overlayHtml, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,
+  modelsDir, rendererIndexHtml, overlayHtml, changelogFile, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,
   userMappingsDir, ensureUserMappings, forgeSetupLog, forgeJobsFile,
 };

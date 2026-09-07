@@ -153,6 +153,12 @@ contextBridge.exposeInMainWorld('studio', {
   // ---- added for the boot splash: real milestones, never a fake percentage -
   bootState: () => ipcRenderer.invoke('app:bootState'),
   onBootMilestone: onChannel('boot-milestone'),
+  // ---- added for the What's New screen ------------------------------------
+  // changelog() hands over the raw CHANGELOG.md; the renderer parses it with
+  // renderer/shell/changelog.js, which is the same parser the tests exercise.
+  changelog: () => ipcRenderer.invoke('app:changelog'),
+  whatsNew: () => ipcRenderer.invoke('app:whatsNew'),
+  markNotesShown: (v) => ipcRenderer.invoke('app:notesShown', v),
   // ---- added for Settings > Storage and the palette's file actions --------
   openBootLog: () => ipcRenderer.invoke('app:openBootLog'),
   getOutputDir: () => ipcRenderer.invoke('app:getOutputDir'),
