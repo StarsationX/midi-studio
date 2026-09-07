@@ -31,14 +31,27 @@ body { background: var(--bg); color: var(--text); font: 400 var(--t2)/1.45 var(-
 
 .p-block { display: flex; flex-direction: column; gap: var(--s2); }
 .p-block + .p-block { padding-top: var(--s3); border-top: 1px solid var(--line); }
-.p-block-head { display: flex; align-items: center; gap: var(--s2); min-height: 20px; min-width: 0; }
+/* A block head is the section title, a live value, and that section's tools.
+   In a 252px column the Transpose head's two text buttons ("Fit range",
+   "Reset") do not fit beside the title, and with a single nowrap line the
+   second one was painted 4px outside the scrolling pane. So the head reflows:
+   the tools drop to a second line and stay right-aligned there, because the
+   item after the spacer keeps an auto left margin which only finds free space
+   to absorb once it is the one starting a line. On a wide column nothing wraps
+   and nothing moves. */
+.p-block-head {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--s2); row-gap: var(--s1);
+  min-height: 20px; min-width: 0;
+}
+.p-block-head > .u-spacer + * { margin-left: auto; }
 .p-block-title {
-  font: 600 var(--t1)/1 var(--font-mono);
+  font: 600 var(--t1)/1.25 var(--font-mono);
   letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3);
   white-space: nowrap;
 }
-.p-block-count { color: var(--text-3); font: 500 var(--t1)/1 var(--font-mono); }
-.p-block-value { color: var(--text); font: 600 var(--t2)/1 var(--font-mono); }
+.p-block-count { color: var(--text-3); font: 500 var(--t1)/1.25 var(--font-mono); }
+.p-block-value { color: var(--text); font: 600 var(--t2)/1.25 var(--font-mono); }
 .p-row2 { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
 .p-row2 > .input-wrap { flex: 0 0 96px; }
 .p-bpm-src { flex: 0 0 auto; color: var(--text-3); font-size: var(--t1); }
@@ -74,7 +87,7 @@ body { background: var(--bg); color: var(--text); font: 400 var(--t2)/1.45 var(-
   width: 34px; height: 34px;
   background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r-sm);
   color: var(--text-3);
-  font: 700 var(--t3)/1 var(--font-display);
+  font: 700 var(--t3)/1.25 var(--font-display);
 }
 .p-app.is-ready .p-app-icon { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
 .p-app-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -99,7 +112,7 @@ body { background: var(--bg); color: var(--text); font: 400 var(--t2)/1.45 var(-
 .p-hk .hk-slot {
   height: 100%; padding: 0; border: 0; background: transparent;
   text-align: left; cursor: pointer;
-  font: 600 var(--t1)/1 var(--font-mono); color: inherit;
+  font: 600 var(--t1)/1.25 var(--font-mono); color: inherit;
 }
 .p-hk .hk-slot:focus { outline: none; }
 .p-hk .hk:focus-within { border-color: var(--accent); }
@@ -160,7 +173,7 @@ body { background: var(--bg); color: var(--text); font: 400 var(--t2)/1.45 var(-
   transition: transform var(--motion-fast) var(--ease-standard);
 }
 .p-map-toggle[aria-expanded="false"]::before { transform: rotate(-45deg); }
-.p-map-title { font: 600 var(--t1)/1 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; }
+.p-map-title { font: 600 var(--t1)/1.25 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; }
 .p-map-sum { font-size: var(--t1); color: var(--text-2); white-space: nowrap; }
 .p-map-sum.is-error { color: var(--err); }
 .p-map-hint { white-space: nowrap; }
@@ -184,7 +197,7 @@ body { background: var(--bg); color: var(--text); font: 400 var(--t2)/1.45 var(-
   height: 34px; padding: 0 var(--s3);
   background: var(--surface); border-bottom: 1px solid var(--line);
 }
-.p-time-read { flex: 0 0 auto; color: var(--text-2); font: 600 var(--t1)/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.p-time-read { flex: 0 0 auto; color: var(--text-2); font: 600 var(--t1)/1.25 var(--font-mono); font-variant-numeric: tabular-nums; }
 .p-scrub { position: relative; flex: 1 1 auto; height: 22px; cursor: pointer; touch-action: none; }
 .p-scrub[aria-disabled="true"] { cursor: default; opacity: .5; }
 .p-scrub-track {
@@ -222,7 +235,7 @@ body { background: var(--bg); color: var(--text); font: 400 var(--t2)/1.45 var(-
   padding: 2px 5px;
   background: var(--surface-3); color: var(--text);
   border: 1px solid var(--line-2); border-radius: 3px;
-  font: 600 var(--t1)/1 var(--font-mono); white-space: nowrap;
+  font: 600 var(--t1)/1.25 var(--font-mono); white-space: nowrap;
   pointer-events: none;
   transform: translateX(calc(var(--tip, 0) * 1px - 50%));
 }
@@ -230,7 +243,7 @@ body { background: var(--bg); color: var(--text); font: 400 var(--t2)/1.45 var(-
 .p-transport { flex: 0 0 auto; padding: 0 var(--s3); background: var(--surface); }
 .p-play { min-width: 116px; }
 .p-play-ic { display: flex; }
-.p-read { color: var(--text); font: 600 var(--t2)/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.p-read { color: var(--text); font: 600 var(--t2)/1.25 var(--font-mono); font-variant-numeric: tabular-nums; }
 
 .p-stats {
   flex: 0 0 auto;
@@ -241,7 +254,7 @@ body { background: var(--bg); color: var(--text); font: 400 var(--t2)/1.45 var(-
 }
 .p-stat { flex: 0 0 auto; display: flex; align-items: baseline; gap: 6px; }
 .p-stat.is-flex { flex: 0 1 auto; min-width: 0; }
-.p-stat-l { font: 600 var(--t1)/1 var(--font-mono); letter-spacing: .8px; text-transform: uppercase; color: var(--text-3); white-space: nowrap; }
+.p-stat-l { font: 600 var(--t1)/1.25 var(--font-mono); letter-spacing: .8px; text-transform: uppercase; color: var(--text-3); white-space: nowrap; }
 .p-stat-v { font-size: var(--t1); color: var(--text-2); white-space: nowrap; }
 .p-live { flex: 0 0 auto; }
 

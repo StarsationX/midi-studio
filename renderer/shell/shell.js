@@ -423,7 +423,13 @@
         return n;
       },
       renderRow(n, it) {
-        n.className = 'logline' + (it.level && it.level !== 'info' ? ' is-' + it.level : '');
+        // classList, NEVER className: VList adds .vlist-row (position:absolute)
+        // to every node it pools, and assigning className here deleted it. The
+        // rows dropped into normal flow and stacked ON TOP of their own
+        // translateY, so every line sat 18px lower than the one before it and
+        // the drawer's scroll extent was ~40% too long.
+        n.classList.remove('is-ok', 'is-warn', 'is-error');
+        if (it.level && it.level !== 'info') n.classList.add('is-' + it.level);
         n.children[0].textContent = it.clock;
         n.children[1].textContent = it.src;
         n.children[2].textContent = it.text;
@@ -757,6 +763,13 @@
     // Reconcile in one pass. The first item is the wide one.
     for (let i = 0; i < order.length; i++) {
       order[i].el.classList.toggle('is-primary', i === 0);
+      // The meta truncates with an ellipsis in a narrow window, so the whole
+      // string has to be readable somewhere. Compared before writing: this runs
+      // on every render, and a 20Hz progress stream must not write an attribute
+      // 20 times a second for a string that did not change.
+      const m = order[i].meta;
+      const t = m.textContent;
+      if (m.title !== t) m.title = t;
       if (itemsHost.children[i] !== order[i].el) itemsHost.insertBefore(order[i].el, itemsHost.children[i] || null);
     }
     while (itemsHost.children.length > order.length) itemsHost.lastElementChild.remove();
@@ -1594,13 +1607,18 @@
       const t = document.createElement('span');
       t.className = 'menu-text';
       t.textContent = it.label;
+      b.appendChild(t);
+      // A SIBLING of the label, never a child of it: .menu-text truncates with
+      // an ellipsis, so a sub nested inside it was simply clipped away on any
+      // row with a long song name. The title carries both parts, because a row
+      // that truncates has to leave some way of reading the whole thing.
       if (it.sub) {
         const s = document.createElement('span');
         s.className = 'pal-row-sub';
         s.textContent = it.sub;
-        t.appendChild(s);
+        b.appendChild(s);
       }
-      b.appendChild(t);
+      b.title = it.sub ? it.label + '\n' + it.sub : it.label;
       if (it.keys) {
         const k = document.createElement('span');
         k.className = 'menu-key';

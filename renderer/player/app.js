@@ -1748,6 +1748,7 @@
   function runHotkey(name) {
     lastInput = `${name} · ${window.Fmt.stamp(Date.now()).slice(11)}`;
     $('ms-last').textContent = lastInput;
+    $('ms-last').title = lastInput;
     switch (name) {
       case 'play': if (isPlaying && isPaused) doResume(); else doPlay(); break;
       case 'stop': doStop(); break;
@@ -2083,6 +2084,10 @@
     $('head-song').textContent = name;
     $('head-song').title = has ? lastMidiPath : '';
     $('now-name').textContent = has ? name : 'Nothing loaded';
+    // Every truncating run on this page carries the whole string in a title:
+    // an ellipsis is a legitimate answer to a name that does not fit, but only
+    // if the full name is still readable somewhere.
+    $('now-name').title = has ? lastMidiPath : '';
     $('now-folder').textContent = has ? window.Fmt.dirname(lastMidiPath) : '';
     $('now-folder').title = has ? lastMidiPath : '';
     const chip = $('song-path');
@@ -2098,12 +2103,15 @@
     $('head-notes').textContent = window.Fmt.count(totalNotes, 'note', 'notes');
     $('head-bpm').textContent = bpm ? window.Fmt.bpm(bpm * tempo) + ' BPM' : '-- BPM';
     $('head-mapping').textContent = mappingName();
+    $('head-mapping').title = mapping === '__custom__' ? customMappingPath : mappingName();
     $('chip-piano').textContent = /drums/i.test(mappingName()) ? 'Drums' : 'Piano';
     $('chip-mapping').textContent = keysMapped ? `${mappingName()} · ${keysMapped}` : mappingName();
     $('now-meta').textContent = has
       ? `${clock(totalDuration)} · ${totalNotes} notes · ${window.Fmt.bpm(bpm)} BPM`
       : '';
+    const nowWin = selectedWindow();
     $('now-target').textContent = targetLabel() || '—';
+    $('now-target').title = nowWin ? `${nowWin.process || ''}  ${nowWin.title || ''}`.trim() : '';
     $('viz-empty').classList.toggle('is-hidden', has);
     $('map-empty').hidden = has && overviewEvents.length > 0;
     $('tr-play').disabled = !has;
@@ -2181,6 +2189,7 @@
   // any use.
   function paintMappingStatus() {
     $('ms-preset').textContent = mappingName();
+    $('ms-preset').title = mapping === '__custom__' ? customMappingPath : mappingName();
     $('ms-keys').textContent = String(keysMapped || 0);
     $('ms-desc').textContent = mappingDescription || '';
     // The same description, next to the picker that chose it. The warnings stay

@@ -72,7 +72,16 @@ body[data-boot="ready"] .shell {
   background: #1a1b20; border-bottom: 1px solid var(--line);
   -webkit-app-region: drag; user-select: none;
 }
-.tbar > *, .tbar button, .tbar input, .tbar a { -webkit-app-region: no-drag; }
+/* Only genuinely interactive things opt out. Listing `.tbar > *` here instead
+   left the brand block and the whole right-hand cluster as no-drag, so the
+   only draggable pixels were the gaps between them and the window could
+   barely be moved. The containers stay draggable; their controls do not. */
+.tbar button,
+.tbar input,
+.tbar a,
+.tbar select,
+.tbar [role="tab"],
+.tbar [role="button"] { -webkit-app-region: no-drag; }
 
 .tbar-brand { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; min-width: 0; }
 .brand-text { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
@@ -94,7 +103,7 @@ body[data-boot="ready"] .shell {
   position: relative; display: inline-flex; align-items: center; gap: 7px;
   padding: 0 var(--s4); border: 0; background: transparent;
   color: var(--text-3); cursor: pointer;
-  font: 600 var(--t2)/1 var(--font-body);
+  font: 600 var(--t2)/1.25 var(--font-body);
   transition: color var(--motion-fast) var(--ease-standard),
               background-color var(--motion-fast) var(--ease-standard);
 }
@@ -127,7 +136,7 @@ body[data-boot="ready"] .shell {
   height: var(--h-ctl-sm); padding: 0 6px 0 8px;
   background: var(--bg-2); color: var(--text-3);
   border: 1px solid var(--line-2); border-radius: var(--r-sm);
-  cursor: text; font: 500 var(--t1)/1 var(--font-body);
+  cursor: text; font: 500 var(--t1)/1.25 var(--font-body);
   transition: border-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 .tb-search:hover { border-color: #4a4e58; color: var(--text-2); }
@@ -139,7 +148,7 @@ body[data-boot="ready"] .shell {
   height: var(--h-ctl-sm); padding: 0 8px; border-radius: var(--r-sm);
   background: transparent; color: var(--text-3);
   border: 1px solid transparent; cursor: pointer;
-  font: 600 var(--t1)/1 var(--font-mono); letter-spacing: .4px;
+  font: 600 var(--t1)/1.25 var(--font-mono); letter-spacing: .4px;
   transition: color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
 }
 .tb-version:hover { color: var(--accent); border-color: var(--accent-line); }
@@ -188,7 +197,7 @@ body[data-maximized="1"] .wctl-restore { display: block; }
   flex: 1 1 auto; min-width: 0; padding: 0 var(--s3);
   border: 0; background: transparent;
   color: var(--text-2); text-align: left; cursor: pointer;
-  font: 500 var(--t1)/1 var(--font-body);
+  font: 500 var(--t1)/1.25 var(--font-body);
   transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 .aitem-main:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
@@ -196,14 +205,22 @@ body[data-maximized="1"] .wctl-restore { display: block; }
 .aitem-main:disabled { cursor: default; }
 .aitem.is-quiet .aitem-main { color: var(--text-3); }
 .aitem-kind {
-  flex: 0 0 auto; font: 700 var(--t1)/1 var(--font-mono);
+  flex: 0 0 auto; font: 700 var(--t1)/1.25 var(--font-mono);
   letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3);
 }
 .aitem.is-live .aitem-kind { color: var(--accent); }
 .aitem-acts { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; align-self: center; }
 .aitem-name { min-width: 4ch; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.aitem-meta { flex: 0 0 auto; color: var(--text-3); font-family: var(--font-mono); font-size: var(--t1); white-space: nowrap; }
-.aitem-bar { flex: 0 1 132px; min-width: 44px; }
+/* `flex: 0 1 auto` + min-width:0, NOT `0 0 auto`. A nowrap run that refuses to
+   shrink is the whole reason the strip forced itself 310px wider than its own
+   box at 1040px and pushed the ETA clean out of the clipped .as-items. It
+   truncates now, and shell.js puts the whole string in the title. */
+.aitem-meta {
+  flex: 0 1 auto; min-width: 0; color: var(--text-3);
+  font-family: var(--font-mono); font-size: var(--t1); line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.aitem-bar { flex: 0 1 132px; min-width: 36px; }
 
 /* --- status chips ------------------------------------------------------- */
 .as-chips { display: flex; align-items: stretch; flex: 0 0 auto; }
@@ -211,7 +228,7 @@ body[data-maximized="1"] .wctl-restore { display: block; }
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 var(--s3); border: 0; border-left: 1px solid var(--line);
   background: transparent; color: var(--text-3); cursor: pointer;
-  font: 500 var(--t1)/1 var(--font-body); white-space: nowrap;
+  font: 500 var(--t1)/1.25 var(--font-body); white-space: nowrap;
   transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 .as-chip:hover { background: var(--surface-2); color: var(--text); }
@@ -221,15 +238,25 @@ body[data-maximized="1"] .wctl-restore { display: block; }
 .as-chip.is-err { color: var(--err); }
 
 /* --- update row -------------------------------------------------------- */
+/* `flex: 0 1 auto` with min-width:0: this block appears without warning when an
+   update lands, and as `0 0 auto` it took ~230px out of the strip that the
+   activity items then had to overflow to pay for. It compresses instead -- the
+   sub line ellipsises, and below 1160px it goes entirely (the same words are in
+   Settings > Updates). The Update button and the dismiss X never shrink. */
 .as-update {
-  display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto;
+  display: flex; align-items: center; gap: var(--s2); flex: 0 1 auto;
   padding: 0 var(--s2) 0 var(--s3);
   border-left: 1px solid var(--line);
   background: var(--accent-soft);
 }
 .as-upd-mark { color: var(--accent); display: flex; }
-.as-upd-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; max-width: 34ch; }
-.as-upd-title { font: 600 var(--t1)/1.2 var(--font-body); color: var(--text); white-space: nowrap; }
+.as-upd-text { display: flex; flex-direction: column; gap: 1px; min-width: 6ch; max-width: 34ch; }
+/* The block is shrinkable now, so its title has to truncate rather than spill:
+   squeezed to 12px it was still painting 139px of text across the strip. */
+.as-upd-title {
+  font: 600 var(--t1)/1.2 var(--font-body); color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .as-upd-sub { font-size: var(--t1); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .as-upd-bar { width: 90px; flex: 0 0 auto; }
 
@@ -238,7 +265,7 @@ body[data-maximized="1"] .wctl-restore { display: block; }
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 var(--s3); border: 0; border-left: 1px solid var(--line);
   background: transparent; color: var(--text-3); cursor: pointer;
-  font: 600 var(--t1)/1 var(--font-body);
+  font: 600 var(--t1)/1.25 var(--font-body);
   transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 .as-log-toggle:hover { background: var(--surface-2); color: var(--text); }
@@ -262,7 +289,7 @@ body[data-maximized="1"] .wctl-restore { display: block; }
   height: var(--h-ctl); padding: 0 var(--s2) 0 var(--s3);
   border-bottom: 1px solid var(--line); background: var(--surface);
 }
-.alog-title { font: 700 var(--t1)/1 var(--font-mono); letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-3); }
+.alog-title { font: 700 var(--t1)/1.25 var(--font-mono); letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-3); }
 .alog-list { flex: 1 1 auto; min-height: 0; padding: 4px 0; }
 .alog-empty { flex: 1 1 auto; }
 .logline {
@@ -350,15 +377,21 @@ body.is-covered .tabframe { visibility: hidden; }
 }
 #xp-repeat[data-repeat="one"] .xp-rep-1 { opacity: 1; stroke: var(--accent); }
 
-.xp-time { display: flex; align-items: center; gap: var(--s2); flex: 1 1 auto; min-width: 140px; }
+/* No hard min-width: the default `min-width: auto` on a flex item IS its
+   min-content width, and that is the only floor that stays correct when the
+   clocks get wider. A literal 140px was narrower than the row's own minimum
+   (two clocks + a 60px scrub + two gaps = 152px), so the footer squeezed the
+   block below its content and cut the total time off -- and with "show
+   milliseconds" on, a fixed floor would have been wrong by even more. */
+.xp-time { display: flex; align-items: center; gap: var(--s2); flex: 1 1 auto; }
 .xp-clock { flex: 0 0 auto; font-size: var(--t1); color: var(--text-2); font-variant-numeric: tabular-nums; }
 .xp-clock.is-total { color: var(--text-3); }
-.xp-scrub { flex: 1 1 auto; min-width: 60px; }
+.xp-scrub { flex: 1 1 auto; min-width: 48px; }
 
 .xp-knobs { display: flex; align-items: center; gap: var(--s3); flex: 0 0 auto; }
 .xp-knob { display: flex; align-items: center; gap: 6px; }
 .xp-knob-k {
-  font: 700 var(--t1)/1 var(--font-mono); letter-spacing: .6px;
+  font: 700 var(--t1)/1.25 var(--font-mono); letter-spacing: .6px;
   color: var(--text-3); white-space: nowrap;
 }
 .xp-knob .range { width: 58px; flex: 0 0 auto; }
@@ -378,6 +411,68 @@ body.is-covered .tabframe { visibility: hidden; }
   #xp-knob-transpose .range, #xp-knob-volume .range { display: none; }
   .xp-now { flex-basis: 200px; }
 }
+
+/* ===========================================================================
+   NARROW WINDOWS.  The supported minimum is 1040x700 (electron/main.js sets
+   minWidth/minHeight), and at 1040 the titlebar's intrinsic width was ~1173px:
+   nothing in it could shrink, so the row simply grew and pushed the three
+   WINDOW CONTROLS off the right-hand edge of the window -- unreachable, and the
+   whole page 133px wider than the viewport with it.
+
+   What gives way, in order, is duplicated LABELS. Every one of these is a
+   second copy of something the app says elsewhere:
+     the ^1..^5 nav hints  -> also in the command palette and the tooltips
+     the brand tagline     -> decoration
+     "Search" + Ctrl K     -> the field keeps its magnifier and its aria-label
+   No control is ever removed, and the window buttons never move.
+   ======================================================================== */
+@media (max-width: 1240px) { .nav-key { display: none; } }
+@media (max-width: 1160px) { .brand-tag { display: none; } }
+@media (max-width: 1100px) {
+  .tb-search { padding: 0 7px; }
+  .tb-search-txt, .tb-search .kbd-seq { display: none; }
+}
+
+/* A last-resort safety net BELOW the supported minimum (a forced resize, a
+   200% display scale): the nav shrinks and its labels ellipsise rather than
+   shoving the window controls off screen again. */
+.tbar-nav { flex: 0 1 auto; min-width: 0; }
+.nav-item { min-width: 0; }
+.nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The activity strip runs out of room before anything else, because each item
+   carries real buttons that must stay clickable. Secondary items shed their
+   duplicated text first: the progress meta is in the owning tab, and the kind
+   word is already implied by the row's dot and its buttons. */
+@media (max-width: 1240px) {
+  .aitem:not(.is-primary) .aitem-meta,
+  .aitem:not(.is-primary) .aitem-kind { display: none; }
+  .aitem:not(.is-primary) .aitem-name { max-width: 22ch; }
+}
+/* Below 1160 the update notice keeps its mark, its progress bar, its Update
+   button and its dismiss X, and drops only the sentence -- which Settings >
+   Updates says in full. The words were costing the activity items ~130px they
+   did not have, and a squeezed sentence is worth less than a legible job row.
+   No min-width:0 on the block itself: once the sentence is gone every remaining
+   part (mark, bar, Update, dismiss) is a control, and a 0 floor let the row
+   squash all four of them into 131px. min-width:auto -- a flex item's
+   min-content -- is the correct floor for a row of controls. */
+@media (max-width: 1160px) { .as-upd-text { display: none; } }
+@media (max-width: 1120px) {
+  .aitem:not(.is-primary) .aitem-name { max-width: 16ch; }
+  /* Last to go, and only on a secondary row: this bar is the same progress the
+     bottom transport's scrub already shows, and it is the difference between a
+     readable song name and a 9px-crushed one at the 1040px minimum. */
+  .aitem:not(.is-primary) .aitem-bar { display: none; }
+}
+
+/* The toast host is `bottom: var(--s4)` in ui.css, which is correct for a page
+   with nothing pinned to its bottom edge. The shell has the transport there, so
+   a toast sat ON TOP of the Perch button and the volume knob -- 16px from the
+   window's bottom edge is 40px INTO a 56px transport. It clears the bar here,
+   where the bar's height is known. The contract already says "above the
+   transport"; this is what makes that true. */
+.toasts { bottom: calc(var(--h-xport) + var(--s3)); }
 
 /* --- a panel that could not load ---------------------------------------- */
 .tab-fallback {
@@ -429,7 +524,18 @@ body.is-covered .tabframe { visibility: hidden; }
 }
 .pal-list .menu-item { border-radius: 0; height: 30px; padding: 0 var(--s3); }
 .pal-list .menu-label { padding: 9px var(--s3) 4px; }
-.pal-row-sub { color: var(--text-3); font-size: var(--t1); margin-left: 6px; }
+/* The date + path is a SIBLING of the label, not a child of it. Nested inside
+   .menu-text (which truncates with an ellipsis) a long song name ate the whole
+   box and the secondary line was clipped out of existence -- and it escaped that
+   box on the way. Both parts now shrink and ellipsise on their own, and the
+   keys are pinned right by an auto margin instead of by the label growing. */
+.pal-list .menu-item > .menu-text { flex: 0 1 auto; }
+.pal-list .menu-key { margin-left: auto; }
+.pal-row-sub {
+  flex: 0 1 auto; min-width: 3ch; margin-left: 6px; margin-right: auto;
+  color: var(--text-3); font-size: var(--t1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .pal-empty { flex: 1 1 auto; }
 .pal-foot {
   flex: 0 0 auto; display: flex; align-items: center; gap: 6px;

@@ -71,8 +71,8 @@
         <span class="tb-search-txt">Search</span>
         <span class="kbd-seq" aria-hidden="true"><kbd class="kbd">Ctrl</kbd><kbd class="kbd">K</kbd></span>
       </button>
-      <button class="tb-version mono" id="version-chip" data-tip="Check for updates" aria-label="Version, check for updates">v&#8230;</button>
-      <button class="btn btn-icon is-sm is-bare tb-gear" id="settings-btn" aria-label="Settings" data-tip="Settings (Ctrl+,)"><i data-icon="gear" data-icon-size="16"></i></button>
+      <button class="tb-version mono tip-below tip-end" id="version-chip" data-tip="Check for updates" aria-label="Version, check for updates">v&#8230;</button>
+      <button class="btn btn-icon is-sm is-bare tb-gear tip-below tip-end" id="settings-btn" aria-label="Settings" data-tip="Settings (Ctrl+,)"><i data-icon="gear" data-icon-size="16"></i></button>
       <div class="wctl" role="group" aria-label="Window">
         <button class="wctl-btn" id="win-min" aria-label="Minimise">
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M3 8.5 L13 8.5" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
@@ -97,10 +97,10 @@
       <div class="as-items" id="as-items"><!-- .aitem blocks, built by shell.js --></div>
 
       <div class="as-chips">
-        <button class="as-chip" id="as-engine" aria-label="Forge engine status">
+        <button class="as-chip tip-below" id="as-engine" aria-label="Forge engine status">
           <span class="dot"></span><span class="as-chip-txt">Engine</span>
         </button>
-        <button class="as-chip" id="as-game" hidden aria-label="Detected game">
+        <button class="as-chip tip-below" id="as-game" hidden aria-label="Detected game">
           <span class="dot warn"></span><span class="as-chip-txt">Game</span>
         </button>
       </div>
@@ -227,7 +227,7 @@
       </label>
     </div>
 
-    <button class="btn btn-sm xp-perch" id="xp-perch" aria-pressed="false" data-tip="Perch: the always-on-top playback overlay (Ctrl+Alt+O)">
+    <button class="btn btn-sm xp-perch tip-end" id="xp-perch" aria-pressed="false" data-tip="Perch: the always-on-top playback overlay (Ctrl+Alt+O)">
       <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="2.5" y="4.5" width="11" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 7 L13.5 7" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
       <span>Perch</span>
     </button>

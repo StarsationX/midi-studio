@@ -40,7 +40,7 @@ html, body { height: 100%; overflow: hidden; }
 }
 .sm-eyebrow {
   flex: 1 1 auto; min-width: 0;
-  font: 600 var(--t1)/1 var(--font-mono); letter-spacing: 1.2px;
+  font: 600 var(--t1)/1.25 var(--font-mono); letter-spacing: 1.2px;
   text-transform: uppercase; color: var(--text-3); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
@@ -100,7 +100,7 @@ html, body { height: 100%; overflow: hidden; }
   padding: 8px 10px; background: var(--surface);
 }
 .sm-stat-k {
-  font: 600 var(--t1)/1 var(--font-mono); letter-spacing: 1.1px;
+  font: 600 var(--t1)/1.25 var(--font-mono); letter-spacing: 1.1px;
   text-transform: uppercase; color: var(--text-3); white-space: nowrap;
 }
 .sm-stat-v {
@@ -134,7 +134,7 @@ html, body { height: 100%; overflow: hidden; }
 
 .sm-ab { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
 .sm-time { width: 74px; text-align: center; font-family: var(--font-mono); }
-.sm-ab-to { font: 500 var(--t1)/1 var(--font-body); color: var(--text-3); }
+.sm-ab-to { font: 500 var(--t1)/1.25 var(--font-body); color: var(--text-3); }
 .sm-stepper { width: 132px; }
 .sm-presets { width: 100%; }
 .sm-mark-name { flex: 1 1 auto; min-width: 0; }
@@ -144,7 +144,7 @@ html, body { height: 100%; overflow: hidden; }
    a hover the way an incidental row action does. Same slot, same primitive. */
 .sm-marks .lrow-actions { opacity: 1; }
 .sm-marks-empty { margin: 0; padding: var(--s3); }
-.sm-mark-time { font: 600 var(--t1)/1 var(--font-mono); color: var(--text-3); }
+.sm-mark-time { font: 600 var(--t1)/1.25 var(--font-mono); color: var(--text-3); }
 
 /* ---- MIDI information -------------------------------------------------- */
 .sm-info { flex: 0 0 auto; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
@@ -159,7 +159,7 @@ html, body { height: 100%; overflow: hidden; }
   flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border-radius: var(--r-sm);
   background: var(--surface-2); border: 1px solid var(--line);
-  font: 700 10px/1 var(--font-mono); letter-spacing: .5px; color: var(--text-3);
+  font: 700 10px/1.25 var(--font-mono); letter-spacing: .5px; color: var(--text-3);
 }
 .lrow.is-playing .sm-art-mini { color: var(--accent); border-color: var(--accent-line); }
 

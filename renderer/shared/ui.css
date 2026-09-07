@@ -150,15 +150,18 @@
   transition: border-color var(--motion-fast) var(--ease-standard);
 }
 .input-wrap:focus-within { border-color: var(--accent-deep); }
+/* `flex: 1 1 0%` and width:auto, not the inherited `width:100%`: with a 100%
+   flex basis the input claimed the whole well and the affix beside it had to
+   overflow, which is where the well's stubborn 2px came from. */
 .input-wrap > .input, .input-wrap > input {
-  flex: 1 1 auto; min-width: 0;
+  flex: 1 1 0%; width: auto; min-width: 0;
   background: transparent; border: 0; box-shadow: none; border-radius: 0;
 }
 .input-wrap > .input:focus, .input-wrap > input:focus { border: 0; }
 .input-affix {
   flex: 0 0 auto; display: flex; align-items: center; gap: 4px;
   padding: 0 10px; color: var(--text-3);
-  font: 600 var(--t1)/1 var(--font-mono); white-space: nowrap;
+  font: 600 var(--t1)/1.25 var(--font-mono); white-space: nowrap;
 }
 .input-affix.is-pre { padding-right: 4px; }
 .input-wrap > .btn-icon { border: 0; background: transparent; --bh: calc(var(--h-input) - 2px); }
@@ -205,9 +208,21 @@
 .select option { background: var(--surface); color: var(--text); }
 
 /* range slider: one look for every slider in the app */
-.range { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; cursor: pointer; }
+/* margin: 0 is load-bearing. Chromium's UA stylesheet gives input[type=range] a
+   2px margin, and with `width: 100%` on top of it every slider sat 2px past the
+   right edge of whatever held it -- the source of the 2px horizontal overflow
+   reported on every .insp-row with a slider in it, on three different tabs. */
+.range {
+  -webkit-appearance: none; appearance: none; margin: 0;
+  width: 100%; height: 18px; background: transparent; cursor: pointer;
+}
+/* box-sizing: border-box on the TRACK. A form control's pseudo-elements do not
+   pick up the global reset, so `height: 4px` + a 1px border made the track 2px
+   wider than the input it lives in -- every row holding a slider reported a
+   stubborn 2px horizontal overflow that no child of it accounted for. */
 .range::-webkit-slider-runnable-track {
-  height: 4px; border-radius: 2px;
+  box-sizing: border-box;
+  height: 6px; border-radius: 2px;   /* 6px is the same painted box: 4px + the 1px borders */
   background: linear-gradient(to right, var(--accent) 0 calc(var(--p, 0) * 100%), var(--surface-3) calc(var(--p, 0) * 100%) 100%);
   border: 1px solid var(--line);
 }
@@ -228,8 +243,14 @@
    A mono readout with -/+ either side. The middle is a real number input so
    typing, arrow keys and the OS spin gestures keep working.
    ======================================================================== */
+/* min-width: min-content is not belt-and-braces, it is the floor `overflow:
+   hidden` took away: an overflow-hidden box is a scroll container, and a flex or
+   grid item that is a scroll container has an automatic minimum size of ZERO.
+   So a toolbar with too much in it squashed a whole number stepper down to 18px
+   and clipped its own +/- buttons off, rather than overflowing the toolbar. */
 .stepper {
   display: inline-flex; align-items: stretch; height: var(--h-input); overflow: hidden;
+  min-width: min-content;
   background: var(--bg-2); border: 1px solid var(--line);
   border-radius: var(--r-sm); box-shadow: var(--well);
   transition: border-color var(--motion-fast) var(--ease-standard);
@@ -259,9 +280,13 @@
 .stepper-btn:disabled { opacity: .35; cursor: not-allowed; background: var(--surface-2); }
 .stepper.is-sm { height: var(--h-ctl-sm); }
 .stepper.is-sm > .stepper-btn { width: 20px; font-size: 12px; }
+/* white-space: nowrap. The Player's steppers use multi-word units ("% / pass"),
+   which wrapped to two lines inside a 24px-tall control that clips -- so the
+   second line was simply cut off. A unit is a suffix; it stays on one line and
+   the stepper gets wider. */
 .stepper-unit {
   display: flex; align-items: center; padding: 0 8px 0 2px;
-  color: var(--text-3); font: 600 var(--t1)/1 var(--font-mono);
+  color: var(--text-3); font: 600 var(--t1)/1.25 var(--font-mono); white-space: nowrap;
 }
 
 /* ===========================================================================
@@ -466,7 +491,7 @@
   border-bottom: 1px solid var(--line); background: var(--surface);
 }
 .panel-title {
-  font: 600 var(--t1)/1 var(--font-mono); letter-spacing: 1.4px;
+  font: 600 var(--t1)/1.25 var(--font-mono); letter-spacing: 1.4px;
   text-transform: uppercase; color: var(--text-2); white-space: nowrap;
 }
 .panel-sub { font-size: var(--t1); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -506,7 +531,7 @@
 .insp-row { display: grid; grid-template-columns: 88px 1fr; align-items: center; gap: var(--s2); min-width: 0; }
 .insp-row.is-stacked { grid-template-columns: 1fr; }
 .insp-label { font: 500 var(--t1)/1.2 var(--font-body); color: var(--text-3); }
-.insp-value { font: 600 var(--t2)/1 var(--font-mono); color: var(--text); justify-self: start; }
+.insp-value { font: 600 var(--t2)/1.25 var(--font-mono); color: var(--text); justify-self: start; }
 
 /* ===========================================================================
    11. TOOLBAR
@@ -522,7 +547,7 @@
 .toolbar-sep { flex: 0 0 auto; width: 1px; height: 18px; background: var(--line); margin: 0 var(--s1); }
 .toolbar-spacer { flex: 1 1 auto; min-width: 0; }
 .toolbar-label {
-  font: 600 var(--t1)/1 var(--font-mono); letter-spacing: 1.2px;
+  font: 600 var(--t1)/1.25 var(--font-mono); letter-spacing: 1.2px;
   text-transform: uppercase; color: var(--text-3); white-space: nowrap;
 }
 
@@ -561,10 +586,10 @@
 .lrow-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
 .lrow-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lrow-sub { font-size: var(--t1); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lrow-meta { flex: 0 0 auto; color: var(--text-3); font: 500 var(--t1)/1 var(--font-mono); white-space: nowrap; }
+.lrow-meta { flex: 0 0 auto; color: var(--text-3); font: 500 var(--t1)/1.25 var(--font-mono); white-space: nowrap; }
 .lrow-icon { flex: 0 0 auto; display: flex; color: var(--text-3); }
 .lrow.is-selected .lrow-icon, .lrow.is-playing .lrow-icon { color: var(--accent); }
-.lrow-index { flex: 0 0 auto; width: 22px; text-align: right; color: var(--text-3); font: 500 var(--t1)/1 var(--font-mono); }
+.lrow-index { flex: 0 0 auto; width: 22px; text-align: right; color: var(--text-3); font: 500 var(--t1)/1.25 var(--font-mono); }
 .lrow-actions {
   flex: 0 0 auto; display: flex; align-items: center; gap: 2px;
   opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard);
@@ -707,14 +732,22 @@
   height: var(--h-ctl-sm); padding: 0 6px 0 8px;
   background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm);
   box-shadow: var(--well);
-  font: 500 var(--t1)/1 var(--font-mono);
+  font: 500 var(--t1)/1.25 var(--font-mono);
 }
 .pathchip-dir {
   flex: 0 1 auto; min-width: 0;
   color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   direction: rtl; text-align: left;
 }
-.pathchip-name { flex: 0 0 auto; color: var(--text); white-space: nowrap; }
+/* The basename is kept whole for as long as anything can be given up for it:
+   the directory (above) clips from the left first and reaches zero before this
+   shrinks at all. But `flex: 0 0 auto` meant a very long basename simply painted
+   131px past the chip's own border, over whatever was next to it, so it
+   ellipsises as a last resort with the full path still in the chip's title. */
+.pathchip-name {
+  flex: 0 1 auto; min-width: 6ch; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .pathchip-reveal {
   flex: 0 0 auto; width: 18px; height: 18px; padding: 0;
   display: flex; align-items: center; justify-content: center;
@@ -845,26 +878,56 @@
    and on :focus-visible, so keyboard users get it too. For anything that needs
    positioning logic, use .tip-panel and place it from JS.
    ======================================================================== */
+/* The bubble is GENERATED ONLY WHILE IT IS SHOWN (`content` is none the rest of
+   the time), and that is a layout fix, not a cosmetic one. An always-present
+   absolutely positioned ::after is part of its anchor's scrollable overflow, so
+   a 340px tooltip on a 75px button in the bottom-right corner pushed <body>
+   itself 128px wider than the window -- every page reported a horizontal
+   overflow that no visible element accounted for. Nothing to lay out means
+   nothing to overflow, so the fade-in is a keyframe (which does run on a
+   freshly generated box) instead of a transition (which does not).
+
+   `pre-line` and not `pre`: with `pre` the text refuses to wrap, so max-width
+   clamped the BOX while the words carried on past its own background. Newlines
+   in a data-tip are still honoured; long lines now wrap inside the bubble. */
 [data-tip] { position: relative; }
 [data-tip]::after {
-  content: attr(data-tip);
+  content: none;
   position: absolute; left: 50%; bottom: calc(100% + 6px);
   z-index: var(--z-pop);
-  padding: 4px 7px; max-width: 260px;
+  padding: 4px 7px; max-width: 260px; width: max-content;
   background: var(--surface-3); color: var(--text);
   border: 1px solid var(--line-2); border-radius: var(--r-sm);
   box-shadow: var(--sh-2);
-  font: 500 var(--t1)/1.35 var(--font-body); white-space: pre;
-  pointer-events: none; opacity: 0;
-  transform: translate(-50%, 3px);
-  transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+  font: 500 var(--t1)/1.35 var(--font-body); white-space: pre-line;
+  pointer-events: none;
+  transform: translate(-50%, 0);
 }
-[data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
-[data-tip=""]::after { content: none; }
-[data-tip].tip-below::after { bottom: auto; top: calc(100% + 6px); transform: translate(-50%, -3px); }
-[data-tip].tip-below:hover::after, [data-tip].tip-below:focus-visible::after { transform: translate(-50%, 0); }
-[data-tip].tip-left::after { left: auto; right: calc(100% + 6px); bottom: 50%; transform: translate(3px, 50%); }
-[data-tip].tip-left:hover::after, [data-tip].tip-left:focus-visible::after { transform: translate(0, 50%); }
+[data-tip]:hover::after, [data-tip]:focus-visible::after {
+  content: attr(data-tip);
+  animation: tip-in var(--motion-fast) var(--ease-standard) both;
+}
+[data-tip=""]:hover::after, [data-tip=""]:focus-visible::after { content: none; }
+@keyframes tip-in { from { opacity: 0; transform: translate(-50%, 3px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+[data-tip].tip-below::after { bottom: auto; top: calc(100% + 6px); }
+[data-tip].tip-below:hover::after, [data-tip].tip-below:focus-visible::after { animation-name: tip-in-below; }
+@keyframes tip-in-below { from { opacity: 0; transform: translate(-50%, -3px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* For a control near the right edge of the window: the bubble hangs off the
+   anchor's own right edge instead of straddling its centre, so it can never
+   leave the window. `.tip-left` puts it beside the control entirely. */
+[data-tip].tip-end::after { left: auto; right: 0; transform: translate(0, 0); }
+[data-tip].tip-end:hover::after, [data-tip].tip-end:focus-visible::after { animation-name: tip-in-end; }
+@keyframes tip-in-end { from { opacity: 0; transform: translate(0, 3px); } to { opacity: 1; transform: translate(0, 0); } }
+
+[data-tip].tip-below.tip-end::after { left: auto; right: 0; }
+[data-tip].tip-below.tip-end:hover::after, [data-tip].tip-below.tip-end:focus-visible::after { animation-name: tip-in-end-below; }
+@keyframes tip-in-end-below { from { opacity: 0; transform: translate(0, -3px); } to { opacity: 1; transform: translate(0, 0); } }
+
+[data-tip].tip-left::after { left: auto; right: calc(100% + 6px); bottom: 50%; transform: translate(0, 50%); }
+[data-tip].tip-left:hover::after, [data-tip].tip-left:focus-visible::after { animation-name: tip-in-left; }
+@keyframes tip-in-left { from { opacity: 0; transform: translate(3px, 50%); } to { opacity: 1; transform: translate(0, 50%); } }
 
 .tip-panel {
   position: fixed; z-index: var(--z-pop);
@@ -1002,11 +1065,19 @@
   transform: translateX(0); opacity: 1;
   transition: transform var(--motion-normal) var(--ease-enter), opacity var(--motion-fast) var(--ease-exit);
 }
-.toast.is-in { transform: translateX(12px); opacity: 0; }
-.toast.is-out { transform: translateX(12px); opacity: 0; }
+/* The enter/exit move is a SHRINK, not a sideways slide. A transformed box is
+   part of its parent's scrollable overflow, so translateX(12px) on a toast made
+   the fixed .toasts host 12px wider than itself for the length of every
+   animation -- a phantom overflow that moved as toasts came and went. A scale
+   about the centre can never leave the box it starts in. */
+.toast.is-in { transform: scale(.97); opacity: 0; }
+.toast.is-out { transform: scale(.97); opacity: 0; }
 .toast-body { flex: 1 1 auto; min-width: 0; }
-.toast-title { font-weight: 600; }
-.toast-msg { color: var(--text-2); font-size: var(--t1); overflow-wrap: anywhere; }
+/* Both are `display:block`: as inline spans they shared a line box, so a toast
+   with a title AND a message rendered them run together on one line and the two
+   boxes visually intersected. */
+.toast-title { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.toast-msg { display: block; color: var(--text-2); font-size: var(--t1); line-height: 1.35; overflow-wrap: anywhere; }
 .toast-x {
   flex: 0 0 auto; width: 20px; height: 20px; padding: 0;
   display: flex; align-items: center; justify-content: center;
