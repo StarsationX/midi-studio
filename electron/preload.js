@@ -152,6 +152,9 @@ contextBridge.exposeInMainWorld('studio', {
   onPanelFailed: onChannel('panel-failed'),
   // ---- added for the boot splash: real milestones, never a fake percentage -
   bootState: () => ipcRenderer.invoke('app:bootState'),
+  // Renderer-side startup milestones, appended to main's boot log. send(), not
+  // invoke(): instrumenting the boot path must not slow the boot path.
+  bootMark: (step, ms) => ipcRenderer.send('app:bootMark', { step, ms }),
   onBootMilestone: onChannel('boot-milestone'),
   // ---- added for the What's New screen ------------------------------------
   // changelog() hands over the raw CHANGELOG.md; the renderer parses it with

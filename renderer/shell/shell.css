@@ -102,15 +102,7 @@ body[data-boot="ready"] .shell {
 }
 .nav-item:hover { color: var(--text-2); background: #ffffff08; }
 .nav-item[aria-selected="true"] { color: var(--text); }
-.nav-key {
-  padding: 1px 4px; border: 1px solid var(--line-2); border-radius: 3px;
-  background: var(--bg-2); color: var(--text-3);
-  font: 600 var(--t1)/1.3 var(--font-mono);
-  transition: color var(--motion-fast) var(--ease-standard),
-              border-color var(--motion-fast) var(--ease-standard);
-}
-.nav-item[aria-selected="true"] .nav-key { color: var(--accent); border-color: var(--accent-line); }
-.nav-item:focus-visible { box-shadow: var(--ring); border-radius: 2px; }
+.nav-item[aria-selected="true"] .nav-item:focus-visible { box-shadow: var(--ring); border-radius: 2px; }
 
 /* one indicator, moved with transform. width is 1px so scaleX is a pixel width */
 .nav-ind {
@@ -446,7 +438,6 @@ body.is-covered .tabframe { visibility: hidden; }
      "Search" + Ctrl K     -> the field keeps its magnifier and its aria-label
    No control is ever removed, and the window buttons never move.
    ======================================================================== */
-@media (max-width: 1240px) { .nav-key { display: none; } }
 @media (max-width: 1160px) { .brand-tag { display: none; } }
 @media (max-width: 1100px) {
   .tb-search { padding: 0 7px; }
@@ -727,8 +718,7 @@ body.is-covered .tabframe { visibility: hidden; }
    The target tab is marked for a moment so the eye follows the file across.
    ======================================================================== */
 .nav-item.is-cue { color: var(--text); }
-.nav-item.is-cue .nav-key { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
-
+.nav-item.is-cue 
 /* ===========================================================================
    9. WHAT'S NEW
    A .dlg with a reading column inside it. Section headings are title case in

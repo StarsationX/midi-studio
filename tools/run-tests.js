@@ -640,8 +640,6 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     for (const k of NAV_ORDER) {
       ok(html.indexOf('data-frame="' + k + '"') >= 0, 'index.html has the ' + k + ' nav item and frame');
     }
-    ok(html.indexOf('id="nav-logs"') >= 0 && /nav-logs[\s\S]{0,220}\^6/.test(html),
-      'the Logs nav item carries the ^6 hint chip');
     ok(html.indexOf('data-src="./logs/index.html"') >= 0, 'the Logs frame is lazily loaded from logs/index.html');
     ok(fs.existsSync(path.join(root, 'renderer', 'logs', 'index.html'))
       && fs.existsSync(path.join(root, 'renderer', 'logs', 'logs.js'))

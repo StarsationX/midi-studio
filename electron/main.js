@@ -1070,6 +1070,17 @@ function wireIpc() {
   // What the splash has to show. Whatever happened before the renderer
   // subscribed is here; everything after arrives on 'boot-milestone'.
   ipcMain.handle('app:bootState', () => ({ steps: bootSteps.slice(), ready: winPainted }));
+  // The renderer reaches its own milestones (first paint, splash hand-over, a
+  // tab's first usable frame) that main cannot see. They go into the SAME boot
+  // log rather than a second mechanism, so one file is the whole startup story
+  // and benchmarks/startup.js can read it. Fire-and-forget: a measurement must
+  // never add a round trip to the path it measures.
+  ipcMain.on('app:bootMark', (_e, p) => {
+    const step = String((p && p.step) || '').slice(0, 40);
+    if (!step) return;
+    const ms = Number(p && p.ms);
+    blog(`ui:${step}${Number.isFinite(ms) ? ` +${Math.round(ms)}ms` : ''}`);
+  });
   ipcMain.handle('app:openBootLog', () => {
     if (!paths.exists(BOOT_LOG)) return { ok: false, error: 'no boot log yet' };
     return shell.openPath(BOOT_LOG)

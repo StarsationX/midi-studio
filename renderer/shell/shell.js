@@ -25,6 +25,22 @@
   const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
   const raf = (fn) => window.requestAnimationFrame(fn);
 
+  // ---- startup instrumentation ---------------------------------------------
+  // Renderer milestones go into main's boot log (the one startup story lives in
+  // one file; see benchmarks/startup.js). Timestamps are ms since this
+  // document's navigation start, so they compose with main's absolute marks.
+  const uiMark = (step) => {
+    try { if (studio.bootMark) studio.bootMark(step, performance.now()); } catch (_) {}
+  };
+  uiMark('script');
+  try {
+    new PerformanceObserver((list, obs) => {
+      for (const e of list.getEntries()) {
+        if (e.name === 'first-contentful-paint') { uiMark('fcp'); obs.disconnect(); }
+      }
+    }).observe({ type: 'paint', buffered: true });
+  } catch (_) {}
+
   // A trailing-edge coalescer. Used for every continuous input in the shell:
   // the accent picker, the perf slider, the scrub bar, the ui:* IPC writes.
   // flush() INVOKES the pending call with the last arguments; cancel() drops it.
@@ -112,6 +128,10 @@
     const f = byKey[key];
     if (!f) return null;
     if (!f.frame.getAttribute('src') && f.frame.dataset.src) {
+      // First open of this tab: the two marks around it are what
+      // benchmarks/startup.js reports as "time to a usable tab".
+      f.openedAt = performance.now();
+      uiMark(`tab.${key}.src`);
       f.frame.setAttribute('src', f.frame.dataset.src);
     }
     return f;
@@ -1178,6 +1198,7 @@
         try { return x.frame.contentWindow === meta.source; } catch (_) { return false; }
       });
       if (!f) return;
+      if (!f.busReady) uiMark(`tab.${f.key}.ready`);
       f.busReady = true;
       f.readyForLoad = true;
       f.loaded = true;
@@ -2853,6 +2874,7 @@
   function bootMark(step, label) {
     if (bootDone) return;
     bootSeen[step] = true;
+    uiMark(step);
     const el = $('splash-status');
     // Always show the furthest step reached, so a late milestone cannot make
     // the line travel backwards.
@@ -2872,6 +2894,7 @@
   function finishBoot() {
     if (bootDone) return;
     bootDone = true;
+    uiMark('handover');
     const splash = $('splash');
     const el = $('splash-status');
     el.textContent = BOOT_LABEL.ready;
