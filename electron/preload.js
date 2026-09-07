@@ -122,5 +122,25 @@ contextBridge.exposeInMainWorld('studio', {
   overlayState: () => ipcRenderer.invoke('overlay:state'),
   toggleOverlay: () => ipcRenderer.invoke('overlay:toggle'),
   setOverlay: (patch) => ipcRenderer.invoke('overlay:apply', patch),
+  snapOverlay: (where) => ipcRenderer.invoke('overlay:snap', where),
   onOverlayState: onChannel('overlay-state'),
+  // ---- added for the custom titlebar (the window is frameless now) --------
+  window: {
+    minimize: () => ipcRenderer.send('win:minimize'),
+    maximize: () => ipcRenderer.send('win:maximize'),
+    unmaximize: () => ipcRenderer.send('win:unmaximize'),
+    toggleMaximize: () => ipcRenderer.send('win:toggleMaximize'),
+    close: () => ipcRenderer.send('win:close'),
+    state: () => ipcRenderer.invoke('win:state'),
+  },
+  onWindowState: onChannel('window-state'),
+  onPanelFailed: onChannel('panel-failed'),
+  // ---- added for the boot splash: real milestones, never a fake percentage -
+  bootState: () => ipcRenderer.invoke('app:bootState'),
+  onBootMilestone: onChannel('boot-milestone'),
+  // ---- added for Settings > Storage and the palette's file actions --------
+  openBootLog: () => ipcRenderer.invoke('app:openBootLog'),
+  getOutputDir: () => ipcRenderer.invoke('app:getOutputDir'),
+  openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
+  showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
 });

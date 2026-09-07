@@ -114,13 +114,17 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/for \(const node of \[b\.time, b\.advToggle, b\.adv\]\) if \(node\) b\.pipeline\.appendChild\(node\)/.test(js),
     'classic restore does not depend on a sibling that may have moved');
 
+  // The rewritten settings sheet: #set-nav + eight .set-pane sections. The four
+  // Forge layouts and their picker (#s-forge-layout) are gone on purpose, and
+  // the old #snav is now #set-nav, so neither may come back.
   const shell = fsx.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
-  for (const id of ['s-forge-layout', 'snav', 's-perf-percent', 's-forgedir', 's-theme', 's-recheck']) {
+  for (const id of ['set-nav', 'set-panes', 's-perf-percent', 's-forgedir', 's-theme', 's-recheck']) {
     ok(shell.includes('id="' + id + '"'), `settings still has #${id}`);
   }
-  const panes = (shell.match(/class="spane[^"]*" data-pane=/g) || []).length;
+  ok(!shell.includes('id="s-forge-layout"'), 'the removed Forge layout picker has not come back');
+  const panes = (shell.match(/class="set-pane[^"]*" data-pane=/g) || []).length;
   const navs = (shell.match(/data-pane="[a-z]+"/g) || []).length;
-  ok(panes === 5, `settings has 5 panes (found ${panes})`);
+  ok(panes === 8, `settings has 8 panes (found ${panes})`);
   ok(navs === panes * 2, `every settings pane has a nav button (${navs} refs for ${panes} panes)`);
 }
 
@@ -232,7 +236,11 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/win\.setAlwaysOnTop\(ui\.alwaysOnTop !== false\)/.test(mainSrc),
     'toggling always-on-top applies without a restart');
   ok(read('renderer/index.html').includes('id="s-ontop"'), 'settings has the always-on-top control');
-  ok(read('renderer/shell/shell.js').includes("$('s-ontop')"), 'the always-on-top control is wired');
+  // The shell drives every switch through wireSwitch(id, fn), so that is what
+  // "wired" looks like now; grepping for a bare $('s-ontop') found nothing while
+  // the control worked end to end.
+  ok(/wireSwitch\('s-ontop',/.test(read('renderer/shell/shell.js')),
+    'the always-on-top control is wired');
 
   // ---- Perch, the overlay -------------------------------------------------
   const ovSrc = read('electron/overlay.js');
@@ -370,6 +378,93 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   const names = lib.list([dir]).files.map((f) => f.name).sort();
   ok(names.join(',') === 'orphan_detailed,piano,song_melody', `candidate fold (got ${names.join(',')})`);
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
+// The rewritten design system + shell. These six all shipped broken once and
+// every one of them is silent when it regresses, which is exactly what a
+// regression guard is for.
+// ---------------------------------------------------------------------------
+{
+  const fs = require('fs');
+  const rd = (rel) => fs.readFileSync(path.join(root, ...rel.split('/')), 'utf8');
+  const drawSrc = rd('renderer/shared/draw.js');
+  const shellSrc = rd('renderer/shell/shell.js');
+  const tokensCss = rd('renderer/shared/tokens.css');
+  const uiCss = rd('renderer/shared/ui.css');
+  const shellCss = rd('renderer/shell/shell.css');
+
+  // 1. Re-registering a Draw consumer must REPLACE it, not throw. dispose()
+  // lives on the returned handle, never on the record kept in byKey.
+  ok(/byKey\[key\]\s*&&\s*byKey\[key\]\.handle/.test(drawSrc) && !/byKey\[key\]\.dispose\(\)/.test(drawSrc),
+    'Draw.register replaces an existing key through the handle, not the record');
+
+  // 2. setBaseMs must survive readAttrs(), which runs first inside refreshEnv
+  // and would otherwise read data-drawms straight back over it.
+  ok(/var localBaseMs/.test(drawSrc) && /localBaseMs !== null \? localBaseMs/.test(drawSrc),
+    'Draw.setBaseMs is a local override, not an env write readAttrs erases');
+
+  // 3. debounce().flush() must INVOKE. It is the only send path for the volume
+  // knob and the only thing a keyboard arrow-press on a slider ever produces.
+  const dbnc = /function debounce\(fn, ms\)\s*\{[\s\S]*?\n  \}/.exec(shellSrc);
+  ok(!!dbnc, 'the shell has a debounce helper');
+  ok(!!dbnc && /flush = \(\) => \{[\s\S]*?fn\(\.\.\.p\)/.test(dbnc[0]),
+    'debounce().flush() invokes the pending call instead of cancelling it');
+  ok(!!dbnc && /cancel = \(\)/.test(dbnc[0]), 'debounce() also offers cancel()');
+  ok(/vol\.addEventListener\('change'[\s\S]{0,320}?ownerCommand\('volume'/.test(shellSrc),
+    'the volume knob sends on change even with no pending debounce');
+
+  // 4. Grabbing the scrub thumb and letting go must not seek. It used to rewind
+  // live playback to 0:00 because scrubValue started at 0.
+  ok(/scrubMoved = false/.test(shellSrc) && /if \(scrubMoved && window\.Transport\) window\.Transport\.seek/.test(shellSrc),
+    'the transport only seeks when the scrub actually moved');
+
+  // 5. Chromium fires load for a src-less iframe's about:blank document, and all
+  // five frames start src-less. Treating that as "the panel is up" let the boot
+  // splash hand over to an empty stage.
+  ok(/function frameNavigated\(f\)/.test(shellSrc) && /if \(!frameNavigated\(f\)\) return;/.test(shellSrc),
+    'onFrameLoad ignores the initial about:blank load');
+  ok(/if \(f\.loaded && frameNavigated\(f\)\) done\(\);/.test(shellSrc),
+    'the splash hand-over waits for a real panel document');
+
+  // 6. The 12px type floor (invariant 31). The 9px visualiser keyboard label is
+  // the one sanctioned exception and does not live in these three files.
+  const TINY = /font(?:-size)?:[^;}]*\b(?:8(?:\.5)?|9|10|11)px\b/g;
+  for (const [rel, src] of [['renderer/shared/tokens.css', tokensCss],
+                            ['renderer/shared/ui.css', uiCss],
+                            ['renderer/shell/shell.css', shellCss]]) {
+    const hits = (src.match(TINY) || []);
+    ok(hits.length === 0, `${rel} keeps the 12px type floor (found ${hits.join(' | ')})`);
+  }
+  ok(!/#63666e/.test(shellCss), 'the log timestamp uses --text-3, not a hard-coded sub-AA grey');
+
+  // 7. Motion is never the only signal: the blanket reduced-motion rule leaves a
+  // one-iteration animation at its END frame, which parked the indeterminate bar
+  // one full track width off-screen and left a busy button blank.
+  const rmBlocks = tokensCss.slice(tokensCss.indexOf('@media (prefers-reduced-motion'));
+  ok(/\.bar-fill\.indet\s*\{[^}]*animation: none/.test(rmBlocks) && /width: 100% !important/.test(rmBlocks),
+    'the indeterminate bar has a static reduced-motion form');
+  const uiRm = uiCss.slice(uiCss.indexOf('@media (prefers-reduced-motion'));
+  ok(/\.btn\.is-busy\s*\{\s*color: inherit/.test(uiRm),
+    'a busy button shows its label again under reduced motion');
+
+  // 8. Finished-transcription offer: SYNTHESIS maps it to a strip action, and
+  // index.html tells the user so. A 7s toast is not that.
+  ok(/forged: null/.test(shellSrc) && /id: 'queue', label: 'Add to queue'/.test(shellSrc),
+    'a finished transcription is offered on the activity strip, not only as a toast');
+  ok(/clearForged\(\);\s*\/\/ the next job supersedes/.test(shellSrc),
+    'the next Forge job supersedes the previous offer');
+
+  // 9. The shared modules the contract now documents must exist and export.
+  for (const rel of ['renderer/shared/icons.js', 'renderer/shared/resize.js',
+                     'renderer/shared/timeline-zoom.js', 'renderer/shared/menu.js']) {
+    ok(fs.existsSync(path.join(root, ...rel.split('/'))), `${rel} exists`);
+  }
+  const contract = rd('docs/rewrite/CONTRACT.md');
+  for (const name of ['window.Icon', 'window.Resize', 'window.TimelineZoom', 'window.Menu']) {
+    ok(contract.indexOf(name) >= 0, `CONTRACT documents ${name}`);
+  }
+  ok(/library\.list\(\)/.test(contract), 'CONTRACT documents the Library data surface');
 }
 
   console.log(`\n${pass} passed, ${fail} failed`);

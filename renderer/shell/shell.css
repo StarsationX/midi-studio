@@ -1,235 +1,616 @@
-/* shell.css: app chrome. Design system in ../shared/tokens.css.
-   Console Pro: flat graphite toolbar, tab blocks with lime underline +
-   keyboard hints, precise modal, flat alert strips. */
+/* ===========================================================================
+   shell.css — the application chrome: custom titlebar, activity strip, tab
+   stage, bottom transport, command palette, settings sheet, boot splash.
+
+   Everything reusable lives in ../shared/tokens.css and ../shared/ui.css and is
+   documented in docs/rewrite/CONTRACT.md. What is here is chrome: one titlebar,
+   one strip, one transport, one palette, one sheet. Nothing in this file is a
+   general-purpose primitive, and nothing here restates one.
+
+   Animation rule, everywhere in this file: transform and opacity only (plus
+   colour/border-colour, which do not lay out). No width/height/top/left/
+   box-shadow/filter transitions, no permanent will-change, no idle animation.
+   ======================================================================== */
 
 html, body { height: 100%; overflow: hidden; }
-body { display: flex; flex-direction: column; }
+body { background: var(--bg); }
 
-/* ---- top bar ----------------------------------------------------------- */
-.topbar {
-  display: flex; align-items: stretch; gap: var(--s6);
-  height: 52px; padding: 0 0 0 var(--s5); flex: 0 0 auto;
-  background: #1a1b20;
-  border-bottom: 1px solid var(--line);
+/* chrome metrics; both tighten under compact density */
+:root {
+  --h-tbar: 44px;
+  --h-astrip: 34px;
+  --h-xport: 56px;
+  --h-logdrawer: 196px;
+  --w-setnav: 176px;
+}
+[data-density="compact"] {
+  --h-tbar: 40px;
+  --h-astrip: 30px;
+  --h-xport: 50px;
+  --h-logdrawer: 164px;
+  --w-setnav: 158px;
+}
+
+.shell {
+  display: flex; flex-direction: column;
+  height: 100%; min-height: 0;
+  opacity: 0; transform: translateY(4px);
+}
+/* the boot hand-over: shell fades up as the splash fades out */
+body[data-boot="ready"] .shell {
+  opacity: 1; transform: translateY(0);
+  transition: opacity 220ms var(--ease-enter), transform 220ms var(--ease-enter);
+}
+
+/* ===========================================================================
+   0. THE WAVEFORM MARK
+   Five bars on the same grid as the icon set. Static in the titlebar; the
+   splash animates the same element.
+   ======================================================================== */
+.wf { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
+.wf > i {
+  display: block; width: 2px; height: 100%;
+  background: var(--accent); border-radius: 1px;
+  transform: scaleY(var(--wf, 1)); transform-origin: bottom center;
+}
+.wf > i:nth-child(1) { --wf: .38; }
+.wf > i:nth-child(2) { --wf: .70; }
+.wf > i:nth-child(3) { --wf: 1; }
+.wf > i:nth-child(4) { --wf: .56; }
+.wf > i:nth-child(5) { --wf: .28; }
+
+.brand-mark { display: flex; align-items: center; flex: 0 0 auto; }
+.brand-mark.is-lg .wf { height: 26px; gap: 3px; }
+.brand-mark.is-lg .wf > i { width: 3px; }
+
+/* ===========================================================================
+   1. TITLEBAR
+   ======================================================================== */
+.tbar {
+  flex: 0 0 auto; display: flex; align-items: stretch; gap: var(--s4);
+  height: var(--h-tbar); padding-left: var(--s4);
+  background: #1a1b20; border-bottom: 1px solid var(--line);
   -webkit-app-region: drag; user-select: none;
 }
-.brand { display: flex; align-items: center; gap: 12px; -webkit-app-region: no-drag; }
-.brand-logo { height: 30px; width: auto; display: block; }
-#s-theme { height: 30px; }
+.tbar > *, .tbar button, .tbar input, .tbar a { -webkit-app-region: no-drag; }
 
-/* tab switcher, flat blocks, lime underline on active, key hints */
-.tabs { display: flex; gap: 0; -webkit-app-region: no-drag; align-self: stretch; }
-.tab {
-  -webkit-app-region: no-drag; position: relative;
-  background: transparent; color: var(--text-3);
-  border: 0; border-left: 1px solid var(--line); border-right: 1px solid transparent;
-  padding: 0 24px;
-  font: 600 13px/1 var(--font-body); cursor: pointer;
-  display: inline-flex; align-items: center; gap: 8px;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+.tbar-brand { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; min-width: 0; }
+.brand-text { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.brand-name {
+  font: 700 12px/1.1 var(--font-display); letter-spacing: 2.2px;
+  color: var(--text); white-space: nowrap;
 }
-.tab:last-child { border-right: 1px solid var(--line); }
-.tab::after {  /* keyboard hint chip */
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  color: var(--text-3); padding: 2px 4px; border: 1px solid var(--line-2);
-  border-radius: 3px; background: var(--bg-2);
-}
-.tab[data-tab="forge"]::after  { content: "^1"; }
-.tab[data-tab="player"]::after { content: "^2"; }
-.tab[data-tab="review"]::after { content: "^3"; }
-.tab[data-tab="audition"]::after { content: "^4"; }
-.tab:hover { color: var(--text-2); background: #1f2126; }
-.tab.is-active {
-  color: var(--text); background: var(--bg);
-  box-shadow: inset 0 2px 0 var(--accent);
-}
-.tab.is-active::after { color: var(--accent); border-color: var(--accent-line); }
-
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s3); padding-right: var(--s4); -webkit-app-region: no-drag; }
-.version-badge {
-  -webkit-app-region: no-drag; display: inline-flex; align-items: center;
-  height: 24px; padding: 0 8px; border-radius: 3px;
-  background: var(--bg-2); color: var(--text-3); border: 1px solid var(--line-2);
-  font: 600 12px/1 var(--font-mono); letter-spacing: .4px;
-  cursor: pointer;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
-}
-.version-badge:hover { color: var(--accent); border-color: var(--accent-line); }
-.iconbtn {
-  -webkit-app-region: no-drag; width: 28px; height: 28px; border-radius: var(--r-sm);
-  background: transparent; color: var(--text-3); border: 1px solid transparent;
-  font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), border-color var(--dur) var(--ease);
-}
-.iconbtn:hover { color: var(--text); background: var(--surface-2); border-color: var(--line-2); }
-
-/* ---- settings modal ----------------------------------------------------- */
-.modal-scrim { position: fixed; inset: 0; z-index: 10001; display: flex; align-items: center; justify-content: center;
-  background: rgba(8, 9, 11, .7); animation: ub-in var(--dur-2) var(--ease); }
-.modal-scrim[hidden] { display: none; }
-.modal {
-  width: min(680px, calc(100% - 48px));
-  background: var(--surface); border: 1px solid var(--line-2);
-  border-radius: var(--r-lg); box-shadow: var(--sh-pop); overflow: hidden;
-}
-.modal-head {
-  display: flex; align-items: center; justify-content: space-between; padding: var(--s3) var(--s4);
-  border-bottom: 1px solid var(--line); background: #1a1b20;
-}
-.modal-head h2 {
-  margin: 0; font-family: var(--font-mono);
-  font-size: 12px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
-  color: var(--text-2);
-}
-.modal-body { padding: var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
-.srow { display: flex; align-items: center; gap: var(--s4); justify-content: space-between; }
-.skey {
-  color: var(--text-3); flex: 0 0 100px;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  letter-spacing: 1.2px; text-transform: uppercase;
-}
-.sval { color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; }
-.storage-row { align-items: flex-start; }
-.storage-control { flex: 1; min-width: 0; display: grid; gap: var(--s2); }
-.storage-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 12px; }
-.storage-actions { display: flex; align-items: center; gap: var(--s2); }
-.storage-actions .btn { height: 28px; padding: 0 12px; }
-.modal-actions { display: flex; gap: var(--s2); flex-wrap: wrap; padding-top: var(--s1); }
-
-/* ---- tab surfaces ------------------------------------------------------- */
-.stage { position: relative; flex: 1 1 auto; min-height: 0; }
-.tabframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--bg); display: none; }
-.tabframe.is-active { display: block; }
-/* An <iframe> can composite above a parent fixed overlay; hide the tab while a
-   modal is open so the dialog renders solid. */
-body.modal-open .tabframe { visibility: hidden; }
-
-/* ---- update banner ------------------------------------------------------ */
-.update-banner {
-  display: flex; align-items: center; gap: var(--s3);
-  margin: var(--s3) var(--s4) 0; padding: var(--s3) var(--s4);
-  background: var(--surface); border: 1px solid var(--line-2);
-  border-left: 2px solid var(--accent);
-  border-radius: var(--r); box-shadow: var(--sh-2);
-  animation: ub-in var(--dur-2) var(--ease);
-}
-@keyframes ub-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-.update-banner[hidden] { display: none; }
-.ub-icon {
-  width: 30px; height: 30px; border-radius: var(--r-sm); flex: 0 0 auto;
-  display: grid; place-items: center; font-size: 15px;
-  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line);
-}
-.ub-text { flex: 1 1 auto; min-width: 0; }
-.ub-title { font-weight: 600; }
-.ub-sub { color: var(--text-3); font-size: 12px; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ub-prog { height: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 2px; margin-top: 8px; overflow: hidden; }
-.ub-prog-fill { height: 100%; width: 0; background: var(--accent); transition: width var(--dur-2) var(--ease); }
-
-/* ---- toasts -------------------------------------------------------------- */
-.toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 10000; }
-.toast {
-  min-width: 220px; max-width: 380px; padding: 12px 16px; border-radius: var(--r-sm);
-  background: var(--surface-2); color: var(--text);
-  border: 1px solid var(--line-2); border-left: 2px solid var(--accent);
-  box-shadow: var(--sh-pop); font-size: 13px; font-weight: 500;
-  animation: toast-in var(--dur-2) var(--ease);
-}
-.toast.out { animation: toast-out var(--dur-2) var(--ease) forwards; }
-.toast--ok { border-left-color: var(--ok); }
-.toast--err { border-left-color: var(--err); }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
-
-.limit-row { display: flex; gap: 12px; justify-content: flex-end; }
-.limit-row label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
-.limit-row input { width: 62px; height: 28px; padding: 0 8px; color: var(--text); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
-
-.limit-control { flex: 1; min-width: 0; display: grid; gap: 8px; justify-items: end; }
-.limit-head { display: flex; align-items: center; gap: 12px; width: 100%; }
-.limit-head input[type=range] { flex: 1; accent-color: var(--accent); }
-#s-perf-value { min-width: 42px; text-align: right; color: var(--accent); font-size: 12px; }
-.limit-explain { text-align: right; line-height: 1.5; }
-
-/* ==========================================================================
-   SETTINGS: a two-pane dialog. The old version was one flat list where the
-   accent picker sat next to "clean reinstall", so nothing had any weight.
-   ========================================================================== */
-.modal-split { display: grid; grid-template-columns: 168px minmax(0, 1fr); min-height: 0; }
-
-.snav {
-  display: flex; flex-direction: column; gap: 2px; padding: var(--s3);
-  background: var(--bg-2); border-right: 1px solid var(--line);
-}
-.snav button {
-  text-align: left; background: none; border: 0; border-radius: var(--r-sm);
-  padding: 8px 12px; color: var(--text-2);
-  font: 600 13px/1.2 var(--font-body); cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.snav button:hover { background: var(--surface-2); color: var(--text); }
-.snav button.is-active { background: var(--accent-soft); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
-
-.spanes { padding: var(--s6); overflow-y: auto; min-width: 0; }
-.spane { display: none; flex-direction: column; gap: var(--s8); }
-.spane.is-active { display: flex; }
-
-.sgroup { display: flex; flex-direction: column; gap: var(--s3); }
-.sgroup-h { display: flex; flex-direction: column; gap: 4px; }
-.sgroup-h h3 {
-  margin: 0; font: 700 13px/1.2 var(--font-mono);
-  letter-spacing: 2px; text-transform: uppercase; color: var(--text-3);
-}
-.sgroup-h p { margin: 0; color: var(--text-2); font-size: 13px; max-width: 56ch; }
-.snote { margin: 0; color: var(--text-3); font-size: 12px; max-width: 60ch; line-height: 1.5; }
-.sactions { display: flex; gap: var(--s2); flex-wrap: wrap; }
-.btn.danger { color: var(--err); }
-.btn.danger:hover { background: var(--err-soft); border-color: #5a2e2e; }
-
-/* Layout chooser: each option draws its own shape, so the choice is visible
-   rather than a word you have to imagine. */
-/* Four options, so 2x2 reads as a set. auto-fit gave 3 + 1 orphan. */
-.layout-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
-.layout-cards button {
-  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
-  padding: var(--s3); border-radius: var(--r);
-  background: var(--surface-2); border: 1px solid var(--line-2);
-  cursor: pointer; text-align: left;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
-}
-.layout-cards button:hover { background: var(--surface-3); }
-.layout-cards button.is-active { background: var(--accent-soft); border-color: var(--accent-line); }
-.lc-name { font: 600 13px/1.2 var(--font-body); color: var(--text); }
-.lc-desc { font-size: 12px; color: var(--text-3); line-height: 1.4; }
-
-/* the little diagram of each arrangement */
-.lc-art { display: grid; gap: 3px; width: 100%; height: 40px; padding: 4px;
-  background: var(--bg-2); border: 1px solid var(--line); border-radius: 3px; }
-.lc-art i { background: var(--line-2); border-radius: 1.5px; display: block; }
-.layout-cards button.is-active .lc-art i { background: var(--accent-deep); }
-.lc-classic { grid-template-rows: repeat(3, 1fr); }
-.lc-cards   { grid-template-rows: repeat(4, 1fr); }
-.lc-bench   { grid-template-rows: 8px 1fr; grid-template-columns: 1fr 1fr; }
-.lc-bench i:first-child { grid-column: 1 / -1; }
-.lc-console { grid-template-columns: 1fr 2fr 1fr; }
-
-@media (max-width: 620px) {
-  .modal-split { grid-template-columns: minmax(0, 1fr); }
-  .snav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
-  .snav button.is-active { box-shadow: inset 0 -2px 0 var(--accent); }
+.brand-tag {
+  font: 500 var(--t1)/1.2 var(--font-body); letter-spacing: .2px;
+  color: var(--text-3); white-space: nowrap;
 }
 
-/* The panes are narrower than the old full-width modal, so the 100px key
-   column wrapped "CUSTOM COLOUR" onto two lines. Give keys room and stop
-   them wrapping; the value side can shrink instead. */
-.spanes .skey { flex: 0 1 auto; white-space: nowrap; }
-.spanes .srow { gap: var(--s3); }
-.spanes .sval { min-width: 0; }
-/* A native select on a dark ground renders its text at the platform's idea of
-   "control text", which reads as disabled here. Say what it should be. */
-.spanes select.sval {
-  color: var(--text); background: var(--surface-2);
+/* --- nav ---------------------------------------------------------------- */
+.tbar-nav {
+  position: relative; display: flex; align-items: stretch; flex: 0 0 auto;
+  margin: 0 auto;
+}
+.nav-item {
+  position: relative; display: inline-flex; align-items: center; gap: 7px;
+  padding: 0 var(--s4); border: 0; background: transparent;
+  color: var(--text-3); cursor: pointer;
+  font: 600 var(--t2)/1 var(--font-body);
+  transition: color var(--motion-fast) var(--ease-standard),
+              background-color var(--motion-fast) var(--ease-standard);
+}
+.nav-item:hover { color: var(--text-2); background: #ffffff08; }
+.nav-item[aria-selected="true"] { color: var(--text); }
+.nav-key {
+  padding: 1px 4px; border: 1px solid var(--line-2); border-radius: 3px;
+  background: var(--bg-2); color: var(--text-3);
+  font: 600 var(--t1)/1.3 var(--font-mono);
+  transition: color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
+}
+.nav-item[aria-selected="true"] .nav-key { color: var(--accent); border-color: var(--accent-line); }
+.nav-item:focus-visible { box-shadow: var(--ring); border-radius: 2px; }
+
+/* one indicator, moved with transform. width is 1px so scaleX is a pixel width */
+.nav-ind {
+  position: absolute; left: 0; bottom: 0; width: 1px; height: 2px;
+  background: var(--accent); transform-origin: left center;
+  transform: translateX(0) scaleX(0);
+  transition: transform var(--motion-normal) var(--ease-standard), opacity var(--motion-fast) linear;
+}
+.nav-ind.is-cue { opacity: .35; }
+
+/* --- right cluster ------------------------------------------------------ */
+.tbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto; }
+
+.tb-search {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: var(--h-ctl-sm); padding: 0 6px 0 8px;
+  background: var(--bg-2); color: var(--text-3);
   border: 1px solid var(--line-2); border-radius: var(--r-sm);
-  padding: 5px 8px; font: 500 13px/1 var(--font-body);
+  cursor: text; font: 500 var(--t1)/1 var(--font-body);
+  transition: border-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
-.spanes select.sval option { color: var(--text); background: var(--surface); }
+.tb-search:hover { border-color: #4a4e58; color: var(--text-2); }
+.tb-search:focus-visible { box-shadow: var(--ring); }
+.tb-search-txt { min-width: 46px; text-align: left; }
+.tb-search .kbd-seq { margin-left: 4px; }
+
+.tb-version {
+  height: var(--h-ctl-sm); padding: 0 8px; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-3);
+  border: 1px solid transparent; cursor: pointer;
+  font: 600 var(--t1)/1 var(--font-mono); letter-spacing: .4px;
+  transition: color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+.tb-version:hover { color: var(--accent); border-color: var(--accent-line); }
+.tb-version.is-new { color: var(--accent); border-color: var(--accent-line); }
+.tb-gear { align-self: center; }
+
+/* --- window controls ---------------------------------------------------- */
+.wctl { display: flex; align-items: stretch; margin-left: var(--s2); }
+.wctl-btn {
+  width: 44px; border: 0; background: transparent; color: var(--text-2);
+  display: grid; place-items: center; cursor: default;
+  transition: background-color var(--motion-instant) var(--ease-standard), color var(--motion-instant) var(--ease-standard);
+}
+.wctl-btn:hover { background: #ffffff14; color: var(--text); }
+.wctl-btn:active { background: #ffffff0a; }
+.wctl-btn.is-close:hover { background: #c42b1c; color: #fff; }
+.wctl-btn:focus-visible { box-shadow: inset var(--ring); }
+.wctl-restore { display: none; }
+body[data-maximized="1"] .wctl-max { display: none; }
+body[data-maximized="1"] .wctl-restore { display: block; }
+
+/* ===========================================================================
+   2. ACTIVITY STRIP
+   ======================================================================== */
+.astrip {
+  flex: 0 0 auto; display: flex; flex-direction: column;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.astrip-row {
+  display: flex; align-items: stretch; min-height: var(--h-astrip);
+  padding-right: var(--s2);
+}
+
+/* --- activity items ----------------------------------------------------- */
+.as-items { display: flex; align-items: stretch; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+/* A wrapper, so the row's own click target and its action buttons are
+   siblings: a <button> inside a <button> is invalid and gets hoisted out. */
+.aitem {
+  display: flex; align-items: stretch; min-width: 0;
+  border-right: 1px solid var(--line);
+  padding-right: var(--s2);
+}
+.aitem.is-primary { flex: 1 1 auto; }
+.aitem-main {
+  display: flex; align-items: center; gap: var(--s2);
+  flex: 1 1 auto; min-width: 0; padding: 0 var(--s3);
+  border: 0; background: transparent;
+  color: var(--text-2); text-align: left; cursor: pointer;
+  font: 500 var(--t1)/1 var(--font-body);
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.aitem-main:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.aitem-main:focus-visible { box-shadow: inset var(--ring); }
+.aitem-main:disabled { cursor: default; }
+.aitem.is-quiet .aitem-main { color: var(--text-3); }
+.aitem-kind {
+  flex: 0 0 auto; font: 700 var(--t1)/1 var(--font-mono);
+  letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3);
+}
+.aitem.is-live .aitem-kind { color: var(--accent); }
+.aitem-acts { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; align-self: center; }
+.aitem-name { min-width: 4ch; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.aitem-meta { flex: 0 0 auto; color: var(--text-3); font-family: var(--font-mono); font-size: var(--t1); white-space: nowrap; }
+.aitem-bar { flex: 0 1 132px; min-width: 44px; }
+
+/* --- status chips ------------------------------------------------------- */
+.as-chips { display: flex; align-items: stretch; flex: 0 0 auto; }
+.as-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 var(--s3); border: 0; border-left: 1px solid var(--line);
+  background: transparent; color: var(--text-3); cursor: pointer;
+  font: 500 var(--t1)/1 var(--font-body); white-space: nowrap;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.as-chip:hover { background: var(--surface-2); color: var(--text); }
+.as-chip:focus-visible { box-shadow: inset var(--ring); }
+.as-chip.is-ok { color: var(--text-2); }
+.as-chip.is-warn { color: var(--warn); }
+.as-chip.is-err { color: var(--err); }
+
+/* --- update row -------------------------------------------------------- */
+.as-update {
+  display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto;
+  padding: 0 var(--s2) 0 var(--s3);
+  border-left: 1px solid var(--line);
+  background: var(--accent-soft);
+}
+.as-upd-mark { color: var(--accent); display: flex; }
+.as-upd-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; max-width: 34ch; }
+.as-upd-title { font: 600 var(--t1)/1.2 var(--font-body); color: var(--text); white-space: nowrap; }
+.as-upd-sub { font-size: var(--t1); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.as-upd-bar { width: 90px; flex: 0 0 auto; }
+
+/* --- log drawer -------------------------------------------------------- */
+.as-log-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 var(--s3); border: 0; border-left: 1px solid var(--line);
+  background: transparent; color: var(--text-3); cursor: pointer;
+  font: 600 var(--t1)/1 var(--font-body);
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.as-log-toggle:hover { background: var(--surface-2); color: var(--text); }
+.as-log-toggle:focus-visible { box-shadow: inset var(--ring); }
+.as-log-toggle [data-icon] { transition: transform var(--motion-fast) var(--ease-standard); }
+.as-log-toggle[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
+.as-log-toggle[aria-expanded="true"] [data-icon] { transform: rotate(90deg); }
+.as-log-count {
+  padding: 0 5px; border-radius: var(--r-pill);
+  background: var(--err-soft); color: var(--err);
+  font: 600 var(--t1)/1.5 var(--font-mono);
+}
+
+.alog {
+  flex: 0 0 auto; display: flex; flex-direction: column;
+  height: var(--h-logdrawer); border-top: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.alog-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s2);
+  height: var(--h-ctl); padding: 0 var(--s2) 0 var(--s3);
+  border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.alog-title { font: 700 var(--t1)/1 var(--font-mono); letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-3); }
+.alog-list { flex: 1 1 auto; min-height: 0; padding: 4px 0; }
+.alog-empty { flex: 1 1 auto; }
+.logline {
+  display: flex; align-items: center; gap: var(--s2);
+  height: 18px; padding: 0 var(--s3);
+  font: 400 var(--t1)/18px var(--font-mono);
+  color: var(--text-2); white-space: nowrap;
+}
+.logline-t { flex: 0 0 auto; color: var(--text-3); }
+.logline-src { flex: 0 0 54px; color: var(--text-3); text-transform: uppercase; font-size: var(--t1); letter-spacing: .6px; }
+.logline-x { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.logline.is-warn .logline-x { color: var(--warn); }
+.logline.is-error .logline-x { color: var(--err); }
+.logline.is-ok .logline-x { color: var(--accent); }
+
+/* ===========================================================================
+   3. TAB STAGE
+   Panels are position:absolute and toggled with [hidden]; the transition is
+   opacity + a 2-3px vertical nudge, never a horizontal page slide.
+   ======================================================================== */
+.stage { position: relative; flex: 1 1 auto; min-height: 0; background: var(--bg); }
+.tabframe {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  border: 0; background: var(--bg);
+  opacity: 0; transform: translateY(3px);
+  transition: opacity var(--motion-normal) var(--ease-standard), transform var(--motion-normal) var(--ease-standard);
+}
+.tabframe.is-active { opacity: 1; transform: translateY(0); z-index: 2; }
+.tabframe.is-leaving { opacity: 0; transform: translateY(-2px); z-index: 1; pointer-events: none; }
+/* An <iframe> can composite above a parent fixed overlay, so a panel must be
+   taken out of the picture while the palette, the settings sheet or the drop
+   veil is up. shell.js also stamps data-onscreen="0" on it, which parks its
+   draw loop instead of letting it render frames nobody can see. */
+body.is-covered .tabframe { visibility: hidden; }
+
+/* ===========================================================================
+   4. BOTTOM TRANSPORT
+   ======================================================================== */
+.xport {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s3);
+  height: var(--h-xport); padding: 0 var(--s3);
+  background: #1a1b20; border-top: 1px solid var(--line);
+}
+.xport[data-owner=""] .xp-name { color: var(--text-3); }
+
+.xp-now { display: flex; align-items: center; gap: var(--s2); flex: 0 1 250px; min-width: 132px; }
+.xp-art {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: var(--r-sm);
+  display: grid; place-items: center;
+  background: var(--bg-2); border: 1px solid var(--line-2); color: var(--text-3);
+  transition: color var(--motion-normal) var(--ease-standard), border-color var(--motion-normal) var(--ease-standard);
+}
+.xport.is-live .xp-art { color: var(--accent); border-color: var(--accent-line); }
+.xp-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+.xp-name { font: 600 var(--t2)/1.25 var(--font-body); color: var(--text); }
+.xp-sub { font: 500 var(--t1)/1.25 var(--font-body); color: var(--text-3); }
+.xp-status { flex: 0 0 auto; }
+
+.xp-buttons { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.xp-play {
+  position: relative; width: 34px; height: 34px; border-radius: var(--r-pill);
+  background: var(--surface-2); border-color: var(--line-2); color: var(--text);
+}
+.xp-play:hover:not(:disabled) { background: var(--surface-3); }
+.xport.is-live .xp-play { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.xport.is-live .xp-play:hover:not(:disabled) { background: var(--accent-2); }
+/* the two glyphs are stacked and cross-faded, so the button DOM never changes */
+.xp-play-ic {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+.xp-play-ic.is-pause { opacity: 0; transform: scale(.86); }
+.xp-play-ic.is-play  { opacity: 1; transform: scale(1); }
+.xp-play[data-mode="pause"] .xp-play-ic.is-play  { opacity: 0; transform: scale(.86); }
+.xp-play[data-mode="pause"] .xp-play-ic.is-pause { opacity: 1; transform: scale(1); }
+.xp-b:disabled, .xp-play:disabled { opacity: .35; }
+#xp-repeat { position: relative; }
+/* "repeat one" is marked by a drawn 1 inside the icon's own 16-unit grid, not by
+   a 9px text badge: the type scale bottoms out at 12px, and a 12px digit in the
+   corner of a 24px button would sit on top of the arrows. The word is still in
+   the button's aria-label, so the mark is never the only signal. */
+.xp-rep-1 {
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+#xp-repeat[data-repeat="one"] .xp-rep-1 { opacity: 1; stroke: var(--accent); }
+
+.xp-time { display: flex; align-items: center; gap: var(--s2); flex: 1 1 auto; min-width: 140px; }
+.xp-clock { flex: 0 0 auto; font-size: var(--t1); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.xp-clock.is-total { color: var(--text-3); }
+.xp-scrub { flex: 1 1 auto; min-width: 60px; }
+
+.xp-knobs { display: flex; align-items: center; gap: var(--s3); flex: 0 0 auto; }
+.xp-knob { display: flex; align-items: center; gap: 6px; }
+.xp-knob-k {
+  font: 700 var(--t1)/1 var(--font-mono); letter-spacing: .6px;
+  color: var(--text-3); white-space: nowrap;
+}
+.xp-knob .range { width: 58px; flex: 0 0 auto; }
+.xp-knob-v {
+  min-width: 40px; text-align: right; font-size: var(--t1);
+  color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+.xp-knob.is-off { opacity: .4; }
+
+.xp-perch { flex: 0 0 auto; gap: 6px; }
+
+/* The knobs are duplicated in the owning panel, so they are the first thing to
+   give ground when the window is narrow: labels first, then the two secondary
+   ranges. Tempo, the transport buttons and Perch never go. */
+@media (max-width: 1080px) { .xp-knob-k { display: none; } }
+@media (max-width: 980px) {
+  #xp-knob-transpose .range, #xp-knob-volume .range { display: none; }
+  .xp-now { flex-basis: 200px; }
+}
+
+/* --- a panel that could not load ---------------------------------------- */
+.tab-fallback {
+  position: absolute; inset: 0; z-index: 3;
+  background: var(--bg);
+}
+
+/* ===========================================================================
+   5. COMMAND PALETTE
+   ======================================================================== */
+.pal-scrim {
+  position: fixed; inset: 0; z-index: var(--z-scrim);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 12vh var(--s6) var(--s6);
+  background: #0a0b0dcc;
+  opacity: 0; transition: opacity 140ms var(--ease-standard);
+}
+.pal-scrim.is-open { opacity: 1; }
+.pal {
+  display: flex; flex-direction: column; min-height: 0;
+  width: min(640px, 100%); max-height: 100%;
+  background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: var(--r-lg); box-shadow: var(--sh-pop);
+  opacity: 0; transform: translateY(-6px) scale(.99);
+  transition: opacity 140ms var(--ease-enter), transform 140ms var(--ease-enter);
+}
+.pal-scrim.is-open > .pal { opacity: 1; transform: translateY(0) scale(1); }
+.pal-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s2);
+  height: var(--h-ctl-xl); padding: 0 var(--s3);
+  border-bottom: 1px solid var(--line); color: var(--text-3);
+}
+.pal-input {
+  flex: 1 1 auto; min-width: 0; height: 100%;
+  background: transparent; border: 0; outline: none; color: var(--text);
+  font: 500 var(--t3)/1 var(--font-body);
+}
+.pal-input::placeholder { color: var(--text-3); }
+/* The palette body reuses .menu / .menu-item, so it has to undo the parts of
+   .menu that exist for a floating context menu: fixed position, the 320px cap,
+   its own surface, and the open/close transform. */
+.pal-list {
+  position: static; display: block;
+  min-width: 0; max-width: none; width: auto;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: var(--s1) 0; margin: 0;
+  background: transparent; border: 0; border-radius: 0; box-shadow: none;
+  opacity: 1; transform: none; transition: none;
+}
+.pal-list .menu-item { border-radius: 0; height: 30px; padding: 0 var(--s3); }
+.pal-list .menu-label { padding: 9px var(--s3) 4px; }
+.pal-row-sub { color: var(--text-3); font-size: var(--t1); margin-left: 6px; }
+.pal-empty { flex: 1 1 auto; }
+.pal-foot {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+  padding: 6px var(--s3); border-top: 1px solid var(--line);
+  color: var(--text-3); font-size: var(--t1);
+}
+.pal-foot-t { margin-right: var(--s3); }
+.pal-foot .kbd-seq { margin-right: 2px; }
+
+/* ===========================================================================
+   6. SETTINGS SHEET
+   ======================================================================== */
+.set-body { display: grid; grid-template-columns: var(--w-setnav) minmax(0, 1fr); min-height: 0; }
+.set-nav {
+  display: flex; flex-direction: column; gap: 2px; padding: var(--s3) var(--s2);
+  background: var(--bg-2); border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+.set-nav > button {
+  position: relative; text-align: left;
+  padding: 7px 10px; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-2); cursor: pointer;
+  font: 600 var(--t2)/1.3 var(--font-body);
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.set-nav > button:hover { background: var(--surface-2); color: var(--text); }
+.set-nav > button[aria-selected="true"] { background: var(--accent-soft); color: var(--text); }
+.set-nav > button[aria-selected="true"]::before {
+  content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px;
+  background: var(--accent); border-radius: 1px;
+}
+.set-nav > button:focus-visible { box-shadow: var(--ring); }
+
+.set-panes { padding: var(--s5) var(--s5) var(--s8); min-width: 0; }
+.set-pane { display: flex; flex-direction: column; gap: var(--s6); }
+.set-sec { display: flex; flex-direction: column; gap: var(--s3); }
+.set-sec-h { display: flex; flex-direction: column; gap: 3px; }
+.set-sec-h h3 {
+  margin: 0; font: 700 var(--t1)/1.2 var(--font-mono);
+  letter-spacing: 1.8px; text-transform: uppercase; color: var(--text-3);
+}
+.set-sec-h p { margin: 0; color: var(--text-2); font-size: var(--t2); max-width: 56ch; line-height: 1.5; }
+.set-sec.is-danger { padding-top: var(--s3); border-top: 1px solid var(--line); }
+
+.set-row { display: grid; grid-template-columns: minmax(96px, 150px) minmax(0, 1fr); gap: var(--s3); align-items: center; }
+.set-key { color: var(--text-2); font-size: var(--t2); min-width: 0; }
+.set-val { min-width: 0; display: flex; align-items: center; gap: var(--s2); }
+.set-val > .selectwrap, .set-val > .segmented { flex: 1 1 auto; }
+.set-out { min-width: 46px; text-align: right; color: var(--accent); font-size: var(--t1); font-variant-numeric: tabular-nums; }
+.set-note { margin: 0; color: var(--text-3); font-size: var(--t1); line-height: 1.5; max-width: 62ch; }
+.set-actions { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.set-list { display: flex; flex-direction: column; gap: 4px; }
+.set-list-row {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: 4px 4px 4px 8px; min-height: var(--h-ctl-sm);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.set-list-row .pathchip { flex: 1 1 auto; min-width: 0; }
+.set-color {
+  width: 40px; height: var(--h-ctl-sm); padding: 0;
+  background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.set-color::-webkit-color-swatch-wrapper { padding: 2px; }
+.set-color::-webkit-color-swatch { border: 0; border-radius: 2px; }
+
+/* accent swatch inside a segment: the choice is a real mark, not just a word */
+.segmented > button > .sw {
+  width: 8px; height: 8px; border-radius: 2px; margin-right: 6px;
+  display: inline-block; flex: 0 0 auto;
+}
+.sw[data-sw="lime"]    { background: #b8e62e; }
+.sw[data-sw="cyan"]    { background: #2bd4e6; }
+.sw[data-sw="indigo"]  { background: #6c8cff; }
+.sw[data-sw="magenta"] { background: #ff5db0; }
+.sw[data-sw="amber"]   { background: #ffb02e; }
+
+/* the 3x3 park pad */
+.park { display: grid; grid-template-columns: repeat(3, 34px); grid-auto-rows: 26px; gap: 3px; }
+.park > button {
+  border: 1px solid var(--line-2); border-radius: 3px;
+  background: var(--bg-2); cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+.park > button::before {
+  content: ""; display: block; width: 12px; height: 8px; border-radius: 1px;
+  background: var(--line-2); margin: 2px;
+  transition: background-color var(--motion-fast) var(--ease-standard);
+}
+.park > button:nth-child(3n+2)::before { margin-left: auto; margin-right: auto; }
+.park > button:nth-child(3n)::before { margin-left: auto; }
+.park > button:nth-child(n+4)::before { margin-top: 7px; }
+.park > button:nth-child(n+7)::before { margin-top: 12px; margin-bottom: 2px; }
+.park > button:hover { border-color: var(--accent-line); background: var(--accent-soft); }
+.park > button:hover::before { background: var(--accent); }
+.park > button:focus-visible { box-shadow: var(--ring); }
+
+.set-about { display: flex; align-items: center; gap: var(--s3); padding-bottom: var(--s2); }
+.set-about-name { font: 700 var(--t4)/1.1 var(--font-display); letter-spacing: 2.4px; color: var(--text); }
+.set-about-tag { font: 500 var(--t2)/1.4 var(--font-body); color: var(--text-3); }
+
+@media (max-width: 720px) {
+  .set-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .set-nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .set-nav > button[aria-selected="true"]::before { left: 6px; right: 6px; top: auto; bottom: 0; width: auto; height: 2px; }
+}
+
+/* ===========================================================================
+   7. BOOT SPLASH
+   The window's backgroundColor is already --bg, so this is the first thing
+   ever painted: no white frame, no unpainted Chromium surface.
+   ======================================================================== */
+.splash {
+  position: fixed; inset: 0; z-index: 95;
+  display: grid; place-items: center;
+  background: var(--bg);
+  opacity: 1;
+  transition: opacity 200ms var(--ease-exit);
+}
+.splash-inner { display: flex; flex-direction: column; align-items: center; gap: var(--s4); }
+.splash-mark {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 9px;
+  transform: scale(1); opacity: 1;
+  transition: transform 200ms var(--ease-exit), opacity 200ms var(--ease-exit);
+}
+.splash-mark .wf { height: 40px; gap: 5px; }
+.splash-mark .wf > i { width: 5px; border-radius: 2px; }
+/* the bars rise in sequence, then hold at the mark's own proportions */
+.splash-mark .wf > i { animation: wf-rise 420ms var(--ease-enter) both; }
+.splash-mark .wf > i:nth-child(1) { animation-delay: 0ms; }
+.splash-mark .wf > i:nth-child(2) { animation-delay: 70ms; }
+.splash-mark .wf > i:nth-child(3) { animation-delay: 140ms; }
+.splash-mark .wf > i:nth-child(4) { animation-delay: 210ms; }
+.splash-mark .wf > i:nth-child(5) { animation-delay: 280ms; }
+@keyframes wf-rise {
+  from { transform: scaleY(.04); opacity: .25; }
+  60%  { transform: scaleY(calc(var(--wf) * 1.22)); opacity: 1; }
+  to   { transform: scaleY(var(--wf)); opacity: 1; }
+}
+/* a thin lime line sweeps under the mark, once */
+.splash-sweep {
+  width: 96px; height: 1px; background: var(--line-2); position: relative; overflow: hidden;
+}
+.splash-sweep::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  transform: translateX(-100%);
+  animation: sweep 720ms 220ms var(--ease-standard) both;
+}
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+.splash-word { text-align: center; opacity: 0; animation: fade-up 300ms 320ms var(--ease-enter) both; }
+.splash-name { font: 700 var(--t4)/1.1 var(--font-display); letter-spacing: 3.4px; color: var(--text); }
+.splash-tag { margin-top: 5px; font: 500 var(--t2)/1.4 var(--font-body); color: var(--text-3); }
+@keyframes fade-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.splash-status {
+  font: 500 var(--t1)/1 var(--font-mono); letter-spacing: .6px;
+  color: var(--text-3); text-transform: lowercase;
+  opacity: 0; animation: fade-up 260ms 460ms var(--ease-enter) both;
+}
+
+/* Handover, and the short-circuit for a fast boot: the bars snap to their
+   settled proportions instead of waiting out their stagger. */
+.splash.is-settled .wf > i,
+.splash.is-out .wf > i { animation: none; transform: scaleY(var(--wf)); opacity: 1; }
+.splash.is-settled .splash-word, .splash.is-settled .splash-status,
+.splash.is-out .splash-word, .splash.is-out .splash-status { animation: none; opacity: 1; }
+.splash.is-settled .splash-sweep::after, .splash.is-out .splash-sweep::after { animation: none; opacity: 0; }
+.splash.is-out { opacity: 0; pointer-events: none; }
+.splash.is-out .splash-mark { transform: scale(.96); opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-mark .wf > i, .splash-sweep::after, .splash-word, .splash-status { animation: none !important; opacity: 1; }
+  .splash-mark .wf > i { transform: scaleY(var(--wf)); }
+  .nav-ind { transition: none; }
+}
+
+/* ===========================================================================
+   8. HAND-OFF CONTINUITY CUE
+   The target tab is marked for a moment so the eye follows the file across.
+   ======================================================================== */
+.nav-item.is-cue { color: var(--text); }
+.nav-item.is-cue .nav-key { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }

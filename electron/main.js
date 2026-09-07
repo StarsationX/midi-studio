@@ -24,6 +24,16 @@ const updater = require('./updater');
 // milestones/errors to a file so a silent early exit can be diagnosed.
 const BOOT_LOG = path.join(os.tmpdir(), 'midi-studio-boot.log');
 function blog(m) { try { fs.appendFileSync(BOOT_LOG, `${Date.now()} ${m}\n`); } catch (_) {} }
+// The splash shows REAL initialisation state, never a fake percentage. These
+// are the milestones main actually passes; the renderer collects the ones that
+// fired before it subscribed through app:bootState, then follows the channel.
+const bootSteps = [];
+function bootMark(step, label) {
+  if (bootSteps.some((s) => s.step === step)) return;
+  bootSteps.push({ step, label, t: Date.now() });
+  blog(`boot:${step}`);
+  sendToRenderer('boot-milestone', { step, label });
+}
 blog(`--- boot --- packaged=${app.isPackaged} resources=${process.resourcesPath} argv=${process.argv.slice(1).join(' ')}`);
 
 // Self Midi / Midi Editor keep playing while you are in the game window.
@@ -206,7 +216,11 @@ function createWindow() {
     width: wb.width || 1240, height: wb.height || 880, minWidth: 1040, minHeight: 700,
     x: typeof wb.x === 'number' ? wb.x : undefined,
     y: typeof wb.y === 'number' ? wb.y : undefined,
-    backgroundColor: '#0e1014', title: 'MIDI Studio', show: false, autoHideMenuBar: true,
+    // Frameless: the shell draws its own titlebar (drag region + window
+    // controls). backgroundColor is the app's own --bg, so the very first thing
+    // Chromium paints is already the right colour: no white flash, ever.
+    frame: false,
+    backgroundColor: '#141519', title: 'MIDI Studio', show: false, autoHideMenuBar: true,
     // On by default: the usual way to play is with a game on top of this window,
     // and a player you cannot see is not much of a player. Settings turns it off.
     alwaysOnTop: settings.get('ui.alwaysOnTop') !== false,
@@ -226,8 +240,16 @@ function createWindow() {
     winPainted = true;
     if (wb.maximized) win.maximize();
     win.show();
+    bootMark('painted', 'Ready');
+    sendWindowState();
     if (OPEN_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' });
   });
+
+  // A frameless window has to be told what it is: without this the shell's
+  // maximise glyph never becomes a restore glyph.
+  for (const ev of ['maximize', 'unmaximize', 'minimize', 'restore', 'enter-full-screen', 'leave-full-screen', 'focus', 'blur']) {
+    win.on(ev, sendWindowState);
+  }
 
   // The renderer subscribes to update-status as it loads. Anything that
   // arrived before then was sent into the void, so hand it over now.
@@ -283,10 +305,24 @@ function createWindow() {
   // almost the whole window, so a keydown listener in the shell frame never sees
   // them once the user has clicked into a tab.
   win.webContents.on('before-input-event', (e, input) => {
-    if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return;
-    const tab = { 1: 'forge', 2: 'player', 3: 'review', 4: 'audition' }[input.key];
-    if (!tab) return;
-    sendToRenderer('shell-shortcut', { tab });
+    if (input.type !== 'keyDown' || !input.control || input.meta) return;
+    // Ctrl+Alt+L opens the activity log. Checked first, because the tab map
+    // below deliberately ignores Alt.
+    if (input.alt) {
+      if (input.key === 'l' || input.key === 'L') { sendToRenderer('shell-shortcut', { id: 'log' }); e.preventDefault(); }
+      return;
+    }
+    // The nav order is Forge, Editor, Player, Self MIDI, Library. This map and
+    // the shell's own Ctrl+1..5 handler must always list the same five keys in
+    // the same order, or the two disagree about what Ctrl+3 means.
+    const tab = { 1: 'forge', 2: 'review', 3: 'player', 4: 'audition', 5: 'library' }[input.key];
+    if (tab) { sendToRenderer('shell-shortcut', { tab }); e.preventDefault(); return; }
+    // The command palette and the settings sheet belong to the shell, so they
+    // have to come back out of the panel the same way the tab keys do.
+    const id = (input.key === 'k' || input.key === 'K') ? 'palette'
+      : input.key === ',' ? 'settings' : '';
+    if (!id) return;
+    sendToRenderer('shell-shortcut', { id });
     e.preventDefault();
   });
 
@@ -296,8 +332,19 @@ function createWindow() {
   // machine that is usually transient (antivirus still scanning the freshly
   // installed asar), so retry twice before giving up and saying so.
   let loadAttempts = 0;
-  win.webContents.on('did-fail-load', (_e, code, desc, url) => {
+  win.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
     if (code === -3) return; // aborted (normal during reloads)
+    // A panel iframe that fails (a tab whose document is not there yet) must
+    // never trigger the shell's reload recovery: that would reload the whole
+    // app in a loop instead of leaving one tab empty.
+    if (isMainFrame === false) {
+      blog(`panel did-fail-load ${code} ${desc} ${url}`);
+      // The shell covers that panel with its own empty state: a Chromium error
+      // page inside a tab is a white rectangle, which is exactly what "it opens
+      // white" looks like from the outside.
+      sendToRenderer('panel-failed', { url: String(url || ''), code, desc: String(desc || '') });
+      return;
+    }
     loadAttempts += 1;
     blog(`did-fail-load ${code} ${desc} ${url} (attempt ${loadAttempts})`);
     if (loadAttempts <= 2 && win && !win.isDestroyed()) {
@@ -311,7 +358,7 @@ function createWindow() {
   });
 
   const persist = debounce(() => {
-    if (!win) return;
+    if (!win || win.isDestroyed()) return;
     const maximized = win.isMaximized();
     const patch = { window: { maximized } };
     if (!maximized) { const b = win.getBounds(); Object.assign(patch.window, { width: b.width, height: b.height, x: b.x, y: b.y }); }
@@ -319,6 +366,8 @@ function createWindow() {
   }, 400);
   win.on('resize', persist);
   win.on('move', persist);
+  // Closing must not lose the last few hundred milliseconds of settings writes.
+  win.on('close', () => { persist.flush(); flushSettings(); });
   // Perch goes with it. It is skipTaskbar and always on top, so on its own it
   // would be an orphan the user can see but has no way to reach, and it would
   // hold window-all-closed open so the app never quits.
@@ -326,7 +375,44 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
 }
 
-function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+// Trailing-edge debounce with an explicit flush, so a pending write can always
+// be forced out before the process goes away.
+function debounce(fn, ms) {
+  let t = null, last = null;
+  const wrapped = (...a) => { last = a; clearTimeout(t); t = setTimeout(() => { t = null; fn(...last); }, ms); };
+  wrapped.flush = () => { if (!t) return; clearTimeout(t); t = null; fn(...last); };
+  return wrapped;
+}
+
+// The settings store writes the whole file synchronously on every merge, and the
+// callers include Perch drag (every 400ms while moving), the accent picker and
+// app:setUi. Coalesce the writes and guarantee a flush on quit and on window
+// close, so nothing is both slow AND lossy.
+let flushSettings = () => {};
+function installDebouncedSettings(store) {
+  const write = store._write.bind(store);
+  let dirty = false, timer = null;
+  store._write = () => {
+    dirty = true;
+    if (timer) return;
+    timer = setTimeout(() => { timer = null; if (dirty) { dirty = false; write(); } }, 600);
+  };
+  flushSettings = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (dirty) { dirty = false; write(); }
+  };
+}
+
+// The shell's custom titlebar needs to know whether the window is maximised,
+// and needs a way to drive the three window buttons.
+function windowState() {
+  if (!win || win.isDestroyed()) return { maximized: false, minimized: false, fullScreen: false, focused: false };
+  return {
+    maximized: win.isMaximized(), minimized: win.isMinimized(),
+    fullScreen: win.isFullScreen(), focused: win.isFocused()
+  };
+}
+function sendWindowState() { sendToRenderer('window-state', windowState()); }
 
 // ---- services ---------------------------------------------------------------
 function createServices() {
@@ -359,6 +445,7 @@ function createServices() {
   // broken on a slow machine (and it is the moment Defender is scanning the
   // freshly installed files). The Player tab needs it, not the splash.
   setTimeout(() => {
+    bootMark('engine', 'Starting MIDI engine');
     Promise.resolve(sidecar.start()).catch((e) => broadcast('engine-error', `Player engine failed to start: ${e && e.message || e}`));
   }, 1200);
 
@@ -435,6 +522,7 @@ function createServices() {
   try { recoverForgeEnv(); } catch (e) { blog(`forge env recovery failed: ${e.message}`); }
   // A previous run that was force-killed can leave a Forge job pinning the GPU.
   try {
+    bootMark('jobs', 'Checking background jobs');
     const reaped = reapOrphanJobs();
     if (reaped) { blog(`reaped ${reaped} orphaned forge job(s)`); setTimeout(() =>
       broadcast('forge:status', { event: 'forge.log', line: `Stopped ${reaped} leftover Forge job${reaped === 1 ? '' : 's'} from a previous session.`, level: 'info' }), 1500); }
@@ -497,7 +585,7 @@ function performanceSettings() {
 // tenth of that. Warning about 15 GB on a CPU machine sends people hunting for
 // space setup does not need. Mirrors MIN_FREE_GB_START* in provision_forge.py.
 function forgeNeedGb() {
-  const sys = process.env.SystemRoot || 'C:\Windows';
+  const sys = process.env.SystemRoot || 'C:\\Windows';
   try { return fs.existsSync(path.join(sys, 'System32', 'nvcuda.dll')) ? 15 : 6; }
   catch (_) { return 15; }
 }
@@ -519,7 +607,7 @@ function adoptInstallerForgePath() {
   if (settings.forgePaths().forgeEnvDir) return;         // an explicit choice already exists
   let chosen = '';
   try {
-    const out = spawnSync('reg.exe', ['query', 'HKCU\Software\StarsationX\MIDI Studio', '/v', 'ForgeStorageDir'],
+    const out = spawnSync('reg.exe', ['query', 'HKCU\\Software\\StarsationX\\MIDI Studio', '/v', 'ForgeStorageDir'],
       { windowsHide: true, encoding: 'utf-8', timeout: 5000 });
     const match = /ForgeStorageDir\s+REG_SZ\s+(.+)/i.exec(out.stdout || '');
     chosen = match ? match[1].trim() : '';
@@ -844,6 +932,26 @@ function wireIpc() {
 
   ipcMain.handle('app:openExternal', (_e, url) => (/^https?:\/\//i.test(String(url)) ? shell.openExternal(url) : null));
   ipcMain.handle('app:version', () => app.getVersion());
+  // The window is frameless, so the three window buttons are the renderer's and
+  // it needs these. Nothing here can act on a window it does not own.
+  ipcMain.handle('win:state', () => windowState());
+  ipcMain.on('win:minimize', () => { if (win && !win.isDestroyed()) win.minimize(); });
+  ipcMain.on('win:maximize', () => { if (win && !win.isDestroyed()) win.maximize(); });
+  ipcMain.on('win:unmaximize', () => { if (win && !win.isDestroyed()) win.unmaximize(); });
+  ipcMain.on('win:toggleMaximize', () => {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMaximized()) win.unmaximize(); else win.maximize();
+  });
+  ipcMain.on('win:close', () => { if (win && !win.isDestroyed()) win.close(); });
+  // What the splash has to show. Whatever happened before the renderer
+  // subscribed is here; everything after arrives on 'boot-milestone'.
+  ipcMain.handle('app:bootState', () => ({ steps: bootSteps.slice(), ready: winPainted }));
+  ipcMain.handle('app:openBootLog', () => {
+    if (!paths.exists(BOOT_LOG)) return { ok: false, error: 'no boot log yet' };
+    return shell.openPath(BOOT_LOG)
+      .then((err) => (err ? shell.showItemInFolder(BOOT_LOG) : null))
+      .then(() => ({ ok: true, path: BOOT_LOG }));
+  });
   ipcMain.handle('app:getUi', () => settings.get('ui') || {});
   ipcMain.handle('app:getOutputDir', () => programOutputDir());
   ipcMain.handle('app:getLibraryDir', () => {
@@ -996,6 +1104,8 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
     pendingOpenPath = midiPathFromArgv(process.argv);
     try {
       settings = new Settings();
+      installDebouncedSettings(settings);
+      bootMark('session', 'Restoring session');
       overlay = new Overlay({
         settings,
         indexHtml: paths.overlayHtml(),
@@ -1006,6 +1116,7 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
       wireOverlayIpc();
       registerOverlayShortcuts();
       createServices();
+      bootMark('window', 'Loading interface');
       createWindow();
       blog(`window created; index=${paths.rendererIndexHtml()}`);
     } catch (e) { blog(`BOOT ERROR: ${e && e.stack || e}`); throw e; }
@@ -1046,6 +1157,9 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
 let cleaned = false;
 function cleanup() {
   if (cleaned) return; cleaned = true;
+  // Settings writes are debounced now, so the last one has to be forced out
+  // before the process goes away or a just-changed preference is lost.
+  try { flushSettings(); } catch (_) {}
   // The overlay is skipTaskbar and always-on-top: left behind it would be a
   // window the user can see but cannot close from anywhere.
   try { if (overlay) overlay.close(); } catch {}
