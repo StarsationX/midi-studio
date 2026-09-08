@@ -1,0 +1,1032 @@
+{
+ "subsystem": "main (Electron main process: electron/main.js + preload.js + settings.js + paths.js + sidecar.js + forge-runner.js + forge-provisioner.js + forge-storage.js + library.js + gamewatch.js + overlay.js + updater.js)",
+ "features": [
+  {
+   "name": "Single BrowserWindow shell with tab iframes",
+   "how_it_works": "main.js:203-327 createWindow(). BrowserWindow opts: width/height from settings.window (default 1240x880), minWidth 1040, minHeight 700, x/y only if numeric, backgroundColor '#0e1014', title 'MIDI Studio', show:false, autoHideMenuBar:true, alwaysOnTop = settings.get('ui.alwaysOnTop') !== false (ON by default), icon paths.appIcon(). webPreferences: preload=paths.preloadScript(), contextIsolation:true, nodeIntegration:false, sandbox:false, nodeIntegrationInSubFrames:true (REQUIRED so tab iframes get the preload bridges), backgroundThrottling:false. win.setMenuBarVisibility(false); loadFile(paths.rendererIndexHtml()). Frame is standard (no frame:false, no titleBarStyle).",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "Deferred window show / white-screen avoidance",
+   "how_it_works": "show:false at create; on 'ready-to-show' (main.js:225-230) sets winPainted=true, maximizes if settings.window.maximized, win.show(), and opens detached devtools if argv has --dev. winPainted gates second-instance show/focus.",
+   "must_survive": true
+  },
+  {
+   "name": "Chromium background-throttling switches",
+   "how_it_works": "main.js:32-33 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows') and ('disable-renderer-backgrounding') before app ready. Needed on top of backgroundThrottling:false because occluded (game-on-top) renderers still get backgrounded, stalling audio/timers.",
+   "must_survive": true
+  },
+  {
+   "name": "Window size/position/maximized persistence (debounced)",
+   "how_it_works": "main.js:313-321 persist = debounce(400ms) writing settings.merge({window:{maximized, [width,height,x,y when not maximized]}}) on win 'resize' and 'move'. debounce helper at main.js:329.",
+   "must_survive": true,
+   "backend_calls": [
+    "settings.merge"
+   ]
+  },
+  {
+   "name": "Single-instance lock + second-instance recovery",
+   "how_it_works": "main.js:97 gotLock = CONFIGURE_FORGE_INDEX>=0 || app.requestSingleInstanceLock(). If not gotLock -> app.quit(). 'second-instance' (main.js:977-992): extracts a .mid from argv into pendingOpenPath and delivers if winPainted; restores if minimized; shows/focuses ONLY if winPainted; if win is gone entirely it calls createWindow() again (previously the second launch just exited leaving a lock-holding process).",
+   "must_survive": true
+  },
+  {
+   "name": "File association / open-with .mid handling",
+   "how_it_works": "package.json build.fileAssociations ext [mid, midi], name 'MIDI file', role Viewer. main.js:82-95 midiPathFromArgv scans argv.slice(1) for /\\.midi?$/i that exists -> path.resolve. First launch: set in whenReady (main.js:996). Already running: set from second-instance argv. deliverOpenPath sends 'open-midi' {midiPath} to the MAIN frame only, delayed 600ms after did-finish-load so the player iframe has subscribed.",
+   "must_survive": true,
+   "backend_calls": [
+    "sendToRenderer('open-midi')"
+   ]
+  },
+  {
+   "name": "Broadcast-to-subframes fan-out helper",
+   "how_it_works": "main.js:113-126 broadcast(channel,payload): wc.send to main frame, then walks wc.mainFrame.framesInSubtree and f.send() to every non-main frame, each in its own try/catch; finally overlay.send(channel,payload) because Perch is a separate window the frame walk cannot reach. sendToRenderer (main.js:103-109) is the MAIN-frame-only variant used for update-status, shell-shortcut, open-midi so the shell owns the single updater UI.",
+   "must_survive": true
+  },
+  {
+   "name": "Cached 'ready' replay to late iframes",
+   "how_it_works": "sidecar onEvent stores lastReady when event==='ready' (main.js:345). win.webContents 'did-frame-finish-load' (main.js:245-248): if !isMainFrame && lastReady, setTimeout 60ms then broadcast('engine-event', lastReady).",
+   "must_survive": true
+  },
+  {
+   "name": "Cached update-status replay",
+   "how_it_works": "lastUpdateStatus set by pushUpdate (main.js:1014). On 'did-finish-load' (main.js:234-241), if lastUpdateStatus, setTimeout 300ms then sendToRenderer('update-status', payload).",
+   "must_survive": true
+  },
+  {
+   "name": "will-prevent-unload dialog (Midi Editor unsaved notes)",
+   "how_it_works": "main.js:253-264. If no visible window -> e.preventDefault() (allow close, nobody to ask). Else showMessageBoxSync 'Unsaved changes' / 'The Midi Editor has unsaved note edits.' buttons ['Keep editing','Discard and close'] defaultId 0 cancelId 0; choice===1 -> e.preventDefault() which PROCEEDS with the close (inverted semantics of this event).",
+   "must_survive": true
+  },
+  {
+   "name": "Close guard while a Forge job or setup is running",
+   "how_it_works": "win.on('close') main.js:268-280: if forge.isRunning() or provisioner.isRunning() and window is visible, showMessageBoxSync 'Still working' with job-vs-setup message, buttons ['Keep running','Quit anyway']; anything but index 1 -> e.preventDefault().",
+   "must_survive": true
+  },
+  {
+   "name": "Ctrl+1..4 tab shortcuts caught in main process",
+   "how_it_works": "win.webContents.on('before-input-event') main.js:285-291: keyDown + control, not alt/meta; map {1:'forge',2:'player',3:'review',4:'audition'} -> sendToRenderer('shell-shortcut',{tab}) and e.preventDefault(). Must be in main because the stage iframe swallows shell keydowns.",
+   "must_survive": true,
+   "backend_calls": [
+    "shell-shortcut"
+   ]
+  },
+  {
+   "name": "did-fail-load retry + error box",
+   "how_it_works": "main.js:298-311: ignores code -3 (aborted). loadAttempts<=2 -> reload paths.rendererIndexHtml() after 800*attempt ms; else dialog.showErrorBox('MIDI Studio failed to load', ...). Guards against antivirus-scanning-asar transient failures.",
+   "must_survive": true
+  },
+  {
+   "name": "External-link handling",
+   "how_it_works": "win.webContents.setWindowOpenHandler (main.js:326): http(s) -> shell.openExternal, always return {action:'deny'}.",
+   "must_survive": true
+  },
+  {
+   "name": "Boot diagnostics log",
+   "how_it_works": "main.js:25-27 BOOT_LOG = os.tmpdir()/midi-studio-boot.log; blog() appendFileSync. Logged at: boot banner with packaged/resourcesPath/argv, gotLock, open-file path, whenReady fired, window created + index path, mappings dir, second-instance, did-fail-load, forge adopt/recover/reap failures, BOOT ERROR, window-all-closed, forced exit, unhandledRejection, uncaughtException, unavailable global shortcut.",
+   "must_survive": true
+  },
+  {
+   "name": "Installer 'configure forge storage' headless mode",
+   "how_it_works": "argv --configure-forge-storage <dir> (main.js:37-40). Takes the single-instance bypass (gotLock forced true). whenReady branch main.js:954-969: new Settings(), forgeStorage.configure(settings,target,current,defaultDir), syncInstallerForgePath, app.exit(0) / app.exit(2) on error. No window, no IPC, no services.",
+   "must_survive": true
+  },
+  {
+   "name": "--post-update splash status",
+   "how_it_works": "argv --post-update (main.js:36) -> after 1500ms pushUpdate({state:'updated', version: app.getVersion()}).",
+   "must_survive": true
+  },
+  {
+   "name": "Automatic update check on launch",
+   "how_it_works": "main.js:1017-1026: only if app.isPackaged and settings.get('ui.autoCheckUpdates') !== false. Timer starts from ready-to-show (or 4s fallback) then +2500ms -> updater.checkForUpdates(pushUpdate,{manual:false}).",
+   "must_survive": true,
+   "backend_calls": [
+    "updater.checkForUpdates"
+   ]
+  },
+  {
+   "name": "Updater: GitHub latest release -> SemVer -> download -> SHA-256 -> NSIS wizard",
+   "how_it_works": "updater.js. REPO StarsationX/midi-studio, LATEST_API .../releases/latest. getJson/download enforce https (assertHttps) and follow up to 5 redirects manually. pickSetup picks /setup.*\\.exe$/i else a non-portable .exe. cmpVer is full SemVer incl. prerelease ordering. checkForUpdates(send,{manual}) sends {state:'checking'} only when manual; on newer -> caches {version,current,setup:{url,name,size,digest},notes,htmlUrl} and sends {state:'available',version,current,size,notes(<=4000 chars),canSelfUpdate:true,htmlUrl}; else {state:'none',current,manual:true} (manual only); errors -> {state:'error',message,manual:true} (manual only). applyUpdate(send): {state:'downloading',percent} per chunk, staging dir userData/updates, {state:'verifying'}, verifyDigest vs asset digest ('sha256:hex'): absent digest -> unlink, shell.openExternal(htmlUrl), {state:'manual',htmlUrl,reason:'no-digest'}; MISMATCH throws -> {state:'error'}. Then {state:'ready'}, launchInstaller, then app.quit() after 400ms. Failed launch -> shell.showItemInFolder(installer) + {state:'error'}.",
+   "must_survive": true,
+   "backend_calls": [
+    "update:check",
+    "update:apply",
+    "update-status"
+   ]
+  },
+  {
+   "name": "Installer launch via Start-Process, never /S",
+   "how_it_works": "updater.js:96 installerArgs() returns [] ALWAYS (never silent). installDirWritable() write-probes dirname(app.getPath('exe')). On win32 launchInstaller always goes through powershell.exe -NoProfile -NonInteractive -Command \"Start-Process -FilePath '<file>' [-Verb RunAs]\" with 120s timeout; elevate when install dir not writable. Non-win32 uses detached spawn().unref().",
+   "must_survive": true
+  },
+  {
+   "name": "Player sidecar (python-engine/ipc_main.py, NDJSON over stdio)",
+   "how_it_works": "sidecar.js. Start delayed 1200ms after services created (main.js:361-363) so first paint isn't competing with python + Defender. Interpreter: paths.bundledPlayerPython() else probePython over [$PYTHON] | win ['py -3','py','python','python3'] | posix ['python3','python'] with a 4s probe timeout. spawn(exe, [...prefix,'-u',script]) cwd engineDir, env += PYTHONIOENCODING utf-8, PYTHONUNBUFFERED 1, PYTHONPATH=engineDir(+existing), windowsHide true. os.setPriority(pid, ABOVE_NORMAL). trackPid via forge-runner (so a leftover copy doesn't block the installer). stdout newline-split JSON -> onEvent, bad line -> {event:'log',level:'error'}. stderr tail kept at 4000 chars and each line emitted as {event:'log',level:'warn',message:'[py] ...'}. On exit: ModuleNotFoundError detection -> actionable _fail message; nonzero and not killing -> crash message with last 2 stderr lines; ALWAYS emits {event:'playback_done',crashed:true} so the renderer unlocks Play/queue; untrackPid. send() writes JSON+\\n, auto-restarts and returns false when dead. kill() writes {cmd:'shutdown'} then after 400ms taskkill /t /f (win) or SIGKILL. _startPromise in-flight guard prevents N sidecars from rapid sends.",
+   "must_survive": true,
+   "backend_calls": [
+    "engine:send",
+    "engine-event",
+    "engine-error"
+   ]
+  },
+  {
+   "name": "Persistent user mappings dir + preset seeding",
+   "how_it_works": "paths.ensureUserMappings() called in createServices BEFORE the sidecar spawns and sets process.env.MIDI_STUDIO_MAPPINGS_DIR so the engine inherits it (main.js:335-339). Dir = userData/mappings. Seeds bundled python-engine/mappings/*.json only when shouldRefreshPreset (missing dst, or src x_app_preset_version > dst, or the drums.json v0 note_to_key['36']==='c' legacy repair). Never clobbers user edits.",
+   "must_survive": true,
+   "backend_calls": [
+    "app:openMappingsDir",
+    "dialog:openMapping"
+   ]
+  },
+  {
+   "name": "Playback-active + game-active Forge backgrounding",
+   "how_it_works": "main.js:44-60,421-431. Two independent flags: playbackActive (set true on engine 'playback_started', false on 'playback_done' or 'error') and gameUp (from GameWatch). refreshForgeBackground() -> forge.setBackground(playbackActive || (gameUp && whenGaming !== 'nothing')). Playback ALWAYS counts (timing-critical); a game only counts when the setting allows. GameWatch callback additionally: if whenGaming==='pause' and forge.isRunning() -> forge.setPaused(!!game); then broadcast('game-active',{game, rule}). gameWatch.start() delayed 8000ms.",
+   "must_survive": true,
+   "backend_calls": [
+    "game-active",
+    "forge.setBackground",
+    "forge.setPaused"
+   ]
+  },
+  {
+   "name": "GameWatch tasklist poller",
+   "how_it_works": "gamewatch.js. GAMES = ['RobloxPlayerBeta.exe','RobloxStudioBeta.exe','javaw.exe'], POLL_MS 20000. probe() runs tasklist.exe /FI \"IMAGENAME eq <name>\" /NH once per name sequentially (tasklist ANDs multiple filters, so one call per name), resolving the first match or ''. Fires onChange only on transition. Timer unref'd. Non-win32 resolves ''.",
+   "must_survive": true
+  },
+  {
+   "name": "Forge job runner",
+   "how_it_works": "forge-runner.js ForgeRunner. run({inputPath,pipeline,skipSeparation,advanced,timing,outputName}) -> jobId 'job-N'. Guards: !forgePython || !forgeEnvReady -> forge.done error prompting setup; no inputPath -> error; end<=start -> 'Stop time must be after start time.'. selectScript: melody->melody_to_midi.py/STAGES_4, drums->drums_to_midi.py/STAGES_3, fast->stem_to_midi.py/STAGES_2 (checked BEFORE skipSeparation), skipSeparation->transcribe.py/STAGES_2, else song_to_midi.py/STAGES_3. Env from paths.forgeChildEnv + SEPARATION_BATCH/TRANSCRIBE_BATCH=batch, OMP_NUM_THREADS/MKL_NUM_THREADS=threads (each halved while backgrounded), OMP_WAIT_POLICY=PASSIVE, KMP_BLOCKTIME=0, FORGE_START_SEC/FORGE_END_SEC, GENERAL_MODE=1 for 'general', SKIP_SEPARATION=1 for drums/melody+skip, plus every advanced key (true->'1', false->'0'). Output path via outputMidiPath (sanitized custom name, _range_<start>_<end|end> suffix with '.'->'p'). Emits forge.progress {stage:'Queued',percent:-1} then spawns.",
+   "must_survive": true,
+   "backend_calls": [
+    "forge:run",
+    "forge:status"
+   ]
+  },
+  {
+   "name": "Forge job stdout/stderr parsing and progress",
+   "how_it_works": "_spawnJob (forge-runner.js:209-299). Both stdout and stderr go through makePump which splits on \\r\\n|\\n|\\r (needed: MSST tqdm and yt-dlp only emit \\r) and truncates the buffer to the last 1024 bytes past 8192. Line protocol: 'TSEG|k|N' -> interpolate percent between the Transcribe row and the next row minus 2; 'RESULT|<json>' -> child.__result; 'DONE' -> __finalized, progress 100 'Extraction complete', forge.done ok with result {midiPath: derived audioOut, ...__result, ...meta}; stage-marker match ([1/3] etc) -> progress; else keyword fallback (separat/normaliz/transcrib/clean) but ONLY if the line does not start with 'input:' (the 'Input: song.mp3' echo used to jump the bar to 90%); else forge.log with level error when /error|traceback/i. Progress percent is monotonic (peak = Math.max) so the bar never walks backwards. recent[] keeps 15 lines, causes[] keeps up to 6 lines matching error|traceback|exception|no such file|not found|out of memory|CUDA|permission, joined and truncated to 900 chars as the failure reason.",
+   "must_survive": true
+  },
+  {
+   "name": "Forge pause/resume via NtSuspendProcess",
+   "how_it_works": "forge-runner.js suspendProcess(pid,resume) shells powershell.exe -NoProfile -NonInteractive with Add-Type P/Invoke of NtSuspendProcess/NtResumeProcess + OpenProcess(0x0800)/CloseHandle, 8s timeout. setPaused(paused) applies to every live job, returns {ok,paused} or {ok:false,error:'Nothing is running.'/'Could not pause the job on this system.'}, emits forge.paused. _paused resets to false when the last job exits.",
+   "must_survive": true,
+   "backend_calls": [
+    "forge:pause",
+    "forge.paused"
+   ]
+  },
+  {
+   "name": "Forge process priority management",
+   "how_it_works": "setBackground(bg) sets every job pid to PRIORITY_LOW (bg) or PRIORITY_BELOW_NORMAL. At spawn, priority = LOW if this._background || perf.lowPriority (percent<=50) else BELOW_NORMAL.",
+   "must_survive": true
+  },
+  {
+   "name": "Orphan Forge job reaping",
+   "how_it_works": "forge-runner.js:104-135 + main.js:437-441. PID list persisted in userData/forge-jobs.json (paths.forgeJobsFile). trackPid on every spawn (jobs, yt, and the player sidecar), untrackPid on exit. reapOrphanJobs() at startup: for each stored pid, isOurPython(pid) via tasklist /FI \"PID eq n\" /FO CSV /NH matching ^\"python(w)?.exe\", then taskkill /pid /t /f; clears the file and returns the count. If >0, after 1500ms broadcast forge.log 'Stopped N leftover Forge job(s) from a previous session.'",
+   "must_survive": true
+  },
+  {
+   "name": "Forge capability probe (check)",
+   "how_it_works": "ForgeRunner.check() spawns env_probe.py under the forge python, cwd python-engine, 30s kill timeout. Parses the LAST line starting with '{' from stdout. Resolves {forgeReady: forgeEnvReady && torch, forgePython, gpu, torch, missing[]} where missing collects 'forge-env' (no python), 'torch', 'transkun', 'basic-pitch', 'yt-dlp'.",
+   "must_survive": true,
+   "backend_calls": [
+    "forge:check"
+   ]
+  },
+  {
+   "name": "yt-dlp download job",
+   "how_it_works": "ForgeRunner.ytDownload({url,outDir}) -> jobId 'yt-N'. Guards on missing python / url. Spawns yt_download.py with url and optional outDir (omitted so the script picks its own writable default, never cwd). Line protocol: 'DOWNLOADED:<path>' -> __finalized + progress 100 + forge.done {result:{downloadedPath}}; any (\\d{1,3}(\\.\\d+)?)% -> progress clamped 5..99; else forge.log.",
+   "must_survive": true,
+   "backend_calls": [
+    "forge:yt"
+   ]
+  },
+  {
+   "name": "Forge job cancel",
+   "how_it_works": "cancel(jobId): marks child.__cancelled and taskkill /pid /t /f (win) or SIGTERM. cancelAll() over all keys, called from cleanup(). Exit handler then emits forge.done {ok:false,error:'cancelled'}.",
+   "must_survive": true,
+   "backend_calls": [
+    "forge:cancel"
+   ]
+  },
+  {
+   "name": "Forge provisioner (setup)",
+   "how_it_works": "forge-provisioner.js. Runs python-engine/provision_forge.py under the LIGHT python (bundledPlayerPython() else 'python'/'python3') because it bootstraps the heavy env with stdlib only. Opens the log file FIRST (paths.forgeSetupLog = %LOCALAPPDATA%/midi-studio/forge-setup.log, mode 'w', header line) so a pre-start failure is still explainable. Emits provision.log lines for log path / install target / launcher. forgeStorage.markManaged(envDir); on failure (drive root needing admin) falls back to legacyDefaultForgeEnvDir(), merges settings.paths.forgeEnvDir to it, and says so; double failure -> forge.provision.error with logPath. Protocol parse: MSTEP|pct|step|msg -> forge.provision.progress {percent,step,message}; MLOG|... -> provision.log; MDONE| -> forge.provision.done; MFAIL|... -> forge.provision.error; anything else -> provision.log. All raw output is tee'd to the log fd. Watchdog interval 15000ms (unref'd): if >=45s of silence, emits a 'still working, <step> has been running Xm Ys with no output' line and resets the clock. On exit: closes fd with '=== exited code=N cancelled=B ===', emits provision.error on cancel or nonzero exit (success already signalled by MDONE).",
+   "must_survive": true,
+   "backend_calls": [
+    "forge:provision",
+    "forge:provision:cancel",
+    "forge:status"
+   ]
+  },
+  {
+   "name": "Forge output collection + project sidecar generation",
+   "how_it_works": "main.js:365-416 forgeEmit. On forge.done with ok and result.midiPath: mkdir programOutputDir(); moveOutput() renames (falling back to copyFileSync+unlink for cross-device) every produced file into that folder unless already there, using forgeStorage.uniquePath to avoid overwriting, with a lowercase-resolved-path memo Map so the same source isn't moved twice. If result.candidates is an object, all candidates are moved and a <finalBasename>.midstudio.json is written (format 'midi-studio-project', version 1, name, sourceAudio, previewAudio (falls back to sourceAudio), selectedCandidate 'clean', candidates, candidateCounts, pipeline (default 'melody'), timing, createdAt ISO) and result.projectPath is set. Then broadcast('library-changed', dirname(midiPath)). Always broadcast('forge:status', payload) afterwards.",
+   "must_survive": true,
+   "backend_calls": [
+    "library-changed",
+    "forge:status"
+   ]
+  },
+  {
+   "name": "programOutputDir resolution",
+   "how_it_works": "main.js:150-154: settings.get('forge.outputDir') if non-blank, else <homedir>/Documents/MIDI Studio.",
+   "must_survive": true
+  },
+  {
+   "name": "Review workspace load (project or plain .mid)",
+   "how_it_works": "loadReviewFile (main.js:181-201). A .mid/.midi is wrapped into a synthetic project {format,version:1,name,sourceAudio:'',selectedCandidate:'clean',candidates:{clean:filePath}} with projectPath ''. Otherwise JSON.parse the file, require format==='midi-studio-project' and an object candidates, then load each existing candidate MIDI; throws if none resolved. Each MIDI is parsed by spawning python-engine/midi_document.py via runMidiDocument.",
+   "must_survive": true,
+   "backend_calls": [
+    "review:load"
+   ]
+  },
+  {
+   "name": "runMidiDocument helper (python midi_document.py)",
+   "how_it_works": "main.js:158-179. Python = paths.bundledPlayerPython() || forgeEnvPython(settings.forgePaths()) || 'python'. spawn(py,[midi_document.py, action, midiPath]) cwd python-engine, windowsHide on win32, PYTHONIOENCODING utf-8. For action 'save' the document JSON is written to stdin and stdin.end()ed. Rejects with trimmed stderr or 'MIDI helper exited with code N'; resolves JSON.parse(stdout) or rejects 'MIDI helper returned invalid data.'",
+   "must_survive": true
+  },
+  {
+   "name": "Review project save with original-file protection",
+   "how_it_works": "review:saveProject handler (main.js:757-790). If no projectPath, showSaveDialog defaulting to programOutputDir()/<name>.midstudio.json. fromProject = !!incoming projectPath. Each candidate path resolved by forgeStorage.candidateTarget({existing, projectDir, fromProject, fallbackName:'<name>_<candidate>.mid'}): reuse `existing` only when fromProject or the file is already inside projectDir, else uniquePath in projectDir. This exists so opening a plain .mid (candidates.clean === the user's own file) never overwrites the original. Then runMidiDocument('save') per candidate, mkdir projectDir, write project JSON with format/version/candidates/selectedCandidate/updatedAt.",
+   "must_survive": true,
+   "backend_calls": [
+    "review:saveProject"
+   ]
+  },
+  {
+   "name": "Review MIDI export",
+   "how_it_works": "review:exportMidi (main.js:791-802): showSaveDialog default programOutputDir()/<name>_edited.mid, runMidiDocument('save'), broadcast('library-changed', dirname), return {ok,path}.",
+   "must_survive": true,
+   "backend_calls": [
+    "review:exportMidi",
+    "library-changed"
+   ]
+  },
+  {
+   "name": "Self Midi library scanning",
+   "how_it_works": "library.js list(roots). Roots from main.js:804-807 libraryDirs() = [programOutputDir(), <homedir>/Documents/MIDI Studio, ...settings.library.dirs]. scanDir: recursive readdirSync withFileTypes, MAX_DEPTH 4, MAX_FILES 4000, skips dot-dirs and SKIP set ['node_modules','.git','forge-env','MIDI Studio Forge','pip-cache','__pycache__']; statSync per MIDI for {path,name(no ext),dir,size,modified:mtimeMs}. Dedupe by lowercased root and again by lowercased file path. Then folds melody-pipeline siblings: names ending _balanced/_detailed are dropped when their primary (same dir, name minus suffix) exists; orphans are kept. Sorted by modified desc. Returns {files, truncated: found.length>=MAX_FILES}.",
+   "must_survive": true,
+   "backend_calls": [
+    "library:list"
+   ]
+  },
+  {
+   "name": "listMidis (player Songs-folder picker)",
+   "how_it_works": "main.js:130-145. Separate, simpler scanner from library.js: one level of subfolders (depth<1), caps at 1000 entries, returns flat sorted-by-lowercase-path array of full paths. Used by app:listMidis.",
+   "must_survive": true,
+   "backend_calls": [
+    "app:listMidis"
+   ]
+  },
+  {
+   "name": "Library folder management",
+   "how_it_works": "library:addFolder opens a directory dialog ('Add a folder of MIDI files', buttonLabel 'Add folder'), appends the resolved path to settings.library.dirs if not already present case-insensitively, returns {ok,dir} or {ok:false,canceled:true}. library:removeFolder filters it out case-insensitively. library:reveal -> shell.showItemInFolder.",
+   "must_survive": true
+  },
+  {
+   "name": "Performance model (one percent slider -> derived knobs)",
+   "how_it_works": "performanceSettings() main.js:462-494. percent from settings.performance.percent, migrating legacy p.level ('easy'|legacy ui.perfMode -> 35, 'balanced' -> 65, else 100), clamped 10..100 and rounded to the nearest 5. cores = os.cpus().length. threads = advanced.threads clamp 1..64 if a positive finite override, else clamp(round(cores*percent/100),1..cores). batch = advanced.batch clamp 1..8 else max(1, round(percent/50)). drawMs = round(1000/max(4, 60*percent/100)) (60fps at 100%; used to cap at 30fps which made the piano roll look like it jumped). lowPriority = percent<=50. whenGaming validated against ['nothing','limit','pause'] default 'limit'. custom echoes the raw overrides. The 'cleared override' check uses a value test (v != null && finite && >0) because Number(null)===0 is finite and clearing an override used to set it to 1.",
+   "must_survive": true,
+   "backend_calls": [
+    "app:performance",
+    "app:setPerformance"
+   ]
+  },
+  {
+   "name": "Forge storage location management",
+   "how_it_works": "changeForgeStorage(fixedTarget) main.js:579-637. Refuses while a job or setup runs. Without a fixed target, opens a directory dialog (openDirectory+createDirectory, buttonLabel 'Use this folder') defaulting to dirname(current), then forgeStorage.targetForSelection (appends 'MIDI Studio Forge' unless already named that). Same path -> {ok,unchanged,...forgeInfo()}. assertWritable(dirname(target)) or a friendly error. Non-empty target: must be isManaged else 'The destination is not empty.'; then a confirm dialog 'Use existing Forge storage?' ['Use existing','Cancel']. Empty target with an existing source: 'Move Forge storage?' ['Move existing files','Start fresh','Cancel'] -> moveManaged or markManaged. Finally settings.merge({paths:{forgeEnvDir: '' if same as default else target, forgePythonPath:'', modelsDir:''}}) and syncInstallerForgePath. Reset variant passes paths.forgeEnvDir({}).",
+   "must_survive": true,
+   "backend_calls": [
+    "app:changeForgeFolder",
+    "app:resetForgeFolder"
+   ]
+  },
+  {
+   "name": "Installer registry path adoption (with the 2.20.0 downgrade guard)",
+   "how_it_works": "adoptInstallerForgePath() main.js:517-548, win32 only, skipped if settings.paths.forgeEnvDir already set. Reads HKCU\\Software\\StarsationX\\MIDI Studio /v ForgeStorageDir via reg.exe query (5s timeout) and regexes 'ForgeStorageDir REG_SZ (.+)'. REFUSES to adopt when the current dir is provisioned and the registry one is not (the 2.20.0 bug that pointed a working install at an empty folder). Otherwise assertWritable(dirname), markManaged, merge settings paths (blank when same as default).",
+   "must_survive": true
+  },
+  {
+   "name": "Forge env auto-recovery search",
+   "how_it_works": "recoverForgeEnv() main.js:558-569 + paths.candidateForgeEnvDirs/findReadyForgeEnv. If the configured env is not ready but a ready one exists at any candidate (configured, defaultForgeEnvDir, legacyDefault %LOCALAPPDATA%/midi-studio/forge-env, legacy %LOCALAPPDATA%/midi-forge, '<letter>:\\MIDI Studio Forge' for D..Z then C, C:\\ProgramData\\midi-studio\\forge-env), repoint settings there, syncInstallerForgePath, and after 1500ms broadcast a forge.log explaining setup is not needed.",
+   "must_survive": true
+  },
+  {
+   "name": "Forge readiness definition",
+   "how_it_works": "paths.forgeEnvReady(settings): resolves the interpreter (override forgePythonPath if it exists, else _pyInDir over ['python/python.exe','python.exe','Scripts/python.exe'] in the configured dir; when no explicit dir it also tries the legacy midi-forge dir), then requires BOTH Lib/site-packages/torch AND a '.ready' marker in the python dir or its parent. The marker guard makes a half-provisioned env re-provision instead of failing every job.",
+   "must_survive": true
+  },
+  {
+   "name": "forgeInfo payload",
+   "how_it_works": "main.js:505-512: {version: app.getVersion(), forgeReady, forgePython, forgeEnvDir, forgeFreeGb, forgeDefaultDir, forgeCustom: !!settings.paths.forgeEnvDir, forgeNeedGb}. freeGb uses fs.statfsSync on the dir or its drive root -> round(bavail*bsize/1024^3*10)/10. forgeNeedGb probes %SystemRoot%/System32/nvcuda.dll -> 15 GB with CUDA else 6 GB (mirrors MIN_FREE_GB_START* in provision_forge.py).",
+   "must_survive": true,
+   "backend_calls": [
+    "app:forgeInfo"
+   ]
+  },
+  {
+   "name": "Clean reinstall of the Forge env",
+   "how_it_works": "app:cleanReinstall (main.js:903-912). Refuses while a job or setup runs. Only deletes when forgeStorage.isManaged(dir, defaultDir) (marker file or the default path), else {ok:false,error:'refused (unsafe path)'} — never touches a user's adopted legacy midi-forge. fs.rmSync recursive force.",
+   "must_survive": true
+  },
+  {
+   "name": "Perch overlay window",
+   "how_it_works": "overlay.js. Separate BrowserWindow: frame:false, transparent:true, hasShadow:false, resizable/movable = !locked, skipTaskbar:true, show:false, fullscreenable:false, alwaysOnTop:true then setAlwaysOnTop(true,'screen-saver') (plain alwaysOnTop loses to a borderless-fullscreen game), backgroundColor '#00000000', title 'Perch', webPreferences {preload, contextIsolation, nodeIntegration:false, sandbox:false, backgroundThrottling:false}. setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true}). setIgnoreMouseEvents(clickThrough,{forward:true}). On ready-to-show: showInactive() (NOT show — taking focus off the game mid-song would pause playback) then setOpacity. Config: MODE_SIZE full 460x300/min260x170, slim 420x96/min240x72, mini 168x64/min120x52; DEFAULTS mode 'full', opacity 0.92 (clamped .2..1), clickThrough false, locked false, autoShow true, autoHide true, lookahead 3 (clamped 1..12), showKeys/showTransport true, bounds {} keyed per mode. _placement validates a saved rectangle against screen.getAllDisplays() overlap and falls back to top-right of the primary workArea minus 24px. move/resize persist bounds per mode via a 400ms debounce; setMode saves the outgoing mode's bounds before resizing so modes don't overwrite each other. close() saves bounds then destroy(). snap(where) parks in one of nine workArea positions with 24px padding using screen.getDisplayMatching. Event queue: send() buffers into pending[] until markReady(), which first pushes 'overlay-config' (so a Mini/40% user doesn't reopen at Full) then flushes.",
+   "must_survive": true,
+   "backend_calls": [
+    "overlay:*",
+    "overlay-config",
+    "overlay-state",
+    "engine-event"
+   ]
+  },
+  {
+   "name": "Overlay auto-show on play + song-name tracking",
+   "how_it_works": "engine:send handler (main.js:721-735): on cmd 'load_midi' or 'play' with msg.path||msg.midi_path, lastSongName = basename minus .mid and overlaySend engine-event {event:'now_playing',name}. On cmd 'play', if overlay.config().autoShow !== false and not open -> openOverlay(). The engine never echoes the loaded path back, so main must remember it for Perch's title bar.",
+   "must_survive": true
+  },
+  {
+   "name": "Overlay state resync on open",
+   "how_it_works": "openOverlay() main.js:647-655: overlay.open(), broadcast('overlay-wants-state',{}) (the Player tab is the only frame holding the last midi_loaded), overlaySend now_playing with lastSongName, then overlayStateChanged() which broadcasts 'overlay-state' {open, ...config}.",
+   "must_survive": true
+  },
+  {
+   "name": "Global shortcuts Ctrl+Alt+P / Ctrl+Alt+O",
+   "how_it_works": "registerOverlayShortcuts() main.js:661-676, each register wrapped in try/catch logging 'shortcut <accel> unavailable'. Ctrl+Alt+P: open Perch if closed, else toggle clickThrough (the only way back OFF once the window stops accepting clicks). Ctrl+Alt+O: toggle open/closed. Both call overlayStateChanged(). globalShortcut.unregisterAll() in cleanup().",
+   "must_survive": true
+  },
+  {
+   "name": "Overlay transport replay as hotkey events",
+   "how_it_works": "ipcMain.on('overlay:command') main.js:691-694: allowlist ['play','stop','pause','next_track','prev_track','seek_fwd','seek_back'] -> broadcast('engine-event',{event:'hotkey',name}) so the Player tab's existing hotkey path owns the queue/playlist/tempo.",
+   "must_survive": true
+  },
+  {
+   "name": "Overlay replay allowlist (frame hardening)",
+   "how_it_works": "ipcMain.on('overlay:replay') main.js:712-717: only forwards payloads whose event is 'midi_loaded' | 'playback_started' | 'progress' to the overlay, so a compromised iframe cannot use it as a general channel into an always-on-top window.",
+   "must_survive": true
+  },
+  {
+   "name": "Settings store",
+   "how_it_works": "settings.js. JSON file at app.getPath('userData')/midi-studio-settings.json. Constructor deepMerges DEFAULTS over readFileSync (sync). merge(patch) deep-merges then writes the WHOLE file synchronously and returns getAll() (a JSON round-trip deep clone). get(dotted) walks dot path. forgePaths() flattens paths.forgeEnvDir/forgePythonPath/modelsDir. DEFAULTS cover window, library.dirs, performance{percent:100,whenGaming:'limit',advanced:{}}, forge{pipeline:'melody',skipSeparation:false,advanced:{},outputDir:'',timing:{enabled:false,start:'',end:''}}, paths, ui{lastTab:'forge',autoCheckUpdates:true,alwaysOnTop:true}, overlay{...}, libraryDir:'', lastOutputDir:''. Arrays are replaced, not merged (deepMerge only recurses into non-array objects).",
+   "must_survive": true
+  },
+  {
+   "name": "alwaysOnTop live toggle",
+   "how_it_works": "app:setUi handler (main.js:862-868): merges the ui patch, and when 'alwaysOnTop' is in the patch calls win.setAlwaysOnTop(ui.alwaysOnTop !== false).",
+   "must_survive": true
+  },
+  {
+   "name": "Cleanup / forced exit",
+   "how_it_works": "cleanup() main.js:1046-1056 (idempotent via `cleaned`): overlay.close(), globalShortcut.unregisterAll(), sidecar.kill(), forge.cancelAll(), provisioner.cancel(). Registered on app 'before-quit', 'quit', and process 'exit'. window-all-closed (main.js:1030-1040): cleanup(), and on non-darwin app.quit() plus an unref'd 4000ms setTimeout that calls app.exit(0) because app.quit() can be swallowed by a pending dialog, leaving a windowless process holding the instance lock. win 'closed' also closes the overlay (skipTaskbar + alwaysOnTop, it would otherwise be an unreachable orphan holding window-all-closed open). app 'activate' recreates the window when none exist.",
+   "must_survive": true
+  },
+  {
+   "name": "Process-level error surfacing",
+   "how_it_works": "main.js:1042-1043 process.on('unhandledRejection') and ('uncaughtException'): blog the stack and broadcast('engine-event',{event:'log',level:'error',message:'Internal error: ...'}) so a renderer log shows it.",
+   "must_survive": true
+  },
+  {
+   "name": "Preload bridge surfaces",
+   "how_it_works": "preload.js exposes five isolated worlds in EVERY frame (nodeIntegrationInSubFrames): window.api (original midi-player surface, deliberately unchanged), window.forge, window.review, window.library, window.perch (deliberately small so a frameless always-on-top window can't do app-wide things), window.studio. onChannel(channel) returns a subscribe fn that returns an unsubscribe fn (ipcRenderer.off). webUtils.getPathForFile is exposed as getDroppedFilePath on api/forge/review. pathToFileURL exposed as fileUrl on forge/review.",
+   "must_survive": true
+  }
+ ],
+ "element_ids": [],
+ "listeners": [
+  "app.commandLine.appendSwitch x2 (disable-backgrounding-occluded-windows, disable-renderer-backgrounding) - main.js:32-33, before ready",
+  "app 'second-instance' (argv) - main.js:977 - pull .mid from argv, restore/show/focus, recreate window if gone",
+  "app.whenReady - main.js:994 (normal) / main.js:955 (--configure-forge-storage headless branch)",
+  "app 'activate' - main.js:1027 - createWindow if no windows",
+  "app 'window-all-closed' - main.js:1030 - cleanup, quit, unref'd 4s forced app.exit(0)",
+  "app 'before-quit' / app 'quit' / process 'exit' - main.js:1057-1059 - cleanup()",
+  "process 'unhandledRejection' / 'uncaughtException' - main.js:1042-1043 - blog + broadcast engine-event log level error",
+  "win.once('ready-to-show') - main.js:225 - winPainted=true, maximize, show, optional devtools",
+  "win.once('ready-to-show') (second binding) - main.js:1024 - starts the auto update-check timer",
+  "win.webContents 'did-finish-load' - main.js:234 - deliverOpenPath after 600ms, replay lastUpdateStatus after 300ms",
+  "win.webContents 'did-frame-finish-load' - main.js:245 - replay cached engine 'ready' to a late iframe after 60ms",
+  "win.webContents 'will-prevent-unload' - main.js:253 - unsaved-editor-notes dialog",
+  "win.webContents 'before-input-event' - main.js:285 - Ctrl+1..4 -> shell-shortcut",
+  "win.webContents 'did-fail-load' - main.js:299 - retry twice then showErrorBox",
+  "win.webContents.setWindowOpenHandler - main.js:326 - http(s) -> openExternal, deny",
+  "win 'close' - main.js:268 - 'Still working' confirm while a Forge job/setup runs",
+  "win 'resize' / win 'move' - main.js:320-321 - debounced(400ms) settings.merge of window bounds",
+  "win 'closed' - main.js:325 - win=null, overlay.close()",
+  "globalShortcut 'Control+Alt+P' - main.js:665 - open Perch or toggle click-through",
+  "globalShortcut 'Control+Alt+O' - main.js:672 - toggle Perch open/closed",
+  "setTimeout 1200ms - main.js:361 - sidecar.start()",
+  "setTimeout 8000ms - main.js:433 - gameWatch.start()",
+  "setTimeout 1500ms - main.js:439 - forge.log about reaped orphan jobs",
+  "setTimeout 1500ms - main.js:567 - forge.log about a recovered Forge env",
+  "setTimeout 1500ms - main.js:1016 - post-update 'updated' status",
+  "setTimeout 2500ms (after ready-to-show, or 4000ms fallback) - main.js:1021 - automatic update check",
+  "setInterval 20000ms - gamewatch.js:47 (unref'd) - tasklist probe per game name, onChange on transition",
+  "setInterval 15000ms - forge-provisioner.js:93 (unref'd) - 45s-silence watchdog line",
+  "setTimeout 400ms debounce - overlay.js:144 - persist overlay bounds per mode on move/resize",
+  "overlay win.once('ready-to-show') - overlay.js:128 - showInactive + setOpacity",
+  "overlay win 'move' / 'resize' / 'closed' - overlay.js:146-153",
+  "sidecar child.stdout 'data' - sidecar.js:104 - newline-split NDJSON -> onEvent",
+  "sidecar child.stderr 'data' - sidecar.js:117 - 4000-char tail + per-line warn log event",
+  "sidecar child 'exit' - sidecar.js:123 - ModuleNotFound/crash diagnosis, forced playback_done, untrackPid",
+  "forge job child.stdout/'stderr' 'data' -> makePump - forge-runner.js:285-286 - splits on \\r too",
+  "forge job child 'exit' - forge-runner.js:287 - untrackPid, clears _paused, emits forge.done unless __finalized",
+  "yt job child.stdout/stderr 'data' + 'exit' - forge-runner.js:372-374",
+  "forge check child 'error'/'exit' + 30000ms kill timer - forge-runner.js:203-204",
+  "provisioner child.stdout/stderr 'data' (pump, tees to log fd) and 'exit' - forge-provisioner.js:118-120",
+  "probePython child 'error'/'exit' + 4000ms kill timer - sidecar.js:26-28",
+  "runMidiDocument child stdout/stderr/'error'/'exit' - main.js:170-176",
+  "updater download response 'data' progress + stream finish/error - updater.js:67-71"
+ ],
+ "ipc_contracts": [
+  {
+   "channel": "engine:send",
+   "direction": "invoke (renderer->main)",
+   "args": "msg: object (player engine command, e.g. {cmd:'load_midi',path} / {cmd:'play'} / arbitrary)",
+   "returns": "boolean (false if not an object or the sidecar write failed). Side effects: updates lastSongName, overlaySend now_playing, auto-opens Perch on cmd 'play' when autoShow"
+  },
+  {
+   "channel": "dialog:openMidi",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "string[] file paths ([] if canceled). Multi-select, filters mid/midi + all"
+  },
+  {
+   "channel": "dialog:openMapping",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "string|null. defaultPath = paths.userMappingsDir(), JSON filter"
+  },
+  {
+   "channel": "review:pick",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "string|null. filters json/mid/midi"
+  },
+  {
+   "channel": "review:load",
+   "direction": "invoke",
+   "args": "filePath: string",
+   "returns": "{ok:true, data:{projectPath, project, documents:{<candidate>:document}}} | {ok:false, error:string}"
+  },
+  {
+   "channel": "review:saveProject",
+   "direction": "invoke",
+   "args": "{projectPath?:string, project:object, documents:{name:document}, selectedCandidate?:string}",
+   "returns": "{ok:true, projectPath, project} | {ok:false, canceled:true} | {ok:false, error}"
+  },
+  {
+   "channel": "review:exportMidi",
+   "direction": "invoke",
+   "args": "{name?:string, document:object}",
+   "returns": "{ok:true, path} | {ok:false, canceled:true} | {ok:false, error}"
+  },
+  {
+   "channel": "library:list",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{dirs:string[], extra:string[], files:[{path,name,dir,size,modified}], truncated:boolean}"
+  },
+  {
+   "channel": "library:addFolder",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{ok:true, dir} | {ok:false, canceled:true}"
+  },
+  {
+   "channel": "library:removeFolder",
+   "direction": "invoke",
+   "args": "dir: string",
+   "returns": "{ok:true}"
+  },
+  {
+   "channel": "library:reveal",
+   "direction": "invoke",
+   "args": "p: string",
+   "returns": "undefined (shell.showItemInFolder)"
+  },
+  {
+   "channel": "forge:pause",
+   "direction": "invoke",
+   "args": "paused: boolean",
+   "returns": "{ok:true,paused} | {ok:false,error}"
+  },
+  {
+   "channel": "forge:check",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{forgeReady:boolean, forgePython:string|null, gpu:any|null, torch:boolean, missing:string[]}"
+  },
+  {
+   "channel": "forge:provision",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{running:true} | {started:true}"
+  },
+  {
+   "channel": "forge:provision:cancel",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "true"
+  },
+  {
+   "channel": "forge:run",
+   "direction": "invoke",
+   "args": "{inputPath, pipeline, skipSeparation, outputName, advanced:object, timing:object} (all coerced/defaulted in main)",
+   "returns": "jobId string ('job-N'); failures arrive later as forge:status forge.done"
+  },
+  {
+   "channel": "forge:yt",
+   "direction": "invoke",
+   "args": "{url, outDir?} (outDir defaults to programOutputDir())",
+   "returns": "jobId string ('yt-N')"
+  },
+  {
+   "channel": "forge:cancel",
+   "direction": "invoke",
+   "args": "jobId: string",
+   "returns": "boolean (false if unknown job)"
+  },
+  {
+   "channel": "forge:getSettings",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "settings.forge object"
+  },
+  {
+   "channel": "forge:setSettings",
+   "direction": "invoke",
+   "args": "patch: object, filtered to FORGE_SETTINGS_KEYS ['pipeline','skipSeparation','advanced','outputDir','timing']",
+   "returns": "merged settings.forge object"
+  },
+  {
+   "channel": "forge:pickInput",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "string[] ([] if canceled). Audio filters mp3/wav/flac/m4a/ogg/opus/aac/wma, multiSelections"
+  },
+  {
+   "channel": "forge:pickOutDir",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "string|null (openDirectory+createDirectory)"
+  },
+  {
+   "channel": "app:openMappingsDir",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "Promise<string> from shell.openPath (ensures + seeds the dir first)"
+  },
+  {
+   "channel": "app:openExternal",
+   "direction": "invoke",
+   "args": "url: string",
+   "returns": "Promise<void>|null (null for non-http(s))"
+  },
+  {
+   "channel": "app:version",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "string app.getVersion()"
+  },
+  {
+   "channel": "app:getUi",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "settings.ui object ({} fallback)"
+  },
+  {
+   "channel": "app:setUi",
+   "direction": "invoke",
+   "args": "patch: object",
+   "returns": "merged ui object; also applies win.setAlwaysOnTop when 'alwaysOnTop' in patch"
+  },
+  {
+   "channel": "app:getOutputDir",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "string programOutputDir()"
+  },
+  {
+   "channel": "app:getLibraryDir",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "string: settings.libraryDir if set, else programOutputDir() (mkdir'd)"
+  },
+  {
+   "channel": "app:setLibraryDir",
+   "direction": "invoke",
+   "args": "dir: string",
+   "returns": "string libraryDir after merge"
+  },
+  {
+   "channel": "app:listMidis",
+   "direction": "invoke",
+   "args": "dir: string",
+   "returns": "string[] of full .mid/.midi paths (1 level deep, cap 1000, sorted)"
+  },
+  {
+   "channel": "app:pickFolder",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "string|null"
+  },
+  {
+   "channel": "app:performance",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{percent, cores, threads, batch, drawMs, lowPriority, whenGaming, custom:{threads,batch}}"
+  },
+  {
+   "channel": "app:setPerformance",
+   "direction": "invoke",
+   "args": "{percent?, whenGaming?, advanced?:{threads?,batch?}}; setting percent explicitly nulls advanced.threads/batch",
+   "returns": "performanceSettings() object"
+  },
+  {
+   "channel": "app:forgeInfo",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{version, forgeReady, forgePython, forgeEnvDir, forgeFreeGb, forgeDefaultDir, forgeCustom, forgeNeedGb}"
+  },
+  {
+   "channel": "app:changeForgeFolder",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{ok:true, moved?, unchanged?, ...forgeInfo()} | {ok:false, canceled:true} | {ok:false, error}"
+  },
+  {
+   "channel": "app:resetForgeFolder",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "same as app:changeForgeFolder, target forced to paths.forgeEnvDir({})"
+  },
+  {
+   "channel": "app:openSetupLog",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{ok:false,error:'no setup log yet'} | Promise<{ok:true,path}>"
+  },
+  {
+   "channel": "app:openForgeFolder",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "Promise<string> shell.openPath of the env dir, its parent, or localAppData()"
+  },
+  {
+   "channel": "app:cleanReinstall",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{ok:true,dir} | {ok:false,error:'Wait for the current Forge job or setup to finish.'|'refused (unsafe path)'|fs error}"
+  },
+  {
+   "channel": "shell:openPath",
+   "direction": "invoke",
+   "args": "p: string",
+   "returns": "{ok:false,error:'not found'} | Promise<{ok:true}|{ok:false,error}>"
+  },
+  {
+   "channel": "shell:showItem",
+   "direction": "invoke",
+   "args": "p: string",
+   "returns": "{ok:true} | {ok:false,error:'not found'}"
+  },
+  {
+   "channel": "update:check",
+   "direction": "invoke",
+   "args": "opts?: {manual:boolean} (defaults {manual:true})",
+   "returns": "Promise<void>; results arrive on update-status"
+  },
+  {
+   "channel": "update:apply",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "Promise<void>; results arrive on update-status"
+  },
+  {
+   "channel": "overlay:ready",
+   "direction": "on (send, renderer->main)",
+   "args": "none",
+   "returns": "n/a; overlay.markReady() flushes pending, then broadcast('overlay-wants-state',{})"
+  },
+  {
+   "channel": "overlay:close",
+   "direction": "on",
+   "args": "none",
+   "returns": "n/a; overlay.close() + overlayStateChanged()"
+  },
+  {
+   "channel": "overlay:resize",
+   "direction": "on",
+   "args": "{width,height}; ignored unless open, an object, and w>=100 && h>=40",
+   "returns": "n/a; setBounds keeping x/y"
+  },
+  {
+   "channel": "overlay:command",
+   "direction": "on",
+   "args": "name: string, allowlist play|stop|pause|next_track|prev_track|seek_fwd|seek_back",
+   "returns": "n/a; broadcast('engine-event',{event:'hotkey',name})"
+  },
+  {
+   "channel": "overlay:replay",
+   "direction": "on",
+   "args": "payload: object; only event midi_loaded|playback_started|progress forwarded",
+   "returns": "n/a; overlaySend('engine-event',payload)"
+  },
+  {
+   "channel": "overlay:apply",
+   "direction": "invoke",
+   "args": "patch: partial overlay config (clickThrough, opacity, locked, mode, autoShow, autoHide, lookahead, showKeys, showTransport, bounds)",
+   "returns": "overlay config object ({} if no overlay); also broadcasts overlay-state"
+  },
+  {
+   "channel": "overlay:snap",
+   "direction": "invoke",
+   "args": "where: 'top|middle|bottom-left|center|right'",
+   "returns": "overlay config object"
+  },
+  {
+   "channel": "overlay:state",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{open:boolean, ...overlay config}"
+  },
+  {
+   "channel": "overlay:toggle",
+   "direction": "invoke",
+   "args": "none",
+   "returns": "{open:boolean, ...config} | {open:false}"
+  },
+  {
+   "channel": "engine-event",
+   "direction": "main->renderer (broadcast: shell + all iframes + Perch)",
+   "args": "the raw sidecar NDJSON payload; known events include ready, error, playback_started, playback_done{crashed?}, midi_loaded, progress, now_playing{name}, hotkey{name}, log{level,message}",
+   "returns": "n/a"
+  },
+  {
+   "channel": "engine-error",
+   "direction": "main->renderer (broadcast)",
+   "args": "message string",
+   "returns": "n/a"
+  },
+  {
+   "channel": "forge:status",
+   "direction": "main->renderer (broadcast)",
+   "args": "one of: {event:'forge.progress',jobId,stage,percent,message}, {event:'forge.log',jobId?,line,level}, {event:'forge.done',jobId,ok,result?{midiPath,candidates,projectPath,downloadedPath,pipeline,timing,...},error?}, {event:'forge.paused',paused}, {event:'forge.provision.progress',percent,step,message}, {event:'forge.provision.log',line}, {event:'forge.provision.done'}, {event:'forge.provision.error',message,logPath?}",
+   "returns": "n/a"
+  },
+  {
+   "channel": "library-changed",
+   "direction": "main->renderer (broadcast)",
+   "args": "string: the directory that changed",
+   "returns": "n/a"
+  },
+  {
+   "channel": "game-active",
+   "direction": "main->renderer (broadcast)",
+   "args": "{game: string (exe name or ''), rule: 'nothing'|'limit'|'pause'}",
+   "returns": "n/a"
+  },
+  {
+   "channel": "overlay-state",
+   "direction": "main->renderer (broadcast, incl. Perch)",
+   "args": "{open:boolean, ...overlay config}",
+   "returns": "n/a"
+  },
+  {
+   "channel": "overlay-wants-state",
+   "direction": "main->renderer (broadcast)",
+   "args": "{} — asks the Player tab to re-send midi_loaded via overlay:replay",
+   "returns": "n/a"
+  },
+  {
+   "channel": "overlay-config",
+   "direction": "main->Perch only (overlay.send)",
+   "args": "overlay config object",
+   "returns": "n/a"
+  },
+  {
+   "channel": "update-status",
+   "direction": "main->MAIN FRAME ONLY (sendToRenderer)",
+   "args": "{state:'checking'|'available'|'none'|'downloading'|'verifying'|'ready'|'manual'|'error'|'updated', version?, current?, size?, notes?, canSelfUpdate?, htmlUrl?, percent?, reason?, message?, manual?}",
+   "returns": "n/a"
+  },
+  {
+   "channel": "shell-shortcut",
+   "direction": "main->MAIN FRAME ONLY",
+   "args": "{tab: 'forge'|'player'|'review'|'audition'}",
+   "returns": "n/a"
+  },
+  {
+   "channel": "open-midi",
+   "direction": "main->MAIN FRAME ONLY",
+   "args": "{midiPath: string}",
+   "returns": "n/a"
+  }
+ ],
+ "data_structures": "\"main.js module state: win (BrowserWindow|null), settings (Settings), sidecar (PlayerSidecar), forge (ForgeRunner), provisioner (ForgeProvisioner), gameWatch (GameWatch), overlay (Overlay), playbackActive:boolean, gameUp:boolean, lastReady (cached engine 'ready' payload), lastSongName:string, winPainted:boolean, lastUpdateStatus (last update-status payload), pendingOpenPath:string, cleaned:boolean, loadAttempts:number (closure in createWindow).\\nSettings._data: {window:{width,height,x,y,maximized}, library:{dirs:string[]}, performance:{percent,whenGaming,advanced:{threads?,batch?},level?}, forge:{pipeline,skipSeparation,advanced:{},outputDir,timing:{enabled,start,end}}, paths:{forgeEnvDir,forgePythonPath,modelsDir}, ui:{lastTab,autoCheckUpdates,alwaysOnTop,perfMode?}, overlay:{mode,opacity,clickThrough,locked,autoShow,autoHide,lookahead,showKeys,showTransport,bounds:{full?,slim?,mini?}}, libraryDir, lastOutputDir}. File: %APPDATA%/<app>/midi-studio-settings.json.\\nperformanceSettings() derived object: {percent, cores, threads, batch, drawMs, lowPriority, whenGaming, custom:{threads,batch}}.\\nProject file (.midstudio.json): {format:'midi-studio-project', version:1, name, sourceAudio, previewAudio, selectedCandidate, candidates:{name->midiPath}, candidateCounts, pipeline, timing:{start,end}, createdAt, updatedAt?}.\\nReview load result: {projectPath, project, documents:{candidateName -> midi document from midi_document.py}}.\\nLibrary entry: {path, name (no extension), dir, size, modified (mtimeMs)}; list() returns {files, truncated}.\\nForgeRunner._jobs: Map<jobId, ChildProcess> with ad-hoc child properties __result (from RESULT| line), __finalized, __cancelled; _seq counter; _paused; _background.\\nStage tables: STAGES_2/3/4 arrays of [marker, stageName, percent]; STAGE_KEYWORDS array of [regex, stage, percent].\\nOrphan PID file: userData/forge-jobs.json = number[] (Forge job pids AND the player sidecar pid).\\nOverlay: MODE_SIZE {full|slim|mini -> {width,height,minWidth,minHeight}}; pending:[[channel,payload]] queue until markReady; ready:boolean.\\nupdater cached: {version, current, setup:{url,name,size,digest}, notes, htmlUrl}.\\nProvisioner: _logFd (open fd on forge-setup.log), _lastOutput (ms), _lastStep (string), _watchdog interval, buf (line buffer).\"",
+ "perf_findings": [
+  {
+   "file": "electron/main.js",
+   "line": 26,
+   "issue": "blog() uses fs.appendFileSync on every boot milestone AND on every unhandledRejection / uncaughtException",
+   "why_it_costs": "Synchronous open+write+close on the main-process event loop. Harmless at boot (a handful of calls) but an error storm (e.g. a repeatedly rejecting promise) turns into one synchronous disk write per rejection, blocking IPC and window messages.",
+   "fix": "Keep it for boot, but rate-limit or batch the error-path writes (accumulate and flush on a timer / use an append stream)."
+  },
+  {
+   "file": "electron/settings.js",
+   "line": 69,
+   "issue": "merge() writes the ENTIRE settings JSON synchronously (fs.writeFileSync + fs.mkdirSync) and then returns a JSON.parse(JSON.stringify()) deep clone of the whole store",
+   "why_it_costs": "Every settings write is a full stringify + sync file write + full deep clone on the main thread. Callers include the debounced window resize/move persist (400ms), overlay move/resize persist (400ms debounce, per mode), every overlay.apply/setMode/setClickThrough/setOpacity/setLocked (setMode calls save() twice), app:setUi, app:setPerformance, library add/remove, and the forge-path adopt/recover paths. Dragging Perch around therefore issues a whole-file sync write every 400ms, and each of Overlay.config()/save() re-reads and re-spreads the config object.",
+   "fix": "Debounce/coalesce the actual disk write (dirty flag + one flush per ~1s or on quit), write via a temp+rename async write, and return the live object or a shallow snapshot instead of a full JSON round-trip clone."
+  },
+  {
+   "file": "electron/overlay.js",
+   "line": 139,
+   "issue": "remember() on move/resize calls this.config() (which reads settings, spreads DEFAULTS, clamps) and then save() (which calls config() AGAIN and then settings.merge -> full sync file write)",
+   "why_it_costs": "Three object rebuilds plus a whole-file synchronous JSON write per 400ms of dragging, on the same main thread that is fanning out engine-event to Perch during playback.",
+   "fix": "Cache the config object in the Overlay instance, mutate it, and let the settings store batch the disk write."
+  },
+  {
+   "file": "electron/main.js",
+   "line": 113,
+   "issue": "broadcast() walks win.webContents.mainFrame.framesInSubtree for EVERY event and sends the payload to each frame individually",
+   "why_it_costs": "engine-event is the playback-progress stream (every 'progress' tick from the python engine, plus midi_loaded/hotkey), and forge:status carries every forge.log/forge.progress line from a pump that fires on \\r as well as \\n (yt-dlp / MSST tqdm rewrite one line thousands of times). Each call rebuilds the frame list and performs N structured-clone IPC serializations of the payload. During a yt download or an MSST separation this is the hottest path in the main process.",
+   "fix": "Cache the subframe list (invalidate on frame-created/destroyed) and coalesce/throttle high-rate channels (forge.log batching, progress at most ~10-20 Hz) before fan-out."
+  },
+  {
+   "file": "electron/main.js",
+   "line": 346,
+   "issue": "sidecar onEvent does JSON.stringify(payload).slice(0,200) then console.log for every 'ready'/'error' event",
+   "why_it_costs": "Only on ready/error so low volume, but note it stringifies the whole payload just to log 200 chars.",
+   "fix": "Slice after a cheap field pick, or drop the log in production."
+  },
+  {
+   "file": "electron/forge-runner.js",
+   "line": 279,
+   "issue": "every non-matching pipeline output line emits a separate forge.log IPC event, which broadcast() then fans out to the shell + every iframe + Perch",
+   "why_it_costs": "The pump splits on \\r, so a tqdm progress bar produces hundreds to thousands of 'lines' per stage; each becomes one emit -> one broadcast -> N frame sends. That is the main-process cost of watching a transcription.",
+   "fix": "Coalesce log lines into a batched array flushed on a short timer, and drop lines that only differ in a progress percentage."
+  },
+  {
+   "file": "electron/forge-runner.js",
+   "line": 108,
+   "issue": "writePids uses fs.writeFileSync on paths.forgeJobsFile(), and readPids uses fs.readFileSync, on every trackPid/untrackPid",
+   "why_it_costs": "Two sync file operations per job spawn/exit, plus the sidecar's own track/untrack. Low frequency (a handful per session), but it is sync I/O on the main thread and untrackPid runs inside a child 'exit' handler.",
+   "fix": "Acceptable at current volume; if job churn grows, keep the pid set in memory and flush asynchronously."
+  },
+  {
+   "file": "electron/forge-runner.js",
+   "line": 117,
+   "issue": "isOurPython uses execFileSync('tasklist.exe') once per stored pid during reapOrphanJobs, and taskkill is also execFileSync",
+   "why_it_costs": "Runs at startup on the main thread before the window exists; each tasklist spawn is ~50-200ms on Windows, so N stale pids serially delay boot.",
+   "fix": "Do one tasklist /FO CSV dump and match all pids against it, or move the reap to a short async step after ready-to-show."
+  },
+  {
+   "file": "electron/forge-runner.js",
+   "line": 79,
+   "issue": "suspendProcess spawns powershell.exe with Add-Type (C# compilation) for every pause/resume, once per running job",
+   "why_it_costs": "Add-Type compiles at runtime; a PowerShell + Roslyn startup is on the order of a second, and the GameWatch 'pause' rule calls setPaused automatically on every game-appears/disappears transition, so an auto-pause costs ~1s of process spawn each way.",
+   "fix": "It is a user-scale action, so acceptable, but consider a single long-lived helper or a native addon if auto-pause on game transitions becomes frequent."
+  },
+  {
+   "file": "electron/gamewatch.js",
+   "line": 23,
+   "issue": "probe() runs up to 3 sequential execFile('tasklist.exe') calls every 20 seconds, forever, once started",
+   "why_it_costs": "Up to 3 process spawns per 20s tick (only stops early when an earlier name matches). On the 5 MB/s-disk machine in this environment each spawn is measurably slow, and it runs whether or not anything is playing.",
+   "fix": "Single tasklist dump per tick filtered in JS, and/or stop polling when neither Forge nor playback is active (the result is only used to background Forge and notify the renderer)."
+  },
+  {
+   "file": "electron/library.js",
+   "line": 26,
+   "issue": "scanDir does a synchronous fs.statSync per MIDI file (up to MAX_FILES 4000) on top of recursive readdirSync, all inside the library:list IPC handler",
+   "why_it_costs": "A full synchronous directory walk with one stat syscall per file blocks the main process (and therefore all IPC and window input) for the duration. On a cold cache with thousands of MIDIs, and on a slow SSD, that is seconds of frozen UI. library-changed fires after every finished Forge job and every review export, and the renderer typically re-lists on it.",
+   "fix": "Use fs.promises / withFileTypes + async stat batching, or take size/mtime from a single readdir where available; cache the result keyed by folder mtime and invalidate on library-changed instead of rescanning from scratch."
+  },
+  {
+   "file": "electron/main.js",
+   "line": 130,
+   "issue": "listMidis (app:listMidis) is a second synchronous readdirSync walk, capped at 1000, also run directly in the IPC handler",
+   "why_it_costs": "Duplicates library.js' work with different rules and blocks the main thread the same way; two separate scanners means a folder can be walked twice for one UI refresh.",
+   "fix": "Unify with library.js and make it async/cached."
+  },
+  {
+   "file": "electron/main.js",
+   "line": 371,
+   "issue": "forgeEmit does synchronous fs.mkdirSync / fs.renameSync / fs.copyFileSync / fs.unlinkSync / fs.writeFileSync inside the forge.done event handler",
+   "why_it_costs": "A finished melody run moves 3-4 MIDI files and writes a project JSON synchronously on the main thread. Small files so it is milliseconds, but a cross-device fallback (copyFileSync of every candidate) on a slow drive blocks the UI at exactly the moment the user is being told the job finished.",
+   "fix": "Move the file shuffle to fs.promises and emit forge:status after it resolves."
+  },
+  {
+   "file": "electron/main.js",
+   "line": 453,
+   "issue": "freeGb() calls fs.existsSync + fs.statfsSync synchronously on every app:forgeInfo invoke",
+   "why_it_costs": "statfs on a spun-down or network drive can block for hundreds of ms; forgeInfo is called by the shell on load and after every forge-folder change.",
+   "fix": "Use fs.promises.statfs and make forgeInfo async."
+  },
+  {
+   "file": "electron/main.js",
+   "line": 501,
+   "issue": "forgeNeedGb() does an fs.existsSync on %SystemRoot%/System32/nvcuda.dll on every forgeInfo call",
+   "why_it_costs": "Cheap but repeated; the answer cannot change while the app runs.",
+   "fix": "Compute once at startup and cache."
+  },
+  {
+   "file": "electron/paths.js",
+   "line": 114,
+   "issue": "candidateForgeEnvDirs loops 'DEFGHIJKLMNOPQRSTUVWXYZC' calling exists() on each drive root and then findReadyForgeEnv calls forgeEnvReady() (up to 3 existsSync each) per candidate",
+   "why_it_costs": "~30 drive-root existsSync plus dozens more existsSync per candidate, synchronously, during recoverForgeEnv() in createServices before the window is created. A disconnected mapped network drive can make a single existsSync hang for seconds, delaying boot.",
+   "fix": "Run recovery asynchronously after the window is shown, and enumerate real volumes instead of probing every letter."
+  },
+  {
+   "file": "electron/paths.js",
+   "line": 181,
+   "issue": "ensureUserMappings() readdirSyncs the bundled mappings folder and for each JSON does shouldRefreshPreset which readFileSync+JSON.parse BOTH source and destination, then copyFileSync",
+   "why_it_costs": "2 sync reads + 2 JSON parses per preset on every launch, before the sidecar spawns (it must run first to set MIDI_STUDIO_MAPPINGS_DIR), so it is directly on the startup critical path.",
+   "fix": "Compare mtime/size first and only parse when they differ, or record the seeded preset versions in settings."
+  },
+  {
+   "file": "electron/main.js",
+   "line": 522,
+   "issue": "adoptInstallerForgePath uses spawnSync('reg.exe') (5s timeout) and syncInstallerForgePath uses spawnSync('reg.exe' add) on the main thread during startup",
+   "why_it_costs": "A synchronous process spawn blocks the event loop; worst case 5s of a frozen, not-yet-created window.",
+   "fix": "Use the async execFile equivalents, or read the value from the registry asynchronously after ready-to-show."
+  },
+  {
+   "file": "electron/main.js",
+   "line": 522,
+   "issue": "Registry key literal is written with single-backslash escapes in a normal JS string: 'HKCU\\Software\\StarsationX\\MIDI Studio' -> \\S, \\M are not escape sequences so they collapse to 'HKCUSoftwareStarsationXMIDI Studio'; same bug at line 500 for 'C:\\Windows'",
+   "why_it_costs": "The reg.exe query can never match, so installer-chosen Forge storage is silently never adopted (the feature is dead), and the SystemRoot fallback path is wrong. Note line 574 (syncInstallerForgePath) DOES use double backslashes, so writes go to the real key while reads look at a nonexistent one.",
+   "fix": "Escape the backslashes (or use String.raw) in both literals."
+  },
+  {
+   "file": "electron/forge-provisioner.js",
+   "line": 117,
+   "issue": "pump() does an fs.writeSync to the log fd for every stdout/stderr chunk, and every parsed line becomes a separate forge.provision.log IPC event fanned out by broadcast",
+   "why_it_costs": "pip/torch install output is tens of thousands of lines; each chunk is a synchronous write and each line is an N-frame IPC fan-out during a multi-GB download.",
+   "fix": "Use a write stream for the log and batch provision.log lines before emitting."
+  },
+  {
+   "file": "electron/sidecar.js",
+   "line": 117,
+   "issue": "each stderr line becomes its own {event:'log',level:'warn'} onEvent -> broadcast to shell + every iframe + Perch, and the stderr tail is rebuilt with string concat + slice(-4000) per chunk",
+   "why_it_costs": "A chatty python warning loop turns into per-line IPC fan-out on the playback-critical main thread.",
+   "fix": "Batch stderr lines on a short timer; keep the tail in a small ring buffer."
+  }
+ ],
+ "gotchas": [
+  "backgroundThrottling:false is NOT sufficient — the two commandLine switches disable-backgrounding-occluded-windows and disable-renderer-backgrounding are also required, because Chromium backgrounds renderers whose window is OCCLUDED (which is exactly the play-into-a-fullscreen-game case) and that stalls timers and audio scheduling (main.js:29-33). The webPreferences comment adds that Review/Audition preview runs on requestAnimationFrame, which Chromium throttles in a background window, freezing playback on alt-tab (main.js:218-220).",
+  "webContents.send only reaches the MAIN frame. engine-event / engine-error / forge:status / library-changed / game-active / overlay-state / overlay-wants-state MUST go through broadcast(), which walks mainFrame.framesInSubtree, or the player and forge tabs receive nothing (main.js:110-123). Perch is a separate window the frame walk cannot reach, so broadcast() also calls overlay.send() explicitly (main.js:124-126).",
+  "update-status, shell-shortcut and open-midi deliberately use sendToRenderer (main frame ONLY) so the shell owns the single updater UI — the player iframe must not also pop an update banner (main.js:100-102, 922).",
+  "nodeIntegrationInSubFrames:true is load-bearing: it is what puts the preload bridges (api/forge/review/library/perch/studio) into the tab iframes.",
+  "will-prevent-unload has INVERTED semantics here: e.preventDefault() means 'proceed with the close'. An iframe (the Editor with unsaved notes) calling preventDefault in beforeunload silently cancelled the close — the window just refused to close with no dialog and no escape but Task Manager (main.js:250-264). With no visible window we preventDefault immediately, because otherwise the app sits in the background forever holding the single-instance lock.",
+  "window-all-closed needs a forced app.exit(0) after 4s: app.quit() can be swallowed by a pending dialog or a throwing handler, leaving a windowless process holding the instance lock (main.js:1036-1039).",
+  "second-instance must not force-show a window that has not painted: a second launch while the first is still starting used to put an empty WHITE rectangle on screen, which is what 'it opens white and never loads' actually was. winPainted gates show/focus; ready-to-show does the showing (main.js:982-988). Same reason show:false + ready-to-show at first launch.",
+  "second-instance must also be able to recreate the window: if the first instance lost its window but kept the lock, the new process used to just exit and the app 'wouldn't open' until the user killed it in Task Manager (main.js:973-976, 991).",
+  "did-fail-load must retry: on a slow machine a failed renderer load is usually transient (antivirus still scanning the freshly installed asar) and Chromium leaves a blank white page. Two retries at 800ms/1600ms before the error box; code -3 (aborted) is ignored (main.js:293-311).",
+  "Ctrl+1..4 tab switching MUST be caught in the main process via before-input-event: the stage iframe covers almost the whole window, so a keydown listener in the shell frame never sees the keys once the user has clicked into a tab (main.js:282-284).",
+  "Torch's OpenMP pool SPIN-WAITS between parallel regions by default: idle workers burn a full core, never yield, and starve the UI in ~0.2s bursts even though the job runs below-normal priority. OMP_WAIT_POLICY=PASSIVE and KMP_BLOCKTIME=0 are what fixed the app going unresponsive during a transcription (forge-runner.js:323-332).",
+  "Playback backgrounding of Forge is NOT a preference: a late keypress into a game is audibly wrong and cannot be caught up, so playbackActive always forces Forge to step aside, while a detected game only counts when settings.whenGaming !== 'nothing'. The two flags are tracked separately so one ending does not cancel the other (main.js:45-60, 347-353).",
+  "The forge pipeline output pump MUST split on \\r as well as \\n: MSST's tqdm bar and yt-dlp rewrite one line with \\r and never send \\n, so a newline-only split buffered the whole progress stream and showed nothing for the longest part of the run (forge-runner.js:281-284, makePump at :61-73).",
+  "Forge progress percent is clamped monotonically (peak = Math.max) — a bar that walks backwards reads as a bug (forge-runner.js:229).",
+  "The keyword-fallback stage matcher must skip lines starting with 'input:': the 'Input: Clean Bandit - Symphony.mp3' echo used to jump the bar straight to 90% (forge-runner.js:272-274).",
+  "selectScript checks pipeline==='fast' BEFORE skipSeparation: testing skip first silently routed Fast to Transkun, minutes of CPU work the user explicitly opted out of (forge-runner.js:29-32).",
+  "The DONE line's text is deliberately NOT parsed — the derived audioOut path is authoritative because the scripts write {input}.mid and no custom output name is passed (forge-runner.js:261-263).",
+  "forge.run gates on paths.forgeEnvReady, not merely 'python.exe exists': a cancelled or out-of-disk setup leaves an interpreter with no torch and the job died on import (forge-runner.js:304-306). forgeEnvReady itself requires BOTH site-packages/torch AND a '.ready' marker, so a half-built env re-provisions instead of failing every job (paths.js:86-89).",
+  "Orphan protection is mandatory: a Forge job is a separate python.exe holding the GPU, and killing MIDI Studio the hard way never runs cleanup, leaving it transcribing forever at 100% GPU with no window to stop it. Hence forge-jobs.json + reapOrphanJobs at startup, gated on isOurPython so we never kill a stranger's process (forge-runner.js:100-135).",
+  "The PLAYER sidecar pid is also tracked in forge-jobs.json — its executable lives inside the install folder, so a leftover copy makes the next installer refuse with 'MIDI Studio cannot be closed' (sidecar.js:98-100).",
+  "The sidecar MUST emit {event:'playback_done',crashed:true} on exit: without it the renderer never learns playback ended, Play stays disabled and the queue stays locked until the whole app restarts (sidecar.js:132-134).",
+  "PlayerSidecar.start() has an in-flight _startPromise guard because rapid send()-triggered restarts would otherwise spawn N sidecars (sidecar.js:48-49).",
+  "The bundled embeddable Python does NOT put the script dir on sys.path, so PYTHONPATH=engineDir is required or sibling imports (midi_player, audio_utils, analyze) fail — both for the sidecar (sidecar.js:84-86) and for forge children (paths.js:224-227).",
+  "MIDI_STUDIO_MAPPINGS_DIR must be set BEFORE the sidecar spawns so the child inherits it (main.js:333-339).",
+  "The sidecar start is deliberately delayed 1200ms and gameWatch 8000ms: starting python while the window is still painting makes first launch feel broken on a slow machine, and it is the moment Defender is scanning the freshly installed files (main.js:358-360, 432).",
+  "Perch must use setAlwaysOnTop(true,'screen-saver') — plain alwaysOnTop loses to a borderless-fullscreen game (overlay.js:110-112) — and showInactive(), never show(), because taking focus off the game mid-song would pause playback, the exact problem the window exists to explain (overlay.js:129-131).",
+  "Perch must be closed with the main window and in cleanup(): it is skipTaskbar + always-on-top, so left behind it is a window the user can see but has no way to reach, and it would hold window-all-closed open so the app never quits (main.js:322-325, 1049-1051).",
+  "Ctrl+Alt+P exists specifically because turning click-through ON is easy from the sheet but turning it OFF is impossible without a global key — the window stops accepting clicks entirely (main.js:657-660).",
+  "overlay:replay is filtered to midi_loaded/playback_started/progress so a compromised frame cannot use it as a general channel into the always-on-top window; window.perch is a deliberately small surface for the same reason (main.js:710-711, preload.js:81-83).",
+  "Perch's saved rectangle must be validated against the displays that exist NOW: a remembered position on an unplugged monitor leaves the window off-screen with no way to grab it. Partial overlap counts, so a deliberate hang off the edge is preserved (overlay.js:66-93).",
+  "setMode must save the OUTGOING mode's bounds before resizing, or modes slowly overwrite each other's remembered dimensions (overlay.js:217-221).",
+  "markReady must send overlay-config BEFORE flushing queued events: the page boots on the markup's defaults, so a user who chose Mini at 40% opacity would reopen at Full (overlay.js:179-181).",
+  "lastSongName has to be scraped from outgoing load_midi/play commands: the engine only ever sees a path on the way in and never sends it back, so Perch's title bar would be empty otherwise (main.js:66-69, 726-730).",
+  "lastReady must be replayed on did-frame-finish-load: a tab iframe loads after the engine may have already emitted 'ready' (main.js:243-248). lastUpdateStatus must be replayed on did-finish-load for the same reason — pushing it the moment the network answers loses it entirely on a slow machine (main.js:74-77).",
+  "The auto update check must be timed from ready-to-show, not whenReady: the old fixed 4s timer fired while the renderer was still loading and the answer went nowhere (main.js:1018-1025).",
+  "NEVER pass /S to the installer. installerArgs() returns [] always. NSIS skips every page in silent mode, so /S re-decided the install directory (a Program Files install began installing per-user and ran the old uninstaller on the way — 'it uninstalled itself') and rewrote the Forge storage path to a C: fallback for someone who had deliberately put it on another drive (updater.js:83-96).",
+  "On Windows the installer must be launched through Start-Process, never a direct spawn: detached:true does NOT detach on Windows, so the installer stayed a child of MIDI Studio.exe and its own 'close the running app' step taskkilled its own tree — the installer killed itself (updater.js:115-120).",
+  "The updater elevates via -Verb RunAs when the install dir is not writable: an app in C:\\Program Files made the installer exit 1223 instantly, which is what 'the updater does nothing' looked like (updater.js:98-101).",
+  "verifyDigest returns false for an ABSENT digest (older release -> fall back to opening the release page) but THROWS on a real mismatch — never swap the binary then (updater.js:172-181).",
+  "adoptInstallerForgePath must never trade a provisioned env for an empty one: 2.20.0's silent update could write a computed default into the registry value, and adopting it pointed a working install at an empty folder ('torch is missing' plus an offer to re-download several GB). The registry only wins when it leads somewhere real, or when nothing is set up either way (main.js:530-538). recoverForgeEnv exists as the other half of that fix (main.js:552-557).",
+  "app:cleanReinstall and changeForgeStorage only ever touch OUR managed env (marker file .midi-studio-forge, or the default path) — never a user's adopted legacy midi-forge (main.js:907-909, forge-storage.js:33-37).",
+  "The provisioner opens its log file FIRST: everything after can fail, and when it did there was no file anywhere to explain why — the panel just sat on its placeholder (forge-provisioner.js:34-41). It also falls back from a drive-root env dir (which needs admin on most machines and is the default when the app is installed off C:) to the user profile rather than dead-ending (forge-provisioner.js:61-70).",
+  "The provisioner watchdog exists because a step that prints nothing for a while is normal (a 3 GB download prints once) but silence with no explanation reads as a hang (forge-provisioner.js:88-90).",
+  "gamewatch queries tasklist ONE NAME AT A TIME because tasklist ANDs multiple /FI filters (gamewatch.js:17-18).",
+  "performanceSettings' 'cleared override' check must test the VALUE not the number: Number(null) is 0 and 0 is finite, so clearing an override used to set it to 1 (main.js:474-476). And app:setPerformance must write explicit nulls for advanced.threads/batch when percent is set, because the store deep-merges and {} would leave a previous hand-set value in place (main.js:875-877).",
+  "drawMs used to cap at 30fps, which is what made the piano roll look like it was jumping between positions instead of scrolling (main.js:483-486).",
+  "review:saveProject must not reuse candidates.clean as the write target when the project was opened from a plain .mid — that path IS the user's original file. candidateTarget only overwrites in place for a real project or a candidate already inside the project folder (main.js:762-765, forge-storage.js:126-133).",
+  "forgeEmit's project sidecar is named off the FINAL midi basename so the .mid and .midstudio.json pair never drifts apart, and uniquePath is used everywhere because re-forging a song or two downloads sharing a title used to silently overwrite the earlier result (main.js:395-396, forge-storage.js:114-116).",
+  "library.list folds X_balanced/X_detailed into their primary X: those are versions of one song, not three songs (library.js:48-51). Orphaned candidates are still shown.",
+  "yt_download.py is invoked WITHOUT an outDir argument when outDir is empty, so the script picks its own writable default and never writes to cwd (forge-runner.js:357-358).",
+  "settings deepMerge REPLACES arrays rather than merging them (settings.js:41) — library.dirs updates must pass the whole array, which main.js does.",
+  "BUG/invariant to preserve carefully: 'HKCU\\Software\\StarsationX\\MIDI Studio' at main.js:522 and 'C:\\Windows' at main.js:500 use single backslashes in a normal string literal, so the escapes collapse and the reg QUERY targets a nonexistent key while the reg ADD at main.js:574 (correctly double-escaped) writes the real one. Any rewrite should fix this rather than faithfully reproduce it."
+ ]
+}

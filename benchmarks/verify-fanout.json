@@ -1,0 +1,129 @@
+{
+  "when": "2026-09-07T09:15:14.014Z",
+  "framesInSubtree": 7,
+  "frames": [
+    {
+      "url": "renderer/index.html",
+      "isMain": true,
+      "subscriptions": [
+        "panel-failed",
+        "window-state",
+        "shell-shortcut",
+        "update-status",
+        "engine-error",
+        "engine-event",
+        "forge:status",
+        "game-active",
+        "overlay-state",
+        "library-changed",
+        "open-midi",
+        "boot-milestone"
+      ]
+    },
+    {
+      "url": "forge/index.html",
+      "isMain": false,
+      "subscriptions": [
+        "forge:status"
+      ]
+    },
+    {
+      "url": "review/index.html",
+      "isMain": false,
+      "subscriptions": []
+    },
+    {
+      "url": "player/index.html",
+      "isMain": false,
+      "subscriptions": [
+        "library-changed",
+        "engine-error",
+        "engine-event",
+        "overlay-wants-state"
+      ]
+    },
+    {
+      "url": "audition/index.html",
+      "isMain": false,
+      "subscriptions": []
+    },
+    {
+      "url": "library/index.html",
+      "isMain": false,
+      "subscriptions": [
+        "library-progress"
+      ]
+    },
+    {
+      "url": "logs/index.html",
+      "isMain": false,
+      "subscriptions": []
+    }
+  ],
+  "channels": [
+    {
+      "channel": "engine-event",
+      "sendsBefore": 7,
+      "sendsAfter": 2,
+      "wastedBefore": 5,
+      "savedPercent": 71.4
+    },
+    {
+      "channel": "forge:status",
+      "sendsBefore": 7,
+      "sendsAfter": 2,
+      "wastedBefore": 5,
+      "savedPercent": 71.4
+    },
+    {
+      "channel": "engine-error",
+      "sendsBefore": 7,
+      "sendsAfter": 2,
+      "wastedBefore": 5,
+      "savedPercent": 71.4
+    },
+    {
+      "channel": "library-changed",
+      "sendsBefore": 7,
+      "sendsAfter": 2,
+      "wastedBefore": 5,
+      "savedPercent": 71.4
+    },
+    {
+      "channel": "game-active",
+      "sendsBefore": 7,
+      "sendsAfter": 1,
+      "wastedBefore": 6,
+      "savedPercent": 85.7
+    },
+    {
+      "channel": "overlay-state",
+      "sendsBefore": 7,
+      "sendsAfter": 1,
+      "wastedBefore": 6,
+      "savedPercent": 85.7
+    }
+  ],
+  "timing": {
+    "channel": "engine-event",
+    "reps": 2000,
+    "unfiltered": {
+      "n": 2000,
+      "mean": 0.0813,
+      "p50": 0.0806,
+      "p95": 0.1233,
+      "p99": 0.1546,
+      "max": 0.3831,
+      "sendsPerBroadcast": 7
+    },
+    "filtered": {
+      "n": 2000,
+      "mean": 0.0303,
+      "p50": 0.0302,
+      "p95": 0.0466,
+      "p99": 0.064,
+      "max": 0.1218,
+      "sendsPerBroadcast": 2
+    }
+  }
+}

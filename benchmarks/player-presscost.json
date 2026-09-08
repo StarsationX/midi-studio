@@ -1,0 +1,380 @@
+{
+  "meta": {
+    "when": "2026-09-07T15:29:02",
+    "args": {
+      "midi": "C:\\Users\\stars\\claude\\midi-studio\\benchmarks\\fixtures\\player-dense.mid",
+      "mapping": "virtualpiano",
+      "seconds": 20.0,
+      "kb": "nullkey",
+      "sustain": false,
+      "rounds": 3,
+      "load": "none",
+      "load_procs": 12,
+      "variant": [
+        "base=C:/Users/stars/AppData/Local/Temp/claude/C--Users-stars-claude/70af7aea-6883-4b62-9db0-0b64d1cd6047/scratchpad/ab/midi_player_base.py"
+      ],
+      "json": "benchmarks/player-presscost.json"
+    },
+    "press_only_ms": 0.3072,
+    "press_release_ms": 0.8819
+  },
+  "variants": {
+    "base": {
+      "path": "C:\\Users\\stars\\AppData\\Local\\Temp\\claude\\C--Users-stars-claude\\70af7aea-6883-4b62-9db0-0b64d1cd6047\\scratchpad\\ab\\midi_player_base.py",
+      "centre": false,
+      "cal": false,
+      "runs": 3,
+      "notes": 1767,
+      "process_cpu_pct_of_wall": 7.058,
+      "median_round_max_ms": 14.671,
+      "round_max_ms": [
+        13.126,
+        17.856,
+        14.671
+      ],
+      "median_round_p99_ms": 8.348,
+      "land_err_ms": {
+        "n": 1767,
+        "mean": 0.334,
+        "p50": -0.862,
+        "p95": 5.658,
+        "p99": 8.844,
+        "max": 17.856,
+        "min": -1.018,
+        "over_5ms": 121,
+        "over_10ms": 9,
+        "over_20ms": 0
+      },
+      "land_abs_err_ms": {
+        "n": 1767,
+        "mean": 1.508,
+        "p50": 0.924,
+        "p95": 5.658,
+        "p99": 8.844,
+        "max": 17.856,
+        "min": 0.004,
+        "over_5ms": 121,
+        "over_10ms": 9,
+        "over_20ms": 0
+      },
+      "wake_err_ms": {
+        "n": 1767,
+        "mean": -0.334,
+        "p50": -1.486,
+        "p95": 4.716,
+        "p99": 7.921,
+        "max": 16.726,
+        "min": -1.493,
+        "over_5ms": 75,
+        "over_10ms": 6,
+        "over_20ms": 0
+      },
+      "press_cost_ms": {
+        "n": 1767,
+        "mean": 0.668,
+        "p50": 0.596,
+        "p95": 1.014,
+        "p99": 1.445,
+        "max": 3.84,
+        "min": 0.407,
+        "over_5ms": 0,
+        "over_10ms": 0,
+        "over_20ms": 0
+      },
+      "land_abs_by_chord_pos_ms": {
+        "pos_0": {
+          "n": 1176,
+          "mean": 0.887,
+          "p50": 0.914,
+          "p95": 0.982,
+          "p99": 1.008,
+          "max": 1.458,
+          "min": 0.042,
+          "over_5ms": 0,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_1": {
+          "n": 246,
+          "mean": 0.523,
+          "p50": 0.433,
+          "p95": 1.115,
+          "p99": 1.831,
+          "max": 6.004,
+          "min": 0.004,
+          "over_5ms": 1,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_2": {
+          "n": 150,
+          "mean": 2.391,
+          "p50": 2.311,
+          "p95": 3.554,
+          "p99": 4.566,
+          "max": 5.772,
+          "min": 1.126,
+          "over_5ms": 1,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_3": {
+          "n": 117,
+          "mean": 4.782,
+          "p50": 4.647,
+          "p95": 7.292,
+          "p99": 7.946,
+          "max": 12.576,
+          "min": 2.301,
+          "over_5ms": 49,
+          "over_10ms": 1,
+          "over_20ms": 0
+        },
+        "pos_4": {
+          "n": 66,
+          "mean": 6.837,
+          "p50": 6.778,
+          "p95": 9.336,
+          "p99": 15.406,
+          "max": 15.406,
+          "min": 3.617,
+          "over_5ms": 58,
+          "over_10ms": 2,
+          "over_20ms": 0
+        },
+        "pos_5": {
+          "n": 6,
+          "mean": 9.032,
+          "p50": 8.794,
+          "p95": 17.856,
+          "p99": 17.856,
+          "max": 17.856,
+          "min": 5.008,
+          "over_5ms": 6,
+          "over_10ms": 1,
+          "over_20ms": 0
+        },
+        "pos_6": {
+          "n": 3,
+          "mean": 10.082,
+          "p50": 10.44,
+          "p95": 10.728,
+          "p99": 10.728,
+          "max": 10.728,
+          "min": 9.077,
+          "over_5ms": 3,
+          "over_10ms": 2,
+          "over_20ms": 0
+        },
+        "pos_7": {
+          "n": 3,
+          "mean": 13.083,
+          "p50": 13.126,
+          "p95": 14.671,
+          "p99": 14.671,
+          "max": 14.671,
+          "min": 11.451,
+          "over_5ms": 3,
+          "over_10ms": 3,
+          "over_20ms": 0
+        }
+      },
+      "land_signed_by_chord_pos_ms": {
+        "pos_0": {
+          "n": 1176,
+          "mean": -0.877,
+          "p50": -0.914,
+          "p95": -0.703,
+          "p99": -0.182,
+          "max": 1.458,
+          "min": -1.018,
+          "over_5ms": 0,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_1": {
+          "n": 246,
+          "mean": 0.522,
+          "p50": 0.433,
+          "p95": 1.115,
+          "p99": 1.831,
+          "max": 6.004,
+          "min": -0.054,
+          "over_5ms": 1,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_2": {
+          "n": 150,
+          "mean": 2.391,
+          "p50": 2.311,
+          "p95": 3.554,
+          "p99": 4.566,
+          "max": 5.772,
+          "min": 1.126,
+          "over_5ms": 1,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_3": {
+          "n": 117,
+          "mean": 4.782,
+          "p50": 4.647,
+          "p95": 7.292,
+          "p99": 7.946,
+          "max": 12.576,
+          "min": 2.301,
+          "over_5ms": 49,
+          "over_10ms": 1,
+          "over_20ms": 0
+        },
+        "pos_4": {
+          "n": 66,
+          "mean": 6.837,
+          "p50": 6.778,
+          "p95": 9.336,
+          "p99": 15.406,
+          "max": 15.406,
+          "min": 3.617,
+          "over_5ms": 58,
+          "over_10ms": 2,
+          "over_20ms": 0
+        },
+        "pos_5": {
+          "n": 6,
+          "mean": 9.032,
+          "p50": 8.794,
+          "p95": 17.856,
+          "p99": 17.856,
+          "max": 17.856,
+          "min": 5.008,
+          "over_5ms": 6,
+          "over_10ms": 1,
+          "over_20ms": 0
+        },
+        "pos_6": {
+          "n": 3,
+          "mean": 10.082,
+          "p50": 10.44,
+          "p95": 10.728,
+          "p99": 10.728,
+          "max": 10.728,
+          "min": 9.077,
+          "over_5ms": 3,
+          "over_10ms": 2,
+          "over_20ms": 0
+        },
+        "pos_7": {
+          "n": 3,
+          "mean": 13.083,
+          "p50": 13.126,
+          "p95": 14.671,
+          "p99": 14.671,
+          "max": 14.671,
+          "min": 11.451,
+          "over_5ms": 3,
+          "over_10ms": 3,
+          "over_20ms": 0
+        }
+      },
+      "press_cost_by_chord_pos_ms": {
+        "pos_0": {
+          "n": 1176,
+          "mean": 0.603,
+          "p50": 0.573,
+          "p95": 0.771,
+          "p99": 1.031,
+          "max": 2.944,
+          "min": 0.472,
+          "over_5ms": 0,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_1": {
+          "n": 246,
+          "mean": 0.698,
+          "p50": 0.656,
+          "p95": 1.068,
+          "p99": 1.471,
+          "max": 2.835,
+          "min": 0.407,
+          "over_5ms": 0,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_2": {
+          "n": 150,
+          "mean": 0.821,
+          "p50": 0.791,
+          "p95": 1.149,
+          "p99": 1.445,
+          "max": 3.84,
+          "min": 0.47,
+          "over_5ms": 0,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_3": {
+          "n": 117,
+          "mean": 0.902,
+          "p50": 0.809,
+          "p95": 1.292,
+          "p99": 2.271,
+          "max": 3.73,
+          "min": 0.48,
+          "over_5ms": 0,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_4": {
+          "n": 66,
+          "mean": 0.91,
+          "p50": 0.846,
+          "p95": 1.297,
+          "p99": 3.181,
+          "max": 3.181,
+          "min": 0.637,
+          "over_5ms": 0,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_5": {
+          "n": 6,
+          "mean": 0.803,
+          "p50": 0.752,
+          "p95": 1.13,
+          "p99": 1.13,
+          "max": 1.13,
+          "min": 0.63,
+          "over_5ms": 0,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_6": {
+          "n": 3,
+          "mean": 0.77,
+          "p50": 0.772,
+          "p95": 0.822,
+          "p99": 0.822,
+          "max": 0.822,
+          "min": 0.715,
+          "over_5ms": 0,
+          "over_10ms": 0,
+          "over_20ms": 0
+        },
+        "pos_7": {
+          "n": 3,
+          "mean": 1.133,
+          "p50": 1.04,
+          "p95": 1.333,
+          "p99": 1.333,
+          "max": 1.333,
+          "min": 1.028,
+          "over_5ms": 0,
+          "over_10ms": 0,
+          "over_20ms": 0
+        }
+      }
+    }
+  }
+}

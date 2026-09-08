@@ -1,4 +1,19 @@
 // Lightweight offline player for the bundled FluidR3 General MIDI samples.
+//
+// Banks are loaded by INJECTING A SCRIPT (`<script src="...-mp3.js">`), which is
+// why renderer/audition/index.html deliberately keeps a looser CSP than the
+// other panels. Do not "fix" that: it is invariant 30.
+//
+// Three measured costs were fixed here and must not come back:
+//   1. every mp3 data: URI was decoded with atob() and then copied into a
+//      Uint8Array one character at a time in JS. A bank is a few MB of base64,
+//      so that loop ran millions of times per instrument change;
+//   2. decodeAudioData was awaited one sample at a time, serialising ~40
+//      independent decodes that the browser is happy to run at once;
+//   3. sampleForPitch() did Object.keys(bank) + a full linear scan on EVERY
+//      note played. It is now a 128-entry table built once per bank.
+// The 2-instrument LRU (decoded audio is far larger than its mp3 source) and
+// the caller's token-based cancellation are unchanged on purpose.
 (() => {
   'use strict';
 
@@ -15,8 +30,10 @@
     synth_drum: { label: 'Synth Drum', file: 'synth_drum', gain: 0.62, attack: 0.002, release: 0.2 },
   });
 
-  const scriptLoads = new Map();
-  const decoded = new Map();
+  const scriptLoads = new Map();   // preset file -> in-flight bank promise
+  const decoded = new Map();       // preset key -> Map(sample name -> AudioBuffer)
+  const inflight = new Map();      // preset key -> Map(sample name -> promise)
+  const tables = new Map();        // preset file -> 128-entry pitch -> sample
 
   function midiToName(value) {
     const midi = Math.max(0, Math.min(127, Math.round(Number(value) || 0)));
@@ -49,62 +66,117 @@
       script.onerror = () => reject(new Error(`${preset.label} samples were not found.`));
       document.head.appendChild(script);
     });
+    // A failed load must not be cached as the answer forever: a retry after a
+    // transient failure should get a fresh script element.
+    promise.catch(() => { if (scriptLoads.get(preset.file) === promise) scriptLoads.delete(preset.file); });
     scriptLoads.set(preset.file, promise);
     return promise;
   }
 
-  function dataUriBuffer(uri) {
-    const encoded = String(uri || '').split(',')[1] || '';
-    const bytes = atob(encoded);
-    const buffer = new ArrayBuffer(bytes.length);
-    const view = new Uint8Array(buffer);
-    for (let i = 0; i < bytes.length; i += 1) view[i] = bytes.charCodeAt(i);
-    return buffer;
-  }
-
-  function sampleForPitch(bank, pitch) {
-    const exact = midiToName(pitch);
-    if (bank[exact]) return { name: exact, pitch: Math.round(pitch) };
-    let best = null;
-    for (const name of Object.keys(bank)) {
-      const samplePitch = nameToMidi(name);
-      if (samplePitch === null) continue;
-      if (!best || Math.abs(samplePitch - pitch) < Math.abs(best.pitch - pitch)) best = { name, pitch: samplePitch };
+  // The mp3 arrives as a data: URI. fetch() hands the bytes over in one move
+  // inside the browser; the old atob + per-character copy was the single
+  // hottest thing in an instrument change.
+  async function toArrayBuffer(uri) {
+    const text = String(uri || '');
+    try {
+      const response = await fetch(text);
+      return await response.arrayBuffer();
+    } catch (_) {
+      // CSP or an exotic URI: still bulk, still one pass, no per-byte JS loop
+      // written by hand.
+      const encoded = text.slice(text.indexOf(',') + 1);
+      return Uint8Array.from(atob(encoded), (ch) => ch.charCodeAt(0)).buffer;
     }
-    return best;
   }
 
+  // One 128-entry lookup per bank, built the first time the bank is seen.
+  // Every pitch resolves to the nearest sample the bank actually ships.
+  function tableFor(file, bank) {
+    const cached = tables.get(file);
+    if (cached) return cached;
+    const available = [];
+    for (const name of Object.keys(bank)) {
+      const pitch = nameToMidi(name);
+      if (pitch !== null) available.push({ name, pitch });
+    }
+    available.sort((a, b) => a.pitch - b.pitch);
+    const table = new Array(128).fill(null);
+    if (available.length) {
+      for (let pitch = 0; pitch < 128; pitch += 1) {
+        const exact = midiToName(pitch);
+        if (bank[exact]) { table[pitch] = { name: exact, pitch }; continue; }
+        let best = available[0];
+        for (const candidate of available) {
+          if (Math.abs(candidate.pitch - pitch) < Math.abs(best.pitch - pitch)) best = candidate;
+        }
+        table[pitch] = best;
+      }
+    }
+    tables.set(file, table);
+    return table;
+  }
+
+  function clampPitch(value) {
+    return Math.max(0, Math.min(127, Math.round(Number(value) || 0)));
+  }
+
+  // Decode only the samples this song needs, all at once, reporting progress as
+  // each one settles. `pitches` may be an array, a Set or anything iterable.
   async function prepare(context, presetKey, pitches, onProgress) {
     const key = PRESETS[presetKey] ? presetKey : 'grand_piano';
+    const preset = PRESETS[key];
     const bank = await loadScript(key);
+    const table = tableFor(preset.file, bank);
     if (!decoded.has(key)) decoded.set(key, new Map());
+    if (!inflight.has(key)) inflight.set(key, new Map());
     const cache = decoded.get(key);
-    const samples = new Map();
-    for (const pitch of new Set(pitches.map((value) => Math.max(0, Math.min(127, Math.round(value)))))) {
-      const sample = sampleForPitch(bank, pitch);
-      if (sample) samples.set(sample.name, sample);
+    const pending = inflight.get(key);
+
+    const needed = new Set();
+    for (const value of pitches) {
+      const sample = table[clampPitch(value)];
+      if (sample) needed.add(sample.name);
     }
-    let complete = 0;
-    for (const sample of samples.values()) {
-      if (!cache.has(sample.name)) {
-        cache.set(sample.name, await context.decodeAudioData(dataUriBuffer(bank[sample.name])));
+
+    const total = needed.size;
+    let ready = 0;
+    if (onProgress) onProgress(0, total);
+    const jobs = [];
+    for (const name of needed) {
+      if (cache.has(name)) { ready += 1; if (onProgress) onProgress(ready, total); continue; }
+      let job = pending.get(name);
+      if (!job) {
+        job = toArrayBuffer(bank[name])
+          .then((bytes) => context.decodeAudioData(bytes))
+          .then((buffer) => { cache.set(name, buffer); return buffer; })
+          .finally(() => { if (pending.get(name) === job) pending.delete(name); });
+        pending.set(name, job);
       }
-      complete += 1;
-      if (onProgress) onProgress(complete, samples.size);
+      jobs.push(job.then(() => { ready += 1; if (onProgress) onProgress(ready, total); }));
     }
-    // Decoded audio is much larger than the source. Keep the two most recently used instruments.
+    await Promise.all(jobs);
+
+    // Decoded audio is much larger than the source. Keep the two most recently
+    // used instruments: re-inserting moves this key to the end of the Map.
     decoded.delete(key);
     decoded.set(key, cache);
-    while (decoded.size > 2) decoded.delete(decoded.keys().next().value);
-    return { key, label: PRESETS[key].label, samples: samples.size };
+    while (decoded.size > 2) {
+      const oldest = decoded.keys().next().value;
+      decoded.delete(oldest);
+      inflight.delete(oldest);
+    }
+    return { key, label: preset.label, samples: total };
   }
 
   function play(context, presetKey, pitch, startTime, duration, velocity, destination) {
     const key = PRESETS[presetKey] ? presetKey : 'grand_piano';
     const preset = PRESETS[key];
     const bank = window.MIDI && window.MIDI.Soundfont && window.MIDI.Soundfont[preset.file];
-    const sample = bank && sampleForPitch(bank, pitch);
-    const buffer = sample && decoded.get(key) && decoded.get(key).get(sample.name);
+    if (!bank) return null;
+    const cache = decoded.get(key);
+    if (!cache) return null;
+    const sample = tableFor(preset.file, bank)[clampPitch(pitch)];
+    const buffer = sample && cache.get(sample.name);
     if (!buffer) return null;
 
     const source = context.createBufferSource();
@@ -124,5 +196,17 @@
     return source;
   }
 
-  window.MidiStudioSoundfonts = { presets: PRESETS, prepare, play };
+  // True when this pitch can be played from a decoded sample right now, so the
+  // caller can pick the fallback synth without allocating anything first.
+  function has(presetKey, pitch) {
+    const key = PRESETS[presetKey] ? presetKey : 'grand_piano';
+    const preset = PRESETS[key];
+    const bank = window.MIDI && window.MIDI.Soundfont && window.MIDI.Soundfont[preset.file];
+    const cache = decoded.get(key);
+    if (!bank || !cache) return false;
+    const sample = tableFor(preset.file, bank)[clampPitch(pitch)];
+    return !!(sample && cache.has(sample.name));
+  }
+
+  window.MidiStudioSoundfonts = { presets: PRESETS, prepare, play, has };
 })();

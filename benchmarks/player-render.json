@@ -1,0 +1,36 @@
+{
+  "when": "2026-09-07T06:57:06.159Z",
+  "notes": 8000,
+  "frames": 600,
+  "size": [
+    1280,
+    620
+  ],
+  "runs": {
+    "visualizer": {
+      "frames": 600,
+      "notes": 11429,
+      "notes_visible_per_frame": 151,
+      "frame_ms": {
+        "n": 600,
+        "mean": 0.395,
+        "p50": 0.4,
+        "p95": 0.6,
+        "p99": 0.7,
+        "max": 0.9
+      },
+      "us_per_visible_note": 2.62,
+      "long_frames_16_7ms": 0,
+      "long_frames_33ms": 0,
+      "heap_start": 10000000,
+      "heap_end": 10000000,
+      "heap_growth_bytes": 0,
+      "heap_bytes_per_frame": 0,
+      "gc": {
+        "major": 0,
+        "minor": 0,
+        "total": 0
+      }
+    }
+  }
+}

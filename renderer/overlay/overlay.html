@@ -96,6 +96,12 @@
     <span class="grip" id="grip" aria-hidden="true"></span>
   </div>
 
+  <!-- visualizer.js reads its palette through Tokens and caches its idle roll
+       in a Draw.LayerCache, so both have to be here before it. Perch shares
+       that file with the Player tab: when the Player's copy changed, this
+       window silently threw once per frame until these were added. -->
+  <script src="../shared/tokens.js"></script>
+  <script src="../shared/draw.js"></script>
   <script src="../shared/icons.js"></script>
   <script src="../player/visualizer.js"></script>
   <script src="overlay.js"></script>

@@ -1,0 +1,592 @@
+{
+  "at": "2026-09-07T08:17:50.556Z",
+  "seconds": 45,
+  "size": "1280x800",
+  "platform": "win32 10.0.26200",
+  "cores": 12,
+  "cpu": "AMD Ryzen 5 5600 6-Core Processor              ",
+  "note": "renderer measured against tools/ipc-stubs.js; electron/main.js not booted",
+  "tabs": [
+    {
+      "tab": "player",
+      "shellBootMs": 769,
+      "booted": true,
+      "bootIpc": {
+        "total": 24,
+        "pushes": 0,
+        "handoverMs": 768,
+        "order": [
+          "app:bootMark@556ms",
+          "win:state@559ms",
+          "app:bootMark@562ms",
+          "app:release@562ms",
+          "app:whatsNew@563ms",
+          "app:version@563ms",
+          "app:bootState@563ms",
+          "app:performance@563ms",
+          "overlay:state@563ms",
+          "app:getOutputDir@563ms",
+          "app:forgeInfo@563ms",
+          "library:list@563ms",
+          "app:bootMark@570ms",
+          "app:bootMark@570ms",
+          "app:bootMark@570ms",
+          "app:bootMark@570ms",
+          "app:bootMark@572ms",
+          "app:bootMark@573ms",
+          "app:bootMark@578ms",
+          "app:version@728ms",
+          "app:getOutputDir@734ms",
+          "forge:getSettings@734ms",
+          "app:bootMark@749ms",
+          "app:bootMark@755ms"
+        ]
+      },
+      "timeline": {
+        "domContentLoaded": 580.7,
+        "domComplete": 755.5,
+        "loadEventEnd": 755.6,
+        "paints": [
+          {
+            "name": "first-paint",
+            "at": 495.6
+          },
+          {
+            "name": "first-contentful-paint",
+            "at": 1181.9
+          }
+        ],
+        "resources": [],
+        "fontsReadyAt": 765,
+        "booted": true,
+        "splashImg": {
+          "src": "lockup.png",
+          "complete": true,
+          "w": 600,
+          "h": 338,
+          "cssW": 0,
+          "cssH": 0,
+          "start": null,
+          "dur": null,
+          "bytes": 0
+        },
+        "scripts": []
+      },
+      "panel": {
+        "originEpoch": 1788769072294.7,
+        "firstPaintEpoch": 1788769072419.8,
+        "fcpEpoch": 1788769072419.8,
+        "dclEpoch": 1788769072463.7,
+        "loadEpoch": 1788769072464.2,
+        "nodes": 702
+      },
+      "panelMs": {
+        "navStart": 1,
+        "firstPaint": 126,
+        "fcp": 126,
+        "domContentLoaded": 170,
+        "load": 170,
+        "nodes": 702
+      },
+      "firstOpen": {
+        "toIframeCompleteMs": 253,
+        "toQuietMs": 736,
+        "scriptMs": 18.4,
+        "layoutMs": 38.3,
+        "styleMs": 25.7,
+        "taskMs": 199.8,
+        "layouts": 14
+      },
+      "instrumented": [
+        "shell",
+        "frame-forge",
+        "frame-review",
+        "frame-player",
+        "frame-audition",
+        "frame-library",
+        "frame-logs"
+      ],
+      "animating": [
+        "shell span.dot i.-blocked [dot-pulse infinite]"
+      ],
+      "idle": {
+        "seconds": 45,
+        "rafPerSec": 0,
+        "timerArmsPerSec": 0,
+        "ipcPerSec": 0,
+        "ipcTop": [],
+        "scriptMsPerSec": 0,
+        "taskMsPerSec": 3.33,
+        "layoutMsPerSec": 0,
+        "layoutsPerSec": 0,
+        "styleRecalcsPerSec": 0,
+        "heapMB": 8,
+        "heapGrowthMB": -0.7,
+        "nodes": 4786,
+        "listeners": 465,
+        "documents": 7,
+        "perFrame": [],
+        "cpu": {
+          "browser": {
+            "meanPct": 0.02,
+            "p95Pct": 0.09,
+            "maxPct": 0.13,
+            "memMB": 116.8
+          },
+          "gpu": {
+            "meanPct": 3.33,
+            "p95Pct": 3.81,
+            "maxPct": 3.92,
+            "memMB": 142.6
+          },
+          "utility": {
+            "meanPct": 0,
+            "p95Pct": 0,
+            "maxPct": 0.02,
+            "memMB": 79.6
+          },
+          "renderer": {
+            "meanPct": 1.5,
+            "p95Pct": 1.78,
+            "maxPct": 1.9,
+            "memMB": 121.2
+          }
+        }
+      }
+    },
+    {
+      "tab": "library",
+      "shellBootMs": 475,
+      "booted": true,
+      "bootIpc": {
+        "total": 24,
+        "pushes": 0,
+        "handoverMs": 475,
+        "order": [
+          "app:bootMark@272ms",
+          "win:state@273ms",
+          "app:bootMark@275ms",
+          "app:release@275ms",
+          "app:whatsNew@275ms",
+          "app:version@275ms",
+          "app:bootState@276ms",
+          "app:performance@276ms",
+          "overlay:state@276ms",
+          "app:getOutputDir@276ms",
+          "app:forgeInfo@276ms",
+          "library:list@276ms",
+          "app:bootMark@282ms",
+          "app:bootMark@282ms",
+          "app:bootMark@282ms",
+          "app:bootMark@282ms",
+          "app:bootMark@284ms",
+          "app:bootMark@286ms",
+          "app:bootMark@291ms",
+          "app:version@433ms",
+          "app:getOutputDir@440ms",
+          "forge:getSettings@440ms",
+          "app:bootMark@457ms",
+          "app:bootMark@464ms"
+        ]
+      },
+      "timeline": {
+        "domContentLoaded": 292.2,
+        "domComplete": 464.1,
+        "loadEventEnd": 464.4,
+        "paints": [
+          {
+            "name": "first-paint",
+            "at": 219.2
+          },
+          {
+            "name": "first-contentful-paint",
+            "at": 503.2
+          }
+        ],
+        "resources": [],
+        "fontsReadyAt": 474.1,
+        "booted": true,
+        "splashImg": {
+          "src": "lockup.png",
+          "complete": true,
+          "w": 600,
+          "h": 338,
+          "cssW": 0,
+          "cssH": 0,
+          "start": null,
+          "dur": null,
+          "bytes": 0
+        },
+        "scripts": []
+      },
+      "panel": {
+        "originEpoch": 1788769119730.3,
+        "firstPaintEpoch": 1788769119846.4001,
+        "fcpEpoch": 1788769119846.4001,
+        "dclEpoch": 1788769119844.7,
+        "loadEpoch": 1788769119846.7,
+        "nodes": 660
+      },
+      "panelMs": {
+        "navStart": 1,
+        "firstPaint": 117,
+        "fcp": 117,
+        "domContentLoaded": 116,
+        "load": 118,
+        "nodes": 660
+      },
+      "firstOpen": {
+        "toIframeCompleteMs": 152,
+        "toQuietMs": 515,
+        "scriptMs": 22.7,
+        "layoutMs": 27,
+        "styleMs": 24.4,
+        "taskMs": 176.5,
+        "layouts": 13
+      },
+      "instrumented": [
+        "shell",
+        "frame-forge",
+        "frame-review",
+        "frame-player",
+        "frame-audition",
+        "frame-library",
+        "frame-logs"
+      ],
+      "animating": [],
+      "idle": {
+        "seconds": 45,
+        "rafPerSec": 0,
+        "timerArmsPerSec": 0,
+        "ipcPerSec": 0,
+        "ipcTop": [],
+        "scriptMsPerSec": 0.01,
+        "taskMsPerSec": 0.44,
+        "layoutMsPerSec": 0,
+        "layoutsPerSec": 0,
+        "styleRecalcsPerSec": 0,
+        "heapMB": 8.2,
+        "heapGrowthMB": -1.43,
+        "nodes": 4677,
+        "listeners": 374,
+        "documents": 7,
+        "perFrame": [],
+        "cpu": {
+          "browser": {
+            "meanPct": 0.01,
+            "p95Pct": 0.01,
+            "maxPct": 0.08,
+            "memMB": 116.8
+          },
+          "gpu": {
+            "meanPct": 0.01,
+            "p95Pct": 0.03,
+            "maxPct": 0.04,
+            "memMB": 150.2
+          },
+          "utility": {
+            "meanPct": 0,
+            "p95Pct": 0,
+            "maxPct": 0,
+            "memMB": 79.5
+          },
+          "renderer": {
+            "meanPct": 0.02,
+            "p95Pct": 0.01,
+            "maxPct": 0.65,
+            "memMB": 123.1
+          }
+        }
+      }
+    },
+    {
+      "tab": "audition",
+      "shellBootMs": 447,
+      "booted": true,
+      "bootIpc": {
+        "total": 24,
+        "pushes": 0,
+        "handoverMs": 447,
+        "order": [
+          "app:bootMark@270ms",
+          "win:state@271ms",
+          "app:bootMark@275ms",
+          "app:release@275ms",
+          "app:whatsNew@275ms",
+          "app:version@275ms",
+          "app:bootState@275ms",
+          "app:performance@275ms",
+          "overlay:state@275ms",
+          "app:getOutputDir@275ms",
+          "app:forgeInfo@275ms",
+          "library:list@275ms",
+          "app:bootMark@282ms",
+          "app:bootMark@282ms",
+          "app:bootMark@282ms",
+          "app:bootMark@282ms",
+          "app:bootMark@284ms",
+          "app:bootMark@285ms",
+          "app:bootMark@289ms",
+          "app:version@415ms",
+          "app:getOutputDir@420ms",
+          "forge:getSettings@420ms",
+          "app:bootMark@433ms",
+          "app:bootMark@437ms"
+        ]
+      },
+      "timeline": {
+        "domContentLoaded": 324.2,
+        "domComplete": 436.7,
+        "loadEventEnd": 436.8,
+        "paints": [
+          {
+            "name": "first-paint",
+            "at": 219.7
+          },
+          {
+            "name": "first-contentful-paint",
+            "at": 465.6
+          }
+        ],
+        "resources": [],
+        "fontsReadyAt": 445,
+        "booted": true,
+        "splashImg": {
+          "src": "lockup.png",
+          "complete": true,
+          "w": 600,
+          "h": 338,
+          "cssW": 0,
+          "cssH": 0,
+          "start": null,
+          "dur": null,
+          "bytes": 0
+        },
+        "scripts": []
+      },
+      "panel": {
+        "originEpoch": 1788769166966.6,
+        "firstPaintEpoch": 1788769167058.7002,
+        "fcpEpoch": 1788769167058.7002,
+        "dclEpoch": 1788769167075.3,
+        "loadEpoch": 1788769167076.3,
+        "nodes": 484
+      },
+      "panelMs": {
+        "navStart": 2,
+        "firstPaint": 94,
+        "fcp": 94,
+        "domContentLoaded": 110,
+        "load": 111,
+        "nodes": 484
+      },
+      "firstOpen": {
+        "toIframeCompleteMs": 154,
+        "toQuietMs": 517,
+        "scriptMs": 14.6,
+        "layoutMs": 19.6,
+        "styleMs": 17,
+        "taskMs": 135.1,
+        "layouts": 15
+      },
+      "instrumented": [
+        "shell",
+        "frame-forge",
+        "frame-review",
+        "frame-player",
+        "frame-audition",
+        "frame-library",
+        "frame-logs"
+      ],
+      "animating": [
+        "shell span.dot i.-blocked [dot-pulse infinite]"
+      ],
+      "idle": {
+        "seconds": 45,
+        "rafPerSec": 0,
+        "timerArmsPerSec": 0,
+        "ipcPerSec": 0,
+        "ipcTop": [],
+        "scriptMsPerSec": 0,
+        "taskMsPerSec": 3.17,
+        "layoutMsPerSec": 0,
+        "layoutsPerSec": 0,
+        "styleRecalcsPerSec": 0,
+        "heapMB": 8.06,
+        "heapGrowthMB": -0.89,
+        "nodes": 4316,
+        "listeners": 384,
+        "documents": 7,
+        "perFrame": [],
+        "cpu": {
+          "browser": {
+            "meanPct": 0.01,
+            "p95Pct": 0.02,
+            "maxPct": 0.1,
+            "memMB": 117.5
+          },
+          "gpu": {
+            "meanPct": 3.18,
+            "p95Pct": 3.35,
+            "maxPct": 3.48,
+            "memMB": 148
+          },
+          "utility": {
+            "meanPct": 0,
+            "p95Pct": 0,
+            "maxPct": 0.01,
+            "memMB": 79.3
+          },
+          "renderer": {
+            "meanPct": 1.22,
+            "p95Pct": 1.27,
+            "maxPct": 1.85,
+            "memMB": 122.6
+          }
+        }
+      }
+    },
+    {
+      "tab": "forge",
+      "shellBootMs": 309,
+      "booted": true,
+      "bootIpc": {
+        "total": 21,
+        "pushes": 0,
+        "handoverMs": 309,
+        "order": [
+          "app:bootMark@221ms",
+          "win:state@222ms",
+          "app:bootMark@225ms",
+          "app:release@225ms",
+          "app:whatsNew@225ms",
+          "app:version@225ms",
+          "app:bootState@225ms",
+          "app:performance@225ms",
+          "overlay:state@225ms",
+          "app:getOutputDir@225ms",
+          "app:forgeInfo@225ms",
+          "library:list@225ms",
+          "app:bootMark@231ms",
+          "app:bootMark@231ms",
+          "app:bootMark@231ms",
+          "app:bootMark@231ms",
+          "app:bootMark@232ms",
+          "app:bootMark@235ms",
+          "app:bootMark@241ms",
+          "app:bootMark@301ms",
+          "app:bootMark@303ms"
+        ]
+      },
+      "timeline": {
+        "domContentLoaded": 273.3,
+        "domComplete": 303.2,
+        "loadEventEnd": 303.4,
+        "paints": [
+          {
+            "name": "first-paint",
+            "at": 178.2
+          },
+          {
+            "name": "first-contentful-paint",
+            "at": 318.2
+          }
+        ],
+        "resources": [],
+        "fontsReadyAt": 308,
+        "booted": true,
+        "splashImg": {
+          "src": "lockup.png",
+          "complete": true,
+          "w": 600,
+          "h": 338,
+          "cssW": 0,
+          "cssH": 0,
+          "start": null,
+          "dur": null,
+          "bytes": 0
+        },
+        "scripts": []
+      },
+      "panel": {
+        "originEpoch": 1788769214018.5,
+        "firstPaintEpoch": 1788769214134.3,
+        "fcpEpoch": 1788769214134.3,
+        "dclEpoch": 1788769214141.6,
+        "loadEpoch": 1788769214141.9,
+        "nodes": 603
+      },
+      "panelMs": {
+        "navStart": 2,
+        "firstPaint": 117,
+        "fcp": 117,
+        "domContentLoaded": 125,
+        "load": 125,
+        "nodes": 603
+      },
+      "firstOpen": {
+        "toIframeCompleteMs": 124,
+        "toQuietMs": 728,
+        "scriptMs": 11.2,
+        "layoutMs": 38.8,
+        "styleMs": 25.4,
+        "taskMs": 215.8,
+        "layouts": 10
+      },
+      "instrumented": [
+        "shell",
+        "frame-forge",
+        "frame-review",
+        "frame-player",
+        "frame-audition",
+        "frame-library",
+        "frame-logs"
+      ],
+      "animating": [],
+      "idle": {
+        "seconds": 45,
+        "rafPerSec": 0,
+        "timerArmsPerSec": 0,
+        "ipcPerSec": 0,
+        "ipcTop": [],
+        "scriptMsPerSec": 0.19,
+        "taskMsPerSec": 4.3,
+        "layoutMsPerSec": 0,
+        "layoutsPerSec": 0,
+        "styleRecalcsPerSec": 0,
+        "heapMB": 7.76,
+        "heapGrowthMB": -0.59,
+        "nodes": 3422,
+        "listeners": 306,
+        "documents": 7,
+        "perFrame": [],
+        "cpu": {
+          "browser": {
+            "meanPct": 0.18,
+            "p95Pct": 0.24,
+            "maxPct": 0.24,
+            "memMB": 119
+          },
+          "gpu": {
+            "meanPct": 0.01,
+            "p95Pct": 0.02,
+            "maxPct": 0.03,
+            "memMB": 151.2
+          },
+          "utility": {
+            "meanPct": 0,
+            "p95Pct": 0,
+            "maxPct": 0,
+            "memMB": 79.3
+          },
+          "renderer": {
+            "meanPct": 0.1,
+            "p95Pct": 0.12,
+            "maxPct": 0.67,
+            "memMB": 121.1
+          }
+        }
+      }
+    }
+  ]
+}

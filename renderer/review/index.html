@@ -3,90 +3,491 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self' file: blob:;" />
-  <title>Midi Editor</title>
+  <!-- file:/blob: are needed for the <audio> src and the peak-extraction fetch of
+       the project's source audio; connect-src also allows data: because the
+       bundled soundfont banks ship their samples as data: URIs and fetch()ing
+       them is what keeps an instrument change off the per-byte atob path.
+       Nothing remote is allowed: no CDN, no remote fonts, no inline handlers. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' file: blob: data:; connect-src 'self' file: blob: data:;" />
+  <title>MIDI Studio · Editor</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
+  <link rel="stylesheet" href="../shared/ui.css" />
   <link rel="stylesheet" href="./review.css" />
 </head>
 <body>
-  <main class="review" id="drop-zone" data-split="editor">
-    <header class="toolbar">
-      <div class="file-group">
-        <button class="btn btn-primary" id="open">Open</button>
-        <button class="btn" id="save" disabled>Save project</button>
-        <button class="btn" id="export" disabled>Export MIDI</button>
-      </div>
-      <div class="edit-group">
-        <button class="toolbtn" id="undo" title="Undo (Ctrl+Z)" disabled aria-label="Undo">↶</button>
-        <button class="toolbtn" id="redo" title="Redo (Ctrl+Y)" disabled aria-label="Redo">↷</button>
-        <button class="toolbtn" id="delete" title="Delete selected notes" disabled aria-label="Delete selected notes">⌫</button>
-        <button class="btn compact" id="oct-down" title="Move selected notes down one octave" disabled>−12</button>
-        <button class="btn compact" id="oct-up" title="Move selected notes up one octave" disabled>+12</button>
-        <label class="compact-field">Snap
-          <select id="quantize" disabled>
-            <option value="0">Off</option><option value="4">1/4</option><option value="8">1/8</option>
-            <option value="16" selected>1/16</option><option value="32">1/32</option>
-          </select>
-        </label>
-        <button class="btn compact" id="apply-quantize" disabled>Quantize</button>
-      </div>
-      <div class="spacer"></div>
-      <button class="btn" id="to-audition" disabled title="Hear it in Self Midi">Listen</button>
-      <button class="btn" id="to-player" disabled>Send to Midi Player</button>
-    </header>
+<div class="ed" id="ed" data-split="editor">
 
-    <section class="project-strip">
-      <input class="project-name" id="project-name" value="No project loaded" spellcheck="false"
-             title="Rename. The next Save/Export uses this name." aria-label="Project name" disabled />
-      <div class="candidate-tabs" id="candidate-tabs"></div>
-      <div class="status mono" id="status">READY</div>
-    </section>
+  <!-- ================================================== contextual actions -->
+  <header class="panel-head ed-head">
+    <!-- The tab strip above already says Editor; the visible words here are the
+         document's, so the heading stays for the outline and not for the eye. -->
+    <h1 class="u-hidden-visually">Editor</h1>
+    <!-- The same #status-pill the footer used to carry, moved to the head of the
+         band: one status, one element. -->
+    <span class="pill ed-state" id="status-pill"><span class="dot" id="status-dot"></span><span id="status-txt">Ready</span></span>
+    <span class="ed-ident">
+      <input class="input is-sm is-body ed-name" id="proj-name" spellcheck="false" disabled
+             aria-label="Project name" title="Rename. The next Save or Export writes under this name." />
+      <span class="ed-meta" id="head-meta">MIDI Editor</span>
+    </span>
+    <!-- A plain dot, not .dot.is-paused: an unsaved document is a lasting state,
+         and a permanently blinking mark is exactly the idle animation the rules
+         forbid. The word and .is-warn carry the state instead. -->
+    <span class="pill is-warn" id="dirty-pill" hidden><span class="dot warn"></span>Unsaved</span>
+    <span class="toolbar-spacer"></span>
+    <div class="panel-tools">
+      <!-- Each of the three carries its own name and an icon, because below 1040px
+           the label collapses (review.css) and a label-only button would be left as
+           an unnamed empty box - Save included. -->
+      <button class="btn" id="a-forge" disabled
+              aria-label="Back to Forge Result" data-tip="Back to Forge Result">
+        <i data-icon="undo" data-icon-size="14" aria-hidden="true"></i><span class="ed-lbl">Back to Forge Result</span>
+      </button>
+      <button class="btn" id="a-save" disabled
+              aria-label="Save project" data-tip="Save &middot; Ctrl+S">
+        <i data-icon="drop" data-icon-size="14" aria-hidden="true"></i><span class="ed-lbl">Save</span>
+      </button>
+      <button class="btn btn-primary" id="a-saveplay" disabled>
+        <i data-icon="play" data-icon-size="13" aria-hidden="true"></i>Save &amp; Play</button>
+      <button class="btn" id="a-listen" disabled
+              aria-label="Listen" data-tip="Listen">
+        <i data-icon="send" data-icon-size="14" aria-hidden="true"></i><span class="ed-lbl">Listen</span>
+      </button>
+      <button class="btn btn-icon is-bare" id="a-more" aria-label="More editor actions"
+              aria-haspopup="menu" data-tip="More actions"><i data-icon="dots"></i></button>
+    </div>
+  </header>
 
-    <section class="wave-section">
-      <div class="section-head">
-        <span>WAVEFORM</span>
-        <span class="mono" id="range-readout">00:00.000 / 00:00.000</span>
-      </div>
-      <canvas id="waveform" aria-label="Audio waveform and playback range"></canvas>
-    </section>
+  <!-- ============================================================== body -->
+  <div class="split ed-body">
 
-    <i class="grip-v" data-resize="wave" data-axis="y" data-min="90" data-max="420"
-       aria-label="Resize the waveform"></i>
-
-    <section class="roll-section">
-      <div class="section-head roll-head">
-        <span>PIANO ROLL</span>
-        <span id="selection-readout">0 notes selected</span>
-        <label>Velocity <input id="velocity" type="range" min="1" max="127" value="96" disabled /></label>
-        <label>Zoom <input id="zoom" type="range" min="35" max="220" value="85" disabled /></label>
+    <!-- ------------------------------------------------------ LEFT rail -->
+    <aside class="pane is-fixed ed-left" id="left-pane">
+      <div class="tabstrip" role="tablist" aria-label="Tracks and markers">
+        <!-- aria-label, not the visible text, is the accessible name: at rail width
+             (--left: 44px, the default below 1140px) .ed-lbl collapses and only the
+             .ed-abbr mark paints, so the name has to live somewhere that does not.
+             No data-tip here: ui.css draws the tab underline with the SAME ::after
+             the tooltip uses, and the tooltip's opacity:0 would take the active
+             mark with it. title= is the safe carrier on a tabstrip button. -->
+        <button role="tab" id="tab-tracks" aria-selected="true" aria-controls="p-tracks" data-panel="p-tracks"
+                aria-label="Tracks" title="Tracks">
+          <span class="ed-lbl">Tracks</span><span class="ed-abbr" aria-hidden="true">Trk</span>
+          <span class="count" id="tracks-count">0</span>
+        </button>
+        <button role="tab" id="tab-markers" aria-selected="false" aria-controls="p-markers" data-panel="p-markers"
+                tabindex="-1" aria-label="Markers" title="Markers">
+          <span class="ed-lbl">Markers</span><span class="ed-abbr" aria-hidden="true">Mrk</span>
+        </button>
       </div>
-      <div class="empty" id="empty">
-        <strong>Open a Forge project or MIDI file</strong>
-        <button class="btn btn-primary" id="empty-open">Open file</button>
-      </div>
-      <div class="roll-scroll" id="roll-scroll" hidden>
-        <div class="roll-wrap" id="roll-wrap">
-          <canvas id="piano-roll" tabindex="0" aria-label="Editable piano roll"></canvas>
+      <div class="tabpanel ed-pane" id="p-tracks" role="tabpanel" aria-labelledby="tab-tracks">
+        <div class="list" id="tracks" role="list"></div>
+        <div class="state is-compact" id="tracks-empty">
+          <span class="state-title">No tracks</span>
+          <span class="state-msg">Tracks are derived from the note channels in the open take.</span>
         </div>
       </div>
-    </section>
+      <div class="tabpanel ed-pane" id="p-markers" role="tabpanel" aria-labelledby="tab-markers" hidden>
+        <div class="list" id="markers" role="list"></div>
+        <div class="insp-sec">
+          <div class="insp-sec-body">
+            <p class="inline-note" id="markers-note">
+              Markers have no store yet. These four are derived live from the loop range and
+              the take's own extent, so nothing is invented on disk. Listen has no bookmark
+              list to read from either — when it grows one, this panel reads it.
+            </p>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <i class="grip-h has-handle" data-resize="left" data-min="44" data-max="420"
+       aria-label="Resize the track list"></i>
 
-    <footer class="transport">
-      <button class="transport-btn" id="play" title="Play or pause (Space)" disabled aria-label="Play">▶</button>
-      <button class="transport-btn" id="stop" title="Stop" disabled aria-label="Stop">■</button>
-      <div class="time mono" id="time">00:00.000 / 00:00.000</div>
-      <label class="switch"><input type="checkbox" id="audio-on" checked disabled /> Original audio</label>
-      <label class="switch"><input type="checkbox" id="midi-on" checked disabled /> MIDI preview</label>
-      <label class="switch"><input type="checkbox" id="follow-on" checked /> Follow</label>
-      <label class="switch"><input type="checkbox" id="loop-on" disabled /> Loop selection</label>
-      <div class="transport-note" id="transport-note"></div>
-    </footer>
-    <audio id="audio" preload="metadata"></audio>
-  </main>
-  <script src="../shared/icons.js"></script>
-  <script src="../shared/resize.js"></script>
-  <script src="../shared/timeline-zoom.js"></script>
-  <script src="../soundfonts/player.js"></script>
-  <script src="./review.js"></script>
+    <!-- ---------------------------------------------------------- CENTRE -->
+    <div class="pane is-flex ed-centre">
+
+      <!-- overview strip -->
+      <section class="ed-over">
+        <header class="toolbar is-sub">
+          <button class="switch" role="switch" id="t-audio" aria-checked="false" disabled
+                  aria-label="Play the original audio alongside the MIDI"></button>
+          <span class="ed-mini">Audio</span>
+          <span class="toolbar-spacer"></span>
+          <span class="ed-clock" id="range-readout">--:-- / --:--</span>
+          <button class="btn btn-icon is-sm is-bare" id="ov-reset" aria-label="Reset the overview zoom"
+                  data-tip="Reset zoom (or double-click)"><i data-icon="refresh"></i></button>
+        </header>
+        <div class="canvas-host" id="wave-host">
+          <canvas id="wave" aria-label="Audio and note-density overview with the loop range"></canvas>
+        </div>
+      </section>
+      <i class="grip-v has-handle" data-resize="wave" data-axis="y" data-min="76" data-max="360"
+         aria-label="Resize the overview strip"></i>
+
+      <!-- editor toolbar -->
+      <header class="toolbar ed-tools">
+        <div class="segmented is-sm" role="radiogroup" id="tool-pick" aria-label="Edit tool">
+          <button role="radio" aria-checked="true" data-tool="select" data-tip="Select and move · 1">Select</button>
+          <button role="radio" aria-checked="false" data-tool="draw" tabindex="-1" data-tip="Pencil: draw notes · 2">Draw</button>
+          <button role="radio" aria-checked="false" data-tool="erase" tabindex="-1" data-tip="Erase notes · 3">Erase</button>
+          <button role="radio" aria-checked="false" data-tool="box" tabindex="-1" data-tip="Box select · 4">Box</button>
+        </div>
+        <span class="toolbar-sep"></span>
+        <div class="toolbar-group">
+          <button class="btn btn-icon is-sm" id="z-out" aria-label="Zoom out" data-tip="Zoom out · Ctrl+−"><i data-icon="minus"></i></button>
+          <input class="range ed-zoom" id="zoom" type="range" min="20" max="480" value="85" step="1"
+                 aria-label="Horizontal zoom, pixels per second" disabled />
+          <button class="btn btn-icon is-sm" id="z-in" aria-label="Zoom in" data-tip="Zoom in · Ctrl+="><i data-icon="plus"></i></button>
+          <button class="btn btn-sm" id="z-fit" data-tip="Fit the whole take · Ctrl+0">Fit</button>
+        </div>
+        <span class="toolbar-sep"></span>
+        <div class="toolbar-group">
+          <span class="toolbar-label">Grid</span>
+          <span class="selectwrap"><select class="select is-sm" id="grid" aria-label="Grid division" disabled>
+            <option value="4">1/4</option>
+            <option value="8">1/8</option>
+            <option value="12">1/8T</option>
+            <option value="16" selected>1/16</option>
+            <option value="24">1/16T</option>
+            <option value="32">1/32</option>
+          </select></span>
+          <button class="btn btn-sm" id="t-snap" aria-pressed="true" data-tip="Snap edits to the grid · S">Snap</button>
+          <button class="btn btn-sm" id="t-link" aria-pressed="true"
+                  data-tip="Link the automation lane to the note selection · L">Link</button>
+        </div>
+        <span class="toolbar-sep"></span>
+        <div class="btn-group">
+          <button class="btn btn-icon is-sm" id="undo" aria-label="Undo" disabled data-tip="Undo · Ctrl+Z"><i data-icon="undo"></i></button>
+          <button class="btn btn-icon is-sm" id="redo" aria-label="Redo" disabled data-tip="Redo · Ctrl+Y"><i data-icon="undo" class="ic-flip"></i></button>
+        </div>
+        <span class="toolbar-spacer"></span>
+        <div class="toolbar-group">
+          <button class="btn btn-sm" id="t-midi" aria-pressed="true" disabled data-tip="Sound the notes while playing">MIDI</button>
+          <button class="btn btn-sm" id="t-loop" aria-pressed="false" disabled data-tip="Loop the range on the overview">Loop</button>
+          <button class="btn btn-sm" id="t-follow" aria-pressed="true" data-tip="Scroll to keep the playhead on screen">Follow</button>
+        </div>
+      </header>
+
+      <!-- the roll -->
+      <div class="ed-roll" id="roll-region" data-tool="select">
+        <div class="canvas-scroll" id="roll-scroll">
+          <!-- The extent supplies the scroll range and PARENTS the canvas: a sticky
+               canvas placed after the spacer starts one full extent-height down the
+               page and never comes back. -->
+          <div class="canvas-extent" id="roll-extent">
+            <canvas id="roll" tabindex="0" role="application"
+                    aria-label="Piano roll. Arrow keys transpose and nudge the selection."></canvas>
+          </div>
+        </div>
+        <div class="state" id="empty">
+          <span class="state-icon" aria-hidden="true"><i data-icon="folder" data-icon-size="22"></i></span>
+          <span class="state-title">Nothing open</span>
+          <span class="state-msg">Open a Forge project (<span class="mono">.midstudio.json</span>) or a plain
+            <span class="mono">.mid</span>. You can also drop one anywhere on this panel.</span>
+          <span class="state-actions">
+            <button class="btn btn-primary" id="empty-open">Open file</button>
+          </span>
+        </div>
+      </div>
+
+      <i class="grip-v has-handle" data-resize="auto" data-axis="y" data-min="64" data-max="300" data-invert
+         aria-label="Resize the automation lane"></i>
+
+      <!-- automation lane -->
+      <section class="ed-auto">
+        <!-- The lane picker reads down the left of the lane, beside the values it
+             switches, rather than as a strip of chrome above it. Same radiogroup,
+             same roving tabindex, same handler. -->
+        <div class="lane-pick" role="radiogroup" id="lane-pick" aria-label="Automation lane"
+             title="Transcription captures velocity only. Modulation, expression, sustain and pan are neither written nor dropped — whatever the document already carries round-trips untouched.">
+          <button role="radio" aria-checked="true" data-lane="velocity">Velocity</button>
+          <button role="radio" aria-checked="false" data-lane="mod" tabindex="-1" disabled>Modulation</button>
+          <button role="radio" aria-checked="false" data-lane="expr" tabindex="-1" disabled>Expression</button>
+          <button role="radio" aria-checked="false" data-lane="sustain" tabindex="-1" disabled>Sustain</button>
+          <button role="radio" aria-checked="false" data-lane="pan" tabindex="-1" disabled>Pan</button>
+        </div>
+        <div class="canvas-host" id="auto-host">
+          <canvas id="auto" aria-label="Velocity lane. Drag over a note to set its velocity."></canvas>
+          <!-- pointer-transparent: the whole lane surface is a velocity drag -->
+          <span class="lane-note" id="lane-note"></span>
+        </div>
+      </section>
+    </div>
+
+    <i class="grip-h has-handle" data-resize="right" data-min="232" data-max="470" data-invert
+       aria-label="Resize the inspector"></i>
+
+    <!-- ----------------------------------------------------- RIGHT rail -->
+    <aside class="pane is-fixed ed-right" id="right-pane">
+      <div class="tabstrip" role="tablist" aria-label="Inspector">
+        <button role="tab" id="tab-props" aria-selected="true" aria-controls="p-props" data-panel="p-props">Properties</button>
+        <button role="tab" id="tab-sel" aria-selected="false" aria-controls="p-sel" data-panel="p-sel" tabindex="-1">
+          Selection <span class="count" id="sel-count">0</span>
+        </button>
+        <button role="tab" id="tab-hist" aria-selected="false" aria-controls="p-hist" data-panel="p-hist" tabindex="-1">History</button>
+      </div>
+
+      <!-- Properties ------------------------------------------------ -->
+      <div class="tabpanel ed-pane insp" id="p-props" role="tabpanel" aria-labelledby="tab-props">
+
+        <div class="insp-sec">
+          <button class="insp-sec-head" aria-expanded="true" aria-controls="s-src">MIDI Source</button>
+          <div class="insp-sec-body" id="s-src">
+            <div class="list" id="src-list" role="list"></div>
+            <p class="ed-hint">Alternate takes of one transcription. Switching keeps each take's own
+              edits and its own undo history.</p>
+          </div>
+        </div>
+
+        <div class="insp-sec">
+          <button class="insp-sec-head" aria-expanded="true" aria-controls="s-time">Quantize &amp; Timing</button>
+          <div class="insp-sec-body" id="s-time">
+            <div class="insp-row">
+              <span class="insp-label">Tempo</span>
+              <span class="input-wrap">
+                <input class="input is-sm" id="bpm" type="number" min="20" max="400" step="0.01"
+                       aria-label="Tempo in beats per minute" disabled />
+                <span class="input-affix">BPM</span>
+              </span>
+            </div>
+            <div class="insp-row is-stacked" id="bpm-warn-row" hidden>
+              <p class="inline-note" id="bpm-warn">This tempo is a guess from note onsets — transcriptions carry
+                no tempo track. Quantizing against a wrong grid moves every note, so set the real
+                value before you use the grid.</p>
+            </div>
+            <div class="insp-row">
+              <span class="insp-label">Quantize</span>
+              <span class="selectwrap"><select class="select is-sm" id="q-grid" aria-label="Quantize division" disabled>
+                <option value="4">1/4</option><option value="8">1/8</option><option value="12">1/8T</option>
+                <option value="16" selected>1/16</option><option value="24">1/16T</option><option value="32">1/32</option>
+              </select></span>
+            </div>
+            <div class="insp-row">
+              <span class="insp-label">Strength</span>
+              <span class="ed-slider">
+                <input class="range" id="q-strength" type="range" min="0" max="100" value="100" step="1"
+                       aria-label="Quantize strength percent" disabled />
+                <output class="ed-readout" id="q-strength-out" for="q-strength">100%</output>
+              </span>
+            </div>
+            <div class="insp-row">
+              <span class="insp-label">Snap</span>
+              <span class="u-row">
+                <button class="switch" role="switch" id="q-snap" aria-checked="true"
+                        aria-label="Snap edits to the grid"></button>
+                <span class="ed-mini" id="q-snap-txt">On</span>
+              </span>
+            </div>
+            <div class="insp-row">
+              <span class="insp-label">Humanize</span>
+              <span class="input-wrap">
+                <input class="input is-sm" id="q-human" type="number" min="0" max="120" step="1" value="12"
+                       aria-label="Humanize amount in milliseconds" disabled />
+                <span class="input-affix">ms</span>
+              </span>
+            </div>
+            <div class="insp-row">
+              <span class="insp-label">Nudge</span>
+              <span class="ed-btnrow">
+                <button class="btn btn-sm" id="nudge-back" disabled data-tip="One grid step earlier · Left">−grid</button>
+                <button class="btn btn-sm" id="nudge-fwd" disabled data-tip="One grid step later · Right">+grid</button>
+              </span>
+            </div>
+            <div class="ed-btnrow">
+              <button class="btn btn-sm" id="q-apply" disabled>Apply quantize</button>
+            </div>
+            <p class="ed-hint" id="q-scope">Applies to the selection, or to every note when nothing is selected.</p>
+          </div>
+        </div>
+
+        <div class="insp-sec">
+          <button class="insp-sec-head" aria-expanded="true" aria-controls="s-xform">Transform</button>
+          <div class="insp-sec-body" id="s-xform">
+            <div class="insp-row">
+              <span class="insp-label">Transpose</span>
+              <span class="u-row">
+                <span class="stepper is-sm">
+                  <button class="stepper-btn" id="tr-dec" aria-label="One semitone down">−</button>
+                  <input type="number" id="tr-val" value="0" min="-48" max="48" step="1" aria-label="Transpose semitones" disabled />
+                  <button class="stepper-btn" id="tr-inc" aria-label="One semitone up">+</button>
+                </span>
+                <button class="btn btn-sm" id="tr-oct-down" disabled data-tip="Down an octave">−12</button>
+                <button class="btn btn-sm" id="tr-oct-up" disabled data-tip="Up an octave">+12</button>
+              </span>
+            </div>
+            <div class="insp-row">
+              <span class="insp-label">Time stretch</span>
+              <span class="input-wrap">
+                <input class="input is-sm" id="stretch" type="number" min="10" max="400" step="1" value="100"
+                       aria-label="Time stretch percent" disabled />
+                <span class="input-affix">%</span>
+              </span>
+            </div>
+            <div class="insp-row">
+              <span class="insp-label">Scale</span>
+              <span class="selectwrap"><select class="select is-sm" id="scale" aria-label="Scale" disabled>
+                <option value="chromatic">Chromatic</option>
+                <option value="major">Major</option>
+                <option value="minor">Natural minor</option>
+                <option value="hminor">Harmonic minor</option>
+                <option value="dorian">Dorian</option>
+                <option value="mixolydian">Mixolydian</option>
+                <option value="pentaMaj">Pentatonic major</option>
+                <option value="pentaMin">Pentatonic minor</option>
+                <option value="blues">Blues</option>
+              </select></span>
+            </div>
+            <div class="insp-row">
+              <span class="insp-label">Root</span>
+              <span class="selectwrap"><select class="select is-sm" id="root" aria-label="Scale root" disabled></select></span>
+            </div>
+            <div class="ed-btnrow">
+              <button class="btn btn-sm" id="x-stretch" disabled>Apply stretch</button>
+              <button class="btn btn-sm" id="x-scale" disabled>Fit to scale</button>
+              <button class="btn btn-sm" id="x-dup" disabled data-tip="Copy the selection and paste it straight after · Ctrl+D">Duplicate</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="insp-sec">
+          <button class="insp-sec-head" aria-expanded="true" aria-controls="s-note">Note Properties</button>
+          <div class="insp-sec-body" id="s-note">
+            <!-- Four short values paired two to a line, like the ref. Each pair is
+                 still label + control; the grid collapses to one column under the
+                 container query at the bottom of review.css. -->
+            <div class="ed-pairs">
+              <div class="ed-pair">
+                <span class="insp-label">Pitch</span>
+                <span class="input-wrap">
+                  <input class="input is-sm" id="n-pitch" type="number" min="0" max="127" step="1"
+                         aria-label="Pitch of the selected notes" disabled />
+                  <span class="input-affix" id="n-pitch-name">—</span>
+                </span>
+              </div>
+              <div class="ed-pair">
+                <span class="insp-label">Velocity</span>
+                <span class="input-wrap">
+                  <input class="input is-sm" id="n-vel-num" type="number" min="1" max="127" step="1"
+                         aria-label="Velocity value" disabled />
+                  <span class="input-affix">1–127</span>
+                </span>
+              </div>
+              <div class="ed-pair">
+                <span class="insp-label">Length</span>
+                <span class="input-wrap">
+                  <input class="input is-sm" id="n-len" type="number" min="10" max="60000" step="10"
+                         aria-label="Length of the selected notes in milliseconds" disabled />
+                  <span class="input-affix">ms</span>
+                </span>
+              </div>
+              <div class="ed-pair">
+                <span class="insp-label">Channel</span>
+                <span class="selectwrap"><select class="select is-sm" id="n-chan" aria-label="Channel of the selected notes" disabled></select></span>
+              </div>
+            </div>
+            <div class="insp-row is-tight">
+              <span class="insp-label">Velocity</span>
+              <span class="ed-slider">
+                <input class="range" id="n-vel" type="range" min="1" max="127" value="96" step="1"
+                       aria-label="Velocity of the selected notes" disabled />
+                <output class="ed-readout" id="n-vel-out" for="n-vel">—</output>
+              </span>
+            </div>
+            <p class="ed-hint" id="n-hint">Select notes on the roll to edit them.</p>
+          </div>
+        </div>
+
+        <div class="insp-sec">
+          <button class="insp-sec-head" aria-expanded="true" aria-controls="s-tools">Cleanup &amp; Tools</button>
+          <div class="insp-sec-body" id="s-tools">
+            <div class="ed-btnrow">
+              <button class="btn btn-sm" id="c-human" disabled data-tip="Scatter starts and velocities by the Humanize amount">Humanize</button>
+              <button class="btn btn-sm" id="c-overlap" disabled data-tip="Clip a note that runs into the next of the same pitch">Remove Overlaps</button>
+            </div>
+            <div class="ed-btnrow">
+              <button class="btn btn-sm" id="c-timing" disabled data-tip="Snap to the grid at full strength, then enforce a 20 ms floor and close sub-8 ms gaps">Fix Timing</button>
+              <button class="btn btn-sm" id="c-normvel" disabled data-tip="Scale every velocity so the loudest note reaches 112, keeping the dynamics">Normalize Velocity</button>
+            </div>
+            <div class="ed-btnrow">
+              <button class="btn btn-sm btn-danger" id="c-delete" disabled data-tip="Delete the selection · Del">Delete selection</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Selection ------------------------------------------------- -->
+      <div class="tabpanel ed-pane insp" id="p-sel" role="tabpanel" aria-labelledby="tab-sel" hidden>
+        <div class="insp-sec">
+          <div class="insp-sec-body">
+            <div class="stat-grid" id="sel-stats"></div>
+          </div>
+        </div>
+        <div class="insp-sec">
+          <button class="insp-sec-head" aria-expanded="true" aria-controls="s-selact">Actions</button>
+          <div class="insp-sec-body" id="s-selact">
+            <div class="ed-btnrow">
+              <button class="btn btn-sm" id="s-all" disabled data-tip="Ctrl+A">Select all</button>
+              <button class="btn btn-sm" id="s-invert" disabled>Invert</button>
+              <button class="btn btn-sm" id="s-none" disabled data-tip="Escape">Clear</button>
+            </div>
+            <div class="ed-btnrow">
+              <button class="btn btn-sm" id="s-copy" disabled data-tip="Ctrl+C">Copy</button>
+              <button class="btn btn-sm" id="s-cut" disabled data-tip="Ctrl+X">Cut</button>
+              <button class="btn btn-sm" id="s-paste" disabled data-tip="Paste at the playhead · Ctrl+V">Paste</button>
+            </div>
+            <p class="ed-hint">Copy and paste use the Editor's own clipboard, not the system one.</p>
+          </div>
+        </div>
+        <div class="insp-sec">
+          <button class="insp-sec-head" aria-expanded="true" aria-controls="s-selchan">Channels in selection</button>
+          <div class="insp-sec-body" id="s-selchan">
+            <div class="list" id="sel-chans" role="list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- History --------------------------------------------------- -->
+      <div class="tabpanel ed-pane" id="p-hist" role="tabpanel" aria-labelledby="tab-hist" hidden>
+        <div class="toolbar is-sub">
+          <span class="toolbar-label" id="hist-scope">History</span>
+          <span class="toolbar-spacer"></span>
+          <span class="ed-mini" id="hist-depth">0 / 80</span>
+        </div>
+        <div class="hist-host">
+          <div class="vlist" id="hist-list"></div>
+        </div>
+        <div class="state is-compact" id="hist-empty">
+          <span class="state-title">No edits yet</span>
+          <span class="state-msg">Every edit lands here, per MIDI source. Click a step to travel to it.</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ============================================================ status -->
+  <div class="ed-status">
+    <span class="ed-detail" id="detail"></span>
+    <span class="ed-clock" id="clock">--:--.--- / --:--.---</span>
+  </div>
+
+  <audio id="audio" preload="metadata"></audio>
+</div>
+
+<!-- required, in this order -->
+<script src="../shared/tokens.js"></script>
+<script src="../shared/fmt.js"></script>
+<script src="../shared/draw.js"></script>
+<script src="../shared/bus.js"></script>
+<script src="../shared/icons.js"></script>
+<!-- optional: the ones this tab actually uses -->
+<script src="../shared/vlist.js"></script>
+<script src="../shared/menu.js"></script>
+<script src="../shared/resize.js"></script>
+<script src="../shared/timeline-zoom.js"></script>
+<script src="../shared/midi-parse.js"></script>
+<!-- the bundled sample player behind the preview (shared/audio.js does not exist yet) -->
+<script src="../soundfonts/player.js"></script>
+<script src="./review.js"></script>
 </body>
 </html>

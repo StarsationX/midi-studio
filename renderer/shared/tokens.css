@@ -62,6 +62,31 @@
   /* ---- spacing (4-based) ---- */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
 
+  /* ---- control metrics ------------------------------------------------------
+     Every control height in the app comes from this group, so the density
+     switch below has exactly one place to tighten. Nothing hard-codes a pixel
+     height any more. */
+  --h-ctl-sm: 26px;   /* toolbar icon buttons, inline steppers, chips */
+  --h-ctl:    32px;   /* the default button / select / segment height */
+  --h-input:  34px;   /* text wells sit 2px taller than a button, on purpose */
+  --h-ctl-lg: 38px;
+  --h-ctl-xl: 44px;   /* the one GO button per view */
+  --h-row:    28px;   /* list row, virtualised: must match VList rowHeight */
+  --h-row-lg: 40px;   /* two-line list row */
+  --h-toolbar: 40px;
+  --h-tabstrip: 34px;
+  --pad-ctl: 16px;    /* horizontal padding inside a default button */
+  --pad-panel: var(--s4);
+
+  /* ---- z layers: one ladder, so nothing guesses ---- */
+  --z-sticky: 5;
+  --z-grip: 8;
+  --z-pop: 40;     /* tooltips, context menus, select popovers */
+  --z-scrim: 60;
+  --z-modal: 61;
+  --z-toast: 80;
+  --z-drop: 90;
+
   /* ---- type scale: FOUR steps, nothing between ------------------------------
      t1 caption/label · t2 body+controls · t3 section head · t4 page title.
      The old 8.5-11.5px band was unreadable at 100% on a 1080p panel, so it
@@ -75,10 +100,22 @@
   --glow: none;
   --well: inset 0 1px 2px rgba(0,0,0,.35);
 
-  /* ---- motion ---- */
-  --dur: 110ms;
-  --dur-2: 170ms;
-  --ease: cubic-bezier(.2, .7, .2, 1);
+  /* ---- motion --------------------------------------------------------------
+     Four durations and three curves, nothing else. Everything an interaction
+     does lands inside 240ms; the 80ms step is for a state flip that should not
+     read as an animation at all. --dur/--dur-2/--ease stay as aliases so every
+     rule written before this table still resolves. */
+  --motion-instant: 80ms;
+  --motion-fast:    120ms;
+  --motion-normal:  170ms;
+  --motion-slow:    240ms;
+  --ease-standard: cubic-bezier(.2, .7, .2, 1);   /* in-place state change */
+  --ease-enter:    cubic-bezier(.16, 1, .3, 1);   /* something arriving */
+  --ease-exit:     cubic-bezier(.4, 0, 1, 1);     /* something leaving */
+
+  --dur: var(--motion-fast);      /* alias, legacy */
+  --dur-2: var(--motion-normal);  /* alias, legacy */
+  --ease: var(--ease-standard);   /* alias, legacy */
 
   /* ---- focus ring ---- */
   --ring: 0 0 0 1px var(--bg), 0 0 0 3px var(--accent-deep);
@@ -121,25 +158,19 @@ html, body {
 .muted { color: var(--text-3); }
 .small { font-size: 12px; }
 
-/* numbered section label, "01 INPUT" rail. Containers that set a section
-   counter (e.g. forge .work) make the number increment automatically. */
+/* Section label. Ordinary title-case sentence text in the body font -- the
+   reference design has no uppercase mono micro-labels and no "01" counter rail.
+   Monospace is reserved for machine values (clocks, counts, paths, hotkeys). */
 .lbl {
   display: flex; align-items: center; gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 12px; font-weight: 600; letter-spacing: 2px;
-  text-transform: uppercase; color: var(--text-3);
+  font: 600 var(--t2)/1.3 var(--font-body); letter-spacing: 0;
+  text-transform: none; color: var(--text-2);
   margin-bottom: var(--s3);
-}
-.lbl::before {
-  counter-increment: section;
-  content: counter(section, decimal-leading-zero);
-  color: var(--accent-deep);
-  font-weight: 700;
 }
 
 /* ---- buttons: flat precision ---- */
 .btn {
-  --bh: 32px;
+  --bh: var(--h-ctl);
   display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
   height: var(--bh); padding: 0 16px;
   background: var(--surface-2); color: var(--text);
@@ -152,8 +183,8 @@ html, body {
 .btn:active { background: #1f2126; }
 .btn:disabled, .btn[disabled] { opacity: .4; cursor: not-allowed; }
 .btn.big {
-  height: 44px; padding: 0 32px;
-  font: 700 15px/1 var(--font-body); letter-spacing: 1.5px; text-transform: uppercase;
+  height: var(--h-ctl-xl); padding: 0 32px;
+  font: 700 15px/1 var(--font-body); letter-spacing: .2px;
   border-radius: var(--r);
 }
 
@@ -180,7 +211,7 @@ html, body {
 
 /* ---- text inputs: recessed wells, mono readouts ---- */
 .input, input[type="text"], input[type="number"] {
-  height: 34px; padding: 0 12px;
+  height: var(--h-input); padding: 0 12px;
   background: var(--bg-2); color: var(--text);
   border: 1px solid var(--line); border-radius: var(--r-sm);
   box-shadow: var(--well);
@@ -205,17 +236,35 @@ input::placeholder { color: var(--text-3); }
   height: 6px; background: var(--bg-2);
   border: 1px solid var(--line); border-radius: 2px; overflow: hidden;
 }
+/* Determinate: drive --p (0..1), which scales a full-width fill. scaleX is a
+   compositor transform, so a progress bar ticking 20x a second costs nothing;
+   animating width would relayout the bar and its ancestors instead. Code that
+   still writes an inline style.width keeps working through the shim below. */
 .bar-fill {
-  height: 100%; width: 0;
+  height: 100%; width: 100%;
   background: var(--accent);
-  transition: width var(--dur-2) var(--ease);
+  transform: scaleX(var(--p, 0)); transform-origin: left center;
+  transition: transform var(--motion-normal) var(--ease-standard);
 }
+.bar-fill[style*="width"] { transform: none; transition: width var(--motion-normal) var(--ease-standard); }
+/* Indeterminate: the sweep is a transform, never margin-left. margin-left is a
+   layout property, so the old version forced layout + paint of the bar and its
+   ancestors on every frame of an animation that can run for a whole download,
+   and CSS animations are not covered by the data-drawms budget. translateX
+   percentages resolve against the element own width (32% of the track), so the
+   travel is -100% (fully off the left) to 312% (32% x 3.125, one track width
+   past the right edge). */
 .bar-fill.indet {
   width: 32% !important;
   background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  animation: indet 1.15s var(--ease) infinite;
+  animation: indet 1.15s var(--ease-standard) infinite;
 }
-@keyframes indet { 0% { margin-left: -34%; } 100% { margin-left: 102%; } }
+@keyframes indet { from { transform: translateX(-100%); } to { transform: translateX(312%); } }
+/* An indeterminate bar sweeping for a whole download inside a panel that is not
+   the visible tab costs a composite per vsync for nobody. draw.js stamps
+   data-parked for exactly that case; see the block in ui.css for the numbers.
+   Paused, so it resumes mid-sweep the moment the panel is on screen again. */
+:root[data-parked] .bar-fill.indet { animation-play-state: paused; }
 
 /* ---- status dot ---- */
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: 0 0 auto; }
@@ -261,9 +310,30 @@ input::placeholder { color: var(--text-3); }
 ::-webkit-scrollbar-thumb:hover { background: #44474f; background-clip: padding-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* ---- reduced motion ---- */
+/* ---- reduced motion ------------------------------------------------------
+   The blanket rule kills every decorative animation, but a primitive whose ONLY
+   signal IS the animation has to be given a static form instead, or the state
+   disappears entirely -- motion-as-the-only-state-signal, the same defect class
+   as colour-as-the-only-state-signal. Each such primitive gets an explicit
+   fallback here (or, when a later sheet restates it, in that sheet's own
+   reduced-motion block -- see .btn.is-busy in ui.css).
+   -------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+
+  /* The indeterminate sweep is a translateX from -100% to 312%. Forced to one
+     ~0ms iteration it settled a full track width past the right edge: an empty
+     progress track, which is exactly what a Forge stage with percent == null
+     shows for most of a run. Static stripes at full width read as "working,
+     amount unknown" and cannot be mistaken for 100%. */
+  .bar-fill.indet {
+    animation: none;
+    width: 100% !important;
+    transform: none;
+    opacity: .55;
+    background: repeating-linear-gradient(135deg,
+      var(--accent) 0 5px, var(--accent-soft) 5px 10px);
+  }
 }
 
 /* ---- icons (see shared/icons.js) ------------------------------------------
@@ -303,3 +373,42 @@ button[role="radio"], button[role="checkbox"], button[role="switch"], button[rol
    the pointer: text selects, canvases start drags, buttons light up. */
 body.is-resizing, body.is-resizing * { user-select: none !important; }
 body.is-resizing iframe { pointer-events: none; }
+
+/* ---- density switch --------------------------------------------------------
+   Set data-density="compact" on <html> (the shell mirrors settings.ui.density
+   into every frame's documentElement the same way it mirrors data-drawms).
+   Compact tightens the spacing scale and the control ladder only. The type
+   scale bottoms out at 12px in BOTH densities: the 8.5-11.5px band this
+   replaced was unreadable at 100% on a 1080p panel, and --text-3 stays the AA
+   contrast floor, so neither is allowed to move for density.
+   ------------------------------------------------------------------------- */
+[data-density="compact"] {
+  --s3: 10px; --s4: 12px; --s5: 14px; --s6: 18px; --s8: 24px;
+
+  --h-ctl-sm: 22px;
+  --h-ctl:    28px;
+  --h-input:  30px;
+  --h-ctl-lg: 34px;
+  --h-ctl-xl: 38px;
+  --h-row:    24px;
+  --h-row-lg: 34px;
+  --h-toolbar: 34px;
+  --h-tabstrip: 30px;
+  --pad-ctl: 12px;
+
+  /* t1/t2 hold at the 12px floor; only the two heading steps come down. */
+  --t3: 14px; --t4: 16px;
+}
+[data-density="compact"] .btn.big { padding: 0 22px; }
+[data-density="compact"] .seg button { padding: 9px 12px 9px 28px; }
+[data-density="compact"] .lbl { margin-bottom: var(--s2); }
+
+/* Native form controls, scrollbar corners and autofill all key off this. */
+html { color-scheme: dark; }
+::selection { background: var(--accent-deep); color: var(--text); }
+
+/* Nothing in this app is a document: a stray text selection during a drag on a
+   canvas or a list is always a bug. Text that IS meant to be selectable opts
+   back in with .selectable. */
+.selectable, input, textarea, .log, .mono { user-select: text; }
+.unselectable { user-select: none; }

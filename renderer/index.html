@@ -1,223 +1,694 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-onscreen="1">
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; frame-src 'self';" />
   <title>MIDI Studio</title>
   <link rel="stylesheet" href="./shared/tokens.css" />
+  <link rel="stylesheet" href="./shared/ui.css" />
   <link rel="stylesheet" href="./shell/shell.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <img class="brand-logo" src="./shared/logo.png" alt="MIDI Studio" />
+
+<!-- ==========================================================================
+     BOOT SPLASH. In-document, so the hand-over can cross-fade the real chrome
+     instead of swapping two windows. The BrowserWindow is created with
+     backgroundColor = --bg and show:false, so the first thing ever painted is
+     this, on the app's own ground: no white frame, ever.
+     ======================================================================= -->
+<div class="splash" id="splash" role="status" aria-live="polite">
+  <div class="splash-inner">
+    <div class="splash-mark" id="splash-mark">
+      <img class="splash-logo" src="./shared/lockup.png" width="600" height="338" alt="MIDI Studio" decoding="sync" />
+      <span class="splash-sweep" aria-hidden="true"></span>
     </div>
-    <nav class="tabs" id="tabs">
-      <button class="tab is-active" data-tab="forge">Midi Forge</button>
-      <button class="tab" data-tab="player">Midi Player</button>
-      <button class="tab" data-tab="review">Midi Editor</button>
-      <button class="tab" data-tab="audition">Self Midi</button>
+    <div class="splash-word">
+      <div class="splash-tag">Listen. Edit. Play. Anywhere.</div>
+    </div>
+    <div class="splash-status mono" id="splash-status">Loading interface</div>
+  </div>
+</div>
+
+<div class="shell" id="shell">
+
+  <!-- ========================================================================
+       1. CUSTOM TITLEBAR. The window is frameless; this bar is the drag region
+       and every interactive child opts out with -webkit-app-region:no-drag.
+       ===================================================================== -->
+  <header class="tbar" id="titlebar">
+    <div class="tbar-brand" id="brand">
+      <span class="brand-mark" aria-hidden="true"><img class="brand-img" src="./shared/mark.png" width="64" height="64" alt="" /></span>
+      <span class="brand-text">
+        <span class="brand-name">MIDI STUDIO</span>
+        <span class="brand-tag">Listen. Edit. Play. Anywhere.</span>
+      </span>
+    </div>
+
+    <nav class="tbar-nav" id="nav" role="tablist" aria-label="Workspaces">
+      <span class="nav-ind" id="nav-ind" aria-hidden="true"></span>
+      <button class="nav-item" id="nav-forge" data-tip="Ctrl+1" role="tab" data-frame="forge" aria-selected="true" tabindex="0" aria-controls="frame-forge">
+        <span class="nav-label">Forge</span>
+      </button>
+      <button class="nav-item" id="nav-player" data-tip="Ctrl+2" role="tab" data-frame="player" aria-selected="false" tabindex="-1" aria-controls="frame-player">
+        <span class="nav-label">Player</span>
+      </button>
+      <button class="nav-item" id="nav-review" data-tip="Ctrl+3" role="tab" data-frame="review" aria-selected="false" tabindex="-1" aria-controls="frame-review">
+        <span class="nav-label">Editor</span>
+      </button>
+      <button class="nav-item" id="nav-audition" data-tip="Ctrl+4" role="tab" data-frame="audition" aria-selected="false" tabindex="-1" aria-controls="frame-audition">
+        <span class="nav-label">Listen</span>
+      </button>
+      <button class="nav-item" id="nav-library" data-tip="Ctrl+5" role="tab" data-frame="library" aria-selected="false" tabindex="-1" aria-controls="frame-library">
+        <span class="nav-label">Library</span>
+      </button>
+      <button class="nav-item" id="nav-logs" data-tip="Ctrl+6" role="tab" data-frame="logs" aria-selected="false" tabindex="-1" aria-controls="frame-logs">
+        <span class="nav-label">Logs</span>
+      </button>
     </nav>
-    <div class="topbar-right">
-      <button class="iconbtn" id="settings-btn" title="Settings & About" aria-label="Settings and About"><i data-icon="gear" data-icon-size="16"></i></button>
-      <button class="version-badge" id="version-badge" title="Check for updates">v...</button>
+
+    <div class="tbar-right">
+      <button class="tb-search" id="search-trigger" aria-label="Search commands and songs">
+        <i data-icon="search" data-icon-size="13"></i>
+        <span class="tb-search-txt">Search</span>
+        <span class="kbd-seq" aria-hidden="true"><kbd class="kbd">Ctrl</kbd><kbd class="kbd">K</kbd></span>
+      </button>
+      <button class="tb-version mono tip-below tip-end" id="version-chip" data-tip="What&#8217;s new" aria-label="Version, what&#8217;s new">v&#8230;</button>
+      <button class="btn btn-icon is-sm is-bare tb-gear tip-below tip-end" id="settings-btn" aria-label="Settings" data-tip="Settings (Ctrl+,)"><i data-icon="gear" data-icon-size="16"></i></button>
+      <div class="wctl" role="group" aria-label="Window">
+        <button class="wctl-btn" id="win-min" aria-label="Minimise">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M3 8.5 L13 8.5" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
+        </button>
+        <button class="wctl-btn" id="win-max" aria-label="Maximise" aria-pressed="false">
+          <svg class="wctl-max" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><rect x="3.5" y="3.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
+          <svg class="wctl-restore" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M5.5 5.5 L5.5 3.5 L12.5 3.5 L12.5 10.5 L10.5 10.5" fill="none" stroke="currentColor" stroke-width="1.1"/><rect x="3.5" y="5.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
+        </button>
+        <button class="wctl-btn is-close" id="win-close" aria-label="Close">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 4 L12 12 M12 4 L4 12" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
+        </button>
+      </div>
     </div>
   </header>
 
-  <div class="modal-scrim" id="settings-modal" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <div class="modal-head">
-        <h2 id="settings-title">Settings</h2>
-        <button class="iconbtn" id="settings-close" aria-label="Close"><i data-icon="close" data-icon-size="14"></i></button>
+  <!-- ========================================================================
+       2. ACTIVITY STRIP. Persistent, identical on every tab. Rendered purely
+       from shell state; nothing here is written by a panel's DOM.
+       ===================================================================== -->
+  <div class="astrip" id="astrip" data-state="idle">
+    <div class="astrip-row">
+      <!-- ONE primary context: state word, name, one metadata line, its own
+           progress and its own actions. Everything else that is live collapses
+           into .as-alts and comes forward on click. Built by shell.js. -->
+      <div class="as-ctx" id="as-ctx"></div>
+      <div class="as-alts" id="as-alts"></div>
+      <div class="as-acts" id="as-acts"></div>
+
+      <div class="as-chips">
+        <button class="as-chip tip-below" id="as-engine" aria-label="Forge engine status">
+          <span class="dot"></span><span class="as-chip-txt">Engine</span>
+        </button>
+        <button class="as-chip tip-below" id="as-game" hidden aria-label="Detected game">
+          <span class="dot warn"></span><span class="as-chip-txt">Game</span>
+        </button>
+
+        <!-- The log itself is the Logs tab (Ctrl+6). All that is left on the
+             strip is the discoverability affordance: an error must still be
+             findable from any tab, and clicking this goes there. -->
+        <button class="as-errors tip-end" id="as-errors" hidden data-tip="Show the Logs tab (Ctrl+6)">
+          <span class="dot err"></span>
+          <span class="as-err-count mono" id="as-log-count">0</span>
+          <span class="as-err-txt">in the log</span>
+        </button>
       </div>
+    </div>
 
-      <div class="modal-split">
-        <nav class="snav" id="snav" aria-label="Settings sections">
-          <button type="button" class="is-active" data-pane="appearance">Appearance</button>
-          <button type="button" data-pane="performance">Performance</button>
-          <button type="button" data-pane="forge">Forge engine</button>
-          <button type="button" data-pane="updates">Updates</button>
-          <button type="button" data-pane="about">About</button>
-        </nav>
-
-        <div class="spanes">
-          <!-- APPEARANCE -->
-          <section class="spane is-active" data-pane="appearance">
-            <div class="sgroup">
-              <div class="sgroup-h">
-                <h3>Forge layout</h3>
-                <p>Four arrangements of the same controls. Switch any time; nothing is lost.</p>
-              </div>
-              <div class="layout-cards" id="s-forge-layout" role="radiogroup" aria-label="Forge layout">
-                <button type="button" data-layout="classic" class="is-active" role="radio" aria-checked="true">
-                  <span class="lc-art lc-classic" aria-hidden="true"><i></i><i></i><i></i></span>
-                  <span class="lc-name">Classic</span>
-                  <span class="lc-desc">The original stacked list</span>
-                </button>
-                <button type="button" data-layout="cards" role="radio" aria-checked="false">
-                  <span class="lc-art lc-cards" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-                  <span class="lc-name">Cards</span>
-                  <span class="lc-desc">The queue as a stack of jobs</span>
-                </button>
-                <button type="button" data-layout="bench" role="radio" aria-checked="false">
-                  <span class="lc-art lc-bench" aria-hidden="true"><i></i><i></i><i></i></span>
-                  <span class="lc-name">Bench</span>
-                  <span class="lc-desc">Status on top, work below</span>
-                </button>
-                <button type="button" data-layout="console" role="radio" aria-checked="false">
-                  <span class="lc-art lc-console" aria-hidden="true"><i></i><i></i><i></i></span>
-                  <span class="lc-name">Console</span>
-                  <span class="lc-desc">Rail, canvas, inspector</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="sgroup">
-              <div class="sgroup-h"><h3>Colour</h3></div>
-              <div class="srow">
-                <span class="skey">Accent</span>
-                <select class="sval" id="s-theme">
-                  <option value="lime">Lime (default)</option>
-                  <option value="cyan">Cyan</option>
-                  <option value="indigo">Indigo</option>
-                  <option value="magenta">Magenta</option>
-                  <option value="amber">Amber</option>
-                </select>
-              </div>
-              <div class="srow">
-                <span class="skey">Custom colour</span>
-                <input type="color" id="s-accent" value="#b8e62e" title="Pick any accent colour" />
-              </div>
-            </div>
-
-            <div class="sgroup">
-              <div class="sgroup-h"><h3>Window</h3></div>
-              <div class="srow">
-                <span class="skey">Stacking</span>
-                <label class="check"><input type="checkbox" id="s-ontop" checked /> Keep above other windows</label>
-              </div>
-              <p class="snote">On by default, so the piano roll stays visible with a game in front of it.</p>
-            </div>
-          </section>
-
-          <!-- PERFORMANCE -->
-          <section class="spane" data-pane="performance">
-            <div class="sgroup">
-              <div class="sgroup-h">
-                <h3>Use at most</h3>
-                <p>One number for the whole app. Everything else is worked out from it.</p>
-              </div>
-              <div class="limit-control">
-                <div class="limit-head">
-                  <input type="range" id="s-perf-percent" min="10" max="100" step="5" value="100" aria-label="Maximum share of this computer MIDI Studio may use" />
-                  <output class="mono" id="s-perf-value">100%</output>
-                </div>
-                <div class="limit-explain muted small" id="s-perf-explain">of this computer</div>
-                <div class="limit-row" id="s-perf-advanced" hidden>
-                  <label>CPU threads <input type="number" id="s-perf-threads" min="1" max="64" step="1" /></label>
-                  <label>GPU batch <input type="number" id="s-perf-batch" min="1" max="8" step="1" /></label>
-                  <button class="link" id="s-perf-auto" type="button">Back to automatic</button>
-                </div>
-                <button class="link" id="s-perf-toggle" type="button">Set exact numbers&#8230;</button>
-              </div>
-            </div>
-
-            <div class="sgroup">
-              <div class="sgroup-h">
-                <h3>While gaming</h3>
-                <p>What to do when Roblox, Roblox Studio or Minecraft is running.</p>
-              </div>
-              <div class="srow">
-                <span class="skey">Then</span>
-                <select class="sval" id="s-perf-gaming">
-                  <option value="nothing">Carry on as normal</option>
-                  <option value="limit">Go easy (idle priority, smaller batches)</option>
-                  <option value="pause">Pause Forge jobs entirely</option>
-                </select>
-              </div>
-              <p class="snote">The Player always takes priority over Forge while it is playing, whatever this is set to. A late keypress cannot be made up afterwards.</p>
-            </div>
-          </section>
-
-          <!-- FORGE -->
-          <section class="spane" data-pane="forge">
-            <div class="sgroup">
-              <div class="sgroup-h"><h3>Status</h3></div>
-              <div class="srow"><span class="skey">Engine</span><span class="sval" id="s-forge">checking&#8230;</span></div>
-            </div>
-
-            <div class="sgroup">
-              <div class="sgroup-h">
-                <h3>Storage</h3>
-                <p>Where the engine and models live. Several GB, so put it on a drive with room.</p>
-              </div>
-              <div class="storage-control">
-                <span class="storage-path mono" id="s-forgedir">not set</span>
-                <div class="storage-actions">
-                  <button class="btn" id="s-changeforge">Change&#8230;</button>
-                  <button class="btn btn-ghost" id="s-resetforge" hidden>Default</button>
-                  <button class="btn btn-ghost" id="s-openforge">Open folder</button>
-                </div>
-              </div>
-              <p class="snote">Moving it copies what is already downloaded. Nothing is downloaded twice.</p>
-            </div>
-
-            <div class="sgroup">
-              <div class="sgroup-h"><h3>Maintenance</h3></div>
-              <div class="sactions">
-                <button class="btn btn-ghost" id="s-setuplog">Open setup log</button>
-                <button class="btn btn-ghost danger" id="s-clean">Clean reinstall&#8230;</button>
-              </div>
-              <p class="snote">A clean reinstall deletes the managed engine so it downloads again. It never touches a separate Midi-Forge install.</p>
-            </div>
-          </section>
-
-          <!-- UPDATES -->
-          <section class="spane" data-pane="updates">
-            <div class="sgroup">
-              <div class="sgroup-h"><h3>Updates</h3></div>
-              <div class="srow">
-                <span class="skey">On launch</span>
-                <label class="check"><input type="checkbox" id="s-autoupdate" checked /> Check automatically</label>
-              </div>
-              <div class="sactions"><button class="btn" id="s-recheck">Check now</button></div>
-              <p class="snote">Updating opens the installer so you can confirm where things go. It keeps your install location and your Forge storage exactly as they are.</p>
-            </div>
-          </section>
-
-          <!-- ABOUT -->
-          <section class="spane" data-pane="about">
-            <div class="sgroup">
-              <div class="sgroup-h"><h3>MIDI Studio</h3></div>
-              <div class="srow"><span class="skey">Version</span><span class="sval mono" id="s-version">&#8230;</span></div>
-              <div class="srow"><span class="skey">Project</span><a class="link" id="s-repo" href="#">github.com/StarsationX/midi-studio</a></div>
-            </div>
-          </section>
-        </div>
-      </div>
+    <!-- The update notice arrives without warning, so it gets its OWN row
+         rather than competing with the context line for horizontal space. The
+         version chip in the titlebar carries the same news quietly. -->
+    <div class="as-update" id="as-update" hidden role="status">
+      <span class="as-upd-mark" aria-hidden="true"><i data-icon="up" data-icon-size="13"></i></span>
+      <span class="as-upd-text">
+        <span class="as-upd-title" id="as-upd-title">Update</span>
+        <span class="as-upd-sub" id="as-upd-sub"></span>
+      </span>
+      <div class="bar is-sm as-upd-bar" id="as-upd-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden><div class="bar-fill" id="as-upd-fill" style="--p:0"></div></div>
+      <button class="btn btn-sm btn-primary" id="as-upd-apply">Update</button>
+      <button class="btn btn-icon is-sm is-bare" id="as-upd-x" aria-label="Dismiss update notice"><i data-icon="close" data-icon-size="11"></i></button>
     </div>
   </div>
 
-  <div class="update-banner" id="update-banner" hidden>
-    <span class="ub-icon"><i data-icon="up" data-icon-size="16"></i></span>
-    <div class="ub-text">
-      <div class="ub-title" id="ub-title">Update available</div>
-      <div class="ub-sub" id="ub-sub"></div>
-      <div class="ub-prog" id="ub-prog" hidden><div class="ub-prog-fill" id="ub-prog-fill"></div></div>
-    </div>
-    <button class="btn btn-primary" id="ub-apply">Update &amp; restart</button>
-    <button class="btn btn-ghost" id="ub-dismiss" title="Dismiss" aria-label="Dismiss"><i data-icon="close" data-icon-size="12"></i></button>
-  </div>
+  <!-- ========================================================================
+       3. TAB STAGE. Six panels, lazily loaded. data-onscreen + the
+       'midi-studio:onscreen' event are stamped by shell.js.
+       ===================================================================== -->
+  <main class="stage" id="stage">
+    <iframe class="tabframe" id="frame-forge"    data-frame="forge"    data-src="./forge/index.html"    title="Forge"     role="tabpanel" aria-labelledby="nav-forge"></iframe>
+    <iframe class="tabframe" id="frame-review"   data-frame="review"   data-src="./review/index.html"   title="Editor"    role="tabpanel" aria-labelledby="nav-review" hidden></iframe>
+    <iframe class="tabframe" id="frame-player"   data-frame="player"   data-src="./player/index.html"   title="Player"    role="tabpanel" aria-labelledby="nav-player" hidden></iframe>
+    <iframe class="tabframe" id="frame-audition" data-frame="audition" data-src="./audition/index.html" title="Listen" role="tabpanel" aria-labelledby="nav-audition" hidden></iframe>
+    <iframe class="tabframe" id="frame-library"  data-frame="library"  data-src="./library/index.html"  title="Library"   role="tabpanel" aria-labelledby="nav-library" hidden></iframe>
+    <iframe class="tabframe" id="frame-logs"     data-frame="logs"     data-src="./logs/index.html"     title="Logs"      role="tabpanel" aria-labelledby="nav-logs" hidden></iframe>
 
-  <main class="stage">
-    <iframe class="tabframe is-active" id="frame-forge"  data-tab="forge"  src="./forge/index.html"  title="Midi Forge"></iframe>
-    <iframe class="tabframe"           id="frame-player" data-tab="player" data-src="./player/index.html" title="Midi Player"></iframe>
-    <iframe class="tabframe"           id="frame-review" data-tab="review" data-src="./review/index.html" title="Midi Editor"></iframe>
-    <iframe class="tabframe"           id="frame-audition" data-tab="audition" data-src="./audition/index.html" title="Self Midi"></iframe>
+    <!-- Shown over a panel whose document could not load. A Chromium error page
+         inside a tab is a white rectangle, and a white rectangle is exactly what
+         "it opens white and never loads" looks like from the outside. -->
+    <div class="tab-fallback state is-error" id="tab-fallback" hidden>
+      <span class="state-icon"><i data-icon="alert" data-icon-size="28"></i></span>
+      <span class="state-title" id="tf-title">This panel could not load</span>
+      <span class="state-msg" id="tf-msg"></span>
+      <span class="state-actions">
+        <button class="btn btn-sm btn-primary" id="tf-retry">Try again</button>
+        <button class="btn btn-sm btn-ghost" id="tf-log">Show the Logs tab</button>
+      </span>
+    </div>
   </main>
 
-  <script src="./shared/icons.js"></script>
-  <script src="./shell/shell.js"></script>
+  <!-- ========================================================================
+       4. BOTTOM TRANSPORT. Renders from the transport-owner state. It never
+       owns a clock: every position it shows arrived in a transport:state.
+       ===================================================================== -->
+  <footer class="xport" id="xport" data-owner="">
+    <div class="xp-now">
+      <span class="xp-art" id="xp-art" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="18" height="18" focusable="false"><path d="M6 12.5 L6 4 L12.5 2.5 L12.5 11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><circle cx="4.4" cy="12.4" r="1.9" fill="currentColor"/><circle cx="10.9" cy="10.9" r="1.9" fill="currentColor"/></svg>
+      </span>
+      <span class="xp-meta">
+        <span class="xp-name u-truncate" id="xp-name">Nothing loaded</span>
+        <span class="xp-sub u-truncate" id="xp-sub">No transport owner</span>
+      </span>
+      <span class="pill xp-status" id="xp-status"><span class="dot"></span><span id="xp-status-txt">Idle</span></span>
+    </div>
+
+    <!-- The scrub line sits directly above the transport buttons and both are
+         centred in the window, the way every reference frame shows them. -->
+    <div class="xp-center">
+      <div class="xp-time">
+        <span class="xp-clock mono" id="xp-elapsed">--:--</span>
+        <input class="range xp-scrub" id="xp-scrub" type="range" min="0" max="1000" value="0" step="1"
+               aria-label="Playback position" style="--p:0" disabled />
+        <span class="xp-clock mono is-total" id="xp-total">--:--</span>
+      </div>
+
+      <div class="xp-buttons" role="group" aria-label="Transport">
+        <button class="btn btn-icon is-sm is-bare xp-b" id="xp-shuffle" aria-label="Shuffle" aria-pressed="false" disabled>
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false"><path d="M2.5 4 L5 4 L10.5 12 L13.5 12 M11.5 10 L13.5 12 L11.5 14 M2.5 12 L5 12 L7 9 M10 6 L10.5 4 L13.5 4 M11.5 2 L13.5 4 L11.5 6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>
+        </button>
+        <button class="btn btn-icon is-sm is-bare xp-b" id="xp-prev" aria-label="Previous track" disabled><i data-icon="prev" data-icon-size="14"></i></button>
+        <button class="btn btn-icon xp-play" id="xp-play" aria-label="Play" disabled>
+          <span class="xp-play-ic is-play" aria-hidden="true"><i data-icon="play" data-icon-size="15"></i></span>
+          <span class="xp-play-ic is-pause" aria-hidden="true"><i data-icon="pause" data-icon-size="15"></i></span>
+        </button>
+        <button class="btn btn-icon is-sm is-bare xp-b" id="xp-next" aria-label="Next track" disabled><i data-icon="next" data-icon-size="14"></i></button>
+        <button class="btn btn-icon is-sm is-bare xp-b" id="xp-repeat" aria-label="Repeat off" aria-pressed="false" disabled>
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false"><path d="M4 3.5 L12 3.5 L12 8 M13.5 6 L12 8 L10.5 6 M12 12.5 L4 12.5 L4 8 M2.5 10 L4 8 L5.5 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><path class="xp-rep-1" d="M6.6 6.6 L8.1 5.4 L8.1 10.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>
+        </button>
+        <button class="btn btn-icon is-sm is-bare xp-b" id="xp-stop" aria-label="Stop" disabled><i data-icon="stop" data-icon-size="13"></i></button>
+      </div>
+    </div>
+
+    <!-- Tempo and Transpose are discrete steppers, not inline sliders: the
+         reference frames read "Tempo 1.00x" and "Transpose 0". They are still
+         the same two values the owning panel edits, and typing, the arrow keys
+         and the OS spin gestures all keep working. -->
+    <div class="xp-right">
+    <div class="xp-knobs" id="xp-knobs">
+      <div class="xp-knob" id="xp-knob-tempo">
+        <label class="xp-knob-k" for="xp-tempo">Tempo</label>
+        <span class="stepper is-sm xp-step">
+          <button class="stepper-btn" type="button" data-step="-0.05" data-for="xp-tempo" aria-label="Slower"><i data-icon="minus" data-icon-size="10"></i></button>
+          <input id="xp-tempo" type="number" min="0.25" max="3" step="0.05" value="1.00" aria-label="Tempo, times normal speed" disabled />
+          <span class="stepper-unit">&#215;</span>
+          <button class="stepper-btn" type="button" data-step="0.05" data-for="xp-tempo" aria-label="Faster"><i data-icon="plus" data-icon-size="10"></i></button>
+        </span>
+      </div>
+
+      <div class="xp-knob" id="xp-knob-transpose">
+        <label class="xp-knob-k" for="xp-transpose">Transpose</label>
+        <span class="stepper is-sm xp-step">
+          <button class="stepper-btn" type="button" data-step="-1" data-for="xp-transpose" aria-label="Down a semitone"><i data-icon="minus" data-icon-size="10"></i></button>
+          <input id="xp-transpose" type="number" min="-24" max="24" step="1" value="0" aria-label="Transpose in semitones" disabled />
+          <button class="stepper-btn" type="button" data-step="1" data-for="xp-transpose" aria-label="Up a semitone"><i data-icon="plus" data-icon-size="10"></i></button>
+        </span>
+      </div>
+
+      <label class="xp-knob is-vol" id="xp-knob-volume">
+        <span class="xp-vol-ic" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="15" height="15" focusable="false"><path d="M3 6 L5.5 6 L9 3 L9 13 L5.5 10 L3 10 Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M11 5.6 A4 4 0 0 1 11 10.4 M12.8 3.6 A6.6 6.6 0 0 1 12.8 12.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </span>
+        <input class="range" id="xp-volume" type="range" min="0" max="100" step="1" value="80" aria-label="Volume" style="--p:.8" disabled />
+        <output class="xp-knob-v mono" id="xp-volume-val">80</output>
+      </label>
+    </div>
+
+    <button class="btn btn-sm xp-perch tip-end" id="xp-perch" aria-pressed="false" data-tip="Perch: the always-on-top playback overlay (Ctrl+Alt+O)">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="2.5" y="4.5" width="11" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 7 L13.5 7" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+      <span>Perch</span>
+    </button>
+    </div>
+  </footer>
+</div><!-- /.shell -->
+
+<!-- ==========================================================================
+     5. COMMAND PALETTE (Ctrl+K)
+     ======================================================================= -->
+<div class="pal-scrim" id="pal-scrim" hidden>
+  <div class="pal" id="pal" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div class="pal-head">
+      <i data-icon="search" data-icon-size="14"></i>
+      <input class="pal-input" id="pal-input" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Run a command, or search your songs&#8230;"
+             role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" />
+      <span class="kbd-seq" aria-hidden="true"><kbd class="kbd">Esc</kbd></span>
+    </div>
+    <div class="menu pal-list" id="pal-list" role="listbox" aria-label="Results" tabindex="-1"></div>
+    <div class="pal-empty state is-compact" id="pal-empty" hidden>
+      <span class="state-title">No match</span>
+      <span class="state-msg">Try a tab name, a song name, or a word like &ldquo;transpose&rdquo;.</span>
+    </div>
+    <div class="pal-foot">
+      <span class="kbd-seq"><kbd class="kbd">&#8593;</kbd><kbd class="kbd">&#8595;</kbd></span><span class="pal-foot-t">move</span>
+      <span class="kbd-seq"><kbd class="kbd">Enter</kbd></span><span class="pal-foot-t">run</span>
+      <span class="u-spacer"></span>
+      <span class="pal-foot-t mono" id="pal-count"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     6. SETTINGS SHEET
+     ======================================================================= -->
+<div class="dlg-scrim is-sheet" id="set-scrim" hidden>
+  <div class="dlg is-sheet" id="set-dlg" role="dialog" aria-modal="true" aria-labelledby="set-title">
+    <header class="dlg-head">
+      <h2 class="dlg-title" id="set-title">Settings</h2>
+      <button class="dlg-x" id="set-close" aria-label="Close settings">&#215;</button>
+    </header>
+    <div class="dlg-body is-flush set-body">
+      <nav class="set-nav" id="set-nav" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+        <button role="tab" data-pane="appearance"  aria-selected="true"  tabindex="0">Appearance</button>
+        <button role="tab" data-pane="playback"    aria-selected="false" tabindex="-1">Playback</button>
+        <button role="tab" data-pane="performance" aria-selected="false" tabindex="-1">Performance</button>
+        <button role="tab" data-pane="forge"       aria-selected="false" tabindex="-1">Forge engine</button>
+        <button role="tab" data-pane="storage"     aria-selected="false" tabindex="-1">Storage</button>
+        <button role="tab" data-pane="updates"     aria-selected="false" tabindex="-1">Updates</button>
+        <button role="tab" data-pane="overlay"     aria-selected="false" tabindex="-1">Overlay</button>
+        <button role="tab" data-pane="about"       aria-selected="false" tabindex="-1">About</button>
+      </nav>
+
+      <div class="set-panes scroll-y" id="set-panes">
+
+        <!-- ---------------------------------------------------- APPEARANCE -->
+        <section class="set-pane" data-pane="appearance" role="tabpanel" aria-label="Appearance">
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Accent</h3><p>One functional colour: active, selected, playing, progress. Nothing decorative.</p></div>
+            <div class="set-row">
+              <span class="set-key">Preset</span>
+              <div class="set-val">
+                <div class="segmented is-wide" id="s-theme" role="radiogroup" aria-label="Accent preset">
+                  <button role="radio" data-theme=""        aria-checked="true"><span class="sw" data-sw="lime"></span>Lime</button>
+                  <button role="radio" data-theme="cyan"    aria-checked="false"><span class="sw" data-sw="cyan"></span>Cyan</button>
+                  <button role="radio" data-theme="indigo"  aria-checked="false"><span class="sw" data-sw="indigo"></span>Indigo</button>
+                  <button role="radio" data-theme="magenta" aria-checked="false"><span class="sw" data-sw="magenta"></span>Magenta</button>
+                  <button role="radio" data-theme="amber"   aria-checked="false"><span class="sw" data-sw="amber"></span>Amber</button>
+                </div>
+              </div>
+            </div>
+            <div class="set-row">
+              <span class="set-key"><label for="s-accent">Custom colour</label></span>
+              <div class="set-val u-row">
+                <input type="color" id="s-accent" class="set-color" value="#b8e62e" />
+                <span class="mono small" id="s-accent-hex">#b8e62e</span>
+                <button class="link" id="s-accent-clear" type="button">Back to preset</button>
+              </div>
+            </div>
+            <p class="set-note">The five accent variants and the text-on-accent colour are derived from the one hex, so contrast stays fixed.</p>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Density</h3><p>How tightly rows, controls and padding are packed.</p></div>
+            <div class="set-row">
+              <span class="set-key">Spacing</span>
+              <div class="set-val">
+                <div class="segmented is-wide" id="s-density" role="radiogroup" aria-label="Density">
+                  <button role="radio" data-density="normal"  aria-checked="true">Comfortable</button>
+                  <button role="radio" data-density="compact" aria-checked="false">Compact</button>
+                </div>
+              </div>
+            </div>
+            <p class="set-note">Compact never drops below 12px text or the AA contrast floor; only spacing and control heights move.</p>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Window</h3></div>
+            <div class="switch-row">
+              <span class="switch-label">Keep above other windows</span>
+              <span class="switch-hint">On by default, so the piano roll stays visible with a game in front.</span>
+              <button class="switch" id="s-ontop" role="switch" aria-checked="true" aria-label="Keep above other windows"></button>
+            </div>
+            <p class="set-note">Motion follows your system &ldquo;reduce motion&rdquo; setting automatically. Nothing animates while the app is idle.</p>
+          </div>
+        </section>
+
+        <!-- ------------------------------------------------------ PLAYBACK -->
+        <section class="set-pane" data-pane="playback" role="tabpanel" aria-label="Playback" hidden>
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Sending a file to the Player</h3></div>
+            <div class="set-row">
+              <span class="set-key">Then</span>
+              <div class="set-val"><span class="selectwrap"><select class="select" id="s-handoff" aria-label="After sending a file to the Player">
+                <option value="load">Load it and wait</option>
+                <option value="play">Load it and start playing</option>
+              </select></span></div>
+            </div>
+            <p class="set-note">Starting the engine also focuses the game window, so nothing ever starts playing on its own: this only applies when you deliberately send a file across.</p>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Transport</h3></div>
+            <div class="switch-row">
+              <span class="switch-label">Space plays and pauses</span>
+              <span class="switch-hint">Ignored while you are typing in a field.</span>
+              <button class="switch" id="s-space" role="switch" aria-checked="true" aria-label="Space plays and pauses"></button>
+            </div>
+            <div class="switch-row">
+              <span class="switch-label">Show milliseconds</span>
+              <span class="switch-hint">The bottom transport reads 3:34.600 instead of 3:34.</span>
+              <button class="switch" id="s-xpms" role="switch" aria-checked="false" aria-label="Show milliseconds in the transport"></button>
+            </div>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Finished transcriptions</h3></div>
+            <div class="switch-row">
+              <span class="switch-label">Add to the Player queue automatically</span>
+              <span class="switch-hint">Off means the activity strip offers it as an action instead.</span>
+              <button class="switch" id="s-autoqueue" role="switch" aria-checked="false" aria-label="Add finished transcriptions to the Player queue"></button>
+            </div>
+          </div>
+        </section>
+
+        <!-- --------------------------------------------------- PERFORMANCE -->
+        <section class="set-pane" data-pane="performance" role="tabpanel" aria-label="Performance" hidden>
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Use at most</h3><p>One number for the whole app. Everything else is worked out from it.</p></div>
+            <div class="set-row">
+              <span class="set-key"><label for="s-perf-percent">Allowance</label></span>
+              <div class="set-val u-row">
+                <input class="range u-fill" type="range" id="s-perf-percent" min="10" max="100" step="5" value="100" style="--p:1" />
+                <output class="mono set-out" id="s-perf-value">100%</output>
+              </div>
+            </div>
+            <p class="set-note" id="s-perf-explain">of this computer</p>
+            <div class="set-actions"><button class="link" id="s-perf-toggle" type="button" aria-expanded="false" aria-controls="s-perf-advanced">Set exact numbers&#8230;</button></div>
+            <div class="set-row" id="s-perf-advanced" hidden>
+              <span class="set-key">By hand</span>
+              <div class="set-val u-row is-wrap">
+                <label class="field is-row"><span class="field-label">CPU threads</span>
+                  <span class="stepper is-sm"><button class="stepper-btn" data-step="-1" aria-label="Fewer threads">&#8722;</button><input type="number" id="s-perf-threads" min="1" max="64" step="1" aria-label="CPU threads" /><button class="stepper-btn" data-step="1" aria-label="More threads">+</button></span>
+                </label>
+                <label class="field is-row"><span class="field-label">GPU batch</span>
+                  <span class="stepper is-sm"><button class="stepper-btn" data-step="-1" aria-label="Smaller batch">&#8722;</button><input type="number" id="s-perf-batch" min="1" max="8" step="1" aria-label="GPU batch" /><button class="stepper-btn" data-step="1" aria-label="Larger batch">+</button></span>
+                </label>
+                <button class="link" id="s-perf-auto" type="button">Back to automatic</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>While gaming</h3><p>What to do when Roblox, Roblox Studio or Minecraft is running.</p></div>
+            <div class="set-row">
+              <span class="set-key">Then</span>
+              <div class="set-val"><span class="selectwrap"><select class="select" id="s-perf-gaming" aria-label="While gaming">
+                <option value="nothing">Carry on as normal</option>
+                <option value="limit">Go easy (idle priority, smaller batches)</option>
+                <option value="pause">Pause Forge jobs entirely</option>
+              </select></span></div>
+            </div>
+            <p class="set-note">The Player always takes priority over Forge while it is playing, whatever this is set to. A late keypress cannot be made up afterwards.</p>
+          </div>
+        </section>
+
+        <!-- -------------------------------------------------- FORGE ENGINE -->
+        <section class="set-pane" data-pane="forge" role="tabpanel" aria-label="Forge engine" hidden>
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Status</h3></div>
+            <div class="set-row"><span class="set-key">Engine</span><div class="set-val" id="s-forge-status"><span class="pill"><span class="dot"></span>checking&#8230;</span></div></div>
+            <div class="set-row"><span class="set-key">Missing</span><div class="set-val mono small" id="s-forge-missing">&#8212;</div></div>
+            <div class="set-actions"><button class="btn btn-sm" id="s-forge-setup">Open first-time setup</button><button class="btn btn-sm btn-ghost" id="s-forge-recheck">Re-check</button></div>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Storage</h3><p>Where the engine and models live. Several GB, so put it on a drive with room.</p></div>
+            <div class="set-row">
+              <span class="set-key">Folder</span>
+              <div class="set-val u-col is-tight">
+                <span class="pathchip" id="s-forgedir"><span class="pathchip-dir"></span><span class="pathchip-name">not set</span></span>
+                <span class="small muted" id="s-forgefree"></span>
+              </div>
+            </div>
+            <div class="set-actions">
+              <button class="btn btn-sm" id="s-changeforge">Change&#8230;</button>
+              <button class="btn btn-sm btn-ghost" id="s-resetforge" hidden>Default</button>
+              <button class="btn btn-sm btn-ghost" id="s-openforge">Open folder</button>
+            </div>
+            <p class="set-note">Moving it copies what is already downloaded. Nothing is downloaded twice.</p>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Diagnostics</h3></div>
+            <div class="set-actions">
+              <button class="btn btn-sm btn-ghost" id="s-setuplog">Open setup log</button>
+              <button class="btn btn-sm btn-ghost" id="s-bootlog">Open boot log</button>
+            </div>
+          </div>
+
+          <div class="set-sec is-danger">
+            <div class="set-sec-h"><h3>Danger zone</h3></div>
+            <div class="set-actions"><button class="btn btn-sm btn-danger" id="s-clean">Clean reinstall&#8230;</button></div>
+            <p class="set-note">A clean reinstall deletes MIDI Studio&rsquo;s managed engine so it downloads again. It never touches a separate Midi-Forge install.</p>
+          </div>
+        </section>
+
+        <!-- ------------------------------------------------------- STORAGE -->
+        <section class="set-pane" data-pane="storage" role="tabpanel" aria-label="Storage" hidden>
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Output folder</h3><p>Where finished transcriptions and projects are written.</p></div>
+            <div class="set-row"><span class="set-key">Folder</span>
+              <div class="set-val"><span class="pathchip" id="s-outdir"><span class="pathchip-dir"></span><span class="pathchip-name">&#8212;</span></span></div>
+            </div>
+            <div class="set-actions">
+              <button class="btn btn-sm" id="s-outdir-change">Change&#8230;</button>
+              <button class="btn btn-sm btn-ghost" id="s-outdir-open">Open folder</button>
+            </div>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Library folders</h3><p>Scanned for MIDI files, on top of the output folder.</p></div>
+            <div class="set-list" id="s-libdirs"></div>
+            <div class="set-actions"><button class="btn btn-sm" id="s-libadd">Add folder&#8230;</button><button class="btn btn-sm btn-ghost" id="s-librescan">Rescan</button></div>
+            <p class="set-note" id="s-libcount"></p>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Custom mappings</h3><p>Keyboard layouts you add survive updates because they live outside the install.</p></div>
+            <div class="set-actions"><button class="btn btn-sm btn-ghost" id="s-mapdir">Open mappings folder</button></div>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Forge engine storage</h3></div>
+            <div class="set-row"><span class="set-key">Folder</span><div class="set-val mono small u-truncate" id="s-forgedir-mirror">&#8212;</div></div>
+            <div class="set-actions"><button class="link" id="s-goto-forge" type="button">Manage in Forge engine&#8230;</button></div>
+          </div>
+        </section>
+
+        <!-- ------------------------------------------------------- UPDATES -->
+        <section class="set-pane" data-pane="updates" role="tabpanel" aria-label="Updates" hidden>
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Updates</h3></div>
+            <div class="switch-row">
+              <span class="switch-label">Check on launch</span>
+              <span class="switch-hint">A few seconds after the window appears, never before.</span>
+              <button class="switch" id="s-autoupdate" role="switch" aria-checked="true" aria-label="Check for updates on launch"></button>
+            </div>
+            <div class="set-row"><span class="set-key">Installed</span><div class="set-val mono" id="s-version">&#8230;</div></div>
+            <div class="set-row"><span class="set-key">Last check</span><div class="set-val small muted" id="s-updstate">not checked yet</div></div>
+            <div class="set-actions">
+              <button class="btn btn-sm" id="s-recheck">Check now</button>
+              <button class="btn btn-sm" id="s-whatsnew">What&rsquo;s new</button>
+            </div>
+            <p class="set-note">Updating opens the installer so you can confirm where things go. It keeps your install location and your Forge storage exactly as they are.</p>
+          </div>
+        </section>
+
+        <!-- ------------------------------------------------------- OVERLAY -->
+        <section class="set-pane" data-pane="overlay" role="tabpanel" aria-label="Overlay" hidden>
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Perch</h3><p>A small always-on-top window that shows the falling notes over a game.</p></div>
+            <div class="switch-row">
+              <span class="switch-label">Perch is open</span>
+              <span class="switch-hint">Ctrl+Alt+O opens and closes it from anywhere, even with a game focused.</span>
+              <button class="switch" id="s-ov-open" role="switch" aria-checked="false" aria-label="Perch is open"></button>
+            </div>
+            <div class="set-row">
+              <span class="set-key">Size</span>
+              <div class="set-val"><div class="segmented is-wide" id="s-ov-mode" role="radiogroup" aria-label="Perch size">
+                <button role="radio" data-mode="full" aria-checked="true">Full</button>
+                <button role="radio" data-mode="slim" aria-checked="false">Slim</button>
+                <button role="radio" data-mode="mini" aria-checked="false">Mini</button>
+              </div></div>
+            </div>
+            <div class="set-row">
+              <span class="set-key"><label for="s-ov-opacity">Fade</label></span>
+              <div class="set-val u-row"><input class="range u-fill" type="range" id="s-ov-opacity" min="20" max="100" step="1" value="92" style="--p:.9" /><output class="mono set-out" id="s-ov-opacity-val">92%</output></div>
+            </div>
+            <div class="set-row">
+              <span class="set-key"><label for="s-ov-ahead">Look ahead</label></span>
+              <div class="set-val u-row"><input class="range u-fill" type="range" id="s-ov-ahead" min="1" max="12" step="1" value="3" style="--p:.18" /><output class="mono set-out" id="s-ov-ahead-val">3s</output></div>
+            </div>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Park it</h3><p>Snap Perch to a corner or an edge of the screen it is on.</p></div>
+            <div class="park" id="s-ov-park" role="group" aria-label="Park Perch">
+              <button data-snap="top-left"      aria-label="Park top left"></button>
+              <button data-snap="top-center"    aria-label="Park top centre"></button>
+              <button data-snap="top-right"     aria-label="Park top right"></button>
+              <button data-snap="middle-left"   aria-label="Park middle left"></button>
+              <button data-snap="middle-center"  aria-label="Park centre"></button>
+              <button data-snap="middle-right"  aria-label="Park middle right"></button>
+              <button data-snap="bottom-left"   aria-label="Park bottom left"></button>
+              <button data-snap="bottom-center" aria-label="Park bottom centre"></button>
+              <button data-snap="bottom-right"  aria-label="Park bottom right"></button>
+            </div>
+          </div>
+
+          <div class="set-sec">
+            <div class="set-sec-h"><h3>Behaviour</h3></div>
+            <div class="switch-row">
+              <span class="switch-label">Click through</span>
+              <span class="switch-hint">Mouse clicks pass to the game. Ctrl+Alt+P is the only way back.</span>
+              <button class="switch" id="s-ov-through" role="switch" aria-checked="false" aria-label="Click through"></button>
+            </div>
+            <div class="switch-row">
+              <span class="switch-label">Locked</span>
+              <span class="switch-hint">Cannot be moved or resized by accident.</span>
+              <button class="switch" id="s-ov-locked" role="switch" aria-checked="false" aria-label="Locked"></button>
+            </div>
+            <div class="switch-row">
+              <span class="switch-label">Show the keyboard</span>
+              <button class="switch" id="s-ov-keys" role="switch" aria-checked="true" aria-label="Show the keyboard"></button>
+            </div>
+            <div class="switch-row">
+              <span class="switch-label">Show transport buttons</span>
+              <button class="switch" id="s-ov-buttons" role="switch" aria-checked="true" aria-label="Show transport buttons"></button>
+            </div>
+            <div class="switch-row">
+              <span class="switch-label">Open when playback starts</span>
+              <button class="switch" id="s-ov-autoshow" role="switch" aria-checked="true" aria-label="Open when playback starts"></button>
+            </div>
+            <div class="switch-row">
+              <span class="switch-label">Step aside when it ends</span>
+              <button class="switch" id="s-ov-autohide" role="switch" aria-checked="true" aria-label="Step aside when playback ends"></button>
+            </div>
+            <p class="set-note">Perch also has its own sheet, because the app window is behind a game exactly when you need to change something.</p>
+          </div>
+        </section>
+
+        <!-- --------------------------------------------------------- ABOUT -->
+        <section class="set-pane" data-pane="about" role="tabpanel" aria-label="About" hidden>
+          <div class="set-sec">
+            <div class="set-about">
+              <span class="brand-mark is-lg" aria-hidden="true"><img class="brand-img" src="./shared/mark.png" width="64" height="64" alt="" /></span>
+              <div>
+                <div class="set-about-name">MIDI STUDIO</div>
+                <div class="set-about-tag">Listen. Edit. Play. Anywhere.</div>
+              </div>
+            </div>
+            <div class="set-row"><span class="set-key">Version</span><div class="set-val mono" id="s-about-version">&#8230;</div></div>
+            <div class="set-row"><span class="set-key">Electron</span><div class="set-val mono small" id="s-about-runtime">&#8212;</div></div>
+            <div class="set-row"><span class="set-key">Project</span><div class="set-val"><button class="link" id="s-repo" type="button">github.com/StarsationX/midi-studio</button></div></div>
+            <p class="set-note">Forge transcribes audio to MIDI, the Editor cleans it up, the Player types it into a game, Listen plays it here, and the Library keeps track of all of it.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     7. WHAT'S NEW. Shown once after an update installs, and reachable from the
+     version chip, Settings > Updates and the palette. Built from the CONTRACT
+     dialog primitives; every line of its body is written by shell.js from the
+     parsed CHANGELOG.md, so nothing here is release-specific.
+     ======================================================================= -->
+<div class="dlg-scrim" id="wn-scrim" hidden>
+  <div class="dlg wn" id="wn-dlg" role="dialog" aria-modal="true" aria-labelledby="wn-title">
+    <header class="dlg-head wn-head">
+      <span class="wn-mark" aria-hidden="true"><img class="brand-img" src="./shared/mark.png" width="64" height="64" alt="" /></span>
+      <span class="wn-titles">
+        <span class="wn-eyebrow" id="wn-eyebrow">What&rsquo;s new</span>
+        <h2 class="dlg-title wn-title" id="wn-title">
+          <span class="wn-ver mono" id="wn-ver">&#8230;</span>
+          <span class="wn-name" id="wn-name"></span>
+        </h2>
+      </span>
+      <span class="wn-date mono" id="wn-date"></span>
+      <button class="dlg-x" id="wn-close" aria-label="Close what&rsquo;s new">&#215;</button>
+    </header>
+
+    <div class="dlg-body wn-body scroll-y" id="wn-body" tabindex="-1">
+      <!-- Shown only when there are notes for BOTH the running version and an
+           update on offer, so the two can never be mistaken for one another. -->
+      <div class="segmented is-sm wn-modes" id="wn-modes" role="radiogroup" aria-label="Which release" hidden>
+        <button role="radio" data-mode="available" aria-checked="false" id="wn-mode-available">Coming next</button>
+        <button role="radio" data-mode="installed" aria-checked="true" id="wn-mode-installed">Installed</button>
+      </div>
+
+      <p class="inline-note wn-offer" id="wn-offer" hidden></p>
+      <div class="wn-sections" id="wn-secs"></div>
+
+      <!-- The degraded state: a missing, unreadable or malformed CHANGELOG.md
+           must not throw and must not leave a blank sheet. -->
+      <div class="state is-compact wn-fallback" id="wn-fallback" hidden>
+        <span class="state-title" id="wn-fb-title">No release notes here</span>
+        <span class="state-msg" id="wn-fb-msg">The full changelog is on the releases page.</span>
+        <span class="state-actions"><button class="btn btn-sm btn-primary" id="wn-fb-open">Full changelog</button></span>
+      </div>
+    </div>
+
+    <footer class="dlg-foot">
+      <button class="btn btn-sm btn-ghost" id="wn-full">Full changelog</button>
+      <button class="btn btn-sm btn-ghost" id="wn-check">Check for updates</button>
+      <span class="u-spacer"></span>
+      <button class="btn btn-sm btn-primary" id="wn-apply" hidden>Update &amp; restart</button>
+      <button class="btn btn-sm" id="wn-done">Done</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     8. WINDOW-LEVEL DROP VEIL + TOASTS
+     ======================================================================= -->
+<div class="drop-veil" id="drop-veil" aria-hidden="true">
+  <div class="drop-card">
+    <span class="drop-icon"><i data-icon="drop" data-icon-size="28"></i></span>
+    <span class="drop-title">Drop it anywhere</span>
+    <span class="drop-sub">Audio goes to Forge, MIDI goes to the Player, projects go to the Editor.</span>
+    <span class="drop-types">
+      <span class="tag">mp3</span><span class="tag">wav</span><span class="tag">flac</span>
+      <span class="tag">mid</span><span class="tag">midstudio.json</span>
+    </span>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" role="region" aria-label="Notifications" aria-live="polite"></div>
+
+<script src="./shared/tokens.js"></script>
+<script src="./shared/fmt.js"></script>
+<script src="./shared/draw.js"></script>
+<script src="./shared/bus.js"></script>
+<script src="./shared/icons.js"></script>
+<script src="./shell/changelog.js"></script>
+<script src="./shell/shell.js"></script>
 </body>
 </html>

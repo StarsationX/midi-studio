@@ -8,11 +8,37 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const { pathToFileURL } = require('url');
 
+// The single place any push listener is registered in any frame, which is why
+// it is also where the frame tells main WHICH pushes it wants. main.js's
+// broadcast() sends to all 7 frames; 71-86% of those sends were landing in a
+// document with no listener (engine-event alone is 20 a second while a song
+// plays). See electron/fanout.js for the rule that keeps invariant 4 intact.
+//
+// Ordering matters: the listener is attached BEFORE the subscription is sent,
+// so main can never be told about a subscription that is not live yet. And
+// unsubscribing is deliberately not reported -- a stale subscription costs one
+// send, a missed one costs a dropped event.
+const subscribedChannels = new Set();
 const onChannel = (channel) => (handler) => {
   const fn = (_e, payload) => handler(payload);
   ipcRenderer.on(channel, fn);
+  if (!subscribedChannels.has(channel)) {
+    subscribedChannels.add(channel);
+    try { ipcRenderer.send('app:subscribe', channel); } catch (_) {}
+  }
   return () => ipcRenderer.off(channel, fn);
 };
+
+// A frame that subscribes to nothing has to say so, or main cannot tell it
+// apart from a frame whose scripts have not run yet and must keep sending to
+// it. Sent on load, i.e. after every listener the document registers while it
+// starts up has already been reported above. A listener registered LATER still
+// reports itself through onChannel, so the set only ever grows.
+const announceSubsReady = () => { try { ipcRenderer.send('app:subscribe', null); } catch (_) {} };
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'complete') announceSubsReady();
+  else window.addEventListener('load', announceSubsReady, { once: true });
+}
 
 // ---- Player (original midi-player API, preserved exactly) ------------------
 contextBridge.exposeInMainWorld('api', {
@@ -38,7 +64,10 @@ contextBridge.exposeInMainWorld('api', {
 
 // ---- Forge tab -------------------------------------------------------------
 contextBridge.exposeInMainWorld('forge', {
-  check: () => ipcRenderer.invoke('forge:check'),
+  // check({ fresh: true }) forces a new capability probe; without it a verdict
+  // less than ten seconds old is reused, so the Forge tab and the shell asking
+  // independently at launch cost one `import torch` instead of two.
+  check: (opts) => ipcRenderer.invoke('forge:check', opts),
   provision: () => ipcRenderer.invoke('forge:provision'),
   cancelProvision: () => ipcRenderer.invoke('forge:provision:cancel'),
   run: (opts) => ipcRenderer.invoke('forge:run', opts),
@@ -68,13 +97,27 @@ contextBridge.exposeInMainWorld('review', {
   getDroppedFilePath: (file) => webUtils.getPathForFile(file),
 });
 
-// ---- MIDI library (Self Midi) ----------------------------------------------
+// ---- MIDI library (the Library tab, Self Midi, the shell's song index) ------
+// list/addFolder/removeFolder/reveal/onChanged are the original surface and are
+// unchanged. Everything below them is additive, for the Library tab: a streaming
+// scan, the lazily-parsed Length/Notes index, tags, usage and trash.
 contextBridge.exposeInMainWorld('library', {
   list: () => ipcRenderer.invoke('library:list'),
   addFolder: () => ipcRenderer.invoke('library:addFolder'),
   removeFolder: (dir) => ipcRenderer.invoke('library:removeFolder', dir),
   reveal: (p) => ipcRenderer.invoke('library:reveal', p),
   onChanged: onChannel('library-changed'),
+  scan: () => ipcRenderer.invoke('library:scan'),
+  meta: (payload) => ipcRenderer.invoke('library:meta', payload),
+  setTags: (payload) => ipcRenderer.invoke('library:setTags', payload),
+  usage: (payload) => ipcRenderer.invoke('library:usage', payload),
+  index: (payload) => ipcRenderer.invoke('library:index', payload),
+  remove: (payload) => ipcRenderer.invoke('library:delete', payload),
+  // Partial scan batches and full-index progress, pushed to THIS frame only.
+  onProgress: onChannel('library-progress'),
+  fileUrl: (p) => pathToFileURL(String(p || '')).href,
+  showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
+  openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
 });
 
 // ---- Perch (the always-on-top overlay window) ------------------------------
@@ -95,6 +138,7 @@ contextBridge.exposeInMainWorld('perch', {
 // ---- Shell -----------------------------------------------------------------
 contextBridge.exposeInMainWorld('studio', {
   getVersion: () => ipcRenderer.invoke('app:version'),
+  getRelease: () => ipcRenderer.invoke('app:release'),
   checkForUpdates: (opts) => ipcRenderer.invoke('update:check', opts),
   applyUpdate: () => ipcRenderer.invoke('update:apply'),
   onUpdateStatus: onChannel('update-status'),
@@ -122,5 +166,34 @@ contextBridge.exposeInMainWorld('studio', {
   overlayState: () => ipcRenderer.invoke('overlay:state'),
   toggleOverlay: () => ipcRenderer.invoke('overlay:toggle'),
   setOverlay: (patch) => ipcRenderer.invoke('overlay:apply', patch),
+  snapOverlay: (where) => ipcRenderer.invoke('overlay:snap', where),
   onOverlayState: onChannel('overlay-state'),
+  // ---- added for the custom titlebar (the window is frameless now) --------
+  window: {
+    minimize: () => ipcRenderer.send('win:minimize'),
+    maximize: () => ipcRenderer.send('win:maximize'),
+    unmaximize: () => ipcRenderer.send('win:unmaximize'),
+    toggleMaximize: () => ipcRenderer.send('win:toggleMaximize'),
+    close: () => ipcRenderer.send('win:close'),
+    state: () => ipcRenderer.invoke('win:state'),
+  },
+  onWindowState: onChannel('window-state'),
+  onPanelFailed: onChannel('panel-failed'),
+  // ---- added for the boot splash: real milestones, never a fake percentage -
+  bootState: () => ipcRenderer.invoke('app:bootState'),
+  // Renderer-side startup milestones, appended to main's boot log. send(), not
+  // invoke(): instrumenting the boot path must not slow the boot path.
+  bootMark: (step, ms) => ipcRenderer.send('app:bootMark', { step, ms }),
+  onBootMilestone: onChannel('boot-milestone'),
+  // ---- added for the What's New screen ------------------------------------
+  // changelog() hands over the raw CHANGELOG.md; the renderer parses it with
+  // renderer/shell/changelog.js, which is the same parser the tests exercise.
+  changelog: () => ipcRenderer.invoke('app:changelog'),
+  whatsNew: () => ipcRenderer.invoke('app:whatsNew'),
+  markNotesShown: (v) => ipcRenderer.invoke('app:notesShown', v),
+  // ---- added for Settings > Storage and the palette's file actions --------
+  openBootLog: () => ipcRenderer.invoke('app:openBootLog'),
+  getOutputDir: () => ipcRenderer.invoke('app:getOutputDir'),
+  openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
+  showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
 });

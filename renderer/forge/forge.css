@@ -1,420 +1,607 @@
-/* forge.css: Midi-Forge tab. Design system in ../shared/tokens.css.
-   Console Pro, matched to the approved mockup: full-bleed status strip,
-   full-width workspace, numbered rails ABOVE panels, hero dropzone with
-   corner brackets, YOUTUBE chip, two-line pipeline blocks, run readout. */
+/* forge.css — the Forge tab.
+   Three columns: input/pipeline rail, waveform + settings + progress canvas,
+   results inspector. Everything visual here comes from tokens.css / ui.css;
+   this sheet only lays the columns out and styles the handful of composites
+   that are genuinely Forge's own (the pipeline mark, the stage checklist, the
+   density strip). The two dividers drive --rail and --insp on #fg, which is
+   what resize.js persists as forge:rail / forge:insp.
 
-body { height: 100%; overflow-y: auto; }
+   Type rule for this sheet: a LABEL is title case in the body font. Monospace
+   is kept for machine values only — timecodes, percentages, note counts, file
+   paths, log lines.
+   ------------------------------------------------------------------------- */
 
-/* ---- engine status strip: full-bleed under the topbar -------------------- */
-.envbar {
-  display: flex; align-items: center; gap: var(--s3);
-  padding: var(--s2) var(--s6);
-  background: var(--surface); border-bottom: 1px solid var(--line);
-  font-family: var(--font-mono); font-size: 12px;
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 var(--t2)/1.45 var(--font-body);
+  overflow: hidden;
 }
-.envbar .spacer { flex: 1; }
-#env-text { color: var(--text-2); font-weight: 500; letter-spacing: .2px; }
 
-/* ---- workspace: full width ------------------------------------------------ */
-.wrap {
-  padding: var(--s5) var(--s6) var(--s8);
-  display: flex; flex-direction: column; gap: var(--s3);
-  counter-reset: section;        /* numbers the .lbl rails 01, 02, … */
+/* ---- the three-column host --------------------------------------------- */
+.fg {
+  height: 100%;
+  align-items: stretch;
 }
-.work { display: flex; flex-direction: column; gap: var(--s3); }
+.fg-col { background: var(--bg); }
+/* The grip drives --rail / --insp on the [data-split] ancestor; the panes are
+   what consume them (CONTRACT §9.3 — .pane.is-fixed is only flex:0 0 auto). */
+.fg-rail { width: var(--rail, 368px); border-right: 1px solid var(--line); }
+.fg-insp { width: var(--insp, 420px); border-left: 1px solid var(--line); }
+.fg-centre { min-width: 0; overflow-x: hidden; overflow-y: auto; }
 
-/* rails sit above their panels */
-.lbl { margin: var(--s2) 0 2px; }
+/* Collapsed columns: an icon rail, never a hidden column with no way back.
+   Collapsing is a SIDE-BY-SIDE affordance, so each column's rules are scoped to
+   the range where that column actually stands beside the centre. The rail does
+   so down to 900px; the inspector becomes the full-width bottom row under
+   1181px, where a 34px strip would leave a 268px-tall empty band with a chevron
+   in the corner, so its rules stop there and its chevron is hidden below (see
+   the 1180px block). Under 900px the layout is one column and .fg-collapse is
+   hidden outright. */
+@media (min-width: 901px) {
+.fg-rail.is-collapsed { width: 34px; flex: 0 0 34px; }
+.fg-rail.is-collapsed > .tabpanel,
+.fg-rail.is-collapsed > .toolbar,
+.fg-rail.is-collapsed > .panel,
+.fg-rail.is-collapsed > .panel-foot,
+.fg-rail.is-collapsed .fg-coltabs > button[role="tab"] { display: none; }
+.fg-rail.is-collapsed .fg-coltabs {
+  flex-direction: column; height: auto; padding: var(--s2) 0; gap: var(--s2);
+  border-bottom: 0; overflow: visible;
+}
+.fg-rail.is-collapsed .fg-colbar-t { display: block; }
+.fg-rail.is-collapsed .fg-collapse i { transform: rotate(180deg); }
+.fg[data-rail="off"] > .grip-h[data-resize="rail"] { display: none; }
+}
+@media (min-width: 1181px) {
+.fg-insp.is-collapsed { width: 34px; flex: 0 0 34px; }
+.fg-insp.is-collapsed > .tabpanel,
+.fg-insp.is-collapsed > .toolbar,
+.fg-insp.is-collapsed > .panel,
+.fg-insp.is-collapsed > .panel-foot,
+.fg-insp.is-collapsed .fg-coltabs > button[role="tab"],
+.fg-insp.is-collapsed .fg-sort { display: none; }
+.fg-insp.is-collapsed .fg-coltabs {
+  flex-direction: column; height: auto; padding: var(--s2) 0; gap: var(--s2);
+  border-bottom: 0; overflow: visible;
+}
+.fg-insp.is-collapsed .fg-colbar-t { display: block; }
+.fg-insp.is-collapsed .fg-collapse i { transform: rotate(180deg); }
+.fg[data-insp="off"] > .grip-h[data-resize="insp"] { display: none; }
+}
 
-/* ---- cards ---------------------------------------------------------------- */
-.card { display: flex; flex-direction: column; gap: var(--s3); }
+/* ---- the column tab bars ------------------------------------------------
+   The reference puts the tab strip at the very top of each side column, with
+   nothing above it, so the old 32px chrome row was folded into this one: the
+   column title only exists while the column is collapsed, and the tools sit at
+   the right of the same bar. */
+.fg-coltabs { overflow: visible; padding-right: var(--s2); }
+.fg-coltabs > button[role="tab"] { padding: 0 16px; }
+.fg-tabtools {
+  display: flex; align-items: center; gap: var(--s1);
+  margin-left: auto; flex: 0 1 auto; min-width: 0;
+}
+.fg-colbar-t {
+  display: none;
+  writing-mode: vertical-rl;
+  font: 600 var(--t1)/1 var(--font-body); color: var(--text-3);
+}
+.fg-env {
+  max-width: 100%; min-width: 0; cursor: pointer;
+  background: var(--surface-2); border-color: var(--line);
+  transition: border-color var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.fg-env > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fg-env:hover { border-color: var(--line-2); color: var(--text); }
+.fg-env.is-ok   { background: var(--ok-soft);  color: var(--ok);   border-color: var(--accent-line); }
+.fg-env.is-err  { background: var(--err-soft); color: var(--err);  border-color: #5a2a2a; }
+.fg-env.is-warn { background: var(--warn-soft); color: var(--warn); border-color: #4a4020; }
+.fg-collapse i { transition: transform var(--motion-fast) var(--ease-standard); }
 
-/* hero dropzone, corner brackets, centered column */
+/* ---- tab panels -------------------------------------------------------- */
+.fg-tp { padding: var(--s5); gap: var(--s4); overflow: auto; }
+.fg-tp.is-flush { padding: 0; gap: 0; overflow: hidden; }
+.fg-tp[hidden] { display: none !important; }
+
+/* ---- input tab --------------------------------------------------------- */
 .dropzone {
-  display: flex; flex-direction: column; gap: 12px; align-items: center;
-  border: 1px dashed var(--line-2); border-radius: var(--r);
-  padding: var(--s8) var(--s6) var(--s6); background: var(--bg-2);
-  background-image:
-    linear-gradient(var(--text-3), var(--text-3)), linear-gradient(var(--text-3), var(--text-3)),
-    linear-gradient(var(--text-3), var(--text-3)), linear-gradient(var(--text-3), var(--text-3)),
-    linear-gradient(var(--text-3), var(--text-3)), linear-gradient(var(--text-3), var(--text-3)),
-    linear-gradient(var(--text-3), var(--text-3)), linear-gradient(var(--text-3), var(--text-3));
-  background-repeat: no-repeat;
-  background-size: 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px, 14px 1px, 1px 14px;
-  background-position: 10px 10px, 10px 10px, calc(100% - 10px) 10px, calc(100% - 10px) 10px,
-                       10px calc(100% - 10px), 10px calc(100% - 10px),
-                       calc(100% - 10px) calc(100% - 10px), calc(100% - 10px) calc(100% - 10px);
-  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  width: 100%; padding: var(--s5) var(--s3);
+  background: var(--bg-2);
+  border: 1px dashed var(--line-2); border-radius: var(--r-lg);
+  box-shadow: var(--well);
+  color: var(--text-2); cursor: pointer; text-align: center;
+  transition: border-color var(--motion-fast) var(--ease-standard),
+              background-color var(--motion-fast) var(--ease-standard);
 }
-.dropzone.drag { border-color: var(--accent); background-color: var(--accent-soft); }
-.dz-icon {
-  width: 44px; height: 44px; display: grid; place-items: center;
-  border: 1px solid var(--line-2); border-radius: var(--r);
-  background: var(--surface);
-  color: var(--accent); font: 700 18px/1 var(--font-mono);
-}
-.dropzone input {
-  border: 0; background: transparent; box-shadow: none;
-  width: min(560px, 100%); text-align: center;
-  font: 600 15px/1 var(--font-body); color: var(--text);
-  pointer-events: none;          /* the zone + Browse handle interaction */
-}
-.dropzone input::placeholder { color: var(--text); font-weight: 600; }
-.dropzone input:focus { box-shadow: none; }
-.dz-types { font-family: var(--font-mono); font-size: 12px; letter-spacing: 1px; color: var(--text-3); }
-.dropzone .btn { margin-top: 4px; }
-.input-actions { display: flex; align-items: center; justify-content: center; gap: var(--s2); }
+.dropzone:hover { border-color: var(--line-2); background: var(--surface); }
+.dropzone .dz-icon { color: var(--text-2); margin-bottom: var(--s1); }
+.dropzone:hover .dz-icon, .dropzone.is-over .dz-icon { color: var(--accent); }
+.dz-title { font: 600 var(--t3)/1.3 var(--font-body); color: var(--text); }
+.dz-sub { font-size: var(--t2); color: var(--text-2); }
+.dz-types { margin-top: var(--s2); font: 400 var(--t1)/1.3 var(--font-body); color: var(--text-3); }
 
-.row { display: flex; gap: var(--s2); align-items: center; }
-.url-row input { flex: 1; }
-.url-chip {
-  font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 1.2px;
-  color: var(--text-2); background: var(--surface-2);
-  border: 1px solid var(--line-2); border-radius: 3px;
-  padding: 8px 8px; flex: 0 0 auto;
+/* the link field: one well, and the Fetch affix only once there is a link */
+.fg-url { width: 100%; }
+.fg-url > .input { font-family: var(--font-body); }
+.fg-affix-btn {
+  height: 24px; padding: 0 10px; margin: 0 4px 0 0;
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  font: 600 var(--t1)/1 var(--font-body); cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-standard);
 }
+.fg-affix-btn:hover { background: var(--surface-3); }
+.fg-affix-btn:disabled { opacity: .45; cursor: not-allowed; }
 
-/* pipeline, two-line radio blocks */
-.seg button { display: flex; flex-direction: column; gap: 3px; }
-.seg button b { font-weight: 700; font-size: 13px; color: inherit; }
-.seg button i { font-style: normal; font-size: 12px; color: var(--text-3); }
-.seg button.is-active b { color: var(--text); }
-.seg button.is-active i { color: var(--text-2); }
+/* ---- the rail's disclosure groups (Output / Pipeline / Advanced) --------
+   .insp-sec-head already draws the reference's caret and rotates it off
+   aria-expanded; only the indents are Forge's own. */
+.fg-sec { display: flex; flex-direction: column; }
+.fg-rail .insp-sec-head { height: 26px; padding: 0 0 0 2px; color: var(--text); font-size: var(--t3); }
+.fg-rail .insp-sec-head:hover { background: transparent; color: var(--accent); }
+.fg-rail .insp-sec-body { padding: var(--s3) 0 0; gap: var(--s3); }
+.fg-rail .fg-tiles-body { padding-top: var(--s2); }
+.fg-rail #adv-toggle {
+  height: var(--h-ctl-lg); padding: 0 var(--s3);
+  background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r);
+  color: var(--text-2); font-size: var(--t2);
+}
+.fg-rail #adv-toggle:hover { background: var(--surface-3); color: var(--text); }
+.fg-rail #adv-toggle::before { margin-right: 4px; }
 
-.time-panel {
+.fg-outrow { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.fg-outrow > .pathchip, .fg-outrow > .input-wrap { flex: 1 1 auto; min-width: 0; }
+/* .pathchip gaps its three slots evenly; here the directory and the basename
+   are one string, so only the reveal button keeps a gap. */
+.fg-outpath { height: var(--h-input); padding-left: 10px; gap: 0; font-family: var(--font-body); }
+.fg-outpath > .fg-outicon { margin-right: 8px; }
+.fg-outpath > .pathchip-reveal { margin-left: auto; }
+.fg-outicon { flex: 0 0 auto; display: flex; color: var(--text-3); }
+/* A square companion button matching the well's height, for Browse and for the
+   name-after-the-song tick. */
+.fg-sq {
+  flex: 0 0 auto; --bh: var(--h-input); width: var(--h-input);
+}
+.fg-sq[aria-checked="true"] {
+  background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent);
+}
+.fg-outfoot { display: flex; align-items: baseline; gap: var(--s2); margin-top: -4px; }
+.fg-outfoot > .field-hint { flex: 1 1 auto; min-width: 0; }
+#outname-field { gap: 6px; }
+
+/* the pipeline tile mark: four bars, a different signature per pipeline. Not
+   an icon — icons.js owns those and its name list is closed. */
+.pmark {
+  flex: 0 0 auto; display: inline-flex; align-items: flex-end; gap: 2px;
+  width: 22px; height: 15px; color: var(--text-2);
+}
+.pmark > span { display: block; width: 4px; background: currentColor; border-radius: 1px; }
+.pmark[data-mark="piano"]   > span:nth-child(1) { height: 5px; }
+.pmark[data-mark="piano"]   > span:nth-child(2) { height: 15px; }
+.pmark[data-mark="piano"]   > span:nth-child(3) { height: 10px; }
+.pmark[data-mark="piano"]   > span:nth-child(4) { height: 15px; }
+.pmark[data-mark="melody"]  > span:nth-child(1) { height: 4px; }
+.pmark[data-mark="melody"]  > span:nth-child(2) { height: 9px; }
+.pmark[data-mark="melody"]  > span:nth-child(3) { height: 15px; }
+.pmark[data-mark="melody"]  > span:nth-child(4) { height: 7px; }
+.pmark[data-mark="general"] > span:nth-child(1) { height: 12px; }
+.pmark[data-mark="general"] > span:nth-child(2) { height: 15px; }
+.pmark[data-mark="general"] > span:nth-child(3) { height: 11px; }
+.pmark[data-mark="general"] > span:nth-child(4) { height: 14px; }
+.pmark[data-mark="drums"]   > span:nth-child(1) { height: 15px; }
+.pmark[data-mark="drums"]   > span:nth-child(2) { height: 5px; }
+.pmark[data-mark="drums"]   > span:nth-child(3) { height: 15px; }
+.pmark[data-mark="drums"]   > span:nth-child(4) { height: 5px; }
+.pmark[data-mark="fast"]    > span:nth-child(1) { height: 5px; }
+.pmark[data-mark="fast"]    > span:nth-child(2) { height: 4px; }
+.pmark[data-mark="fast"]    > span:nth-child(3) { height: 6px; }
+.pmark[data-mark="fast"]    > span:nth-child(4) { height: 4px; }
+
+/* The pipeline picker is the .tile primitive with the mark in the leading
+   column and the radio ring moved to the trailing one, where the reference
+   puts it: a single lime dot on the chosen row. The ring is still a real mark,
+   so the state is never colour alone. */
+#pipeline { gap: 6px; }
+#pipeline .tile {
+  grid-template-columns: 26px minmax(0, 1fr) auto 8px;
+  align-items: center; gap: 0 var(--s3);
+  padding: 8px 12px;
+}
+#pipeline .tile-badge {
+  grid-column: 3; grid-row: 1 / span 2;
+  font-family: var(--font-body); letter-spacing: 0;
+}
+#pipeline .pmark { grid-column: 1; grid-row: 1 / span 2; }
+#pipeline .tile-title { font-size: var(--t2); line-height: 1.25; }
+#pipeline .tile-sub { line-height: 1.3; }
+#pipeline .tile::before {
+  grid-column: 4; grid-row: 1 / span 2;
+  width: 8px; height: 8px; border: 0; background: transparent; box-shadow: none;
+}
+#pipeline .tile:hover::before { background: var(--line-2); }
+#pipeline .tile[aria-checked="true"]::before { background: var(--accent); box-shadow: none; }
+#pipeline .tile:hover .pmark { color: var(--text); }
+#pipeline .tile[aria-checked="true"] .pmark { color: var(--accent); }
+
+/* ---- queue ------------------------------------------------------------- */
+.fg-queue { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+.fg-qbar { border-bottom: 1px solid var(--line); flex-wrap: wrap; height: auto; min-height: var(--h-toolbar); }
+.fg-qbar > .toolbar-label { cursor: default; }
+.fg-qlist { flex: 1 1 auto; }
+.fg-qlist .lrow-index { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.fg-qlist .lrow.is-current { background: var(--accent-soft); }
+.fg-qlist .lrow.is-current .lrow-name { color: var(--text); }
+.fg-qlist .lrow-actions { gap: 0; }
+
+/* ---- advanced ---------------------------------------------------------- */
+.fg-advtop { display: flex; align-items: flex-start; gap: var(--s2); }
+.fg-advtop > .field-hint { flex: 1 1 auto; }
+.fg-advgrp {
   display: flex; flex-direction: column; gap: var(--s2);
-  margin-top: var(--s1); padding-top: var(--s3);
+  padding: var(--s2) 0;
   border-top: 1px solid var(--line);
 }
-.time-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
-.time-head .check { margin: 0; }
-.time-presets { display: flex; align-items: center; gap: var(--s3); white-space: nowrap; }
-.wave-shell {
-  position: relative;
-  height: 148px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  overflow: hidden;
+.fg-advgrp:first-of-type { border-top: 0; }
+.fg-advgrp-t { font: 600 var(--t2)/1.2 var(--font-body); color: var(--text-2); }
+.fg-advgrp .insp-row { grid-template-columns: 116px 1fr; }
+.fg-advgrp .input-wrap { min-width: 0; }
+.fg-advhint { margin: -4px 0 0; font-size: var(--t1); color: var(--text-3); }
+
+.fg-envrow { display: flex; align-items: center; gap: var(--s1); min-width: 0; }
+.fg-envrow > .fg-env { flex: 0 1 auto; }
+
+/* ---- primary action footer --------------------------------------------
+   The reference's rail ends on the button. The engine verdict is live state
+   rather than an echo of a setting, so it keeps a quiet line of its own under
+   the button instead of a mono status footer above it. */
+.fg-run { flex-direction: column; align-items: stretch; gap: var(--s2); padding: var(--s4) var(--s5); }
+.fg-go { width: 100%; justify-content: center; gap: var(--s2); }
+
+/* ---- centre: song header --------------------------------------------- */
+.fg-song {
+  flex: 0 0 auto; display: flex; align-items: flex-start; gap: var(--s3);
+  padding: var(--s4) var(--s4) var(--s3);
+  min-width: 0;
+}
+.fg-song-main { flex: 1 1 auto; min-width: 0; }
+.fg-song-title { margin: 0; font: 600 20px/1.25 var(--font-display); color: var(--text); }
+.fg-song-meta { margin: 4px 0 0; font-size: var(--t2); color: var(--text-3); }
+.fg-song-tools { flex: 0 0 auto; display: flex; align-items: center; gap: var(--s2); padding-top: 3px; }
+
+/* ---- centre: scrolling stack ----------------------------------------- */
+.fg-centre > .fg-wave,
+.fg-centre > .fg-cards,
+.fg-centre > .fg-prog { margin: 0 var(--s4) var(--s3); }
+.fg-wave { flex: 0 0 auto; }
+.fg-wave-body {
+  position: relative; display: flex; flex-direction: column;
+  height: 178px; padding: var(--s2);
+}
+/* .canvas-host fills its parent; the canvas inside it is absolutely placed,
+   so without this the host collapses to zero height and nothing paints. */
+.fg-wave-body > .canvas-host { flex: 1 1 auto; min-height: 0; }
+.fg-wave.is-collapsed .fg-wave-body,
+.fg-wave.is-collapsed .fg-ctl-row.is-top > .field,
+.fg-wave.is-collapsed .fg-ctl-row.is-top > .btn,
+.fg-wave.is-collapsed .fg-ctl-row.is-top > .toolbar-sep { display: none; }
+.fg-wave.is-collapsed .fg-wave-ctl { border-top: 0; }
+.fg-wave.is-collapsed .fg-collapse i { transform: rotate(180deg); }
+#waveform { display: block; cursor: text; }
+#waveform:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent-deep); }
+.fg-wave-note {
+  position: absolute; left: var(--s3); top: var(--s3);
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 8px;
+  background: #0a0b0de6; border: 1px solid var(--line); border-radius: var(--r-pill);
+  font: 500 var(--t1)/1 var(--font-body); color: var(--text-2);
+}
+.fg-wave-note.is-action { gap: var(--s2); }
+
+/* the control block under the canvas: range and zoom on top, the preview
+   transport and its volume beneath — the reference's arrangement. */
+.fg-wave-ctl {
+  flex: 0 0 auto; display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s3); border-top: 1px solid var(--line);
+}
+.fg-ctl-row { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.fg-ctl-row.is-top > .field.is-row > .field-label { color: var(--text-3); }
+.fg-ctl-row > .field-hint { min-width: 0; }
+.fg-play {
+  --bh: 40px; width: 40px; border-radius: 50%;
+  background: var(--surface-2); color: var(--text);
+}
+.fg-play:hover { background: var(--surface-3); }
+.fg-readout {
+  color: var(--text-2); font-size: var(--t2); font-variant-numeric: tabular-nums;
+  margin-right: var(--s2);
+}
+.fg-vol { display: flex; align-items: center; gap: var(--s2); }
+.fg-vol-k { font: 500 var(--t2)/1 var(--font-body); color: var(--text-3); }
+.fg-vol > .range { width: 96px; }
+.fg-vol > output { color: var(--text-3); min-width: 34px; text-align: right; }
+.fg-time { width: 82px; font-variant-numeric: tabular-nums; }
+.fg-ctl-row .field-hint.is-error { color: var(--err); }
+
+/* ---- centre: the four cards ------------------------------------------ */
+.fg-cards { flex: 0 0 auto; padding: var(--s4); }
+.fg-cards-head { margin-bottom: var(--s3); }
+.fg-cards-h { margin: 0; font: 600 var(--t3)/1.3 var(--font-body); color: var(--text); }
+.fg-cards-sub { margin: 4px 0 0; font-size: var(--t2); color: var(--text-3); }
+.fg-cards-grid {
+  display: grid; gap: var(--s2);
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+}
+.fg-card {
+  display: flex; flex-direction: column; gap: 7px; min-width: 0;
+  padding: var(--s3);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r);
+}
+.fg-card-t { font: 600 var(--t2)/1.2 var(--font-body); color: var(--text); }
+.fg-card-h { font-size: var(--t1); line-height: 1.35; color: var(--text-3); min-height: 2.7em; }
+.fg-card.is-custom { border-color: var(--accent-line); }
+.fg-card.is-custom .fg-card-h { color: var(--text-2); }
+
+/* ---- centre: progress / log ------------------------------------------ */
+.fg-prog { flex: 1 1 auto; min-height: 190px; }
+.fg-prog > .tabstrip { padding-right: var(--s3); gap: var(--s1); }
+.fg-prog > .tabstrip > .u-spacer { min-width: var(--s2); }
+/* Pause/Cancel live inside the tabstrip, and `.tabstrip > button` would strip
+   them back to tab styling — so they sit in their own wrapper. */
+.fg-progacts { display: flex; align-items: center; gap: var(--s1); flex: 0 0 auto; }
+.fg-clock { display: flex; align-items: center; gap: var(--s2); font-size: var(--t2); }
+.fg-clock-k { color: var(--text-3); }
+.fg-clock .mono { color: var(--text); font-variant-numeric: tabular-nums; }
+.fg-jobhead { display: flex; align-items: center; gap: var(--s2); min-width: 0; margin-bottom: var(--s3); }
+.fg-jobhead .mono.small { min-width: 0; }
+.fg-prog > .tabpanel { padding: var(--s4); }
+.fg-prog > .tabpanel.is-flush { padding: 0; }
+
+.fg-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.stg {
+  display: grid; align-items: center;
+  grid-template-columns: 22px minmax(0, auto) minmax(0, 1fr) 132px;
+  gap: var(--s3);
+  min-height: 30px;
+  color: var(--text-3);
+}
+.stg-mark {
+  position: relative; width: 17px; height: 17px; justify-self: center;
+  border: 1.5px solid var(--line-2); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent-ink);
+  transition: background-color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
+}
+.stg-mark .ic { transform: scale(0); transform-origin: center; }
+.stg-name { font-size: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stg-note { color: var(--text-3); }
+.stg-bar { display: block; opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard); }
+.stg-meta { font-size: var(--t1); text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.stg[data-state="active"] { color: var(--text); }
+.stg[data-state="active"] .stg-mark { border-color: var(--accent); }
+.stg[data-state="active"] .stg-bar { opacity: 1; }
+.stg[data-state="active"] .stg-meta { color: var(--accent); }
+.stg[data-state="done"] { color: var(--text-2); }
+.stg[data-state="done"] .stg-mark { background: var(--accent); border-color: var(--accent); }
+.stg[data-state="done"] .stg-mark .ic { transform: scale(1); }
+.stg[data-state="done"].is-fresh .stg-mark .ic { animation: stg-tick var(--motion-normal) var(--ease-enter) 1; }
+@keyframes stg-tick { from { transform: scale(.2); } to { transform: scale(1); } }
+.stg[data-state="fail"] .stg-mark { border-color: var(--err); background: var(--err); }
+.stg[data-state="fail"] .stg-meta { color: var(--err); }
+.fg-err { margin-top: var(--s3); }
+#prog-foot { margin-top: var(--s3); }
+
+.fg-log { flex: 1 1 auto; background: var(--bg-2); box-shadow: var(--well); }
+.fg-log .lrow {
+  min-height: 18px; padding: 0 var(--s3);
+  font: 400 var(--t1)/18px var(--font-mono);
+  color: var(--text-2); white-space: pre; overflow: hidden; text-overflow: ellipsis;
+}
+.fg-log .lrow.is-warn { color: var(--warn); }
+.fg-log .lrow.is-error { color: var(--err); }
+.fg-log .lrow.is-ok { color: var(--accent); }
+
+/* ---- right column ----------------------------------------------------- */
+/* "Sort  Newest" reads as one control in the reference: a dim label and a
+   borderless select sharing a single well. */
+.fg-sort {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  height: var(--h-ctl-sm); padding: 0 2px 0 10px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm);
   box-shadow: var(--well);
 }
-#waveform {
-  display: block;
-  width: 100%;
-  height: 100%;
-  cursor: crosshair;
-  touch-action: none;
+.fg-sort-k { font: 500 var(--t1)/1 var(--font-body); color: var(--text-3); }
+.fg-sort .select {
+  height: calc(var(--h-ctl-sm) - 4px); padding: 0 24px 0 2px;
+  background: transparent; border: 0; color: var(--text);
 }
-.wave-shell:hover { border-color: var(--line-2); }
-.wave-shell:focus-within { border-color: var(--accent-deep); }
-.wave-loading {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--text-3);
-  font-size: 12px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  pointer-events: none;
-}
-.time-grid {
-  display: grid; grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) auto auto;
-  gap: var(--s2); align-items: end;
-}
-.time-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
-.time-grid input { height: 32px; font-family: var(--font-mono); }
-.time-grid input:disabled { opacity: .45; cursor: not-allowed; }
-.time-readout {
-  display: flex;
-  justify-content: flex-end;
-  min-height: 16px;
-  color: var(--text-3);
-  font-size: 12px;
-}
-.preview-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); }
-.preview-footer .time-readout { flex: 1; }
-.range-field { display: flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: 12px; white-space: nowrap; }
-.range-field input[type="range"] { width: 112px; accent-color: var(--accent); }
-.range-field output { width: 34px; color: var(--text-3); font: 12px/1 var(--font-mono); text-align: right; }
-#time-hint.is-error { color: var(--err); }
-#preview-audio { display: none; }
+.fg-sort .select:hover { background: transparent; }
+.fg-sort .selectwrap::after { right: 8px; }
 
-.adv-toggle {
-  align-self: flex-start; background: none; border: 0; color: var(--text-3);
-  cursor: pointer; padding: 2px 0; margin-top: var(--s1);
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  letter-spacing: 1.5px; text-transform: uppercase;
+.fg-reslist { flex: 1 1 auto; padding: var(--s3) var(--s3) 0; }
+/* The reference's results are separated cards rather than a flush list. VList
+   positions from one uniform pitch, so the gap is padding INSIDE the row and
+   the card is the row's own background — the pitch never changes. */
+.fg-reslist .lrow {
+  padding: 0; background: transparent; border-radius: var(--r);
+  box-shadow: none;
 }
-.adv-toggle:hover { color: var(--accent); }
-.adv { border-top: 1px solid var(--line); padding-top: var(--s3); }
-.adv-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.adv-head .adv-sub { margin: 0; }
-.adv-sub {
-  margin: 2px 0 8px;
-  font-family: var(--font-mono); font-weight: 600; font-size: 12px;
-  letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-3);
+.fg-reslist .lrow > .lrow-main,
+.fg-reslist .lrow > .lrow-meta,
+.fg-reslist .lrow > .lrow-actions { position: relative; z-index: 1; }
+.fg-reslist .lrow::before {
+  content: ""; position: absolute; inset: 4px 0; width: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  transform: none;
+  transition: background var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
 }
-.adv-group { margin-top: var(--s3); }
-.adv-group .adv-sub { margin-top: 0; }
-.adv-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3) var(--s5); }
-.adv-grid label { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); min-height: 32px; font-size: 13px; color: var(--text-2); }
-.adv-grid input[type="number"] { width: 88px; height: 30px; text-align: right; }
-.adv-grid .check { justify-content: flex-start; }
-.adv-value { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.adv-value i { max-width: 66px; color: var(--text-3); font: normal 12px/1.15 var(--font-mono); text-align: right; }
+.fg-reslist .lrow:hover::before { background: var(--surface-2); }
+.fg-reslist .lrow[aria-selected="true"],
+.fg-reslist .lrow.is-selected { background: transparent; }
+.fg-reslist .lrow[aria-selected="true"]::before,
+.fg-reslist .lrow.is-selected::before {
+  transform: none;
+  background: var(--accent-soft); border-color: var(--accent);
+}
+.fg-reslist .lrow-actions { opacity: 1; }
+.fg-reslist .lrow-actions .btn { color: var(--text-3); }
+.fg-reslist .lrow:hover .lrow-actions .btn { color: var(--text); }
+.fg-reslist .lrow { padding-left: var(--s3); padding-right: 6px; }
+.fg-reslist .lrow-name { font-weight: 600; font-size: var(--t2); }
+.fg-reslist .lrow-sub { color: var(--text-3); }
+.fg-reslist .lrow-meta {
+  display: flex; align-items: center; gap: var(--s2);
+  margin-left: var(--s2);
+}
+.fg-when { font: 400 var(--t1)/1.25 var(--font-body); color: var(--text-3); white-space: nowrap; }
+.fg-reslist .tag { height: 20px; padding: 0 8px; border-radius: var(--r-pill); }
+.fg-reslist .tag.is-primary {
+  background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+}
+.fg-reslist .lrow.is-fresh { animation: res-in var(--motion-normal) var(--ease-enter) 1; }
+@keyframes res-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
-@media (max-width: 900px) {
-  .adv-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-/* run. START strip + readout panel */
-.run-card { gap: var(--s4); }
-.run-row { display: grid; grid-template-columns: 1fr 230px; gap: var(--s3); align-items: stretch; }
-.run-row .btn.big { width: 100%; height: 100%; min-height: 58px; font-size: 15px; letter-spacing: 2px; }
-.run-info {
-  display: flex; flex-direction: column; justify-content: center; gap: 8px;
-  padding: 12px 16px;
+.fg-sel { flex: 0 0 auto; margin: 0; border-width: 1px 0 0; border-radius: 0; }
+.fg-sel.is-in { animation: res-in var(--motion-normal) var(--ease-enter) 1; }
+.fg-sel > .panel-head { background: transparent; border-bottom: 0; }
+.fg-sel .panel-title { font-size: var(--t3); }
+.fg-sel > .panel-body { padding: 0 var(--s4) var(--s3); text-align: center; }
+.fg-sel .tag.is-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.fg-sel-name { margin: 0; font: 600 var(--t3)/1.35 var(--font-body); color: var(--text); }
+.fg-sel-meta { margin: 4px 0 0; font-size: var(--t2); color: var(--text-2); }
+.fg-sel-meta .fg-sep { color: var(--text-3); margin: 0 6px; }
+.fg-sel-when { margin: 2px 0 0; font-size: var(--t2); color: var(--text-3); }
+.fg-dens {
+  margin-top: var(--s3); padding: var(--s2) var(--s2) 6px;
   background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r);
 }
-.run-info > div { display: flex; justify-content: space-between; gap: 12px; }
-.run-info span:first-child {
-  font-family: var(--font-mono); font-size: 12px; letter-spacing: 1.2px; color: var(--text-3);
+.fg-dens-t { display: block; margin-top: 5px; font-size: var(--t1); color: var(--text-3); }
+.fg-dens-host { position: relative; height: 46px; }
+.fg-dens-host canvas { display: block; }
+.fg-sel-acts {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2);
+  padding: var(--s3) var(--s4) var(--s4);
 }
-.run-info span.mono {
-  font-size: 12px; color: var(--text-2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px;
+.fg-sel-acts > .btn {
+  justify-content: center; min-width: 0; gap: var(--s2);
+  --bh: var(--h-ctl-lg);
 }
-.prog-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; margin-bottom: 8px; color: var(--text-2); }
-.prog-row #job-stage, .prog-row #setup-step { font-weight: 600; color: var(--text); }
-#job-pct, #setup-pct { color: var(--accent); font-family: var(--font-mono); font-weight: 600; }
+.fg-sel-acts > .btn > .ic { color: var(--text-2); }
 
-.out-row { align-items: center; }
-.out-label { font-size: 13px; color: var(--text-2); }
-.out-row .spacer { flex: 1; }
-
-/* error strip */
-.errcard {
-  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; font-size: 13px;
-  padding: var(--s3); border-radius: var(--r-sm);
-  background: var(--err-soft); border: 1px solid #5a2e2e; border-left: 2px solid var(--err);
-  color: var(--text);
+/* ---- setup modal ------------------------------------------------------ */
+.fg-dlgh { flex: 1 1 auto; min-width: 0; }
+.fg-setup-store { display: flex; flex-direction: column; gap: var(--s2); }
+.fg-group-head { display: flex; align-items: center; gap: var(--s2); min-height: 22px; }
+.fg-group-title { font: 600 var(--t2)/1.2 var(--font-body); color: var(--text); }
+.fg-setup-row { display: flex; align-items: center; gap: var(--s2); min-width: 0; flex-wrap: wrap; }
+.fg-setup-row > .pathchip { flex: 1 1 220px; min-width: 0; }
+#setup-free.is-low { color: var(--err); }
+.fg-setup-prog {
+  display: flex; flex-direction: column; gap: var(--s2);
+  margin-top: var(--s4); padding-top: var(--s3);
+  border-top: 1px solid var(--line);
 }
-.errcard .err-x { color: var(--err); font-weight: 700; }
-.errcard .spacer { flex: 1; }
+.fg-setup-progrow { display: flex; align-items: center; gap: var(--s2); font-size: var(--t2); }
+.fg-setup-progrow .mono { font-variant-numeric: tabular-nums; }
 
-/* whole-window drag overlay */
-.drop-overlay {
-  position: fixed; inset: 0; z-index: 9000; display: none;
-  background: rgba(10, 11, 14, .82);
-  align-items: center; justify-content: center;
-}
-.drop-overlay.show { display: flex; }
-.drop-card {
-  padding: var(--s6) 40px; border-radius: var(--r-lg);
-  font: 700 18px/1 var(--font-body); letter-spacing: 1px; text-transform: uppercase;
-  color: var(--accent);
-  background: var(--surface); border: 1px dashed var(--accent-deep); box-shadow: var(--sh-pop);
-}
-
-/* success strip */
-.output {
-  display: flex; flex-direction: column; gap: var(--s3); font-size: 13px;
-  padding: var(--s3); border-radius: var(--r-sm);
-  background: var(--bg-2); border: 1px solid var(--line); border-left: 2px solid var(--line-2);
-  color: var(--text);
-}
-.output.has-result { background: var(--ok-soft); border-color: var(--accent-line); border-left-color: var(--ok); }
-.output-summary { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; width: 100%; }
-.output-summary > span:first-child { color: var(--ok); font-weight: 700; }
-.output .mono { font-family: var(--font-mono); font-size: 12px; }
-
-/* ---- setup / provisioning panel ----------------------------------------- */
-.setup { gap: var(--s3); }
-.setup h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .2px; }
-.setup > p { margin: 0; color: var(--text-2); }
-.setup-actions { display: flex; gap: var(--s2); margin-top: var(--s1); }
-.prog { width: 100%; }
-
-/* ---- log ------------------------------------------------------------------ */
-.log-card { padding: 0; overflow: hidden; gap: 0; }
-.log-head {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line);
-  font-family: var(--font-mono); font-weight: 600; font-size: 12px;
-  letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-3);
-}
-.log {
-  margin: 0; padding: var(--s3) var(--s4); max-height: 200px; overflow: auto;
-  background: var(--bg-2);
-  font-family: var(--font-mono);
-  font-size: 12px; line-height: 1.65; color: var(--text-2);
-  white-space: pre-wrap; word-break: break-word;
-}
-
-/* ---- queue ---- */
-.queue { border-top: 1px solid var(--line); padding-top: var(--s2); }
-.queue-head .spacer { flex: 1; }
-.lbl-inline { font-size: 13px; color: var(--text-2); font-weight: 600; }
-.queue-list { list-style: none; margin: var(--s2) 0 0; padding: 0; max-height: 168px; overflow-y: auto; }
-.queue-list li { display: flex; align-items: center; gap: var(--s2); padding: 4px 8px; border-radius: 6px; font-size: 13px; color: var(--text-2); }
-.queue-list li + li { margin-top: 2px; }
-.queue-list li.is-running { background: var(--bg-2); color: var(--text); }
-.queue-list li.is-done .qi-state { color: var(--ok); opacity: 1; }
-.queue-list li.is-failed .qi-state, .queue-list li.is-cancelled .qi-state { color: var(--err); opacity: 1; }
-.queue-list .qi-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.queue-list .qi-state { font-size: 12px; opacity: .7; }
-.queue-list .qi-x { background: none; border: 0; color: inherit; cursor: pointer; opacity: .5; font-size: 13px; padding: 0 2px; }
-.queue-list .qi-x:hover { opacity: 1; }
-.queue-list .qi-skip { width: 26px; height: 24px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--text-2); cursor: pointer; font-size: 15px; }
-.queue-list .qi-skip:hover { color: var(--accent); background: var(--bg-3); }
-.queue-list .qi-move { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--text-3); cursor: pointer; }
-.queue-list .qi-move:hover { color: var(--text); background: var(--bg-3); }
-.queue-list .qi-move:disabled { opacity: .2; cursor: default; }
-
-.queue-list .qi-empty { opacity: .45; font-style: italic; }
-
-/* Forge storage picker in the setup panel */
-.storage-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0 4px; padding: 8px 12px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
-.storage-copy { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
-.storage-label { color: var(--text-3); font-size: 12px; letter-spacing: .4px; text-transform: uppercase; }
-.storage-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 12px; }
-.storage-free { color: var(--text-3); font-size: 12px; white-space: nowrap; }
-.storage-free.is-low { color: var(--err); }
-
-/* ---- queue as a disclosure button ---------------------------------------- */
-.queue-toggle { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; }
-.queue-toggle .qt-caret { display: inline-block; transition: transform var(--dur-1, .12s) ease; }
-.queue-wrap-open .qt-caret, .queue:not(.is-collapsed) .qt-caret { transform: rotate(90deg); }
-.qt-count { min-width: 18px; padding: 1px 8px; border-radius: 9px; background: var(--bg-2); color: var(--text-3); font: 12px/1.6 var(--font-mono); text-align: center; }
-.queue-toggle.has-items .qt-count { background: var(--accent-soft); color: var(--accent); }
-.queue.is-collapsed .queue-list { display: none; }
-.queue-auto { display: inline-flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; white-space: nowrap; }
-.qi-name.is-clickable { cursor: pointer; }
-.qi-name.is-clickable:hover { color: var(--accent); text-decoration: underline; }
-
-.badge-proto { margin-left: 8px; padding: 1px 4px; border: 1px solid var(--warn, #e6b800); border-radius: 3px; color: var(--warn, #e6b800); font: 600 12px/1.5 var(--font-mono); letter-spacing: .5px; vertical-align: 1px; }
-
-.setup-version { margin-left: 8px; color: var(--text-3); font-size: 12px; font-weight: 400; }
-/* a paused job should look paused */
-.bar-fill.is-paused { opacity: .45; animation: none; }
-.prog.is-paused #job-stage, .prog.is-paused #setup-step { color: var(--warn, #e6b800); }
-
-/* ==========================================================================
-   LAYOUTS. Four arrangements of the same controls; the blocks are moved
-   between lanes by forge.js, so everything below is placement only.
-   ========================================================================== */
-
-.layout-bar {
-  display: flex; align-items: center; gap: var(--s2);
-  padding: var(--s3) var(--s6) 0;
-}
-.layout-lbl {
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  letter-spacing: 2px; text-transform: uppercase; color: var(--text-3);
-}
-.layout-picker { display: flex; border: 1px solid var(--line-2); border-radius: var(--r); overflow: hidden; }
-.layout-picker button {
-  background: var(--surface-2); color: var(--text-2); border: 0;
-  border-right: 1px solid var(--line); padding: 6px 14px;
-  font: 600 12px/1 var(--font-body); cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.layout-picker button:last-child { border-right: 0; }
-.layout-picker button:hover { background: var(--surface-3); color: var(--text); }
-.layout-picker button.is-active { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
-
-/* A moved block keeps a heading, since it leaves the numbered rail behind. */
-.lane-sec { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
-.lane-title {
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  letter-spacing: 2px; text-transform: uppercase; color: var(--text-3);
-}
-.lane { display: flex; flex-direction: column; gap: var(--s6); min-width: 0; }
-
-/* classic keeps the shipped single-column rail and its own numbering. */
-.work[data-layout="classic"] { display: block; }
-
-/* cards: one column. */
-.work[data-layout="cards"] { display: block; }
-.work[data-layout="cards"] .lane-main { gap: var(--s6); }
-
-/* bench: run status across the top, two columns of work under it. */
-.work[data-layout="bench"] {
-  display: grid; align-items: start;
-  grid-template-columns: var(--bench, minmax(0, 1fr)) 7px minmax(0, 1fr);
-  gap: var(--s6);
-}
-.work[data-layout="bench"] .lane-top { grid-column: 1 / -1; }
-.work[data-layout="bench"] > .grip-h { align-self: stretch; }
-.work[data-layout="bench"] .lane-top .run-card { flex-direction: row; flex-wrap: wrap; align-items: center; }
-
-/* console: rail | canvas | inspector. */
-.work[data-layout="console"] {
-  display: grid; align-items: start;
-  grid-template-columns: var(--rail, 290px) 7px minmax(0, 1fr) 7px var(--insp, 300px);
-  gap: var(--s4);
-}
-.work[data-layout="console"] > .grip-h { align-self: stretch; }
-.work[data-layout="console"] .lane-canvas .wave-shell { min-height: 240px; }
-.work[data-layout="console"] .log { max-height: 150px; }
-
-/* Below the three-column threshold the inspector drops under the canvas
-   rather than squeezing every control to nothing. */
+/* ---- responsive -------------------------------------------------------
+   Below 1180px the results column drops under the canvas; below 900px the
+   whole thing is one column. .split is display:flex, so both breakpoints
+   switch the host to a grid rather than wrapping the flex line — a wrapped
+   flex line splits the height between the rows and cuts the rail in half. */
 @media (max-width: 1180px) {
-  .work[data-layout="console"] { grid-template-columns: var(--rail, 260px) 7px minmax(0, 1fr); }
-  .work[data-layout="console"] .lane-insp { grid-column: 1 / -1; }
-  /* The inspector is under the canvas now, so its divider has nothing to do. */
-  .work[data-layout="console"] > .grip-h[data-resize="insp"] { display: none; }
+  .fg {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 300px);
+  }
+  /* A 368px rail is right beside a wide canvas and wrong beside a narrow one. */
+  .fg-rail { width: min(var(--rail, 368px), 312px); grid-row: 1; grid-column: 1; }
+  .fg > .grip-h[data-resize="rail"] { grid-row: 1; grid-column: 2; margin: 0; }
+  .fg-centre { grid-row: 1; grid-column: 3; }
+  .fg > .grip-h[data-resize="insp"] { display: none; }
+  .fg-insp {
+    grid-row: 2; grid-column: 1 / -1; width: auto;
+    border-left: 0; border-top: 1px solid var(--line);
+  }
+  /* The inspector IS the bottom row here, so there is nothing to collapse it
+     away from and its collapse rules do not apply (they stop at 1181px). Hide
+     the control rather than leave a chevron that does nothing. */
+  .fg-insp .fg-collapse { display: none; }
+  /* A full-width strip is the wrong shape for a stacked list: put the list and
+     the selected result side by side instead of squeezing both to nothing. */
+  /* ui.css's `.split > .pane { display:flex }` is (0,2,0) — a bare .fg-insp
+     cannot beat it, whatever the source order. */
+  .fg.split > .fg-insp {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    grid-template-rows: auto minmax(0, 1fr);
+    column-gap: 0;
+  }
+  .fg-insp > .fg-coltabs { grid-column: 1 / -1; grid-row: 1; }
+  .fg-insp > #tp-results { grid-column: 1; grid-row: 2; }
+  .fg-insp > .fg-sel     { grid-column: 2; grid-row: 2; border-top: 0; border-left: 1px solid var(--line); }
+  .fg-insp .fg-sel-acts > .btn { flex: 1 1 auto; --bh: var(--h-ctl); }
+  /* The inspector is a short bottom strip here, and the Selected Result panel
+     cannot show everything in it. The density preview is the one part that is
+     decoration rather than fact, so it is what goes -- leaving it in only
+     scrolled the canvas out of its own clipping box, where it never painted. */
+  .fg-insp .fg-dens { display: none; }
+  .fg-insp .fg-sel > .panel-body { padding-bottom: var(--s2); }
+  .fg-insp .fg-sel-acts { padding: var(--s2) var(--s3) var(--s3); }
+}
+@media (max-width: 1120px) {
+  /* Labels go before controls do. */
+  .fg-clock-k { display: none; }
+  .fg-readout { display: none; }
+  .fg-vol-k { display: none; }
+}
+@media (max-width: 1000px) {
+  .stg { grid-template-columns: 22px minmax(0, auto) minmax(0, 1fr) 96px; }
 }
 @media (max-width: 900px) {
-  .work[data-layout="console"],
-  .work[data-layout="bench"] { grid-template-columns: minmax(0, 1fr); }
-  .work[data-layout="console"] .lane-insp,
-  .work[data-layout="bench"] .lane-top { grid-column: auto; }
+  .fg {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 42%) minmax(0, 1fr) minmax(0, 216px);
+  }
+  .fg-rail {
+    grid-row: 1; grid-column: 1; width: auto;
+    border-right: 0; border-bottom: 1px solid var(--line);
+  }
+  .fg-centre { grid-row: 2; grid-column: 1; }
+  .fg-insp { grid-row: 3; grid-column: 1; }
+  .fg > .grip-h { display: none; }
+  .fg-collapse { display: none; }
+  .fg-centre > .fg-wave, .fg-centre > .fg-cards, .fg-centre > .fg-prog { margin: 0 var(--s3) var(--s2); }
+  .fg-song { padding: var(--s3); }
+  .fg-song-title { font-size: var(--t4); }
+  .fg-wave-body { height: 128px; }
+  .fg-tp { padding: var(--s3); gap: var(--s3); }
+  .fg-run { padding: var(--s3); }
+}
+@media (max-height: 820px) {
+  .fg { grid-template-rows: minmax(0, 1fr) minmax(0, 244px); }
+  .fg-wave-body { height: 132px; }
+  .fg-card-h { min-height: 0; }
+  .fg-song { padding: var(--s3) var(--s4) var(--s2); }
+  .fg-song-title { font-size: var(--t4); }
+  .fg-centre > .fg-wave, .fg-centre > .fg-cards, .fg-centre > .fg-prog { margin-bottom: var(--s2); }
+  .fg-tp { padding: var(--s4); gap: var(--s3); }
+}
+@media (max-width: 760px) {
+  .fg-cards-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 }
 
-/* --------------------------------------------------------------------------
-   Narrow-column behaviour. The engine picker, the URL row and the time grid
-   are all built as single rows, which is right at full width and wrong in a
-   300px inspector, where the picker showed 2 of its 5 engines and the Fetch
-   button sat on top of the Start field.
-   -------------------------------------------------------------------------- */
-.lane-insp .seg,
-.lane-right .seg { flex-direction: column; }
-.lane-insp .seg button,
-.lane-right .seg button { border-right: 0; border-bottom: 1px solid var(--line); }
-.lane-insp .seg button:last-child,
-.lane-right .seg button:last-child { border-bottom: 0; }
-
-.lane .url-row { flex-wrap: wrap; }
-.lane .url-row input { flex: 1 1 160px; min-width: 0; }
-
-.lane .time-grid { flex-wrap: wrap; }
-.lane .time-grid label { flex: 1 1 120px; min-width: 0; }
-
-.lane .out-row { flex-wrap: wrap; }
-.lane .preview-footer { flex-wrap: wrap; gap: var(--s2); }
-.lane .input-actions { flex-wrap: wrap; }
-
-/* The run row is a wide two-up; in a column it stacks. */
-.lane-canvas .run-row,
-.lane-right .run-row { flex-wrap: wrap; }
-
-/* The dropzone's path field is a single line; in a rail it needs to be
-   allowed to shrink rather than clip its own placeholder. */
-.lane .dropzone { min-width: 0; }
-.lane .dropzone input { width: 100%; min-width: 0; text-overflow: ellipsis; }
-
-/* The queue header is a single row of five controls, which does not fit a
-   290px rail. Let it wrap there; the spacer stops pushing once it does. */
-.lane .queue-head { flex-wrap: wrap; row-gap: var(--s2); }
-.lane .queue-head .spacer { flex: 1 1 100%; height: 0; }
-.lane-rail .queue-head .spacer { display: none; }
-.lane .qi-name { min-width: 0; }
-
-.quality-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.quality-row select { flex: 0 1 auto; min-width: 0; }
-.quality-row #quality-hint { flex: 1 1 auto; }
-
-.prog-right { display: inline-flex; align-items: baseline; gap: 10px; }
+/* ---- reduced motion: every animated state keeps a static form --------- */
+@media (prefers-reduced-motion: reduce) {
+  .stg[data-state="done"] .stg-mark .ic { animation: none; transform: scale(1); }
+  .fg-reslist .lrow.is-fresh, .fg-sel.is-in { animation: none; }
+  /* A fresh row still has to be identifiable without the entrance. */
+  .fg-reslist .lrow.is-fresh::before { box-shadow: inset 2px 0 0 var(--accent); }
+}

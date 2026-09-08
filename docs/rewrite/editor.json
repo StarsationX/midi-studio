@@ -1,0 +1,844 @@
+{
+ "subsystem": "editor (MIDI Editor / \"review\" tab) — renderer/review/{index.html, review.js, review.css}",
+ "features": [
+  {
+   "name": "Open file (button, empty-state button, file picker)",
+   "how_it_works": "#open and #empty-open both call chooseFile() -> R.pick() (IPC review:pick, dialog filtered to json/mid/midi) -> openPath(). openPath guards on dirty with window.confirm('Discard unsaved note edits and open another file?'), sets status LOADING, calls R.load(path). On failure: status 'LOAD FAILED' red + #transport-note shows result.error. On success: pause(), stores projectPath/project/documents, backfills note.id (`n{index+1}`) for any note missing one, picks candidate = project.selectedCandidate if present else first key, resets histories/futures/selected/playhead, duration=doc().duration, projectDuration=duration, audioOffset=project.timing.start (clamped >=0), loopStart=0 loopEnd=duration, fills #project-name (project.name || doc().name || 'Untitled') and enables it, hides #empty, unhides #roll-scroll, syncs #zoom, kicks ensureSamples(), renderCandidates(), setDirty(false), refresh(), await loadAudioWave().",
+   "must_survive": true,
+   "element_ids": [
+    "open",
+    "empty-open",
+    "empty",
+    "roll-scroll",
+    "project-name",
+    "status",
+    "transport-note",
+    "zoom"
+   ],
+   "backend_calls": [
+    "window.review.pick",
+    "window.review.load",
+    "ipc review:pick",
+    "ipc review:load"
+   ]
+  },
+  {
+   "name": "Drag-and-drop file open",
+   "how_it_works": "#drop-zone is <main>. dragover preventDefault + adds .dragging (accent outline via CSS .review.dragging), dragleave removes it, drop takes dataTransfer.files[0] and calls openPath(R.getDroppedFilePath(file)) (webUtils.getPathForFile).",
+   "must_survive": true,
+   "element_ids": [
+    "drop-zone"
+   ],
+   "backend_calls": [
+    "window.review.getDroppedFilePath"
+   ]
+  },
+  {
+   "name": "External open via shell (cross-frame)",
+   "how_it_works": "window.openReviewProject = openPath is exported on the iframe window; renderer/shell/shell.js:150 calls frame.contentWindow.openReviewProject(payload.projectPath || payload.midiPath).",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": [
+    "window.openReviewProject"
+   ]
+  },
+  {
+   "name": "Save project",
+   "how_it_works": "#save / Ctrl+S -> saveAll(). Sends {projectPath, project, documents, selectedCandidate} over review:saveProject. Main writes every candidate document to .mid via python midi_document save, then writes the .midstudio.json (format 'midi-studio-project', version 1, candidates map, selectedCandidate, updatedAt). No projectPath => Save dialog (default programOutputDir/<name>.midstudio.json). Result: projectPath+project replaced locally, setDirty(false), #transport-note = 'Saved <path>'. canceled => status back to UNSAVED/READY; error => 'SAVE FAILED' red + error text. Returns the result so Listen/Send-to-player can chain on it.",
+   "must_survive": true,
+   "element_ids": [
+    "save",
+    "status",
+    "transport-note"
+   ],
+   "backend_calls": [
+    "window.review.saveProject",
+    "ipc review:saveProject"
+   ]
+  },
+  {
+   "name": "Export MIDI",
+   "how_it_works": "#export -> exportMidi(): R.exportMidi({ name: `${project.name||'melody'}_${candidate}`, document: doc() }). Main shows a Save dialog (default <name>_edited.mid), writes MIDI, broadcasts 'library-changed' for the containing dir. ok => #transport-note 'Exported <path>' + status 'EXPORTED' green; non-canceled failure => 'EXPORT FAILED' red.",
+   "must_survive": true,
+   "element_ids": [
+    "export",
+    "status",
+    "transport-note"
+   ],
+   "backend_calls": [
+    "window.review.exportMidi",
+    "ipc review:exportMidi"
+   ]
+  },
+  {
+   "name": "Candidate tabs (multiple takes of one transcription)",
+   "how_it_works": "renderCandidates() clears #candidate-tabs and rebuilds one <button class=candidate> per key of `documents`, innerHTML = `<strong>Capitalized name</strong><small>N NOTES</small>`, .is-active on the current one; click -> switchCandidate(name). Rebuilt after every operation that changes the note count (add/delete/paste/undo/redo/switch). switchCandidate: pause(), set candidate, clear selection, playhead=0, project.selectedCandidate=name, duration=max(projectDuration, doc().duration), loop reset to full, renderCandidates()+refresh().",
+   "must_survive": true,
+   "element_ids": [
+    "candidate-tabs"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Per-candidate undo/redo (separate stacks per candidate)",
+   "how_it_works": "histories/futures are objects keyed by candidate name, each a stack of FULL cloned note arrays (cloneNotes = shallow-copy each note object). checkpoint() pushes a clone of current notes, caps the stack at 80 (shift() oldest), and CLEARS futures[candidate]. undo(): push clone onto futures, pop history into current.notes, clear selection, setDirty(), renderCandidates(), refresh(). redo() is the mirror. Buttons #undo/#redo disabled from stack length. Ctrl+Z undo, Ctrl+Shift+Z redo, Ctrl+Y redo. Stacks reset to {} on every openPath, and are NOT reset by switchCandidate (each candidate keeps its own).",
+   "must_survive": true,
+   "element_ids": [
+    "undo",
+    "redo"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Piano roll rendering (drawRoll)",
+   "how_it_works": "Canvas is viewport-sized only; #roll-wrap supplies the scroll extent (width contentWidth(), height TOP_H+(pitchHigh-pitchLow+1)*ROW_H) and #piano-roll is position:sticky left/top 0. drawRoll offsets everything by ox=scroll.scrollLeft via vx(t)=xForTime(t)-ox and culls to [fromTime,toTime]. Draw order: clear; #101115 bg; #202228 ruler strip (height TOP_H=25, from x=KEY_W=58); per-pitch row bands (black keys pitch%12 in [1,3,6,8,10] => #121318 else #181a1e) + #272a31 row separators, ROW_H=14; then save+clip to x>KEY_W: subdivision grid at beat/4 where beat=60/bpm, colors #4a4e58 every 16th sub (bar), #343740 every beat, #24272d else, bar number label '11px JetBrains Mono' #858891 at x+4,16 for bars; notes; marquee; playhead (#f0d34e, lineWidth 1.5); restore; finally the pinned keyboard strip (0..KEY_W) drawn LAST over everything: black keys #202228, white #d9dadc, and a C-label `C{floor(pitch/12)-1}` at 6,y+10 for pitch%12===0.",
+   "must_survive": true,
+   "element_ids": [
+    "piano-roll",
+    "roll-wrap",
+    "roll-scroll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Note rendering style",
+   "how_it_works": "Per note: x=vx(start), y=yForPitch(pitch)+1, width=max(4,(end-start)*zoom). Selected fill = live value of CSS var --accent (read via getComputedStyle each note), unselected #4f9fb5. Stroke #e9ff9d selected / #72c1d4. If width>10 a 2px 'resize grip' tick is drawn at the right edge (#202500 selected / #10242a). Notes off-screen (end<fromTime || start>toTime) are skipped.",
+   "must_survive": true,
+   "element_ids": [
+    "piano-roll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Auto pitch range (vertical bounds)",
+   "how_it_works": "calculateBounds(): with no notes pitchLow=48, pitchHigh=96. Else pitchLow=clamp(min(pitch)-3, 24, 72), pitchHigh=clamp(max(pitch)+3, pitchLow+35, 108) — i.e. always at least 36 rows tall. Called from resizeRoll, so bounds re-derive on every resize/zoom/edit refresh; roll height changes with the song's range.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "HiDPI canvas sizing",
+   "how_it_works": "resizeRoll/resizeWave set canvas.width/height = css size * devicePixelRatio and ctx.setTransform(dpr,0,0,dpr,0,0), so all drawing code works in CSS px. resizeWave bails when getBoundingClientRect has zero width/height.",
+   "must_survive": true,
+   "element_ids": [
+    "piano-roll",
+    "waveform"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Note selection: click, shift-toggle, marquee box-select, Ctrl+A",
+   "how_it_works": "`selected` is a Set of note ids. pointerdown on a note without shift: if not already selected, clear and select just it (a click inside an existing multi-selection keeps the whole selection so it can be dragged). Shift+click toggles membership (and auditions on add). pointerdown on empty space: without shift clears selection, then starts marquee={x0,y0,x1,y1,moved:false,base:new Set(selected)}; pointermove sets moved once |dx|>4 or |dy|>4 and recomputes selected = base ∪ every note intersecting the time range [t0,t1] and pitch range [p0,p1] (overlap test note.end>=t0 && note.start<=t1). Ctrl+A selects every note id. #selection-readout shows 'N note(s) selected'.",
+   "must_survive": true,
+   "element_ids": [
+    "piano-roll",
+    "selection-readout"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Click empty space = seek",
+   "how_it_works": "A marquee that never moved resolves in endPointer() to seek(timeForX(marquee.x1)).",
+   "must_survive": true,
+   "element_ids": [
+    "piano-roll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Drag notes (move: time + pitch) with snapping",
+   "how_it_works": "hitNote returns {note, edge}. Non-edge drag stores originals=[{note,start,end,pitch}] for every SELECTED note. pointermove: deferred checkpoint — nothing is snapshotted or dirtied until the pointer moves >=2px in x or y (drag.dirtied). deltaTime=(x-drag.x)/zoom, deltaPitch=pitchForY(y)-pitchForY(drag.y). Each note: start=clamp(snapSeconds(orig.start+deltaTime),0,duration-0.02), end=start+originalLength (length preserved), pitch=clamp(orig.pitch+deltaPitch,0,127). Redraw only (drawRoll), no full refresh during the drag.",
+   "must_survive": true,
+   "element_ids": [
+    "piano-roll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Resize note right edge (length)",
+   "how_it_works": "hitNote flags edge when note width>14px AND (right-x) < min(8, width*0.3) — proportional so short notes still move rather than resize. Edge drag sets end=max(start+0.02, snapSeconds(orig.end+deltaTime)) for every selected note; start/pitch untouched.",
+   "must_survive": true,
+   "element_ids": [
+    "piano-roll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Drag end / no-op detection",
+   "how_it_works": "endPointer(): for a drag, changed = drag.dirtied && some original differs in pitch/start/end. If changed and it was a pitch-changing move, the first note is auditioned. changed => setDirty()+refresh(); else only updateControls()+drawRoll() (no dirty flag, no undo entry). Bound to pointerup AND pointercancel.",
+   "must_survive": true,
+   "element_ids": [
+    "piano-roll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Double-click to add a note",
+   "how_it_works": "dblclick on the roll: start=snapSeconds(timeForX(contentX)), pitch=pitchForY(y), length=(60/bpm)*(4/division) where division = quantize select value or 16 when Off. checkpoint(); pushes {id:`add${++noteSeq}`, pitch, start, end:min(duration,start+length), velocity:96, channel:0}; selection becomes just that note; auditions it; setDirty, renderCandidates, refresh.",
+   "must_survive": true,
+   "element_ids": [
+    "piano-roll",
+    "quantize"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Delete selected notes",
+   "how_it_works": "#delete button, Delete key, Backspace key -> deleteSelected(): checkpoint, notes = notes.filter(not selected), selection cleared, setDirty, refresh, renderCandidates.",
+   "must_survive": true,
+   "element_ids": [
+    "delete"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Copy / Cut / Paste (internal clipboard)",
+   "how_it_works": "clipboard is a module-level array of relative items {pitch, velocity, channel, start (offset from earliest selected start), length}. Ctrl+C copySelected(false), Ctrl+X copySelected(true) (copies then deleteSelected), Ctrl+V pasteClipboard() at the playhead. copySelected reports 'N note(s) copied' in #transport-note. pasteClipboard(at): checkpoint, start=snapSeconds(at ?? playhead), creates notes with fresh `add${++noteSeq}` ids, selects exactly the pasted notes, extends duration to the furthest pasted end, setDirty/renderCandidates/refresh. No OS clipboard involvement.",
+   "must_survive": true,
+   "element_ids": [
+    "transport-note"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Duplicate selection (Ctrl+D)",
+   "how_it_works": "duplicateSelection(): span = max(end)-min(start) of selection; copySelected(false) (so the OS-independent clipboard is overwritten as a side effect); pasteClipboard(min(start) + max(span, 0.05)) — pastes immediately after the selection.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "Transpose (semitone / octave)",
+   "how_it_works": "transpose(amount): checkpoint, every selected note pitch=clamp(pitch+amount,0,127), auditions the first selected note, setDirty, refresh. Bound to #oct-down (-12), #oct-up (+12), ArrowUp (+1 / Shift +12), ArrowDown (-1 / Shift -12).",
+   "must_survive": true,
+   "element_ids": [
+    "oct-down",
+    "oct-up"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Nudge in time (Arrow Left/Right, Shift = fine)",
+   "how_it_works": "nudgeTime(dir, fine): grid = division ? (60/bpm)*(4/division) : 0.01; step = (fine ? 0.001 : grid) * dir. checkpoint, each selected note start=clamp(start+step,0,duration-0.02) with length preserved, setDirty, refresh. NOTE: this is a raw offset, not a snap.",
+   "must_survive": true,
+   "element_ids": [
+    "quantize"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Snap / grid division selector",
+   "how_it_works": "#quantize <select> values 0(Off)/4/8/16/32, default 16. snapSeconds(t): step=(60/bpm)*(4/division), returns round(t/step)*step; returns t unchanged when division is 0 or no doc. Drives drag snapping, dblclick add position+length, paste position, and nudge step size. It is a live read of the select — no cached state.",
+   "must_survive": true,
+   "element_ids": [
+    "quantize"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Quantize command",
+   "how_it_works": "#apply-quantize -> quantize(): no-op if division is Off. checkpoint; targets = selected notes if any else ALL notes; per note length=max(0.02,end-start), start=snapSeconds(start), end=start+length (lengths preserved, ends not quantized). setDirty, refresh.",
+   "must_survive": true,
+   "element_ids": [
+    "apply-quantize",
+    "quantize"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Velocity slider (per-selection)",
+   "how_it_works": "#velocity range 1..127 default 96, enabled only with a selection. On 'change' (not input): checkpoint, sets velocity on every selected note, setDirty, refresh. updateControls() reflects the FIRST selected note's velocity back into the slider.",
+   "must_survive": true,
+   "element_ids": [
+    "velocity"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Zoom slider",
+   "how_it_works": "#zoom range 35..220 default 85 = pixels per second. 'input' sets zoom and calls resizeRoll() (re-derives contentWidth, wrap size, canvas backing store, redraws). Scroll position is NOT anchored for the slider path (only for the wheel path).",
+   "must_survive": true,
+   "element_ids": [
+    "zoom"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Wheel zoom on the roll, anchored at the pointer",
+   "how_it_works": "scroll wheel handler ({passive:false}): plain wheel and shift+wheel are left to the browser EXCEPT shift+wheel with deltaY is turned into horizontal scroll (scrollLeft += deltaY). Ctrl/Alt (or shift+deltaY) triggers zoom: anchorTime=timeForX(contentX(clientX)), factor=exp(-deltaY*0.0016), next=clamp(zoom*factor, #zoom.min, #zoom.max); bails if unchanged; sets zoom, syncs the slider, resizeRoll(), then scrollLeft = clamp(xForTime(anchorTime) - (clientX - scroll rect left), 0, contentWidth()-clientWidth) so the pointer stays over the same musical position.",
+   "must_survive": true,
+   "element_ids": [
+    "roll-scroll",
+    "zoom"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Horizontal scroll redraw",
+   "how_it_works": "scroll 'scroll' listener ({passive:true}) calls drawRoll() — required because the canvas is viewport-sized and sticky, so scrolling alone changes nothing without a repaint.",
+   "must_survive": true,
+   "element_ids": [
+    "roll-scroll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Waveform display with note onset ticks",
+   "how_it_works": "#waveform canvas: #0f1013 bg, center line #3a3d45, peak envelope drawn column-by-column from wavePeaks (1800 buckets) mapped through the TimelineZoom window, colour #82a9b3, amplitude *0.43 of height. Every note start is drawn as a 1px accent tick (rgba(184,230,46,.42)) 6px tall at the bottom — a song map/overview of note density. Loop range is shaded rgba(184,230,46,.10). Playhead #f0d34e lineWidth 1.5.",
+   "must_survive": true,
+   "element_ids": [
+    "waveform"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Waveform peak extraction from the source audio",
+   "how_it_works": "loadAudioWave(): source = project.sourceAudio || project.previewAudio; toggles/enables #audio-on accordingly; sets audio.src = R.fileUrl(source). Then fetch(audio.src) -> decodeAudioData in a lazily created AudioContext; projectDuration is derived from project.timing.end - audioOffset when finite, else buffer.duration - audioOffset (both max'd with the MIDI duration); duration=projectDuration; loopEnd=duration; channel 0 is reduced to exactly 1800 max-abs peaks starting at audioOffset. On any throw: #transport-note 'Original audio is unavailable; MIDI preview still works.' and just resizeWave().",
+   "must_survive": true,
+   "element_ids": [
+    "waveform",
+    "audio-on",
+    "transport-note",
+    "audio"
+   ],
+   "backend_calls": [
+    "window.review.fileUrl"
+   ]
+  },
+  {
+   "name": "Waveform timeline zoom (shared TimelineZoom)",
+   "how_it_works": "window.TimelineZoom(wave, ()=>duration, ()=>drawWave()) keeps a {start,span} visible window in seconds; wheel zooms around the pointer (exp(deltaY*0.0016), min span 0.5s), shift+wheel pans, dblclick resets to the whole song. review.js maps through waveX/waveT (waveStart/waveSpan), with an inline whole-song fallback if TimelineZoom is absent.",
+   "must_survive": true,
+   "element_ids": [
+    "waveform"
+   ],
+   "backend_calls": [
+    "window.TimelineZoom"
+   ]
+  },
+  {
+   "name": "Waveform seek and loop-range drag",
+   "how_it_works": "pointerdown on the waveform captures waveDrag={startX, start:time}; pointermove past 4px sets loopStart/loopEnd to min/max of the drag, force-checks #loop-on, updates readouts and redraws; pointerup within 4px is a plain seek(time) instead. #range-readout shows 'loopStart / loopEnd' formatted mm:ss.mmm.",
+   "must_survive": true,
+   "element_ids": [
+    "waveform",
+    "loop-on",
+    "range-readout"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Transport: play/pause/stop, Space",
+   "how_it_works": "playPause(): if at/after end, seek to loopStart (loop on) or 0; sets playing, #play glyph 'Ⅱ' + aria-label Pause; startedAt=performance.now()-playhead*1000; previousMidiTime=playhead-0.01; ensureSamples(); await synthContext.resume(); if #audio-on, audio.currentTime=audioOffset+playhead and audio.play() (catch swallowed); tick(). pause(): clears rAF, audio.pause(), glyph back to '▶'. stop(): pause + seek(0). Space toggles play (ignored while typing in INPUT/SELECT/TEXTAREA).",
+   "must_survive": true,
+   "element_ids": [
+    "play",
+    "stop",
+    "audio-on"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Playback clock and MIDI note triggering",
+   "how_it_works": "tick(): time source is performance.now()-startedAt, but if original audio is on and not paused it uses audio.currentTime-audioOffset (audio is the master clock). boundary = loopEnd when #loop-on else duration. triggerNotes(previousMidiTime, next) fires playSynthNote for every note with start>from && start<=to+0.006. Reaching the boundary either loops (trigger to boundary, seek(loopStart), previousMidiTime=loopStart-0.01, restart audio) or stop()s. rAF loop.",
+   "must_survive": true,
+   "element_ids": [
+    "loop-on",
+    "audio-on"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Loop selection toggle",
+   "how_it_works": "#loop-on checkbox gates loop-at-boundary behaviour and the loop shading; it is auto-checked by a waveform range drag. Loop range is reset to the full song by openPath and switchCandidate.",
+   "must_survive": true,
+   "element_ids": [
+    "loop-on"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Original-audio / MIDI-preview toggles",
+   "how_it_works": "#audio-on gates the <audio> element (and is force-disabled when the project has no sourceAudio/previewAudio); its 'change' handler while playing re-seeks and restarts or pauses the audio in place. #midi-on gates synth previews inside playSynthNote (force=true bypasses it for edit auditions).",
+   "must_survive": true,
+   "element_ids": [
+    "audio-on",
+    "midi-on",
+    "audio"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Follow playhead",
+   "how_it_works": "#follow-on (checked by default, never disabled). followPlayhead(force): scrolls only when the playhead leaves a margin band (x < scrollLeft+KEY_W+24 or x > scrollLeft+view-60), then scrollLeft = clamp(x - view*0.35, 0, contentWidth()-view). Called from seek() and from the draw branch of tick().",
+   "must_survive": true,
+   "element_ids": [
+    "follow-on",
+    "roll-scroll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Time readouts",
+   "how_it_works": "updateTime(): #time = 'mm:ss.mmm / mm:ss.mmm' (playhead / duration), #range-readout = loopStart / loopEnd. fmt() pads minutes to 2 and seconds via toFixed(3).padStart(6,'0').",
+   "must_survive": true,
+   "element_ids": [
+    "time",
+    "range-readout"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Sampled piano preview with oscillator fallback",
+   "how_it_works": "ensureSamples() prepares window.MidiStudioSoundfonts for INSTRUMENT='grand_piano' over the pitches actually present in the document (or [60]), once, in the background, memoized in samplePrepare, sets sampledReady on success and swallows failures. playSynthNote uses soundfonts.play(ctx, instrument, pitch, now, clamp(len,.05,4), velocity); if samples are not ready (or play returns falsy) it synthesizes a triangle oscillator at 440*2^((pitch-69)/12) with an 8ms attack ramp to (velocity/127)*0.12 and an exponential decay to 0.001 over clamp(len,.04,2.5). Auditions fire on select, note add, transpose, and pitch-changing drag release.",
+   "must_survive": true,
+   "element_ids": [
+    "midi-on"
+   ],
+   "backend_calls": [
+    "window.MidiStudioSoundfonts.prepare",
+    "window.MidiStudioSoundfonts.play"
+   ]
+  },
+  {
+   "name": "Adaptive repaint throttle (shouldDraw)",
+   "how_it_works": "During playback the roll+wave are only repainted when: document is not hidden, document.documentElement.dataset.onscreen !== '0' (the shell sets this per iframe when a different tab is showing), at least `budget` ms elapsed where budget = dataset.drawms (default 33) when document.hasFocus() else max(250, base*8), AND round(xForTime(playhead)) actually changed from lastPlayX.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "Project rename",
+   "how_it_works": "#project-name input (disabled until a project loads). On 'change': strips /[<>:\"/\\|?* -]/g (note: spaces AND hyphens are stripped too), caps at 120 chars, falls back to the previous name if empty; sets project.name AND resets project.candidates = {} so the next save writes NEW files instead of overwriting the old-named ones; setDirty(); #transport-note 'Renamed. Save project or Export MIDI writes it under the new name.'",
+   "must_survive": true,
+   "element_ids": [
+    "project-name",
+    "transport-note"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Send to Self Midi (Listen / audition)",
+   "how_it_works": "#to-audition: saves first when dirty (aborts if the save failed/was canceled), then reads project.candidates[candidate] and parent.postMessage({type:'studio:open-audition', midiPath, projectPath, play:true},'*') to the shell.",
+   "must_survive": true,
+   "element_ids": [
+    "to-audition"
+   ],
+   "backend_calls": [
+    "parent.postMessage studio:open-audition"
+   ]
+  },
+  {
+   "name": "Send to MIDI Player",
+   "how_it_works": "#to-player: saves when dirty OR when there is no projectPath yet, then parent.postMessage({type:'studio:open-player', midiPath},'*'); bails silently when the candidate has no midi path.",
+   "must_survive": true,
+   "element_ids": [
+    "to-player"
+   ],
+   "backend_calls": [
+    "parent.postMessage studio:open-player"
+   ]
+  },
+  {
+   "name": "Unsaved-changes handling",
+   "how_it_works": "Three layers: (1) setDirty() flips #status text between 'UNSAVED' and 'SAVED'(green); (2) openPath asks window.confirm before discarding; (3) window 'beforeunload' calls preventDefault + returnValue='' while dirty. Listen/Send-to-player auto-save when dirty.",
+   "must_survive": true,
+   "element_ids": [
+    "status"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Status line and transport note",
+   "how_it_works": "setStatus(text, kind) writes #status and colours it var(--err)/var(--ok)/inherit. States seen: READY (markup default), LOADING, LOAD FAILED, SAVING, SAVE FAILED, EXPORTED, EXPORT FAILED, UNSAVED, SAVED. #transport-note is the single-line ellipsized detail/error/toast area.",
+   "must_survive": true,
+   "element_ids": [
+    "status",
+    "transport-note"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Enable/disable control gating (updateControls)",
+   "how_it_works": "loaded => enables save, export, to-player, to-audition, play, stop, quantize, apply-quantize, zoom, midi-on, loop-on. audio-on additionally needs project.sourceAudio||previewAudio. Selection-dependent: delete, oct-down, oct-up, velocity. undo/redo from stack lengths. Also refreshes #selection-readout and mirrors the first selected note's velocity into the slider. Called from refresh() and from pointer paths that don't need a full redraw.",
+   "must_survive": true,
+   "element_ids": [
+    "save",
+    "export",
+    "to-player",
+    "to-audition",
+    "play",
+    "stop",
+    "quantize",
+    "apply-quantize",
+    "zoom",
+    "midi-on",
+    "loop-on",
+    "audio-on",
+    "delete",
+    "oct-down",
+    "oct-up",
+    "velocity",
+    "undo",
+    "redo",
+    "selection-readout"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Resizable waveform pane (draggable divider)",
+   "how_it_works": "<i class=\"grip-v\" data-resize=\"wave\" data-axis=\"y\" data-min=\"90\" data-max=\"420\"> inside <main data-split=\"editor\">; shared/resize.js drives the --wave custom property on the grid container, which is the 3rd row of .review's grid-template-rows (48px 42px var(--wave,156px) 7px minmax(160px,1fr) 54px). Divider supports pointer drag, keyboard ArrowUp/ArrowDown (8px, 40px with Shift), dblclick to reset, per-divider persistence in localStorage 'midi-studio:splits' under key 'editor:wave', role=separator/tabindex/aria-orientation, and dispatches a window 'resize' event on release so the canvases re-measure.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": [
+    "window.Resize.apply",
+    "localStorage midi-studio:splits"
+   ]
+  },
+  {
+   "name": "Responsive layout below 1120px",
+   "how_it_works": "CSS media query: toolbar wraps to 82px and flex-wraps, .spacer hidden, #to-player gets margin-left:auto, .edit-group loses its divider, --wave default drops to 142px, #waveform height 125px -> 111px, candidate tabs narrow to 94px.",
+   "must_survive": true,
+   "element_ids": [
+    "to-player",
+    "waveform"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Empty state",
+   "how_it_works": "#empty (centered prompt 'Open a Forge project or MIDI file' + #empty-open) is shown while #roll-scroll is hidden; openPath swaps them. resizeRoll() early-returns while scroll.hidden.",
+   "must_survive": true,
+   "element_ids": [
+    "empty",
+    "empty-open",
+    "roll-scroll"
+   ],
+   "backend_calls": []
+  },
+  {
+   "name": "Window resize handling",
+   "how_it_works": "window 'resize' -> resizeWave() then resizeRoll(). This is also the channel the divider drag uses. Initial boot runs resizeWave(); updateControls(); updateTime().",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  },
+  {
+   "name": "Content Security Policy",
+   "how_it_works": "index.html meta CSP: default-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self' file: blob: — required for the <audio> file:// src and the fetch() of the decoded audio.",
+   "must_survive": true,
+   "element_ids": [],
+   "backend_calls": []
+  }
+ ],
+ "element_ids": [
+  "piano-roll",
+  "waveform",
+  "roll-scroll",
+  "roll-wrap",
+  "audio",
+  "status",
+  "save",
+  "export",
+  "to-player",
+  "to-audition",
+  "play",
+  "stop",
+  "quantize",
+  "apply-quantize",
+  "zoom",
+  "midi-on",
+  "loop-on",
+  "audio-on",
+  "follow-on",
+  "delete",
+  "oct-down",
+  "oct-up",
+  "velocity",
+  "undo",
+  "redo",
+  "selection-readout",
+  "candidate-tabs",
+  "project-name",
+  "empty",
+  "empty-open",
+  "open",
+  "transport-note",
+  "time",
+  "range-readout",
+  "drop-zone"
+ ],
+ "listeners": [
+  "canvas#piano-roll pointerdown — hit test; empty space starts marquee (or clears selection) and setPointerCapture; shift+click toggles note in selection + audition; plain click selects/keeps selection, auditions unless on the resize edge, snapshots drag originals (deferred checkpoint)",
+  "canvas#piano-roll pointermove — marquee update + live re-selection by time/pitch rectangle, OR note move/resize with snapping; first >=2px movement takes the undo checkpoint; calls drawRoll only",
+  "canvas#piano-roll pointerup — endPointer(): marquee that never moved = seek; drag = change detection, audition on pitch change, setDirty+refresh only if something actually changed",
+  "canvas#piano-roll pointercancel — same endPointer()",
+  "canvas#piano-roll dblclick — add a note at the snapped position with grid-derived length, select and audition it",
+  "canvas#waveform pointerdown — capture waveDrag {startX, start time via TimelineZoom mapping}",
+  "canvas#waveform pointermove — past 4px sets loopStart/loopEnd, force-checks #loop-on, updateTime+drawWave",
+  "canvas#waveform pointerup — within 4px = seek(start); clears waveDrag",
+  "canvas#waveform wheel (TimelineZoom, passive:false) — zoom the visible window around the pointer; shift+wheel pans",
+  "canvas#waveform dblclick (TimelineZoom) — reset the waveform zoom window to the whole song",
+  "#roll-scroll wheel (passive:false) — ctrl/alt/shift+deltaY = pointer-anchored zoom (syncs #zoom, resizeRoll, restores scrollLeft); shift alone = horizontal scroll",
+  "#roll-scroll scroll (passive:true) — drawRoll() (required, canvas is sticky/viewport-sized)",
+  "#project-name change — sanitize/cap the name, set project.name, CLEAR project.candidates, setDirty, note in #transport-note",
+  "#open click — chooseFile()",
+  "#empty-open click — chooseFile()",
+  "#save click — saveAll()",
+  "#export click — exportMidi()",
+  "#undo click — undo()",
+  "#redo click — redo()",
+  "#delete click — deleteSelected()",
+  "#oct-down click — transpose(-12)",
+  "#oct-up click — transpose(+12)",
+  "#apply-quantize click — quantize()",
+  "#zoom input — zoom = value; resizeRoll()",
+  "#velocity change — checkpoint + set velocity on all selected notes + setDirty + refresh",
+  "#play click — playPause()",
+  "#stop click — stop()",
+  "#audio-on change — while playing, pause the audio then re-seek+restart it if newly enabled",
+  "#to-audition click — save when dirty, then parent.postMessage studio:open-audition {midiPath, projectPath, play:true}",
+  "#to-player click — save when dirty or unsaved-path, then parent.postMessage studio:open-player {midiPath}",
+  "dynamically created .candidate buttons click — switchCandidate(name) (rebuilt by renderCandidates on every note-count change; old listeners discarded with the nodes)",
+  "window keydown — Space play/pause; Delete/Backspace delete; Ctrl+Z undo (Ctrl+Shift+Z redo); Ctrl+Y redo; Ctrl+A select all; Ctrl+S save; Ctrl+C copy; Ctrl+X cut; Ctrl+V paste; Ctrl+D duplicate; ArrowUp/Down transpose ±1 (±12 with Shift); ArrowLeft/Right nudge one grid unit (1ms with Shift). All suppressed while focus is in INPUT/SELECT/TEXTAREA",
+  "#drop-zone dragover — preventDefault + .dragging outline",
+  "#drop-zone dragleave — remove .dragging",
+  "#drop-zone drop — openPath(R.getDroppedFilePath(files[0]))",
+  "window resize — resizeWave(); resizeRoll() (also fired by the resize.js divider on release / keyboard / dblclick-reset)",
+  "window beforeunload — preventDefault + returnValue='' while dirty",
+  "rAF loop tick() — playback clock, note triggering, throttled repaint; handle in `animation`, cancelled by pause()",
+  "grip-v[data-resize=wave] pointerdown/keydown/dblclick (shared/resize.js) — drag/keyboard/reset the --wave grid track, persist to localStorage, dispatch window resize",
+  "NOT PRESENT: review.js has no 'midi-studio:onscreen' listener (audition.js:378 and player/app.js:1991 both have one) — the editor only reads dataset.onscreen inside shouldDraw"
+ ],
+ "data_structures": "document (per candidate, produced by python-engine/midi_document.py load_midi): { path, name, bpm, bpmEstimated:boolean, duration, programs: {channel:program}, notes: [...] }. note: { id:string ('n1'.. from the loader, 'add<n>' for notes created in the editor), pitch:int 0-127, start:seconds float, end:seconds float, velocity:int 1-127, channel:int, unterminated?:true (loader flag for a note whose note_off was missing) }. project: { format:'midi-studio-project', version:1, name, sourceAudio, previewAudio, timing:{start,end}, selectedCandidate, candidates:{name:midiPath}, updatedAt }. Module state: documents = {candidateName: document}; candidate:string; selected = Set<noteId>; histories = {candidate: Array<Array<noteClone>>} capped at 80; futures = same shape; clipboard = [{pitch, velocity, channel, start (offset from earliest), length}]; drag = {x, y, edge:boolean, originals:[{note, start, end, pitch}], dirtied:boolean}; marquee = {x0,y0,x1,y1, moved:boolean, base:Set<noteId>}; waveDrag = {startX, start}; wavePeaks = number[1800]; TimelineZoom view = {start, span} seconds (span 0 = whole song); scalars: projectPath, zoom (px/sec), duration, projectDuration, pitchLow, pitchHigh, loopStart, loopEnd, playhead, playing, startedAt, previousMidiTime, animation (rAF id), audioOffset, synthContext (AudioContext), noteSeq, sampledReady, samplePrepare, dirty, lastDraw, lastPlayX. Coordinate helpers: xForTime = KEY_W + t*zoom, timeForX = clamp((x-KEY_W)/zoom,0,duration), yForPitch = TOP_H + (pitchHigh-pitch)*ROW_H, pitchForY inverse; constants KEY_W=58, TOP_H=25, ROW_H=14. Redraw propagation for a small edit: mutate note objects in place -> checkpoint() (full array clone) -> setDirty() -> refresh(), which recomputes current.duration = max(doc.duration, all note.end, 0.1), widens the global duration, then updateControls() + resizeRoll() (calculateBounds -> full canvas backing-store realloc -> drawRoll, an O(notes) repaint) + resizeWave() (realloc + drawWave, another O(notes) pass) + updateTime(). Cheaper paths exist and are used deliberately: drawRoll() alone during drags/marquee/scroll, updateControls()+drawRoll() for no-op drags.",
+ "ipc_contracts": [
+  {
+   "channel": "review:pick",
+   "direction": "renderer -> main (invoke)",
+   "args": "none",
+   "returns": "filePath string or null (dialog, filters json/mid/midi)"
+  },
+  {
+   "channel": "review:load",
+   "direction": "renderer -> main (invoke)",
+   "args": "filePath string",
+   "returns": "{ok:true, data:{projectPath, project, documents}} | {ok:false, error}. A plain .mid yields projectPath:'' and project.candidates.clean pointing at the ORIGINAL file"
+  },
+  {
+   "channel": "review:saveProject",
+   "direction": "renderer -> main (invoke)",
+   "args": "{projectPath, project, documents, selectedCandidate}",
+   "returns": "{ok:true, projectPath, project} | {ok:false, canceled:true} | {ok:false, error}. Writes one .mid per candidate then the .midstudio.json"
+  },
+  {
+   "channel": "review:exportMidi",
+   "direction": "renderer -> main (invoke)",
+   "args": "{name, document}",
+   "returns": "{ok:true, path} | {ok:false, canceled:true} | {ok:false, error}; also broadcasts 'library-changed'"
+  },
+  {
+   "channel": "window.review.fileUrl",
+   "direction": "renderer (preload sync)",
+   "args": "path",
+   "returns": "file:// URL for the <audio> src and the peak-extraction fetch"
+  },
+  {
+   "channel": "window.review.getDroppedFilePath",
+   "direction": "renderer (preload sync, webUtils.getPathForFile)",
+   "args": "File",
+   "returns": "absolute path"
+  },
+  {
+   "channel": "window.review.showItem",
+   "direction": "renderer -> main (invoke shell:showItem)",
+   "args": "path",
+   "returns": "exposed by preload but NOT used anywhere in review.js"
+  },
+  {
+   "channel": "studio:open-audition",
+   "direction": "iframe -> shell via parent.postMessage",
+   "args": "{type, midiPath, projectPath, play:true}",
+   "returns": "shell.js:172 switches to the Self Midi tab"
+  },
+  {
+   "channel": "studio:open-player",
+   "direction": "iframe -> shell via parent.postMessage",
+   "args": "{type, midiPath}",
+   "returns": "shell.js:171 switches to the Player tab"
+  },
+  {
+   "channel": "window.openReviewProject",
+   "direction": "shell -> iframe (direct function call, shell.js:150)",
+   "args": "projectPath or midiPath string",
+   "returns": "runs openPath()"
+  },
+  {
+   "channel": "data-drawms / data-onscreen on documentElement",
+   "direction": "shell -> iframe (DOM attribute, shell.js:51-71)",
+   "args": "draw budget ms / '0' when another tab is showing",
+   "returns": "read inside shouldDraw()"
+  }
+ ],
+ "perf_findings": [
+  {
+   "file": "renderer/review/review.js",
+   "line": 207,
+   "issue": "getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() is called INSIDE the per-note draw loop, for every selected visible note, on every repaint",
+   "fix": "read --accent once at startup (and on a theme-change event) into a module constant",
+   "why_it_costs": "getComputedStyle forces a style resolution and returns a live CSSStyleDeclaration; at 30fps with a few hundred selected visible notes this is thousands of style lookups per second on the paint hot path"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 275,
+   "issue": "refresh() does Math.max(Number(current.duration)||0, ...current.notes.map(n=>n.end), 0.1) — a full map allocation plus an apply-style spread of every note end",
+   "fix": "track maxEnd incrementally, or reduce() without the spread",
+   "why_it_costs": "O(n) allocation on every single edit, and a spread of >~100k arguments throws RangeError: Maximum call stack size exceeded, so a very large transcription would hard-fail on the first refresh"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 117,
+   "issue": "calculateBounds() spreads all pitches through Math.min/Math.max (Math.min(...pitches))",
+   "fix": "single pass min/max loop",
+   "why_it_costs": "same spread-argument stack limit as above, and it runs from resizeRoll() which fires on every zoom-slider input, every wheel tick, every window/divider resize and every refresh"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 505,
+   "issue": "copySelected/duplicateSelection/pasteClipboard all use Math.min(...)/Math.max(...) spreads over the picked or added note arrays (lines 505, 523, 531, 533)",
+   "fix": "loop-based min/max",
+   "why_it_costs": "Ctrl+A then Ctrl+C on a large document spreads every selected note into one call — same RangeError cliff"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 139,
+   "issue": "resizeRoll() reassigns canvas.width/canvas.height (the backing store) every time it runs, and it runs on every #zoom 'input' event (line 744) and every wheel-zoom tick (line 807)",
+   "fix": "only reallocate when the pixel dimensions actually changed; zoom changes content width, not the viewport-sized canvas size, so the backing store almost never needs to change",
+   "why_it_costs": "writing canvas.width allocates a fresh GPU/CPU surface and clears it; a range slider emits an input event per pixel of travel, so a single drag across the slider triggers dozens of full viewport-sized surface reallocations plus a full redraw each"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 278,
+   "issue": "refresh() unconditionally calls BOTH resizeRoll() and resizeWave(), each of which reallocates its canvas and repaints, for edits that changed nothing about geometry (velocity change, delete, nudge, transpose)",
+   "fix": "split geometry-invalidating refresh from a repaint-only path (the drag code already proves the cheap path works)",
+   "why_it_costs": "two canvas reallocations + two O(notes) repaints + a bounds recompute per keystroke of an arrow-key nudge, which is autorepeat-driven"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 813,
+   "issue": "scroll listener calls drawRoll() synchronously on every scroll event with no rAF coalescing",
+   "fix": "coalesce into requestAnimationFrame and drop duplicate frames",
+   "why_it_costs": "a trackpad/wheel scroll fires far more often than the display refresh, so the O(visible notes + grid lines) repaint runs multiple times per frame; the throttle in shouldDraw() only protects the playback path, not this one"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 403,
+   "issue": "contentX() calls canvas.getBoundingClientRect() and pointermove handlers call getBoundingClientRect() again separately (lines 434-435, 449-450, 488-490)",
+   "fix": "cache the rect on pointerdown / on resize+scroll and reuse it for the duration of the gesture",
+   "why_it_costs": "two forced layout reads per pointermove event during every note drag and marquee, interleaved with canvas writes — classic layout thrash on the most latency-sensitive interaction in the app"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 642,
+   "issue": "triggerNotes() iterates the ENTIRE notes array on every rAF tick (~60/s) even though only notes in a ~16ms window can match, and it runs regardless of the shouldDraw() throttle",
+   "fix": "keep the notes sorted by start and advance a cursor index, or bucket by second",
+   "why_it_costs": "O(notes) per frame during playback; for a dense transcription (10k+ notes) that is ~600k comparisons/second of pure overhead, and it is the one part of tick() the draw throttle deliberately does not cover"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 266,
+   "issue": "drawWave() draws one 1px fillRect per note in the document (the onset tick map) with no culling to the visible TimelineZoom window and no cached offscreen layer",
+   "fix": "render the tick strip once into an offscreen canvas keyed by (notes version, zoom window) and blit it",
+   "why_it_costs": "drawWave is called from every drawn playback frame, every seek and every waveform drag move; a 10k-note song means 10k individual fillRect calls per frame, most of them landing on the same pixel column"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 257,
+   "issue": "drawWave() peak envelope is a per-CSS-pixel loop with a floating-point index computation into wavePeaks inside a single path",
+   "fix": "acceptable, but the whole envelope is a pure function of (wavePeaks, zoom window, size) — cache it offscreen alongside the tick strip",
+   "why_it_costs": "width (~1000+) iterations with 2 moveTo/lineTo each, per drawn frame, redundantly recomputed while nothing but the playhead moved"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 88,
+   "issue": "checkpoint() clones the ENTIRE note array (cloneNotes = notes.map(spread)) per edit, keeping up to 80 such snapshots per candidate in histories[] plus up to 80 more in futures[]",
+   "fix": "store inverse operations / patches instead of whole-document snapshots",
+   "why_it_costs": "a 10k-note song is ~10k object allocations per undo step and up to 160 full copies resident (~1.6M note objects) before the 80-cap starts shifting; every arrow-key nudge autorepeat tick pays it"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 310,
+   "issue": "loadAudioWave() fetches the whole audio file and decodeAudioData()s it fully just to compute 1800 envelope peaks",
+   "fix": "stream/decode in chunks, or compute peaks in the python sidecar at transcription time and ship them with the project",
+   "why_it_costs": "a 5-minute WAV decodes to tens of MB of Float32 PCM held in the renderer heap while the peak loop runs; decodeAudioData of the whole file also blocks the audio thread's decode queue"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 192,
+   "issue": "grid loop condition recomputes Math.min(duration + sub, toTime + sub) on every iteration",
+   "fix": "hoist the bound out of the loop",
+   "why_it_costs": "minor, but it is inside the per-frame grid loop that runs once per 1/16th subdivision across the viewport"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 201,
+   "issue": "the note draw loop scans ALL notes and culls with an if, so cost is O(total notes) per repaint even when 20 are visible",
+   "fix": "keep notes sorted by start and binary-search the first visible index (they arrive sorted from the loader; only editor inserts break that)",
+   "why_it_costs": "at the 33ms draw budget a 10k-note song burns 10k iterations per frame to draw a screenful"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 309,
+   "issue": "AudioContext is created lazily in three places (309, 610, 621) and never closed; playSynthNote creates a fresh oscillator+gain per note with no node pooling and no explicit disconnect",
+   "fix": "one context owned at module scope, closed on unload; rely on oscillator.onended or the stop time for cleanup (currently OK-ish) but pool the gain nodes",
+   "why_it_costs": "during playback of a dense passage that is a node-graph churn of two nodes per note; the context also survives tab switches with no suspend, keeping the audio thread alive"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 765,
+   "issue": "the global keydown handler is a long else-if chain and re-reads $('quantize') / DOM nodes on every keystroke path; arrow-key autorepeat drives checkpoint()+refresh() at the OS repeat rate",
+   "fix": "debounce/coalesce autorepeat nudges into one undo checkpoint per key-hold, as the drag code already does with drag.dirtied",
+   "why_it_costs": "holding ArrowRight pushes one full-document clone onto the undo stack per repeat, blowing through the 80-entry cap in about two seconds and discarding real history"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 651,
+   "issue": "shouldDraw() gates on document.documentElement.dataset.onscreen but review.js never listens for the 'midi-studio:onscreen' event the shell dispatches (shell.js:71) — unlike audition.js:378 and player/app.js:1991",
+   "fix": "add window.addEventListener('midi-studio:onscreen', () => { lastDraw = 0; lastPlayX = -1; resizeWave(); resizeRoll(); })",
+   "why_it_costs": "returning to the editor tab shows a stale canvas until the next playhead-pixel change; while paused nothing ever repaints, and if the pane was resized while off-screen the canvas is the wrong size"
+  },
+  {
+   "file": "renderer/review/review.js",
+   "line": 286,
+   "issue": "renderCandidates() rebuilds every tab button with innerHTML and re-attaches click listeners on every note-count change (delete/add/paste/undo/redo)",
+   "fix": "build once, update the small element's text in place",
+   "why_it_costs": "innerHTML parse + node churn + listener rebind on each edit; small in absolute terms but it runs on the same hot edit path as the redraws"
+  }
+ ],
+ "gotchas": [
+  "review.js:121-124 (comment): 'A five-minute song at the default zoom is ~24,000px wide. A canvas that size is 60+ MB of pixels AND past Chromium's 16,384px limit, so the tail of a long song simply never drew.' The canvas MUST stay viewport-sized with #roll-wrap providing the scroll extent and drawing offset by scrollLeft. review.css:63-65 encodes the other half: .roll-wrap{position:relative} and #piano-roll{position:sticky;left:0;top:0}. Do not go back to a full-width canvas.",
+  "review.js:401-402 (comment): 'The canvas only covers the viewport, so pointer x has to be put back into song coordinates before anything uses it.' Every pointer x must go through contentX() = clientX - canvasRect.left + scroll.scrollLeft. Marquee coords are stored in CONTENT space and converted back with -ox when drawn (line 213); y is viewport-space because there is no vertical scroll offset in the drawing.",
+  "review.js:392-393 (comment): 'A 1/16 note at the default zoom is ~10px wide; a fixed 8px edge zone made almost every short note resize instead of move.' The resize-edge test must stay proportional: width > 14 && (right - x) < min(8, width*0.3).",
+  "review.js:424-426 (comment): 'The undo snapshot is taken on the first move that actually changes something, a plain click is how you select and audition a note, and it used to mark the project unsaved and push a no-op onto the undo stack.' Keep the drag.dirtied 2px deadzone AND the endPointer 'changed' comparison; a click must never dirty the project or push history.",
+  "review.js:584-585 (comment): 'Keep the playhead on screen; the roll is duration*zoom pixels wide, so without this it walks off the viewport a second into playback.' followPlayhead must be called from both seek() and the tick() draw branch.",
+  "review.js:645-648 (comment): 'The roll canvas is duration*zoom pixels wide - tens of thousands for a normal song - so repainting it every frame pins the GPU. Repaint only when the playhead actually moved a pixel, and back off hard when the window is not the one being looked at.' Keep all four shouldDraw() gates: document.hidden, dataset.onscreen==='0', the dataset.drawms budget (x8/min 250ms when !document.hasFocus()), and the lastPlayX pixel-change check.",
+  "review.js:652 (comment): 'another tab is showing: playback carries on, it just has no viewer' — skipping the draw must NOT stop the audio/rAF clock.",
+  "review.js:222 (comment): 'The keyboard stays pinned at the left edge while the roll scrolls under it.' The key strip is drawn AFTER ctx.restore(), outside the clip, so it paints over the scrolled content. Order matters.",
+  "review.js:603-604 (comment): 'Load the bundled piano samples once, in the background. Until they land, previews fall back to the oscillator below so the editor is never silent.' Keep the oscillator fallback path and the samplePrepare memo; never await samples on the audition path.",
+  "review.js:723 (comment): 'dblclick resets the zoom (TimelineZoom), clear the loop with the toggle.' The waveform dblclick is owned by TimelineZoom, not by review.js — do not add a competing dblclick handler to #waveform.",
+  "review.js:725 + 732-733 (comments): 'Renaming decides the filenames the next Save/Export writes' and 'Write the renamed take to new files rather than silently overwriting the ones the old name pointed at.' The rename handler MUST clear project.candidates = {}. Also note the sanitizer regex /[<>:\"/\\|?* -]/g strips spaces and hyphens too (deliberate or not, it is current behaviour).",
+  "electron/main.js:763-765 (comment): 'Opening a plain .mid points candidates.clean at that file. Reusing it as the save target would overwrite the user's original; only a real project file (or a candidate already living beside it) may be written in place.' The fromProject flag gates candidateTarget(); the editor's contract is that opening a bare .mid leaves projectPath === '' (which is why #to-player force-saves when !projectPath).",
+  "electron/main.js:218-220 (comment): 'Review/Audition preview runs on requestAnimationFrame; Chromium throttles that in a background window, which freezes playback the moment you alt-tab.' webPreferences.backgroundThrottling:false is load-bearing for editor playback; nodeIntegrationInSubFrames:true is what makes the preload API reach this iframe.",
+  "shared/resize.js:31-34 (comment): 'Every tab is a separate frame with its own copy of this module, and they share one localStorage: writing a whole snapshot back erased whatever the other tabs had saved since this one started, so the last pane touched was the only one that survived a reload.' Split persistence must stay read-merge-write per key ('editor:wave'), never a whole-object write.",
+  "shared/resize.js:104-107 (comment): 'Canvases size themselves off their box, and several are only told to redraw on a window resize.' The divider dispatches a synthetic window 'resize'; review.js's only reaction to a pane resize is that event, so any rewrite that drops the window resize listener silently breaks the waveform divider.",
+  "shared/timeline-zoom.js:1-7: the waveform zoom window is the SHARED component used by Forge, Editor and Player. span 0 means 'show everything'; min span is 0.25s (span()) / 0.5s (wheel). review.js keeps an inline whole-song fallback for when window.TimelineZoom is missing.",
+  "python-engine/midi_document.py:60-72 (comment): 'A note whose note_off is missing or truncated (common in transcriptions and in files cut short) would otherwise be invisible in the editor and lost on the next save. Close it at the end of the file instead of dropping it.' Such notes carry an extra `unterminated: true` field — the editor's cloneNotes/spread preserves it, but any rewrite that constructs notes from a fixed field list will silently drop it.",
+  "python-engine/midi_document.py:76-81 (comment): 'Transcriptions carry no tempo track, so mido hands back its 500000 default and every one of them claimed to be 120 BPM. The editor's Quantize snaps to that grid, which on a 174 BPM song moves every note to the wrong place.' doc.bpm may be an ONSET-DERIVED GUESS flagged by doc.bpmEstimated — the current editor UI never surfaces bpm or bpmEstimated and has no BPM control at all, so a wrong guess silently corrupts Quantize/snap. Preserve the fields on save (they round-trip through documents untouched).",
+  "Note ids: loader ids are 'n1..nN'; editor-created ids are 'add<n>' from a module-level noteSeq that is NEVER reset (not on openPath, not on candidate switch). Undo/redo restores whole cloned arrays, so ids must stay stable — `selected` holds ids, and the clones in histories are shallow copies sharing nothing with the live objects. Any rewrite using array indices instead of ids breaks undo + selection.",
+  "duration is monotonically WIDENED, never shrunk: refresh() does duration = Math.max(duration, current.duration), so deleting the last note never shortens the timeline within a session. Deliberate-looking (audio may be longer than the MIDI) but it is why timeForX clamps to a stale duration.",
+  "#follow-on is the only transport control never disabled by updateControls(); #audio-on is separately gated on project.sourceAudio||previewAudio; everything else is gated by `loaded` or by selection size.",
+  "The playback clock switches masters: performance.now() normally, but audio.currentTime - audioOffset whenever original audio is on and playing. audioOffset = project.timing.start, so MIDI time 0 is not audio time 0 — every audio.currentTime write must add audioOffset (lines 599, 690, 750).",
+  "index.html loads shared/icons.js but the editor markup uses raw font glyphs (↶ ↷ ⌫ ▶ ■ Ⅱ) and no data-icon attributes — icons.js exists precisely because those glyphs render as emoji/at wrong weights on Windows (see its header comment). The editor is the tab that has not been migrated.",
+  "review.js:498 clipboard is module-local and NOT the OS clipboard; Ctrl+C/X/V never touch system clipboard, so copy/paste between the editor and anything else does not work — and Ctrl+D silently overwrites the clipboard as part of duplicateSelection().",
+  "review.js:766 the keydown guard is a global window listener with a tagName test only; the canvas has tabindex=0 but focus is not required for any shortcut, so shortcuts fire from anywhere in the frame except form fields."
+ ]
+}

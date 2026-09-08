@@ -1,0 +1,146 @@
+{
+  "when": "2026-09-07T08:13:05.872Z",
+  "reps": 8,
+  "cores": 12,
+  "agreed": true,
+  "wall": [
+    {
+      "variant": "A three filtered calls, sequential (the original)",
+      "n": 8,
+      "mean": 343.31,
+      "p50": 326.63,
+      "p95": 459.37,
+      "max": 459.37,
+      "min": 311.95,
+      "spawnsPerPoll": 3,
+      "answers": [
+        "javaw.exe"
+      ]
+    },
+    {
+      "variant": "B three filtered calls, parallel",
+      "n": 8,
+      "mean": 131.84,
+      "p50": 127.42,
+      "p95": 158.12,
+      "max": 158.12,
+      "min": 124.76,
+      "spawnsPerPoll": 3,
+      "answers": [
+        "javaw.exe"
+      ]
+    },
+    {
+      "variant": "C one full enumeration, CSV, matched in process",
+      "n": 8,
+      "mean": 514.7,
+      "p50": 497.38,
+      "p95": 664.36,
+      "max": 664.36,
+      "min": 447.41,
+      "spawnsPerPoll": 1,
+      "answers": [
+        "javaw.exe"
+      ]
+    },
+    {
+      "variant": "D one full enumeration, table format",
+      "n": 8,
+      "mean": 335.16,
+      "p50": 325.74,
+      "p95": 390.77,
+      "max": 390.77,
+      "min": 309.83,
+      "spawnsPerPoll": 1,
+      "answers": [
+        "javaw.exe"
+      ]
+    },
+    {
+      "variant": "E two wildcard-filtered calls, parallel (Roblox* + javaw.exe)",
+      "n": 8,
+      "mean": 179.59,
+      "p50": 172.15,
+      "p95": 257.38,
+      "max": 257.38,
+      "min": 156.59,
+      "spawnsPerPoll": 2,
+      "answers": [
+        "javaw.exe"
+      ]
+    },
+    {
+      "variant": "F two wildcard-filtered calls, parallel, CSV (exact name match)",
+      "n": 8,
+      "mean": 176.62,
+      "p50": 175.08,
+      "p95": 219.18,
+      "max": 219.18,
+      "min": 156.33,
+      "spawnsPerPoll": 2,
+      "answers": [
+        "javaw.exe"
+      ]
+    },
+    {
+      "variant": "G two wildcard-filtered calls, sequential, CSV",
+      "n": 8,
+      "mean": 298.51,
+      "p50": 289.62,
+      "p95": 398.39,
+      "max": 398.39,
+      "min": 263.29,
+      "spawnsPerPoll": 2,
+      "answers": [
+        "javaw.exe"
+      ]
+    }
+  ],
+  "cpu": {
+    "idleBusyMsPerWallMs": 4.526,
+    "perVariant": {
+      "A three filtered calls, sequential (the original)": {
+        "cpuMsPerPoll": 654,
+        "p25": 261.1,
+        "p75": 1384.6,
+        "polls": 24
+      },
+      "B three filtered calls, parallel": {
+        "cpuMsPerPoll": 459.8,
+        "p25": 280.5,
+        "p75": 673.4,
+        "polls": 24
+      },
+      "C one full enumeration, CSV, matched in process": {
+        "cpuMsPerPoll": 550.5,
+        "p25": 157.9,
+        "p75": 2541.4,
+        "polls": 24
+      },
+      "D one full enumeration, table format": {
+        "cpuMsPerPoll": 473.8,
+        "p25": 171.4,
+        "p75": 861.4,
+        "polls": 24
+      },
+      "E two wildcard-filtered calls, parallel (Roblox* + javaw.exe)": {
+        "cpuMsPerPoll": 342,
+        "p25": 145.1,
+        "p75": 621,
+        "polls": 24
+      },
+      "F two wildcard-filtered calls, parallel, CSV (exact name match)": {
+        "cpuMsPerPoll": 383.5,
+        "p25": 143.8,
+        "p75": 821.6,
+        "polls": 24
+      },
+      "G two wildcard-filtered calls, sequential, CSV": {
+        "cpuMsPerPoll": 380.2,
+        "p25": 152.3,
+        "p75": 952.2,
+        "polls": 24
+      }
+    }
+  }
+}

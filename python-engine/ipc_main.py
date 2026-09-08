@@ -134,6 +134,14 @@ class Bridge:
         self.session_thread = None
         self.progress_thread = None
         self.kb = Controller()
+        self.inject_cost = None   # (press_only_sec, press_release_sec)
+        # Guards the calibration itself. It is prewarmed on a background
+        # thread at startup (see prewarm_injection), so a Play that
+        # arrives while it is still running must WAIT for that result
+        # rather than start a second calibration driving the same
+        # Controller concurrently -- two SendInput bursts interleaved
+        # would measure each other rather than the machine.
+        self._inject_lock = threading.Lock()
         self.hotkey_listener = None
         self.play_hotkey = "<f6>"
         self.stop_hotkey = "<f7>"
@@ -419,6 +427,61 @@ class Bridge:
 
     # ---- session worker ----
 
+    # Fallback aim used when calibration is unavailable or implausible.
+    # This is the constant the player shipped with before it was measured.
+    _FALLBACK_INJECT = 0.0015
+
+    def _injection_cost(self):
+        """(aim, chord_press, chord_tap) wall cost of one injection, seconds.
+
+        Measured once per sidecar process and cached: it is a property of the
+        machine, and re-measuring per track would put ~210 ms of dead time in
+        front of every Play for a number that does not change.
+
+        Clamped to a plausible band, in the order the three costs must fall in
+        (an isolated press <= a back-to-back press <= a back-to-back
+        press+release). A machine hiccup during calibration must never be able
+        to hand playback an absurd aim -- an aim wrong by 10 ms is far worse
+        than the 1.5 ms guess it replaced -- so an out-of-band result falls
+        back to exactly the behaviour the player shipped with.
+        """
+        with self._inject_lock:
+            if self.inject_cost is None:
+                fb = self._FALLBACK_INJECT
+                aim, press, tap = engine.calibrate_injection(self.kb)
+                plausible = (aim is not None
+                             and 0.0001 <= aim <= 0.006
+                             and aim <= press <= 0.012
+                             and press <= tap <= 0.020)
+                self.inject_cost = (aim, press, tap) if plausible else (fb, fb, fb)
+                if not plausible:
+                    log("warn", "Keypress calibration out of range, using the "
+                                "fixed 1.5 ms offset.")
+            return self.inject_cost
+
+    def prewarm_injection(self):
+        """Measure the injection cost BEFORE the user asks to play.
+
+        The calibration is 208 ms of wall clock (measured: 205-213 ms over 5
+        runs, 150 ms of which is the deliberate 15 ms spacing between the
+        isolated-press samples). Left where it was first written -- inline in
+        _run_session -- the whole of it lands in front of the FIRST Play of
+        each sidecar process, between the click and the count-in.
+
+        It does not depend on the song, the target window or the mapping: it
+        is a property of the machine. So it runs once at startup, on an idle
+        sidecar, on a background thread, and the first Play finds it already
+        cached. Same measurement, same numbers, same fallback -- simply not on
+        the path the user is waiting on.
+
+        Safe to run unattended: it drives KeyCode.from_vk(0xFF), an undefined
+        virtual key, so nothing is typed into whatever window has focus.
+        """
+        try:
+            self._injection_cost()
+        except Exception:
+            pass          # a Play will retry; never take the sidecar down
+
     def _run_session(self, msg):
         try:
             target_hwnd = int(msg["target_hwnd"])
@@ -467,14 +530,32 @@ class Bridge:
             if unmapped:
                 log("warn", f"Skipped {len(unmapped)} unmapped notes: {unmapped}")
 
-            # Use a fixed latency offset (~1.5 ms is the measured average for
-            # pynput's Win32 SendInput on modern hardware). Previously we ran
-            # benchmark_keypress here which pressed 'a' 20 times to measure
-            # the real overhead, but those presses landed in whatever window
-            # had focus when Play fired, usually the target game, sending
-            # 20 stray 'a's right before playback started. Not worth the
-            # ~1 ms accuracy gain.
-            latency = 0.0015
+            # Aim compensation, measured on this machine instead of guessed.
+            #
+            # A keypress costs real wall time, so a note aimed exactly at its
+            # beat is heard LATE by one injection; playback aims that much
+            # early so the key lands on the beat. The old hardcoded 1.5 ms was
+            # right on the machine it was taken from and nowhere else: the
+            # real press costs 0.62 ms at p50 here, so every note was landing
+            # ~0.9 ms early.
+            #
+            # This is the calibration that used to live here and was deleted
+            # because benchmark_keypress pressed 'a' 20 times into whatever
+            # window had focus -- usually the target game. calibrate_injection
+            # drives KeyCode.from_vk(0xFF), an undefined virtual key: the same
+            # pynput -> SendInput path, with no application receiving
+            # anything. It is measured once per sidecar process, so no Play
+            # after the first waits for it.
+            aim_cost, chord_press, chord_tap = self._injection_cost()
+            latency = aim_cost
+            # Serial cost of one note INSIDE a chord, which is what chord
+            # centring compensates for: a tap presses and releases before the
+            # next note can start, sustain only presses. Both are the
+            # back-to-back cost, which is ~4x the isolated cost because the
+            # second injection queues behind the first.
+            inject_cost = chord_press if sustain else chord_tap
+            log("info", f"Injection cost {aim_cost * 1000:.2f} ms isolated, "
+                        f"{chord_tap * 1000:.2f} ms back-to-back")
 
             log("info", f"Focusing target: {target['process']} | {target['title']}")
             focused = False
@@ -522,7 +603,8 @@ class Bridge:
             self.progress_thread.start()
 
             engine.playback_loop(events, self.session_state, self.kb,
-                                 latency, None, collect_stats, sustain, end_at)
+                                 latency, None, collect_stats, sustain, end_at,
+                                 inject_cost=inject_cost)
 
             stats_payload = None
             if collect_stats and self.session_state.timing_errors:
@@ -607,6 +689,12 @@ def main():
 
     bridge = Bridge()
     emit({"event": "ready"})
+
+    # AFTER ready, so the sidecar reports itself usable immediately and the
+    # calibration overlaps the idle time between launch and the first Play
+    # instead of sitting in front of it. Daemon: it must never hold up exit.
+    threading.Thread(target=bridge.prewarm_injection, daemon=True,
+                     name="calibrate-injection").start()
 
     # The app closing (or dying) shows up here as stdin EOF. Falling straight
     # out of main() would kill the daemon session thread mid-note and leave

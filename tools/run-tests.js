@@ -95,9 +95,11 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/function findReadyForgeEnv/.test(pj), 'paths can search for a provisioned env');
 }
 
-// Forge layouts. The blocks are MOVED between arrangements rather than
-// duplicated, so the markup must contain exactly one of each control and the
-// classic layout must be restorable from the original child order.
+// Forge is ONE three-column layout now. The four arrangements (classic/cards/
+// bench/console) and the block-moving engine are removed on purpose (SYNTHESIS
+// orphan 1, migration_map 90-95): a CSS grid with two persisted dividers
+// replaces them, which is what deletes the DOM churn and the Resize re-wiring.
+// The markup must still contain exactly one of each control.
 {
   const fsx = require('fs');
   const html = fsx.readFileSync(path.join(root, 'renderer', 'forge', 'index.html'), 'utf8');
@@ -106,21 +108,138 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     const n = (html.match(new RegExp('id="' + id + '"', 'g')) || []).length;
     ok(n === 1, `forge markup has exactly one #${id} (found ${n})`);
   }
-  ok(/const LAYOUTS = \['classic', 'cards', 'bench', 'console'\]/.test(js), 'all four layouts are offered');
-  ok(/applyLayout\('classic'\)/.test(js), 'classic is the fallback layout');
-  ok(/original = \[\.\.\.work\.children\]/.test(js), 'classic is restored from the original child order');
-  // classic must put the preview/advanced trio back by appending, not by
-  // insertBefore a sibling that may itself have moved into another lane.
-  ok(/for \(const node of \[b\.time, b\.advToggle, b\.adv\]\) if \(node\) b\.pipeline\.appendChild\(node\)/.test(js),
-    'classic restore does not depend on a sibling that may have moved');
+  // The layout engine must NOT come back: no LAYOUTS table, no applyLayout, no
+  // lane building, and no window.setForgeLayout for the shell to call.
+  ok(!/const LAYOUTS =/.test(js) && !/function applyLayout/.test(js),
+    'the four-layout block-moving engine is gone');
+  ok(!/setForgeLayout/.test(js) && !html.includes('id="layout-picker"'),
+    'the Forge layout picker is gone');
+  // One grid, two dividers, persisted per CONTRACT 9.3 as forge:rail / forge:insp.
+  ok(html.includes('data-split="forge"'), 'forge owns one split namespace');
+  for (const prop of ['rail', 'insp']) {
+    ok(html.includes(`data-resize="${prop}"`), `forge has a --${prop} divider`);
+  }
+  // Every advanced key must reach main on every write: settings are deep-merged,
+  // so an omitted key silently keeps its old on-disk value (invariant 8).
+  ok(/for \(const k of ADV_KEYS\)/.test(js) && (js.match(/'MELODY_FOLD'/g) || []).length >= 1,
+    'collectAdvanced walks the whole ADV_KEYS list');
+  ok(/LEGACY_DEFAULTS = \{ MIN_NOTE_SEC: '0\.05', MELODY_MIN_NOTE_MS: '45' \}/.test(js),
+    'the two legacy defaults are still treated as unset');
+  // The cached env verdict is painted before the probe answers: probing imports
+  // torch and takes tens of seconds.
+  ok(js.indexOf('localStorage.getItem(ENV_CACHE_KEY)') > 0
+    && js.indexOf('localStorage.getItem(ENV_CACHE_KEY)') < js.indexOf('await F.check()'),
+    'the cached engine verdict is read before the probe runs');
+  // Seven stages, and the frame handshake that drains queued hand-offs.
+  ok((html.match(/class="stg"/g) || []).length === 7, 'the progress checklist has seven stages');
+  ok(/FRAME_READY, \{ frame: FRAME/.test(js), 'forge sends frame:ready');
+  // No hand-rolled draw loop: everything paints through the shared scheduler.
+  ok(!/requestAnimationFrame\(function frame|rafLoop/.test(js) && /Draw\.register\(/.test(js),
+    'forge paints through the Draw scheduler');
 
+  // A VList renderRow must never assign a bare className: vlist.js adds
+  // `vlist-row` once in makeRow(), and that class is what supplies the
+  // position:absolute + pointer-events:auto the rows need inside the
+  // pointer-events:none sizer. Wiping it let .lrow's own position:relative lay
+  // each pool row out in flow AS WELL as translating it, which doubled the row
+  // pitch, broke refreshLog's scroll-to-bottom arithmetic and made every log
+  // line unhoverable (must_survive feature 39).
+  {
+    const NL = String.fromCharCode(10);
+    const blocks = js.split('renderRow(node').slice(1)
+      .map((chunk) => chunk.split(NL + '    },')[0]);
+    ok(blocks.length > 0, 'forge has at least one VList renderRow to check');
+    for (const b of blocks) {
+      ok(!/node\.className\s*=\s*(['"`])(?!vlist-row)/.test(b),
+        'a forge renderRow never drops the vlist-row class');
+    }
+  }
+  ok(/node\.className = 'vlist-row lrow is-' \+ it\.level/.test(js),
+    'the log rows keep vlist-row when their level class changes');
+
+  // Nothing derived or transient may reach localStorage: a Float32Array of note
+  // onsets stringifies as {"0":..,"1":..} (~30KB a row), walked the blob into
+  // the 5MB quota behind a silent try/catch, and came back lengthless so every
+  // restored row's density strip read "no data".
+  ok(!/it\.onsets = /.test(js), 'parsed onsets are never written onto a history row');
+  ok(/HISTORY_KEEP = \[/.test(js) && !/HISTORY_KEEP = \[[^\]]*onsets/.test(js)
+    && !/HISTORY_KEEP = \[[^\]]*freshUntil/.test(js),
+    'saveHistory persists an explicit field whitelist without onsets or freshUntil');
+  ok(/function onsetsFor\(it\)/.test(js) && /metaCache\.get\(lower\(it\.path\)\)/.test(js),
+    'the density strip reads onsets back out of metaCache');
+
+  // Invariant 20: the resize-edge zone exists only above 14px. A fixed 8px grab
+  // on a narrow range made a click anywhere near it resolve to 'start', and an
+  // unmoved click in that mode neither seeks nor starts a new selection.
+  ok(/width > 14 \? Math\.min\(8, width \* 0\.3\) : 0/.test(js),
+    'the waveform edge grab zone stays proportional (invariant 20)');
+
+  // Rule 12 / invariant 31: 12px is the type floor in both densities, and the
+  // visualiser's 9px keyboard label is the only sanctioned exception.
+  const fcss = fsx.readFileSync(path.join(root, 'renderer', 'forge', 'forge.css'), 'utf8');
+  for (const [where, text, re] of [
+    ['forge.css', fcss, /(?:font(?:-size)?:[^;}]*?)(8|9|10|11)(?:\.\d+)?px/g],
+    ['forge.js', js, /ctx\.font = '(8|9|10|11)(?:\.\d+)?px/g],
+  ]) {
+    const hit = text.match(re);
+    ok(!hit, `${where} keeps every type size at the 12px floor (${hit ? hit.join(', ') : 'clean'})`);
+  }
+
+  // Collapsing a column is a side-by-side affordance. The inspector becomes the
+  // full-width bottom row under 1181px, so its collapse rules must not reach
+  // into that range -- a 34px strip in a 268px-tall row is an empty band.
+  const wide = fcss.indexOf('@media (min-width: 1181px)');
+  ok(wide > 0 && /@media \(min-width: 1181px\)[\s\S]{0,900}\.fg-insp\.is-collapsed/.test(fcss),
+    'the inspector collapse rules are scoped to the wide (>=1181px) layout');
+  ok(!/@media \(min-width: 901px\)[\s\S]{0,900}\.fg-col\.is-collapsed \{ width: 34px !important/.test(fcss),
+    'no !important collapse width leaks across the 1180px re-layout');
+  ok(/@media \(max-width: 1180px\)[\s\S]{0,2600}\.fg-insp \.fg-collapse \{ display: none/.test(fcss),
+    'the inspector chevron is hidden where the inspector cannot collapse');
+
+  // One source of truth for the results selection: the list and the Selected
+  // Result panel with its four live hand-off buttons must not disagree after an
+  // Escape or an arrow key (vlist's own Escape stops propagation).
+  ok(/onSelectionChange\(keys, rows\) \{ select\(/.test(js),
+    'the results list drives select() from onSelectionChange');
+
+  // Every one-shot timer takes its own disposer out of the registry when it
+  // fires; `disposers` is only drained on teardown, so a per-stage /
+  // per-result / per-flash push grew unboundedly for the life of the panel.
+  ok(/function later\(ms, fn\)/.test(js) && /disposers\.splice\(i, 1\)/.test(js),
+    'forge has a self-cleaning one-shot timer helper');
+  ok(!/disposers\.push\(\(\) => clearTimeout\(id\)\)/.test(js),
+    'no one-shot timer leaves a dead closure in the teardown registry');
+
+  // AudioSampleEntry: channelcount at box+24, then samplesize, pre_defined and
+  // reserved before the 16.16 samplerate at box+32. `o` is box+4.
+  ok(/rate: d\.getUint16\(o \+ 28, false\), channels: d\.getUint16\(o \+ 20, false\)/.test(js),
+    'the mp4a sample rate is read at the 16.16 field, not at `reserved`');
+
+  // The shell must not drop a tab's own forge:status packets: forge.job is the
+  // documented way a tab names the job it started (CONTRACT 11.3), and a yt-dlp
+  // download never echoes the `Input:` line the strip otherwise recovers.
+  const shellJs = fsx.readFileSync(path.join(root, 'renderer', 'shell', 'shell.js'), 'utf8');
+  ok(/Bus\.on\(T\.FORGE_STATUS, \(p\) => \{[\s\S]{0,400}adoptEnvProbe\(p\);[\s\S]{0,120}else handleForgeStatus\(p\);/.test(shellJs),
+    'the shell forwards a frame non-env forge:status to handleForgeStatus');
+
+  // CONTRACT 9.3's divider registry exists so two tabs cannot collide on a key
+  // inside the single shared localStorage['midi-studio:splits'].
+  const contract = fsx.readFileSync(path.join(root, 'docs', 'rewrite', 'CONTRACT.md'), 'utf8');
+  for (const key of ['forge:rail', 'forge:insp']) {
+    ok(contract.includes('`' + key + '`'), `CONTRACT 9.3 claims ${key}`);
+  }
+
+  // The rewritten settings sheet: #set-nav + eight .set-pane sections. The four
+  // Forge layouts and their picker (#s-forge-layout) are gone on purpose, and
+  // the old #snav is now #set-nav, so neither may come back.
   const shell = fsx.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
-  for (const id of ['s-forge-layout', 'snav', 's-perf-percent', 's-forgedir', 's-theme', 's-recheck']) {
+  for (const id of ['set-nav', 'set-panes', 's-perf-percent', 's-forgedir', 's-theme', 's-recheck']) {
     ok(shell.includes('id="' + id + '"'), `settings still has #${id}`);
   }
-  const panes = (shell.match(/class="spane[^"]*" data-pane=/g) || []).length;
+  ok(!shell.includes('id="s-forge-layout"'), 'the removed Forge layout picker has not come back');
+  const panes = (shell.match(/class="set-pane[^"]*" data-pane=/g) || []).length;
   const navs = (shell.match(/data-pane="[a-z]+"/g) || []).length;
-  ok(panes === 5, `settings has 5 panes (found ${panes})`);
+  ok(panes === 8, `settings has 8 panes (found ${panes})`);
   ok(navs === panes * 2, `every settings pane has a nav button (${navs} refs for ${panes} panes)`);
 }
 
@@ -208,6 +327,19 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     console.log('  (skipped melody shaper self-check: no forge python)');
   }
 
+  // The Player's aim-compensation maths has its own self-check. It needs
+  // pynput, so run it with the BUNDLED sidecar python (the forge env has
+  // torch but not necessarily pynput). Skipped, not failed, when absent.
+  const sidecarPy = path.join(root, 'python-engine', 'python', 'python.exe');
+  const aimCheck = path.join(root, 'python-engine', 'test_player_timing_fixes.py');
+  if (fs.existsSync(sidecarPy) && fs.existsSync(aimCheck)) {
+    let out = '';
+    try { out = execFileSync(sidecarPy, [aimCheck], { encoding: 'utf-8', timeout: 60000 }); } catch (e) { out = String((e && e.stdout) || '') + String((e && e.stderr) || ''); }
+    ok(/player timing fixes: OK/.test(out), 'player aim-compensation self-check: ' + out.trim().slice(-160));
+  } else {
+    console.log('  (skipped player aim self-check: no bundled sidecar python)');
+  }
+
   const installer = fs.readFileSync(path.join(root, 'build', 'installer.nsh'), 'utf-8');
   const pkg = require(path.join(root, 'package.json'));
   const lock = require(path.join(root, 'package-lock.json'));
@@ -232,7 +364,11 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/win\.setAlwaysOnTop\(ui\.alwaysOnTop !== false\)/.test(mainSrc),
     'toggling always-on-top applies without a restart');
   ok(read('renderer/index.html').includes('id="s-ontop"'), 'settings has the always-on-top control');
-  ok(read('renderer/shell/shell.js').includes("$('s-ontop')"), 'the always-on-top control is wired');
+  // The shell drives every switch through wireSwitch(id, fn), so that is what
+  // "wired" looks like now; grepping for a bare $('s-ontop') found nothing while
+  // the control worked end to end.
+  ok(/wireSwitch\('s-ontop',/.test(read('renderer/shell/shell.js')),
+    'the always-on-top control is wired');
 
   // ---- Perch, the overlay -------------------------------------------------
   const ovSrc = read('electron/overlay.js');
@@ -286,16 +422,27 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
 
   // ---- tempo as BPM -------------------------------------------------------
   const playerJs = read('renderer/player/app.js');
+  const drawSrcTop = read('renderer/shared/draw.js');
   ok(/function setBpm/.test(playerJs), 'tempo can be set as a BPM number');
   ok(/bpm_estimate/.test(playerJs), 'the onset-based tempo estimate reaches the UI');
   ok(read('renderer/player/index.html').includes('id="tempo-bpm"'), 'the BPM field exists');
   ok(read('python-engine/ipc_main.py').includes('"bpm_estimate"'), 'the engine reports a tempo estimate');
 
   // ---- hotkeys can be unbound --------------------------------------------
+  // The widget is shared (CONTRACT §9.7): the pynput tables, the e.code rule and
+  // the capture box live in one module, not once per tab that wants a remapper.
+  const hotkeyJs = read('renderer/shared/hotkey.js');
+  ok(/window\.Hotkey|global\.Hotkey/.test(hotkeyJs), 'the hotkey capture widget is exposed');
+  ok(/hk-clear/.test(hotkeyJs) && /hk-clear/.test(read('renderer/player/style.css')),
+    'every hotkey box has a visible unbind');
+  ok(/CODE_CHAR/.test(hotkeyJs) && !/CODE_CHAR/.test(playerJs),
+    'the e.code table lives in the shared widget, not a second copy in the panel');
+  ok(read('renderer/player/index.html').includes('shared/hotkey.js'),
+    'the Player loads the shared hotkey widget');
   ok(!/playHotkey = hk\(els\.hkPlay\) \|\| /.test(playerJs),
     'clearing Play/Stop/Pause is respected instead of springing back to F6/F7/F8');
-  ok(/hk-clear/.test(playerJs) && /hk-clear/.test(read('renderer/player/style.css')),
-    'every hotkey box has a visible unbind');
+  ok(/onCapture/.test(hotkeyJs) && /onCapture: \(\) => suspendHotkeys\(\)/.test(playerJs),
+    'focusing a capture box suspends the global hotkeys (invariant 13)');
   ok(/els\.hkNext, els\.hkPrev/.test(playerJs),
     'the next/prev hotkey boxes capture keys (they were never wired)');
 
@@ -304,10 +451,113 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/def make_resolver/.test(engineSrc), 'out-of-range notes fold by octave instead of being dropped');
   ok(/time\.sleep\(0\.025\)/.test(engineSrc), 'the focus monitor polls fast enough not to leak keystrokes');
   ok(/_spin_until/.test(engineSrc), 'a re-articulated note is separated from its own release');
+  // ---- aim compensation (chord centring + measured injection cost) --------
+  // Every note of a chord shares one timestamp but is injected serially, so
+  // note k lands ~k injections late; one constant latency_offset cannot fix
+  // notes whose real delays differ. Measured: |land err| p99 11.6 -> 7.5 ms,
+  // notes over 10 ms 47 -> 10, once the group is aimed early by the mean
+  // serial delay. Remove any of these three and the chord tail comes back.
+  ok(/def chord_aim_shifts/.test(engineSrc) && /shifts = chord_aim_shifts\(events, inject_cost\)/.test(engineSrc),
+    'chords are aimed to straddle the beat instead of trailing it');
+  ok(/target = base \+ t_sec - latency_offset - aim_shift/.test(engineSrc),
+    'the per-chord aim shift actually reaches the sleep target');
+  ok(/shifts\[k\] = want/.test(engineSrc) && /room = t0 - \(prev_aim \+ prev_size \* inject_cost\)/.test(engineSrc),
+    'a chord is never aimed earlier than the chord in front of it can finish injecting');
+  ok(/nap = remaining - spin/.test(engineSrc) && /if nap > poll:/.test(engineSrc)
+    && !/half = remaining/.test(engineSrc),
+    'the approach still takes ONE capped nap: splitting it measured a worse worst-case overshoot');
+  ok(/_NULL_VK = 0xFF/.test(engineSrc) && /def calibrate_injection/.test(engineSrc)
+    && !/kb\.press\("a"\); kb\.release\("a"\)[\s\S]{0,200}calibrate_injection/.test(engineSrc),
+    'keypress cost is calibrated against an undefined virtual key, so nothing is typed into the target window');
+  const ipcSrc = read('python-engine/ipc_main.py');
+  ok(/aim_cost, chord_press, chord_tap = self\._injection_cost\(\)/.test(ipcSrc)
+    && /latency = aim_cost/.test(ipcSrc)
+    && /inject_cost=inject_cost/.test(ipcSrc),
+    'the sidecar aims with the measured injection cost instead of a hardcoded 1.5ms');
+  // An isolated press costs ~0.5ms; a chord member queued behind another
+  // costs ~2.1ms. One number for both under-compensates a chord ~4x.
+  ok(/inject_cost = chord_press if sustain else chord_tap/.test(ipcSrc)
+    && /spaced_samples/.test(engineSrc),
+    'chord centring uses the back-to-back cost, not the isolated-note cost');
+  ok(/self\.inject_cost = \(aim, press, tap\) if plausible else \(fb, fb, fb\)/.test(ipcSrc),
+    'an implausible calibration falls back to the old fixed offset rather than an absurd aim');
+  // The calibration is 208ms of wall clock (measured 205-213ms over 5 runs,
+  // 150ms of it the deliberate 15ms spacing between the isolated-press
+  // samples). Left inline in _run_session it landed in front of the FIRST Play
+  // of every sidecar process, between the click and the count-in. It does not
+  // depend on the song, the target window or the mapping -- it is a property
+  // of the machine -- so it is prewarmed on an idle sidecar instead: first
+  // Play measured 221-240ms -> 0.008ms.
+  //
+  // The lock is what makes that safe. A Play arriving mid-prewarm must WAIT
+  // for the in-flight result rather than start a second calibration: two
+  // SendInput bursts running at once measure each other (3.45ms tap observed
+  // under concurrency against 1.41ms idle, and CPU load alone does NOT move
+  // it), and that inflated number would then be cached for the life of the
+  // process and aim every chord far too early.
+  ok(/def prewarm_injection/.test(ipcSrc)
+    && /target=bridge\.prewarm_injection/.test(ipcSrc),
+    'the injection calibration is prewarmed, not paid for by the first Play');
+  ok(/self\._inject_lock = threading\.Lock\(\)/.test(ipcSrc)
+    && /with self\._inject_lock:/.test(ipcSrc),
+    'a Play during the prewarm waits for that calibration instead of racing a second one');
+  {
+    // Prewarming BEFORE ready would just move the 208ms to startup.
+    const readyAt = ipcSrc.indexOf('emit({"event": "ready"})');
+    const warmAt = ipcSrc.indexOf('target=bridge.prewarm_injection');
+    ok(readyAt > 0 && warmAt > readyAt,
+      'the sidecar reports ready before it starts calibrating');
+  }
+
+  // ---- the Editor's selection memo ---------------------------------------
+  // selectedNotes() is memoised on three things: the IDENTITY of the `selected`
+  // Set, an explicit selVersion counter, and the notes epoch. Every path that
+  // REPLACES the selection builds a new Set, so identity covers those. The
+  // dangerous case is a mutation IN PLACE -- selected.add/delete/clear -- which
+  // leaves identity unchanged, so it must bump selVersion or the memo serves a
+  // stale list and the next edit is applied to the WRONG NOTES, silently.
+  // There are exactly two such sites today and both bump it. This assertion is
+  // here so a third cannot be added without one.
+  {
+    const reviewSrc = read('renderer/review/review.js');
+    const NEWLINE_RE = /\r?\n/;
+    const INPLACE_RE = /\bselected\.(add|delete|clear)\s*\(/;
+    const lines = reviewSrc.split(NEWLINE_RE);
+    const unguarded = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!INPLACE_RE.test(lines[i])) continue;
+      // The bump may sit on the same line or in the next two: the click site
+      // brackets an add/delete pair with a single bump after it.
+      if (!/selVersion\+\+/.test(lines.slice(i, i + 3).join(' '))) unguarded.push(i + 1);
+    }
+    ok(unguarded.length === 0,
+      'every in-place change to the Editor selection bumps selVersion'
+      + (unguarded.length ? ' (unguarded at review.js line ' + unguarded.join(', ') + ')' : ''));
+    ok(/selCacheSet === selected && selCacheVer === selVersion/.test(reviewSrc)
+      && /selCacheEpoch === notesEpoch/.test(reviewSrc),
+      'the selection memo is keyed on Set identity, selVersion AND the notes epoch');
+  }
   ok(/def panic_release/.test(read('python-engine/ipc_main.py')),
     'stdin EOF releases held keys instead of leaving them down');
   ok(/60 \* percent \/ 100/.test(mainSrc), 'the draw budget allows 60fps at full allowance');
-  ok(/Math\.min\(base, 33\)/.test(playerJs), 'the roll keeps 30fps while notes are moving');
+  // The floor is computed in ONE place, and it is only an allowance: Draw is
+  // dirty-driven, so a consumer that does not ask for the next frame runs at
+  // whatever rate its events arrive (20Hz of engine 'progress' packets) no matter
+  // what the budget permits. Both halves have to be asserted, and the assertion
+  // has to point at the code that runs, not at a comment claiming it does.
+  ok(/PLAYBACK_FLOOR_MS = 33/.test(drawSrcTop)
+    && /Math\.min\(ms, Math\.min\(base, PLAYBACK_FLOOR_MS\)\)/.test(drawSrcTop),
+    'the draw budget floors at 30fps while playback is live');
+  ok(/isPlaying && !isPaused && !viz\.isFrozen\(\)\) vizHandle\.invalidate\(\)/.test(playerJs),
+    'the roll asks for the next frame while notes are moving (30fps, not 20Hz of packets)');
+  // Same shape for the two self-issued stops: playback_done carries no reason, so
+  // a restart must be distinguishable from the end of the song or the renderer
+  // advances the queue and starts typing into the game unasked.
+  ok(/const selfRestart = pendingRestartAt !== null \|\| restarting;/.test(playerJs)
+    && /restarting = true;/.test(playerJs),
+    'a paused tempo/opts restart is not mistaken for the end of the song');
+  ok(/userStopped = false;[\s\S]{0,400}?cmd: 'play'/.test(playerJs),
+    'the user-stop flag is cleared where playback begins, not in one caller');
 
   // ---- resizable panes ----------------------------------------------------
   const resizeSrc = read('renderer/shared/resize.js');
@@ -331,10 +581,10 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     ['renderer/forge/forge.css', 'rail']]) {
     ok(read(sheet).includes(`var(--${prop}`), `${sheet} drives its grid from --${prop}`);
   }
-  // Dividers live on the grid, not inside a lane, so the lane cleanup missed
-  // them: they piled up and appeared in the single-column layouts.
-  ok(/> \.grip-h, :scope > \.grip-v'\)\) stale\.remove\(\)/.test(read('renderer/forge/forge.js')),
-    'the forge layout engine clears its dividers before rebuilding');
+  // The lane/divider sweep existed only because layouts rebuilt the grid. With
+  // one static grid there is nothing to sweep, and nothing may re-create it.
+  ok(!/stale\.remove\(\)/.test(read('renderer/forge/forge.js')),
+    'forge no longer rebuilds its dividers on a layout switch');
 
   // ---- melody: dense electronic ------------------------------------------
   const shapeSrc = read('python-engine/melody_shape.py');
@@ -372,6 +622,664 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// ---------------------------------------------------------------------------
+// The rewritten design system + shell. These six all shipped broken once and
+// every one of them is silent when it regresses, which is exactly what a
+// regression guard is for.
+// ---------------------------------------------------------------------------
+{
+  const fs = require('fs');
+  const rd = (rel) => fs.readFileSync(path.join(root, ...rel.split('/')), 'utf8');
+  const drawSrc = rd('renderer/shared/draw.js');
+  const shellSrc = rd('renderer/shell/shell.js');
+  const tokensCss = rd('renderer/shared/tokens.css');
+  const uiCss = rd('renderer/shared/ui.css');
+  const shellCss = rd('renderer/shell/shell.css');
+
+  // 1. Re-registering a Draw consumer must REPLACE it, not throw. dispose()
+  // lives on the returned handle, never on the record kept in byKey.
+  ok(/byKey\[key\]\s*&&\s*byKey\[key\]\.handle/.test(drawSrc) && !/byKey\[key\]\.dispose\(\)/.test(drawSrc),
+    'Draw.register replaces an existing key through the handle, not the record');
+
+  // 2. setBaseMs must survive readAttrs(), which runs first inside refreshEnv
+  // and would otherwise read data-drawms straight back over it.
+  ok(/var localBaseMs/.test(drawSrc) && /localBaseMs !== null \? localBaseMs/.test(drawSrc),
+    'Draw.setBaseMs is a local override, not an env write readAttrs erases');
+
+  // 2b. PARKED DECORATIVE ANIMATIONS. A looping CSS animation is the one moving
+  // thing the frame budget cannot reach: the compositor produces a frame every
+  // vsync whether or not a consumer asked for one, and backgroundThrottling is
+  // disabled by design so nothing else stops it. Measured with
+  // benchmarks/anim-cost.js, two pulsing status dots, 20s samples, same DOM:
+  //   parked + running (what the app did before)  1.154% renderer / 3.168% GPU
+  //   parked + paused  (what it does now)         0.000% renderer / 0.008% GPU
+  // and the visible case is deliberately UNCHANGED at 1.110% / 3.109%, because
+  // the pulse is the affordance for the blocked state and must keep running.
+  //
+  // Three things have to hold together or the saving silently disappears:
+  ok(/function reflectPark\(/.test(drawSrc) && /setAttribute\('data-parked', '1'\)/.test(drawSrc)
+    && /removeAttribute\('data-parked'\)/.test(drawSrc),
+    'draw.js publishes its park state on <html data-parked>');
+  // It must be the SAME condition the scheduler parks on, or a document could
+  // stop animating while it is still drawing frames, or the reverse.
+  ok(/function reflectPark\(\)\s*\{\s*\n\s*var now2 = !env\.onscreen \|\| env\.hidden;/.test(drawSrc),
+    'data-parked uses exactly the scheduler\'s own park condition');
+  ok(/reflectPark\(\);\s*\n\s*var next = computeBudget\(\)/.test(drawSrc),
+    'reflectPark runs on every refreshEnv, not only on a budget change');
+  // The MutationObserver watches <html> attributes. If data-parked were ever
+  // added to that filter, writing it would re-enter refreshEnv forever.
+  const attrFilter = /attributeFilter: \[([^\]]*)\]/.exec(drawSrc);
+  ok(!!attrFilter && attrFilter[1].indexOf('data-parked') < 0,
+    'data-parked is NOT in draw.js\'s attributeFilter (writing it must not re-enter refreshEnv)');
+  // 2c. MINIMISED WINDOW DETECTION. env.hidden is documented as "window
+  // minimised" and was dead: document.hidden and visibilityState both stay
+  // 'visible' for ever under backgroundThrottling:false (measured with an
+  // Electron probe -- minimise AND hide both leave 'visible'), while
+  // screenX/screenY go to -32000. Measured, benchmarks/anim-cost.js, window
+  // really minimised, 20s samples:
+  //   loops still running (what the app did)  0.005% renderer / 0.248% GPU
+  //   loops parked        (what it does now)  0.000% renderer / 0.009% GPU
+  ok(/function windowMinimized\(/.test(drawSrc)
+    && /env\.hidden = !!document\.hidden \|\| windowMinimized\(\)/.test(drawSrc),
+    'draw.js feeds a minimised window into env.hidden, which visibilitychange never can');
+  // Unfocused is NOT minimised: the app is designed to be played into a game
+  // with this window behind it, and a focus test here would kill the visualizer
+  // during every single playback.
+  ok(/x <= MINIMIZED_AT && y <= MINIMIZED_AT/.test(drawSrc)
+    && !/hasFocus\(\)[^;]*MINIMIZED/.test(drawSrc),
+    'the minimise test is the window POSITION, never the focus state');
+  // Top frame only: a panel iframe reads the same -32000 but gets no blur,
+  // focus, resize or visibilitychange when the window is minimised, so one that
+  // parked on it would have nothing left to un-park it.
+  ok(/function windowMinimized\(\)\s*\{\s*\n\s*if \(!isTop\) return false;/.test(drawSrc),
+    'only the top frame parks on a minimised window (a panel could never un-park)');
+  // Event-driven, never polled: a poll is exactly the "wakes with nothing to
+  // do" waste this module exists to remove.
+  ok(!/setInterval\s*\(/.test(drawSrc), 'draw.js polls nothing on a timer');
+  // Coming back from a park must repaint, or a canvas shows stale pixels.
+  ok(/var wasHidden = env\.hidden;[\s\S]{0,160}if \(wasHidden && !env\.hidden\) invalidateAll\(\)/.test(drawSrc),
+    'restoring from a minimised window repaints every consumer once');
+
+  // Pause, never stop: animation-play-state resumes mid-cycle, so nothing about
+  // how any of these looks on screen changes.
+  for (const sel of ['.dot.is-paused', '.dot.is-blocked', '.btn.is-busy::after', '.skel-bar::after']) {
+    ok(uiCss.indexOf(':root[data-parked] ' + sel) >= 0,
+      'ui.css parks the ' + sel + ' loop when the document cannot be seen');
+  }
+  ok(/:root\[data-parked\] \.bar-fill\.indet \{ animation-play-state: paused; \}/.test(tokensCss),
+    'tokens.css parks the indeterminate bar sweep when the document cannot be seen');
+  ok(!/:root\[data-parked\][^{]*\{[^}]*animation:\s*none/.test(uiCss)
+    && !/:root\[data-parked\][^{]*\{[^}]*animation:\s*none/.test(tokensCss),
+    'parked loops are PAUSED, never set to animation:none (which would restart them)');
+
+  // 3. debounce().flush() must INVOKE. It is the only send path for the volume
+  // knob and the only thing a keyboard arrow-press on a slider ever produces.
+  const dbnc = /function debounce\(fn, ms\)\s*\{[\s\S]*?\n  \}/.exec(shellSrc);
+  ok(!!dbnc, 'the shell has a debounce helper');
+  ok(!!dbnc && /flush = \(\) => \{[\s\S]*?fn\(\.\.\.p\)/.test(dbnc[0]),
+    'debounce().flush() invokes the pending call instead of cancelling it');
+  ok(!!dbnc && /cancel = \(\)/.test(dbnc[0]), 'debounce() also offers cancel()');
+  ok(/vol\.addEventListener\('change'[\s\S]{0,320}?ownerCommand\('volume'/.test(shellSrc),
+    'the volume knob sends on change even with no pending debounce');
+
+  // 4. Grabbing the scrub thumb and letting go must not seek. It used to rewind
+  // live playback to 0:00 because scrubValue started at 0.
+  ok(/scrubMoved = false/.test(shellSrc) && /if \(scrubMoved && window\.Transport\) window\.Transport\.seek/.test(shellSrc),
+    'the transport only seeks when the scrub actually moved');
+
+  // 5. Chromium fires load for a src-less iframe's about:blank document, and all
+  // five frames start src-less. Treating that as "the panel is up" let the boot
+  // splash hand over to an empty stage.
+  ok(/function frameNavigated\(f\)/.test(shellSrc) && /if \(!frameNavigated\(f\)\) return;/.test(shellSrc),
+    'onFrameLoad ignores the initial about:blank load');
+  ok(/if \(f\.loaded && frameNavigated\(f\)\) done\(\);/.test(shellSrc),
+    'the splash hand-over waits for a real panel document');
+
+  // 6. The 12px type floor (invariant 31). The 9px visualiser keyboard label is
+  // the one sanctioned exception and does not live in these three files.
+  const TINY = /font(?:-size)?:[^;}]*\b(?:8(?:\.5)?|9|10|11)px\b/g;
+  for (const [rel, src] of [['renderer/shared/tokens.css', tokensCss],
+                            ['renderer/shared/ui.css', uiCss],
+                            ['renderer/shell/shell.css', shellCss]]) {
+    const hits = (src.match(TINY) || []);
+    ok(hits.length === 0, `${rel} keeps the 12px type floor (found ${hits.join(' | ')})`);
+  }
+  ok(!/#63666e/.test(shellCss), 'the log timestamp uses --text-3, not a hard-coded sub-AA grey');
+
+  // 7. Motion is never the only signal: the blanket reduced-motion rule leaves a
+  // one-iteration animation at its END frame, which parked the indeterminate bar
+  // one full track width off-screen and left a busy button blank.
+  const rmBlocks = tokensCss.slice(tokensCss.indexOf('@media (prefers-reduced-motion'));
+  ok(/\.bar-fill\.indet\s*\{[^}]*animation: none/.test(rmBlocks) && /width: 100% !important/.test(rmBlocks),
+    'the indeterminate bar has a static reduced-motion form');
+  const uiRm = uiCss.slice(uiCss.indexOf('@media (prefers-reduced-motion'));
+  ok(/\.btn\.is-busy\s*\{\s*color: inherit/.test(uiRm),
+    'a busy button shows its label again under reduced motion');
+
+  // 8. Finished-transcription offer: SYNTHESIS maps it to a strip action, and
+  // index.html tells the user so. A 7s toast is not that.
+  ok(/forged: null/.test(shellSrc) && /id: 'queue', label: 'Add to queue'/.test(shellSrc),
+    'a finished transcription is offered on the activity strip, not only as a toast');
+  ok(/clearForged\(\);\s*\/\/ the next job supersedes/.test(shellSrc),
+    'the next Forge job supersedes the previous offer');
+
+  // 9. The shared modules the contract now documents must exist and export.
+  for (const rel of ['renderer/shared/icons.js', 'renderer/shared/resize.js',
+                     'renderer/shared/timeline-zoom.js', 'renderer/shared/menu.js']) {
+    ok(fs.existsSync(path.join(root, ...rel.split('/'))), `${rel} exists`);
+  }
+  const contract = rd('docs/rewrite/CONTRACT.md');
+  for (const name of ['window.Icon', 'window.Resize', 'window.TimelineZoom', 'window.Menu']) {
+    ok(contract.indexOf(name) >= 0, `CONTRACT documents ${name}`);
+  }
+  ok(/library\.list\(\)/.test(contract), 'CONTRACT documents the Library data surface');
+
+  // 10. THE SIX-TAB MAP. Ctrl+1..6 is handled twice -- in the shell, and again in
+  // main's before-input-event, because the stage swallows the keydown once focus
+  // is inside a panel. The two maps have to list the same six frame keys in the
+  // same order or the app disagrees with itself about what Ctrl+6 means, and
+  // nothing at runtime notices.
+  const NAV_ORDER = ['forge', 'player', 'review', 'audition', 'library', 'logs'];
+  {
+    const mainSrc2 = rd('electron/main.js');
+    const html = rd('renderer/index.html');
+
+    // the shell's FRAMES array, in order
+    const framesBlock = shellSrc.slice(shellSrc.indexOf('const FRAMES = ['),
+                                       shellSrc.indexOf('const ORDER = FRAMES.map'));
+    const shellKeys = (framesBlock.match(/\{ key: '([a-z]+)'/g) || []).map((m) => m.slice(8, -1));
+    ok(String(shellKeys) === String(NAV_ORDER),
+      'shell FRAMES is the six tabs in nav order (got ' + shellKeys + ')');
+
+    // main's before-input-event map, in order
+    const mapLine = (mainSrc2.match(/const tab = \{[^}]*\}\[input\.key\]/) || [''])[0];
+    const mainKeys = (mapLine.match(/'([a-z]+)'/g) || []).map((m) => m.slice(1, -1));
+    ok(String(mainKeys) === String(NAV_ORDER),
+      'main before-input-event maps the same six tabs in the same order (got ' + mainKeys + ')');
+    ok(/\b6: 'logs'/.test(mapLine), 'main maps Ctrl+6 to the Logs tab');
+
+    // the shell's own digit handler must cover all six
+    ok(/'123456'\.indexOf\(e\.key\)/.test(shellSrc), 'the shell key router covers Ctrl+1..6');
+
+    // and the chrome has to exist for all six
+    for (const k of NAV_ORDER) {
+      ok(html.indexOf('data-frame="' + k + '"') >= 0, 'index.html has the ' + k + ' nav item and frame');
+    }
+    ok(html.indexOf('data-src="./logs/index.html"') >= 0, 'the Logs frame is lazily loaded from logs/index.html');
+    ok(fs.existsSync(path.join(root, 'renderer', 'logs', 'index.html'))
+      && fs.existsSync(path.join(root, 'renderer', 'logs', 'logs.js'))
+      && fs.existsSync(path.join(root, 'renderer', 'logs', 'logs.css')),
+      'the Logs tab ships all three of its files');
+  }
+
+  // 11. THE DRAWER IS GONE. Two log UIs is worse than either one, and the drawer
+  // was the one that could not be reached from a tab that had focus.
+  {
+    const html = rd('renderer/index.html');
+    const logsJs = rd('renderer/logs/logs.js');
+    for (const dead of ['as-log-toggle', 'id="alog"', 'alog-list', 'alog-filter', 'alog-copy', 'alog-clear', 'alog-close']) {
+      ok(html.indexOf(dead) < 0, 'the log drawer markup is gone: ' + dead);
+    }
+    for (const dead of ['setLogOpen', 'alog', 'logPinned', 'logVisible']) {
+      ok(shellSrc.indexOf(dead) < 0, 'the log drawer code is gone from the shell: ' + dead);
+    }
+    ok(!/\.alog|\.as-log-toggle|--h-logdrawer/.test(shellCss), 'the log drawer CSS is gone');
+    ok(shellSrc.indexOf('logOpen') < 0, 'the drawer open/closed preference is gone');
+    ok(/id="as-errors"/.test(html) && /\$\('as-errors'\)\.addEventListener\('click', \(\) => activate\('logs'\)\)/.test(shellSrc),
+      'the strip keeps an error count that switches to the Logs tab');
+    ok(/activate\('logs'\); e\.preventDefault\(\)/.test(shellSrc), 'Ctrl+Alt+L goes to the Logs tab');
+
+    // The shell still OWNS the buffer: it must collect whether or not the tab
+    // has ever been opened (frames load lazily), and publish in BATCHES.
+    ok(/const LOG_CAP = 600/.test(shellSrc) && /function logPush/.test(shellSrc),
+      'the shell still owns the capped ring buffer');
+    ok(/logOut\.push\(line\)/.test(shellSrc) && /T\.LOG_APPEND, \{ lines: batch \}/.test(shellSrc),
+      'the shell publishes log lines in coalesced batches, not one message per line');
+    ok(/if \(f\.key === 'logs'\) logSync\(f\.frame\)/.test(shellSrc),
+      'a freshly opened Logs tab gets a full sync on frame:ready');
+    ok(/Bus\.on\(T\.LOG_CLEAR, \(\) => logClear\(\)\)/.test(shellSrc),
+      'Clear is a request to the buffer owner, not a local act in the viewer');
+
+    // A panel sends frame:ready from its own script, which runs BEFORE the
+    // iframe's load event, so the load handler must NOT clear busReady
+    // unconditionally: doing so retracted the handshake of the document that
+    // had just arrived, and every later push to that panel was dropped. That
+    // is silent, and it is what stopped log:append reaching the Logs tab.
+    ok(!/f\.busReady = false;\s*\/\/ a reload retracts/.test(shellSrc),
+      'the load handler no longer clobbers a frame:ready it already received');
+    ok(/if \(!f\.readyForLoad\) f\.busReady = false;/.test(shellSrc)
+      && /f\.readyForLoad = true;/.test(shellSrc),
+      'busReady is retracted only for a document that never announced itself');
+
+    // and the viewer is a viewer: no second buffer, no hand-rolled rAF
+    ok(/Bus\.send\(T\.FRAME_READY, \{ frame: FRAME/.test(logsJs), 'the Logs tab sends frame:ready');
+    ok(/Draw\.register\(/.test(logsJs) && !/requestAnimationFrame/.test(logsJs),
+      'the Logs tab paints through the Draw scheduler, never its own rAF');
+    ok(/window\.VList\(listHost/.test(logsJs), 'the Logs tab virtualises the scrollback');
+    ok(!/Transport\.claim/.test(logsJs), 'the Logs tab claims no transport');
+    ok(/n\.className = 'lrow is-grid'/.test(logsJs) && !/n\.className =/.test(logsJs.slice(logsJs.indexOf('renderRow'))),
+      'the Logs rows are built once and never have className reassigned in renderRow');
+
+    const busSrc = rd('renderer/shared/bus.js');
+    for (const t of ["'log:sync'", "'log:append'", "'log:clear'", "'nav:open-logs'"]) {
+      ok(busSrc.indexOf(t) >= 0, 'bus.js declares ' + t);
+      ok(contract.indexOf(t.replace(/'/g, '`')) >= 0 || contract.indexOf(t.slice(1, -1)) >= 0,
+        'CONTRACT documents ' + t);
+    }
+  }
+
+  // 12. The version and its release name. The chip stays bare; the About pane is
+  // where the release name is spelt out.
+  {
+    const pkg2 = require(path.join(root, 'package.json'));
+    ok(pkg2.version === '3.0.0', 'package version is 3.0.0');
+    ok(pkg2.releaseName === 'Graphite', 'package declares the release name');
+    const mainSrc3 = rd('electron/main.js');
+    ok(/ipcMain\.handle\('app:release'/.test(mainSrc3), 'main exposes the release name');
+    ok(/getRelease/.test(rd('electron/preload.js')), 'preload exposes getRelease');
+    ok(/chip\.textContent = 'v' \+ appVersion/.test(shellSrc), 'the titlebar chip shows just the version');
+    ok(/s-about-version'\)\.textContent = appVersion \+ \(releaseName/.test(shellSrc),
+      'the About pane shows the version and the release name');
+  }
+
+  // 13. The real logo. The CSS waveform mark is gone; the artwork on the
+  // first-paint path is the 7.7KB badge, and the 151KB lockup is splash-only.
+  {
+    const html = rd('renderer/index.html');
+    ok(fs.existsSync(path.join(root, 'renderer', 'shared', 'mark.png'))
+      && fs.existsSync(path.join(root, 'renderer', 'shared', 'lockup.png')),
+      'both optimised logo assets ship');
+    ok(/class="brand-img" src="\.\/shared\/mark\.png"/.test(html), 'the titlebar shows the real badge');
+    ok(/class="splash-logo" src="\.\/shared\/lockup\.png"/.test(html), 'the splash shows the real lockup');
+    ok(html.indexOf('class="wf"') < 0 && !/\.wf\b/.test(shellCss), 'the CSS waveform mark is gone');
+    ok(html.indexOf('logo.png') < 0, 'the 597KB source logo is never on a page');
+    // transform/opacity only, one-shot, and a static reduced-motion form: the
+    // blanket kill switch leaves an animation at its END frame.
+    const logoIn = shellCss.slice(shellCss.indexOf('@keyframes logo-in'), shellCss.indexOf('@keyframes logo-in') + 160);
+    ok(/transform: scale/.test(logoIn) && !/width|height/.test(logoIn), 'the splash logo animates transform and opacity only');
+    const rm = shellCss.slice(shellCss.indexOf('@media (prefers-reduced-motion'));
+    ok(/\.splash-logo[^{]*\{[^}]*animation: none/.test(rm), 'the splash logo has a static reduced-motion form');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WHAT'S NEW. The parser reads a file a user can edit and release notes fetched
+// from GitHub, so "it must not throw" is the whole contract: every failure has
+// to come back as { ok:false } and let the screen degrade to a link.
+// ---------------------------------------------------------------------------
+{
+  const fs = require('fs');
+  const rd = (rel) => fs.readFileSync(path.join(root, ...rel.split('/')), 'utf8');
+  const C = require(path.join(root, 'renderer', 'shell', 'changelog.js'));
+  const pkg = JSON.parse(rd('package.json'));
+
+  // ---- 1. a well-formed file: the project's own CHANGELOG.md ---------------
+  const parsed = C.parse(rd('CHANGELOG.md'));
+  ok(parsed.ok && parsed.releases.length >= 1, 'CHANGELOG.md parses');
+  const rel = C.find(parsed.releases, pkg.version);
+  ok(!!rel, `CHANGELOG.md carries an entry for the shipping version (${pkg.version})`);
+  if (rel) {
+    ok(rel.version === pkg.version, `the entry's version is ${pkg.version} (got ${rel.version})`);
+    ok(rel.name === pkg.releaseName, `the entry's release name is ${pkg.releaseName} (got ${rel.name})`);
+    ok(/^\d{4}-\d{2}-\d{2}$/.test(rel.date), `the entry carries a date (got "${rel.date}")`);
+    ok(rel.intro.length >= 1, 'the entry keeps its intro paragraph');
+    const titles = rel.sections.map((s) => s.title);
+    ok(titles[0] === 'New', `New is rendered first (got ${titles.join(', ')})`);
+    ok(titles.indexOf('Known issues') === titles.length - 1,
+      'Known issues is rendered last: it is the caveat, not the news');
+    ok(titles.indexOf('Changed') > 0 && titles.indexOf('Fixed') > titles.indexOf('Changed'),
+      'Changed then Fixed, between the two');
+    ok(C.count(rel) >= 25, `every bullet survives the parse (got ${C.count(rel)})`);
+    // A wrapped bullet is ONE bullet, joined, not one per source line.
+    const lib = rel.sections[0].items[0];
+    ok(lib.lead === 'Library.', `a leading bold run becomes the bullet's lead (got "${lib.lead}")`);
+    ok(/note count and length/.test(lib.text) && !/\n/.test(lib.text),
+      'a bullet wrapped over four source lines is joined into one');
+    // '**Forge** is one workspace' is mid-sentence emphasis. Pulling it out as a
+    // lead left the bullet reading 'Forge' / 'is one three-column workspace'.
+    const forge = rel.sections[1].items.find((i) => /^Forge is one/.test(i.text));
+    ok(!!forge && forge.lead === '', 'mid-sentence bold is flattened, never promoted to a lead');
+    ok(!/[*_`]/.test(rel.sections.map((s) => s.items.map((i) => i.lead + i.text).join(' ')).join(' ')),
+      'no markdown syntax survives into the rendered text');
+  }
+
+  // ---- 2. a MISSING file ---------------------------------------------------
+  // main answers { ok:false, error:'not found' } and the renderer never gets a
+  // string to parse; the parser has to be safe with what it does get anyway.
+  ok(C.parse('').ok === false && C.parse('').releases.length === 0, 'an empty changelog degrades, not throws');
+  for (const bad of [null, undefined, 0, [], {}, () => {}]) {
+    const r = C.parse(bad);
+    ok(r && r.ok === false && Array.isArray(r.releases), `parse(${typeof bad}) degrades cleanly`);
+  }
+  ok(typeof p.changelogFile === 'function' && /CHANGELOG\.md$/.test(p.changelogFile()),
+    'paths resolves CHANGELOG.md the way it resolves every other bundled resource');
+  ok(fs.existsSync(p.changelogFile()), 'the resolved changelog exists in a dev tree');
+  {
+    const mainSrc = rd('electron/main.js');
+    const h = mainSrc.slice(mainSrc.indexOf("ipcMain.handle('app:changelog'"), mainSrc.indexOf("ipcMain.handle('app:whatsNew'"));
+    ok(/paths\.exists\(file\)/.test(h) && /'not found'/.test(h),
+      'app:changelog answers "not found" instead of throwing on a missing file');
+    ok(/try \{/.test(h) && /catch/.test(h), 'app:changelog cannot reject');
+    // Packaged, CHANGELOG.md lives inside the asar next to package.json, so it
+    // has to be in build.files or the screen is permanently degraded in a real
+    // install while working perfectly in dev.
+    ok((pkg.build.files || []).includes('CHANGELOG.md'),
+      'CHANGELOG.md is packaged, so What’s New works in an installed build');
+  }
+
+  // ---- 3. MALFORMED input --------------------------------------------------
+  ok(C.parse('# Changelog\n\njust prose, no releases\n\n- and a stray bullet').ok === false,
+    'a file with no release heading degrades');
+  ok(C.parse('## Changelog\n### New\n- x').ok === false,
+    '"## Changelog" is not read as a release called "Changelog"');
+  {
+    // Half a heading, an unterminated bold run, a stray bracket, 60KB of one
+    // line, control bytes: none of it may throw and none of it may hang.
+    const nasty = [
+      '## 3.0.0 "Graphite\n### New\n- **unterminated bold\n- [link](\n',
+      '##3.0.0\n###New\n-nospace',
+      '## 1.0.0\n' + '- ' + 'x'.repeat(60000) + '\n',
+      '## 1.0.0 - \n### \n- \n-\n\n###\n',
+      '## 1.0.0\n �\n- a\r\n- b\r\n',
+      '## 1.0\n### New\n\t- tabbed\n      - deeply indented\n',
+      '**'.repeat(4000),
+      '## 9.9.9 "X" - 2026-01-01\n'.repeat(500),
+    ];
+    let threw = 0, hung = 0;
+    const t0 = Date.now();
+    for (const s of nasty) {
+      try { const r = C.parse(s); if (!r || typeof r.ok !== 'boolean') threw++; }
+      catch (_) { threw++; }
+      try { C.parseNotes(s, { version: '1.0.0' }); } catch (_) { threw++; }
+    }
+    if (Date.now() - t0 > 2000) hung++;
+    ok(threw === 0, `${nasty.length} malformed inputs, none throws (${threw} did)`);
+    ok(hung === 0, 'the parser is linear: no input makes it spin');
+    // A heading that IS well formed still yields a release even when its body is
+    // rubbish, so a half-written entry shows what it has rather than nothing.
+    const half = C.parse('## 3.1.0 "Slate" - 2026-10-01\n### New\n- one real bullet\n### \n- \n');
+    ok(half.ok && half.releases[0].version === '3.1.0' && half.releases[0].name === 'Slate',
+      'a good heading over a ragged body still parses');
+    ok(C.count(half.releases[0]) === 1, 'empty bullets are dropped, not rendered as blank rows');
+  }
+
+  // ---- 4. GitHub release notes (the AVAILABLE-update path) -----------------
+  {
+    const n = C.parseNotes('### New\n- **A.** one\n- two\n\n### Fixed\n- three\n', { version: '3.1.0' });
+    ok(n.ok && n.release.version === '3.1.0' && n.release.sections[0].title === 'New',
+      'a GitHub body with no version heading parses into one release');
+    ok(C.count(n.release) === 3, 'every bullet in a release body survives');
+    const loose = C.parseNotes('- just\n- bullets\n', { version: '3.1.0' });
+    ok(loose.ok && loose.release.sections[0].title === 'Notes',
+      'bullets with no heading still get a group');
+    ok(C.parseNotes('', { version: '3.1.0' }).ok === false, 'an empty release body degrades');
+    ok(C.parseNotes(null).ok === false, 'a missing release body degrades');
+  }
+
+  // ---- 5. the screen's wiring ---------------------------------------------
+  {
+    const shellSrc = rd('renderer/shell/shell.js');
+    const html = rd('renderer/index.html');
+    const pre = rd('electron/preload.js');
+    const mainSrc = rd('electron/main.js');
+
+    ok(/<script src="\.\/shell\/changelog\.js"><\/script>[\s\S]{0,80}<script src="\.\/shell\/shell\.js">/.test(html),
+      'the parser loads before the shell that uses it');
+    for (const id of ['wn-scrim', 'wn-dlg', 'wn-body', 'wn-secs', 'wn-fallback', 'wn-modes',
+                      'wn-full', 'wn-done', 'wn-check', 'wn-apply', 'wn-close']) {
+      ok(html.indexOf(`id="${id}"`) > 0, `index.html carries #${id}`);
+    }
+    ok(/class="dlg-scrim" id="wn-scrim"/.test(html) && /class="dlg wn"/.test(html),
+      'What’s New is built from the CONTRACT dialog primitives, not a parallel one');
+    ok(/role="dialog" aria-modal="true"/.test(html.slice(html.indexOf('id="wn-dlg"') - 200, html.indexOf('id="wn-dlg"') + 200)),
+      'the dialog announces itself as modal');
+
+    // A fixed overlay is composited UNDER an iframe, so the strip's frames have
+    // to be told they are covered or the panel draws straight through the modal.
+    ok(/anyOverlayOpen = \(\) =>[^;]*wn-scrim/.test(shellSrc),
+      'the modal counts as an overlay, so the tab frames go off-screen behind it');
+    // Escape order, and the modal is the topmost thing when it is up.
+    const esc = shellSrc.slice(shellSrc.indexOf("if (e.key === 'Escape') {"), shellSrc.indexOf("if (e.ctrlKey && !e.altKey"));
+    ok(esc.indexOf('wnOpen') >= 0 && esc.indexOf('wnOpen') < esc.indexOf('palOpen'),
+      'Escape closes What’s New before anything else');
+    ok(/wnDlg\.addEventListener\('keydown'[\s\S]{0,900}e\.key !== 'Tab'/.test(shellSrc),
+      'the modal traps Tab');
+    ok(/closeWhatsNew\(\);\s*\n\s*e\.preventDefault\(\);/.test(shellSrc), 'Enter closes it');
+    ok(/wnReturn && wnReturn\.focus/.test(shellSrc), 'closing restores the focus it took');
+
+    // Four ways in, and checking for updates is still one click away.
+    ok(/\$\('version-chip'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,120}openWhatsNew\(\)/.test(shellSrc),
+      'the titlebar version chip opens the notes');
+    ok(/\$\('s-whatsnew'\)\.addEventListener/.test(shellSrc) && /id="s-whatsnew"/.test(html),
+      'Settings > Updates offers What’s New');
+    ok(/id: 'app\.whatsNew'/.test(shellSrc), 'the command palette offers What’s New');
+    ok(/id: 'app\.updates', label: 'Check for updates'/.test(shellSrc)
+      && /id="s-recheck"/.test(html) && /\$\('wn-check'\)\.addEventListener/.test(shellSrc),
+      'checking for updates survives in the palette, in Settings and in the modal');
+
+    // Once, and only once. autoShow is main's answer; the renderer records the
+    // version the moment the sheet goes up, not when it is dismissed.
+    const wn = mainSrc.slice(mainSrc.indexOf("ipcMain.handle('app:whatsNew'"), mainSrc.indexOf("ipcMain.handle('app:notesShown'"));
+    ok(/POST_UPDATE && shownFor !== version/.test(wn),
+      'autoShow needs BOTH --post-update and a version whose notes have not been shown');
+    ok(/settings\.merge\(\{ ui: \{ notesShownFor: version \} \}\)/.test(mainSrc),
+      'the shown version is persisted in settings, so a restart does not repeat it');
+    ok(/if \(!w\.autoShow\) return;[\s\S]{0,240}markNotesShown\(shown\)[\s\S]{0,120}onBooted\(\(\) => openWhatsNew/.test(shellSrc),
+      'the renderer marks it shown BEFORE opening, and never opens in front of the splash');
+
+    // The offered update reuses the notes the updater already fetched.
+    ok(/notes: rel\.body/.test(rd('electron/updater.js')) && /parseNotes\(u\.notes/.test(shellSrc),
+      'the available-update notes come from the status already in hand, not a second request');
+    ok(!/fetch\(|XMLHttpRequest/.test(shellSrc), 'the shell makes no network request of its own');
+
+    // Additive only: the IPC the screen needs, and nothing removed.
+    for (const ch of ['app:changelog', 'app:whatsNew', 'app:notesShown']) {
+      ok(pre.indexOf(ch) > 0 && mainSrc.indexOf(`ipcMain.handle('${ch}'`) > 0, `${ch} is wired end to end`);
+    }
+    ok(/getVersion:|checkForUpdates:|applyUpdate:/.test(pre), 'the existing update surface is untouched');
+
+    // The type floor and the label treatment: section headings are body-font
+    // title case, and the only mono in this screen is on machine values.
+    const wnCss = rd('renderer/shell/shell.css');
+    const block = wnCss.slice(wnCss.indexOf('9. WHAT\'S NEW'));
+    ok(/\.wn-sec-h \{[^}]*var\(--font-body\)/.test(block), 'section headings are in the body font');
+    ok(!/\.wn-sec-h \{[^}]*text-transform: uppercase/.test(block), 'section headings are not uppercased');
+    ok(/\.wn-ver \{[^}]*var\(--font-mono\)/.test(block), 'the version string is mono');
+    ok(/\.wn-date \{[\s\S]{0,240}?var\(--font-mono\)/.test(block), 'the date is mono');
+    ok(!/font(?:-size)?:[^;}]*\b(?:8(?:\.5)?|9|10|11)px\b/.test(block), 'What’s New keeps the 12px type floor');
+  }
+}
+
+
+// ---- Perch shares the Player visualizer -------------------------------------
+// The overlay window and the Player tab load the same visualizer.js. When the
+// Player copy moved to a caller-supplied 2D context, Perch kept calling the old
+// no-argument form and threw once per frame, painting nothing. The window still
+// opened, so the toggle looked wired, and only the renderer console said why.
+// These fail the moment the two drift apart again.
+{
+  const rd = (rel) => fs.readFileSync(path.join(root, ...rel.split('/')), 'utf8');
+  const ovHtml = rd('renderer/overlay/overlay.html');
+  const ovJs   = rd('renderer/overlay/overlay.js');
+  const vizJs  = rd('renderer/player/visualizer.js');
+
+  if (/global\.Tokens/.test(vizJs)) {
+    ok(/shared\/tokens\.js/.test(ovHtml), 'Perch loads tokens.js, which its visualizer reads');
+    ok(ovHtml.indexOf('shared/tokens.js') < ovHtml.indexOf('player/visualizer.js'),
+       'Perch loads tokens.js before the visualizer that reads it');
+  }
+  if (/global\.Draw/.test(vizJs)) {
+    ok(/shared\/draw\.js/.test(ovHtml), 'Perch loads draw.js, which its visualizer reads');
+  }
+
+  const ctor = /function Visualizer\(([^)]*)\)/.exec(vizJs);
+  ok(!!ctor, 'the Visualizer constructor is findable');
+  if (ctor && !ctor[1].trim()) {
+    ok(/new Visualizer\(\s*\)/.test(ovJs), 'Perch constructs the Visualizer with no canvas');
+  }
+
+  const rend = /Visualizer\.prototype\.render = function \(([^)]*)\)/.exec(vizJs);
+  ok(!!rend, 'the render signature is findable');
+  if (rend && rend[1].split(',').length === 3) {
+    ok(/viz\.render\([^)]*,[^)]*,[^)]*\)/.test(ovJs), 'Perch passes a context and a size to render');
+    ok(!/viz\.render\(\s*\)/.test(ovJs), 'Perch never calls the old no-argument render');
+  }
+}
+
+
+// ===========================================================================
+//  MAIN PROCESS -- the performance pass, and the invariants it leans on.
+//  Every assertion here exists because something was made faster by relying on
+//  it; if one fails, the speed-up has become a bug.
+// ===========================================================================
+{
+  const mfs = require('fs');
+  const mainSrc = mfs.readFileSync(path.join(root, 'electron', 'main.js'), 'utf-8');
+  const preSrc = mfs.readFileSync(path.join(root, 'electron', 'preload.js'), 'utf-8');
+  const provSrc = mfs.readFileSync(path.join(root, 'electron', 'forge-provisioner.js'), 'utf-8');
+
+  // ---- frame fan-out (invariant 4) ----------------------------------------
+  const fanout = require(path.join(root, 'electron', 'fanout.js'));
+  const neverReported = {};
+  const subscriber = {};
+  const loadedButSilent = {};
+  fanout.noteSubscription(subscriber, 'engine-event');
+  fanout.markReady(loadedButSilent);
+  ok(fanout.frameWants(neverReported, 'engine-event'),
+    'a frame that has never reported receives everything (unknown must fail TOWARDS sending)');
+  ok(fanout.frameWants(neverReported, 'a-channel-invented-later'),
+    'unknown frames receive any channel, not a hard-coded list');
+  ok(fanout.frameWants(subscriber, 'engine-event'), 'a subscribed frame receives its channel');
+  ok(!fanout.frameWants(subscriber, 'forge:status'),
+    'a frame that has reported does not receive a channel it never subscribed to');
+  ok(!fanout.frameWants(loadedButSilent, 'engine-event'),
+    'a loaded frame that listens to nothing receives nothing');
+  fanout.noteSubscription(loadedButSilent, 'forge:status');
+  ok(fanout.frameWants(loadedButSilent, 'forge:status'),
+    'a listener registered after load still gets through (the set only ever grows)');
+  ok(fanout.subscriptionsOf(neverReported) === null,
+    'subscriptionsOf tells "never reported" apart from "reported nothing"');
+  ok(!fanout.frameWants(null, 'engine-event'), 'a missing frame is never sent to');
+
+  ok(/framesInSubtree/.test(mainSrc), 'broadcast still walks mainFrame.framesInSubtree (invariant 4)');
+  ok(/fanout\.frameWants\(f, channel\)/.test(mainSrc), 'subframe sends go through the subscription filter');
+  ok(/wc\.send\(channel, payload\);/.test(mainSrc), 'the shell frame is always sent to, unfiltered');
+  ok(/overlay\.send\(channel, payload\)/.test(mainSrc), 'Perch still gets its own separate send (invariant 4)');
+  ok(/ipcMain\.on\('app:subscribe'/.test(mainSrc), 'main registers the additive app:subscribe channel');
+  ok(/ipcRenderer\.send\('app:subscribe', channel\)/.test(preSrc),
+    'every push listener reports its channel from onChannel, the one place they are registered');
+  ok(preSrc.indexOf('ipcRenderer.on(channel, fn)') < preSrc.indexOf("ipcRenderer.send('app:subscribe', channel)"),
+    'the listener is attached BEFORE the subscription is announced, so main can never be told about a listener that is not live');
+  ok(/app:subscribe', null/.test(preSrc), 'a frame that listens to nothing says so once it has loaded');
+
+  // ---- game watch: fewer spawns, same coverage ----------------------------
+  const gw = require(path.join(root, 'electron', 'gamewatch.js'));
+  for (const name of gw.GAMES) {
+    ok(gw.PROBE_FILTERS.some((f) => gw.filterCovers(f, name)),
+      `${name} is covered by a tasklist filter (an uncovered game would never be detected)`);
+  }
+  ok(gw.PROBE_FILTERS.length < gw.GAMES.length, 'the poll asks fewer questions than there are games');
+  ok(gw.filterCovers('Roblox*', 'RobloxPlayerBeta.exe'), 'a prefix wildcard covers the names under it');
+  ok(!gw.filterCovers('Roblox*', 'javaw.exe'), 'a prefix wildcard covers nothing else');
+  ok(!gw.filterCovers('javaw.exe', 'notjavaw.exe'), 'an exact filter is exact, not a substring');
+
+  // ---- forge runner: the boot path no longer waits on tasklist ------------
+  const fr = require(path.join(root, 'electron', 'forge-runner.js'));
+  const reaped = fr.reapOrphanJobs();
+  ok(reaped && typeof reaped.then === 'function',
+    'reapOrphanJobs is asynchronous: createServices never blocks the window on tasklist.exe');
+  await reaped;
+  ok(typeof fr.makePump === 'function', 'the carriage-return pump is exported so the provisioner can share it');
+  {
+    const seen = [];
+    const pump = fr.makePump((l) => seen.push(l));
+    pump('Downloading: 10%\rDownloading: 20%\r');
+    ok(seen.length === 2 && seen[1] === 'Downloading: 20%',
+      'the shared pump treats a bare carriage return as a line ending (invariant 6)');
+  }
+  ok(/makePump/.test(provSrc), 'forge-provisioner uses the shared carriage-return pump, not its own newline-only one');
+  ok(!/fs\.writeSync\(this\._logFd, c\)/.test(provSrc), 'the provisioner no longer blocks the main thread per stdout chunk');
+
+  // ---- forge capability probe: one torch import, not two -------------------
+  {
+    const runner = new fr.ForgeRunner({});
+    let probes = 0;
+    runner._forgePython = () => 'python.exe';
+    runner._runCheck = () => { probes += 1; return new Promise((r) => setTimeout(() => r({ forgeReady: true }), 15)); };
+    const both = await Promise.all([runner.check(), runner.check()]);
+    ok(probes === 1, `two callers that overlap share one probe (spawned ${probes})`);
+    ok(both[0] === both[1], 'both callers get the same verdict object');
+    await runner.check();
+    ok(probes === 1, 'a verdict a moment old is reused instead of importing torch again');
+    await runner.check({ fresh: true });
+    ok(probes === 2, 'an explicit re-check bypasses the cache');
+    runner.invalidateCheck();
+    await runner.check();
+    ok(probes === 3, 'invalidateCheck() forces the next probe (setup changes the answer)');
+    runner._forgePython = () => 'somewhere-else.exe';
+    await runner.check();
+    ok(probes === 4, 'a verdict is never reused across a different Forge python');
+  }
+
+  // ---- boot ordering -------------------------------------------------------
+  ok(/ipcMain\.handle\('forge:run', async[\s\S]{0,400}?await orphanReap/.test(mainSrc),
+    'INVARIANT 10: forge:run waits for the orphan reap before a new job can spawn');
+  ok(/ipcMain\.handle\('forge:yt', async[\s\S]{0,400}?await orphanReap/.test(mainSrc),
+    'INVARIANT 10: forge:yt waits for the orphan reap too');
+  ok(/app:forgeInfo[\s\S]{0,160}?await forgePathsSettled/.test(mainSrc),
+    'the Forge path report waits for the overlapped registry adoption, so no caller sees a pre-adoption folder');
+  ok(!/function adoptInstallerForgePath[\s\S]{0,900}?spawnSync\(/.test(mainSrc),
+    'adoptInstallerForgePath no longer spawns a process synchronously on the boot path');
+  ok(/BOOT_LOG_MAX/.test(mainSrc) && /appendFileSync\(BOOT_LOG/.test(mainSrc),
+    'the boot log is capped but its writes stay synchronous (the last line before a silent exit is the one that matters)');
+  ok(/if \(gotLock\) trimBootLog\(\)/.test(mainSrc),
+    'only the instance that owns the app rotates the boot log (a second launch must not truncate it under a running instance, or under a reader holding a byte offset)');
+
+  // The reap waits for the window, so it cannot land on the first paint -- and
+  // INVARIANT 10 is held by the AWAIT in forge:run, not by that timing. Both
+  // halves are asserted, because a fallback timer in the same change is exactly
+  // the thing that later gets mistaken for the mechanism.
+  ok(/orphanReap = windowPainted\.then\(reapOrphanJobs\)/.test(mainSrc),
+    'the orphan reap starts once the window is on screen, not while it is painting');
+  ok(/markWindowPainted\(\);/.test(mainSrc) && /win\.once\('ready-to-show'/.test(mainSrc),
+    'ready-to-show is what resolves windowPainted');
+  ok(/setTimeout\(\(\) => markWindowPainted\(\), 3000\)/.test(mainSrc),
+    'a headless launch (--configure-forge-storage creates no window) still settles windowPainted, so the reap is never skipped');
+  {
+    // The ordering guarantee must survive someone deleting the fallback timer,
+    // and must not depend on the reap having finished by any particular moment.
+    const runHandler = /ipcMain\.handle\('forge:run',[\s\S]*?\n  \}\);/.exec(mainSrc);
+    ok(!!runHandler, 'the forge:run handler is findable');
+    if (runHandler) {
+      ok(runHandler[0].indexOf('await orphanReap') < runHandler[0].indexOf('forge.run('),
+        'INVARIANT 10 holds by await: forge:run waits for the reap BEFORE it spawns, whatever the timing');
+    }
+  }
+  ok(/if \(gotLock\) trimBootLog\(\)/.test(mainSrc),
+    'only the instance that owns the app rotates the boot log (a second launch must not truncate it under a running instance, or under a reader holding a byte offset)');
+
+  // The reap waits for the window, so it cannot land on the first paint -- and
+  // INVARIANT 10 is held by the AWAIT in forge:run, not by that timing. Both
+  // halves are asserted, because a fallback timer in the same change is exactly
+  // the thing that later gets mistaken for the mechanism.
+  ok(/orphanReap = windowPainted\.then\(reapOrphanJobs\)/.test(mainSrc),
+    'the orphan reap starts once the window is on screen, not while it is painting');
+  ok(/markWindowPainted\(\);/.test(mainSrc) && /win\.once\('ready-to-show'/.test(mainSrc),
+    'ready-to-show is what resolves windowPainted');
+  ok(/setTimeout\(\(\) => markWindowPainted\(\), 3000\)/.test(mainSrc),
+    'a headless launch (--configure-forge-storage creates no window) still settles windowPainted, so the reap is never skipped');
+  {
+    // The ordering guarantee must survive someone deleting the fallback timer,
+    // and must not depend on the reap having finished by any particular moment.
+    const runHandler = /ipcMain\.handle\('forge:run',[\s\S]*?\n  \}\);/.exec(mainSrc);
+    ok(!!runHandler, 'the forge:run handler is findable');
+    if (runHandler) {
+      ok(runHandler[0].indexOf('await orphanReap') < runHandler[0].indexOf('forge.run('),
+        'INVARIANT 10 holds by await: forge:run waits for the reap BEFORE it spawns, whatever the timing');
+    }
+  }
+}
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
@@ -383,3 +1291,237 @@ ok(fp === null || typeof fp === 'string', 'forgeEnvPython string|null');
 const env = p.forgeChildEnv({});
 ok(typeof env.MIDI_STUDIO_FORGE_ENV_DIR === 'string' && env.MIDI_STUDIO_FORGE_ENV_DIR.length > 0, 'forgeChildEnv has env dir');
 // (the async verifyDigest IIFE above prints the final pass/fail + exits)
+
+// =============================================================================
+//  Editor open path: the renderer-side MIDI reader
+// =============================================================================
+// renderer/shared/midi-parse.js exists to take python-engine/midi_document.py
+// off the Editor's open path (2102ms -> 50ms at 50k notes, 5259 -> 80 at 120k,
+// measured end to end by benchmarks/editor-open-e2e.js). The python loader is
+// still the writer and still the fallback, so the ONE thing that has to be true
+// is that the two readers return the SAME document. These assertions prove it
+// on real fixtures and on synthetic files built to hit the rules that are easy
+// to get subtly wrong; `node benchmarks/editor-parse-parity.js --dir <corpus>`
+// runs the same comparison over a whole library (92 real files, 236,659 notes,
+// all identical) and is the check to re-run after touching either reader.
+{
+  const fs2 = require('fs');
+  const os2 = require('os');
+  const cp2 = require('child_process');
+  const MidiParse = require(path.join(root, 'renderer', 'shared', 'midi-parse.js'));
+  const engineDir = path.join(root, 'python-engine');
+  const docPy = path.join(engineDir, 'midi_document.py');
+
+  // ---- python's round(), reproduced exactly --------------------------------
+  // Every one of these was taken from the real interpreter. The ties matter:
+  // note ends land on dyadic values like 76.1015625 constantly, python rounds
+  // half-to-EVEN and JS toFixed/Math.round round half-up, and getting it wrong
+  // moved 1-7 notes in nearly every file of a 92-file corpus by 1e-6 s.
+  const roundCases = [
+    [76.1015625, 6, 76.101562], [76.1015635, 6, 76.101563],
+    [42.8046875, 6, 42.804688], [0.1015625, 6, 0.101562],
+    [100.0625, 3, 100.062], [100.0635, 3, 100.064],
+    [0.5, 0, 0], [1.5, 0, 2], [2.5, 0, 2], [2.675, 2, 2.67],
+  ];
+  for (const rc of roundCases) {
+    ok(MidiParse.pyRound(rc[0], rc[1]) === rc[2],
+      'pyRound(' + rc[0] + ', ' + rc[1] + ') === ' + rc[2] + ' (got ' + MidiParse.pyRound(rc[0], rc[1]) + ')');
+  }
+
+  // ---- a minimal SMF writer, so the awkward rules can be tested on purpose --
+  const vlq = (n) => {
+    const out = [n & 0x7f];
+    n >>= 7;
+    while (n > 0) { out.unshift((n & 0x7f) | 0x80); n >>= 7; }
+    return out;
+  };
+  const be32 = (n) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  const be16 = (n) => [(n >>> 8) & 255, n & 255];
+  // tracks: arrays of [deltaTicks, ...bytes]
+  const smf = (format, division, tracks) => {
+    let out = [0x4d, 0x54, 0x68, 0x64].concat(be32(6), be16(format), be16(tracks.length), be16(division));
+    for (const evts of tracks) {
+      let body = [];
+      for (const e of evts) body = body.concat(vlq(e[0]), e.slice(1));
+      body = body.concat(vlq(0), [0xff, 0x2f, 0x00]);   // end_of_track
+      out = out.concat([0x4d, 0x54, 0x72, 0x6b], be32(body.length), body);
+    }
+    return Buffer.from(out);
+  };
+  const tmpMid = (name, buf) => {
+    const f = path.join(os2.tmpdir(), 'midi-studio-test-' + process.pid + '-' + name + '.mid');
+    fs2.writeFileSync(f, buf);
+    return f;
+  };
+
+  const pyExe = [path.join(engineDir, 'python', 'python.exe'), 'py', 'python'].find((c) => {
+    try { return cp2.spawnSync(c, ['-c', 'pass'], { timeout: 20000 }).status === 0; } catch (_) { return false; }
+  });
+  const pyLoad = (f) => {
+    const r = cp2.spawnSync(pyExe, [docPy, 'load', f], { cwd: engineDir, encoding: 'utf-8',
+      maxBuffer: 512 * 1024 * 1024, windowsHide: true,
+      env: Object.assign({}, process.env, { PYTHONIOENCODING: 'utf-8' }) });
+    if (r.status !== 0) throw new Error((r.stderr || '').trim() || 'midi_document.py failed');
+    return JSON.parse(r.stdout.trim());
+  };
+  // `programs` key ORDER differs by construction (a python dict keeps insertion
+  // order, a JS object with integer-like keys iterates numerically) and cannot
+  // matter: save_midi sorts them and review.js looks them up by key.
+  const samePrograms = (a, b) => {
+    const ka = Object.keys(a || {}).sort(), kb = Object.keys(b || {}).sort();
+    return ka.length === kb.length && ka.every((k, i) => kb[i] === k && Number(a[k]) === Number(b[k]));
+  };
+  const sameDoc = (py, js, label) => {
+    const bad = [];
+    for (const k of ['name', 'path', 'bpm', 'bpmEstimated', 'duration']) {
+      if (JSON.stringify(py[k]) !== JSON.stringify(js[k])) {
+        bad.push(k + ' py=' + JSON.stringify(py[k]) + ' js=' + JSON.stringify(js[k]));
+      }
+    }
+    if (!samePrograms(py.programs, js.programs)) bad.push('programs');
+    if (py.notes.length !== js.notes.length) bad.push('count ' + py.notes.length + ' vs ' + js.notes.length);
+    else {
+      let n = 0;
+      for (let i = 0; i < py.notes.length; i++) {
+        const a = py.notes[i], b = js.notes[i];
+        if (a.id !== b.id || a.pitch !== b.pitch || a.start !== b.start || a.end !== b.end ||
+            a.velocity !== b.velocity || a.channel !== b.channel ||
+            !!a.unterminated !== !!b.unterminated) n++;
+      }
+      if (n) bad.push(n + ' notes');
+    }
+    ok(bad.length === 0, 'parity ' + label + ': ' + (bad.join('; ') || 'identical'));
+  };
+
+  const NOTE_ON = (ch, p, v) => [0x90 | ch, p, v];
+  const NOTE_OFF = (ch, p) => [0x80 | ch, p, 0];
+
+  if (!pyExe) {
+    console.log('  SKIP: no python interpreter, midi-parse parity not checked');
+  } else {
+    // ---- every shipped fixture, field for field ----------------------------
+    const fixDir = path.join(root, 'benchmarks', 'fixtures');
+    const fixtures = fs2.existsSync(fixDir)
+      ? fs2.readdirSync(fixDir).filter((n) => /\.midi?$/i.test(n)) : [];
+    ok(fixtures.length >= 4, 'there are MIDI fixtures to check parity against');
+    for (const f of fixtures) {
+      const full = path.join(fixDir, f);
+      sameDoc(pyLoad(full), MidiParse.parse(fs2.readFileSync(full), full), f);
+    }
+
+    // ---- the rules that are easy to get subtly wrong -----------------------
+    const made = [];
+
+    // 1. trailing silence: a control_change 960 ticks past the last note_off,
+    //    then end_of_track. mido counts every delta in the merged track, so the
+    //    document's duration has to include that tail. This is the whole reason
+    //    the reader tracks maxTick separately from the events it keeps.
+    made.push(['trailing-silence', smf(0, 480, [[
+      [0].concat(NOTE_ON(0, 60, 100)), [480].concat(NOTE_OFF(0, 60)), [960, 0xb0, 7, 100],
+    ]])]);
+
+    // 2. an unterminated note: no note_off at all. It must survive, be flagged,
+    //    and be closed at the end of the file rather than dropped.
+    made.push(['unterminated', smf(0, 480, [[
+      [0].concat(NOTE_ON(0, 60, 100)), [240].concat(NOTE_ON(0, 64, 90)),
+      [480].concat(NOTE_OFF(0, 64)),
+    ]])]);
+
+    // 3. running status, interrupted by a meta event. mido keeps last_status
+    //    across meta ("Meta messages don't set running status"), so the bytes
+    //    after the marker are still note_ons. Conflating "the byte just read"
+    //    with "the running status" silently mangles every file shaped like this.
+    made.push(['running-status-meta', smf(0, 480, [[
+      [0, 0x90, 60, 100], [0, 64, 100], [0, 67, 100],
+      [0, 0xff, 0x06, 0x02, 0x68, 0x69],          // marker "hi"
+      [480, 60, 0], [0, 64, 0], [0, 67, 0],       // note_on with velocity 0
+    ]])]);
+
+    // 4. two tracks that interleave, plus a mid-file tempo change and two
+    //    program changes: merged playback order, tempo applied as it occurs, and
+    //    the per-message delta partition that decides the last decimal.
+    made.push(['two-track-tempo', smf(1, 384, [
+      [[0, 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20], [0, 0xc0, 0x18],
+        [0].concat(NOTE_ON(0, 60, 100)), [300].concat(NOTE_OFF(0, 60)),
+        [100, 0xff, 0x51, 0x03, 0x05, 0x16, 0x15],
+        [0].concat(NOTE_ON(0, 62, 100)), [700].concat(NOTE_OFF(0, 62))],
+      [[0, 0xc1, 0x30], [150].concat(NOTE_ON(1, 67, 80)), [275].concat(NOTE_OFF(1, 67)),
+        [13].concat(NOTE_ON(1, 69, 70)), [901].concat(NOTE_OFF(1, 69))],
+    ])]);
+
+    // 5. no tempo track at all -- the transcription case, where bpm has to be
+    //    guessed from the onsets and bpmEstimated has to say so.
+    const guessed = [];
+    for (let i = 0; i < 40; i++) {
+      guessed.push([i ? 120 : 0].concat(NOTE_ON(0, 60 + (i % 5), 90)));
+      guessed.push([60].concat(NOTE_OFF(0, 60 + (i % 5))));
+    }
+    made.push(['no-tempo', smf(0, 480, [guessed])]);
+
+    const tmpFiles = [];
+    for (const entry of made) {
+      const name = entry[0];
+      const f = tmpMid(name, entry[1]);
+      tmpFiles.push(f);
+      let py = null;
+      try { py = pyLoad(f); } catch (e) { ok(false, 'python could load the ' + name + ' fixture: ' + e.message); continue; }
+      const js = MidiParse.parse(fs2.readFileSync(f), f);
+      sameDoc(py, js, name);
+      if (name === 'unterminated') {
+        ok(js.notes.some((n) => n.unterminated === true), 'an unterminated note keeps its flag');
+        ok(js.notes.length === 2, 'an unterminated note is kept, never dropped');
+      }
+      if (name === 'trailing-silence') {
+        ok(js.duration > js.notes[js.notes.length - 1].end,
+          'silence after the last note still counts towards duration (end_of_track is not dropped)');
+      }
+      if (name === 'running-status-meta') {
+        ok(js.notes.length === 3, 'running status survives a meta event in between');
+      }
+      if (name === 'two-track-tempo') {
+        ok(js.notes.length === 4 && Object.keys(js.programs).length === 2,
+          'both tracks merge and both program changes are kept');
+        ok(js.bpmEstimated === false, 'a file with a tempo track is not guessed at');
+      }
+      if (name === 'no-tempo') {
+        ok(js.bpmEstimated === true, 'a file with no tempo track reports its bpm as a guess');
+      }
+    }
+    for (const f of tmpFiles) { try { fs2.unlinkSync(f); } catch (_) { /* windows lock */ } }
+  }
+
+  // ---- the reader REFUSES what it will not swear to, so the fallback runs ---
+  const refuse = (buf, why) => {
+    let threw = false;
+    try { MidiParse.parse(buf, 'x.mid'); } catch (_) { threw = true; }
+    ok(threw, 'the renderer parser refuses ' + why + ' (and review.js falls back to python)');
+  };
+  refuse(Buffer.from([1, 2, 3]), 'a file that is too short');
+  refuse(Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(64)]), 'a file with no MThd');
+  refuse(smf(2, 480, [[[0, 0x90, 60, 100], [10, 0x80, 60, 0]]]), 'a type 2 (asynchronous) file');
+  {
+    const b = smf(0, 480, [[[0, 0x90, 60, 100], [10, 0x80, 60, 0]]]);
+    b[12] = 0xe7; b[13] = 0x28;                      // SMPTE division
+    refuse(b, 'an SMPTE time division');
+  }
+  {
+    const b = smf(0, 480, [[[0, 0x90, 60, 100], [10, 0x80, 60, 0]]]);
+    b[b.length - 7] = 0xf1;                          // a System Common byte
+    refuse(b, 'a System Common status byte inside a track');
+  }
+  refuse(smf(0, 480, [[[0, 60, 100]]]), 'running status with nothing to run from');
+
+  // ---- the wiring, so a rename cannot quietly disable any of the above ------
+  const revSrc = fs2.readFileSync(path.join(root, 'renderer', 'review', 'review.js'), 'utf-8');
+  const revHtml = fs2.readFileSync(path.join(root, 'renderer', 'review', 'index.html'), 'utf-8');
+  ok(revHtml.indexOf('shared/midi-parse.js') > 0 &&
+     revHtml.indexOf('shared/midi-parse.js') < revHtml.indexOf('./review.js'),
+    'review/index.html loads midi-parse.js before review.js');
+  ok(/readDocumentFast\(filePath\)[\s\S]{0,600}?catch[\s\S]{0,400}?return R\.load\(filePath\)/.test(revSrc),
+    'the Editor falls back to the python loader when the renderer parse declines');
+  ok(/Seam\.forcePython/.test(revSrc), 'forcePython keeps the python loader reachable without a rebuild');
+  const docSrc = fs2.readFileSync(docPy, 'utf-8');
+  ok(!/^\s*[^#\n]*midi\.length/m.test(docSrc),
+    'midi_document.py no longer re-iterates the file for mido .length (248ms at 50k, 676ms at 120k)');
+  ok(/def save_midi/.test(docSrc), 'midi_document.py is still the writer');
+}

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Logs</title>
+  <link rel="stylesheet" href="../shared/tokens.css" />
+  <link rel="stylesheet" href="../shared/ui.css" />
+  <link rel="stylesheet" href="./logs.css" />
+</head>
+<body>
+
+<section class="panel lg" id="lg">
+  <!-- ======================================================================
+       TOOLBAR. Two rows so nothing has to be dropped on a narrow window: the
+       filters, then the actions and the counters.
+       =================================================================== -->
+  <div class="toolbar lg-tools">
+    <span class="search lg-search" id="searchwrap">
+      <i data-icon="search" data-icon-size="13"></i>
+      <input class="input is-sm" id="q" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Filter the log&#8230;" aria-label="Filter the log by text" />
+      <button class="search-clear" id="q-clear" type="button" aria-label="Clear the filter">
+        <i data-icon="close" data-icon-size="10"></i>
+      </button>
+    </span>
+
+    <span class="u-sep"></span>
+
+    <span class="toolbar-group">
+      <span class="toolbar-label" id="lbl-src">Source</span>
+      <div class="segmented is-sm" id="f-src" role="radiogroup" aria-labelledby="lbl-src">
+        <button role="radio" type="button" data-src="all"    aria-checked="true">All</button>
+        <button role="radio" type="button" data-src="forge"  aria-checked="false" tabindex="-1">Forge</button>
+        <button role="radio" type="button" data-src="setup"  aria-checked="false" tabindex="-1">Setup</button>
+        <button role="radio" type="button" data-src="player" aria-checked="false" tabindex="-1">Player</button>
+        <button role="radio" type="button" data-src="shell"  aria-checked="false" tabindex="-1">Shell</button>
+      </div>
+    </span>
+
+    <span class="toolbar-group">
+      <span class="toolbar-label" id="lbl-level">Level</span>
+      <span class="selectwrap"><select class="select is-sm" id="f-level" aria-labelledby="lbl-level">
+        <option value="all">All levels</option>
+        <option value="info">Info</option>
+        <option value="ok">OK</option>
+        <option value="warn">Warnings</option>
+        <option value="error">Errors</option>
+      </select></span>
+    </span>
+
+    <span class="toolbar-spacer"></span>
+
+    <span class="lg-counts mono" id="counts" role="status" aria-live="off">0 lines</span>
+  </div>
+
+  <div class="toolbar is-sub lg-tools2">
+    <button class="btn btn-sm" id="follow" type="button" aria-pressed="true"
+            data-tip="Stick to the newest line">
+      <i data-icon="down" data-icon-size="12"></i><span>Follow</span>
+    </button>
+    <span class="u-sep"></span>
+    <button class="btn btn-sm btn-ghost" id="copy" type="button">Copy</button>
+    <button class="btn btn-sm btn-ghost" id="clear" type="button">Clear</button>
+    <span class="toolbar-spacer"></span>
+    <span class="lg-cap small muted" id="cap"></span>
+  </div>
+
+  <!-- ======================================================================
+       THE LOG. One .lgrid column template on the host, inherited by the
+       sticky head and by every virtualised row (CONTRACT 2.7). Level is a
+       word in its own column as well as a colour, so it never reads by
+       colour alone.
+       =================================================================== -->
+  <div class="panel-body is-flush lg-body">
+    <div class="lgrid is-log" id="grid" style="--cols: 74px 62px 58px minmax(0, 1fr)">
+      <div class="lgrid-head" role="presentation">
+        <div class="lgrid-th">Time</div>
+        <div class="lgrid-th">Source</div>
+        <div class="lgrid-th">Level</div>
+        <div class="lgrid-th">Message</div>
+      </div>
+      <div class="vlist lg-list" id="list"></div>
+    </div>
+
+    <div class="state lg-empty" id="empty" hidden>
+      <span class="state-icon"><i data-icon="dots" data-icon-size="26"></i></span>
+      <span class="state-title" id="empty-title">Nothing logged yet</span>
+      <span class="state-msg" id="empty-msg">Forge output, first-time setup, player errors and shell events all land here.</span>
+      <span class="state-actions" id="empty-actions" hidden>
+        <button class="btn btn-sm" id="empty-clear" type="button">Clear the filters</button>
+      </span>
+    </div>
+  </div>
+</section>
+
+<script src="../shared/tokens.js"></script>
+<script src="../shared/fmt.js"></script>
+<script src="../shared/draw.js"></script>
+<script src="../shared/bus.js"></script>
+<script src="../shared/icons.js"></script>
+<script src="../shared/vlist.js"></script>
+<script src="./logs.js"></script>
+</body>
+</html>

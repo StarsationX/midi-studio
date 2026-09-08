@@ -10,7 +10,12 @@ const root = document.documentElement;
 const card = $('card');
 const bridge = window.perch || {};
 
-const viz = new Visualizer($('viz'));
+// The Visualizer no longer owns a canvas or a context: the caller fits the
+// canvas and hands it a 2D context in CSS pixels. Perch keeps its own 30fps
+// loop rather than joining the Draw scheduler, because this window is not a
+// panel of the shell and has no on-screen budget pushed into it.
+const viz = new Visualizer();
+const vizCanvas = $('viz');
 
 let totalDuration = 0;
 let playing = false;
@@ -71,7 +76,11 @@ function frame(now) {
   lastFrameAt = now;
 
   const elapsed = viz.elapsed();
-  if (cfg.mode === 'full') viz.render();
+  if (cfg.mode === 'full' && vizCanvas && vizCanvas.clientWidth > 0) {
+    const fit = window.Draw.fitCanvas(vizCanvas, vizCanvas.clientWidth, vizCanvas.clientHeight,
+      { contextAttributes: { alpha: false } });
+    if (fit && fit.ctx) viz.render(fit.ctx, fit.w, fit.h);
+  }
 
   $('clock').textContent = totalDuration
     ? `${fmtClock(elapsed)} / ${fmtClock(totalDuration)}`

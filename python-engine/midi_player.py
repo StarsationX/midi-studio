@@ -597,15 +597,82 @@ def press_keys_hold(kb, value, held):
     return base
 
 
-def benchmark_keypress(kb, samples=20):
-    """Average wall-clock cost of one press+release. Used to nudge target
-    times earlier so the keypress LANDS on the beat rather than starts on it."""
-    times = []
-    for _ in range(samples):
-        t0 = time.perf_counter()
-        kb.press("a"); kb.release("a")
-        times.append(time.perf_counter() - t0)
-    return statistics.mean(times)
+# An undefined virtual key. It travels the entire pynput -> SendInput path, so
+# timing it measures the real injection cost, but no application anywhere
+# receives a character.
+_NULL_VK = 0xFF
+
+
+def calibrate_injection(kb, burst_samples=24, spaced_samples=10,
+                        spacing=0.015):
+    """Measure this machine's real injection cost, typing nothing anywhere.
+
+    Returns (aim_cost, chord_press, chord_tap), all seconds, all MEDIANS --
+    the mean is dragged around by the occasional 5 ms outlier and what we want
+    is the typical cost, since that is what the aim is correcting for.
+
+    Three numbers, not one, because an injection does NOT cost the same in the
+    two situations playback puts it in (measured on one machine):
+
+      aim_cost     0.51 ms   a press whose predecessor went down 15 ms ago --
+                             an isolated note. This is what playback must aim
+                             EARLY by, so the key lands on the beat instead of
+                             starting on it.
+      chord_press  0.85 ms   a press issued back-to-back, i.e. the 2nd..nth
+      chord_tap    2.10 ms   note of a chord, where this injection queues
+                             behind the one before it. This is the wall time
+                             one chord member consumes before the next can
+                             begin, which is exactly what chord_aim_shifts
+                             compensates for. Measured in-loop, the observed
+                             per-note step inside a chord is ~2.0 ms, so the
+                             spaced number would under-compensate a chord by
+                             about 4x if it were used for both.
+
+    Why an undefined virtual key: the calibration this replaces
+    (benchmark_keypress) pressed 'a' 20 times into whatever window had focus
+    -- usually the target game -- which is why it was deleted, leaving a
+    hardcoded guess behind. KeyCode.from_vk(0xFF) travels the identical
+    pynput -> SendInput path with no recipient, so there is nothing left to
+    trade off.
+
+    Returns (None, None, None) rather than a guess if anything goes wrong or
+    the platform is not Windows; the caller supplies the fallback.
+    """
+    if PLATFORM != "win32":
+        # 0xFF is a Windows virtual-key code. Elsewhere, don't guess.
+        return None, None, None
+    try:
+        from pynput.keyboard import KeyCode
+        nk = KeyCode.from_vk(_NULL_VK)
+        # Inside hi_res_timer for the same reason playback is: without it
+        # sleep(15 ms) snaps to the ~15.6 ms scheduler quantum and drifts, and
+        # the spaced measurement below would then be taken at whatever
+        # spacing the OS felt like -- which changes the answer (0.39 ms at a
+        # 10 ms gap, 0.58 ms at 30 ms on one machine).
+        with hi_res_timer():
+            for _ in range(4):             # warm the resolve/SendInput path
+                kb.press(nk); kb.release(nk)
+            press, tap = [], []
+            for _ in range(burst_samples):
+                t0 = time.perf_counter()
+                kb.press(nk)
+                t1 = time.perf_counter()
+                kb.release(nk)
+                t2 = time.perf_counter()
+                press.append(t1 - t0)
+                tap.append(t2 - t0)
+            aim = []
+            for _ in range(spaced_samples):
+                t0 = time.perf_counter()
+                kb.press(nk)
+                t1 = time.perf_counter()
+                kb.release(nk)
+                aim.append(t1 - t0)
+                time.sleep(spacing)        # let the input queue drain
+        return (statistics.median(aim), statistics.median(press),
+                statistics.median(tap))
+    except Exception:
+        return None, None, None
 
 
 # ---------------------------------------------------------------------------
@@ -678,8 +745,63 @@ def _hybrid_sleep(target):
             return
 
 
+def chord_aim_shifts(events, inject_cost, window=0.003):
+    """How much earlier each event must be AIMED so chords straddle the beat.
+
+    Every note of a chord shares one timestamp, but they are injected one at a
+    time (~`inject_cost` of wall clock each), so note k of an n-note chord
+    physically cannot land before ideal + k*inject_cost. `latency_offset` is a
+    single constant and cannot fix that: it shifts notes whose real delays
+    differ by the same amount, so the whole chord trails the beat instead of
+    straddling it. Measured on the dense fixture: the 1st note of a chord
+    lands at -0.15 ms but the 8th at +24 ms.
+
+    Aiming the whole group earlier by the MEAN serial delay,
+    (n-1)/2 * inject_cost, turns 0..+(n-1)c into +/-(n-1)c/2 -- the same key
+    events, in the same order, with the same spacing between them; only the
+    instant the chord starts moves, which is exactly what latency_offset
+    already does for single notes. Single notes get a shift of zero.
+
+    The shift is clamped so a group is never aimed earlier than the previous
+    group can finish injecting; without that clamp a dense run of chords at
+    high tempo would walk the timeline backwards, each group stealing time
+    from the one before it.
+
+    Depends on: events sorted by time (parse_midi guarantees it), and
+    chord_stagger being 0 -- a rolled chord's notes are more than `window`
+    apart so they group as singles and are left alone, which is right, because
+    the stagger is the user asking for the notes NOT to be simultaneous.
+    """
+    n = len(events)
+    shifts = [0.0] * n
+    if not inject_cost or inject_cost <= 0:
+        return shifts
+    prev_aim = None      # aimed start of the previous group, timeline seconds
+    prev_size = 0
+    i = 0
+    while i < n:
+        t0 = events[i][0]
+        j = i + 1
+        while j < n and (events[j][0] - t0) < window:
+            j += 1
+        size = j - i
+        want = (size - 1) * 0.5 * inject_cost
+        if prev_aim is not None:
+            room = t0 - (prev_aim + prev_size * inject_cost)
+            if want > room:
+                want = room
+        if want < 0.0:
+            want = 0.0
+        for k in range(i, j):
+            shifts[k] = want
+        prev_aim = t0 - want
+        prev_size = size
+        i = j
+    return shifts
+
+
 def playback_loop(events, state, kb, latency_offset, q, collect_stats,
-                  sustain=False, end_at=None):
+                  sustain=False, end_at=None, inject_cost=None):
     """ZERO allocation in the inner body. Every variable is local.
 
     Wrapped in hi_res_timer() so time.sleep() honours millisecond targets
@@ -696,7 +818,12 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
     the sleep slices. Re-pressing a still-held key releases it first so the
     game sees a fresh keydown; stale heap entries are skipped lazily.
     Pause/seek/stop release everything (a paused note stays released,
-    resuming does not re-press it)."""
+    resuming does not re-press it).
+
+    inject_cost: measured wall cost of ONE key injection (see
+    calibrate_injection). When given, chords are aimed to straddle the beat
+    instead of trailing it (see chord_aim_shifts). None keeps the old
+    aim-everything-identically behaviour."""
     pause_event = state.pause_event
     stop_event = state.stop_event
     perf = time.perf_counter
@@ -705,6 +832,11 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
     play = play_keys
     spin = _SPIN_THRESHOLD
     poll = _PAUSE_POLL_SLICE
+
+    # Precomputed once, read by index in the hot loop: still zero allocation
+    # in the loop body. shifts[i] is 0.0 for every single note and for every
+    # event when inject_cost is None, so the arithmetic below is unchanged.
+    shifts = chord_aim_shifts(events, inject_cost)
 
     heappush = heapq.heappush
     heappop = heapq.heappop
@@ -764,9 +896,11 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
                     break
 
             t_sec, key, duration, note, channel = events[i]
+            aim_shift = shifts[i]
             range_finished = end_at is not None and t_sec >= end_at
             if range_finished:
                 t_sec = end_at
+                aim_shift = 0.0
 
             while True:
                 if stop_event.is_set():
@@ -784,7 +918,7 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
                     state.base_time = base
                     state.frozen_elapsed = None
 
-                target = base + t_sec - latency_offset
+                target = base + t_sec - latency_offset - aim_shift
 
                 # Pause/seek-aware sleep. Short slices so a flip during a
                 # long inter-note gap is honoured promptly.
@@ -804,6 +938,18 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
                         interrupted = True
                         break
                     if remaining > spin:
+                        # ONE sleep for the bulk of the gap, then spin.
+                        # Splitting it (nap = min(remaining - spin,
+                        # remaining/2, poll)) was tried and REVERTED: over
+                        # 16,000 alternating samples it cut the number of
+                        # >3 ms overshoots roughly in half but made the
+                        # WORST overshoot worse at three of the four gap
+                        # lengths this loop issues (22 ms gap max +9.17 ->
+                        # +10.01, 25 ms +17.01 -> +20.64), because three
+                        # wake-ups per note is three chances to be preempted
+                        # instead of one, and a stall on the final short nap
+                        # has no margin left to recover in. It also tripled
+                        # the wake-ups per note. See benchmarks/player_nap_ab.py.
                         nap = remaining - spin
                         if nap > poll:
                             nap = poll
@@ -855,7 +1001,12 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
             state.played_count = i + 1
             state.elapsed = actual - base
             if collect_stats:
-                state.timing_errors.append(actual - target)
+                # Against where the note BELONGS musically, not against the
+                # aim. The aim is deliberately early -- by latency_offset, and
+                # by the chord shift on top of that -- so measuring against it
+                # would report a centred 8-note chord as 8 ms early on its
+                # first note when the note is in fact landing on the beat.
+                state.timing_errors.append(actual - (base + t_sec))
 
             i += 1
 
@@ -1200,11 +1351,19 @@ def main():
         print("Nothing to play.")
         return
 
-    # ---- benchmark keypress latency ----
+    # ---- calibrate keypress latency ----
+    # Against an undefined virtual key, so this types nothing into whatever
+    # window happens to have focus right now (the old benchmark_keypress
+    # pressed 'a' 20 times into it).
     kb = Controller()
-    print("Benchmarking keypress latency (20 samples)...")
-    latency = benchmark_keypress(kb, 20)
-    print(f"  avg keypress overhead = {latency * 1000:.3f} ms")
+    print("Calibrating keypress latency...")
+    aim_cost, chord_press, chord_tap = calibrate_injection(kb)
+    if aim_cost is None:
+        aim_cost = chord_press = chord_tap = 0.0015
+    latency = aim_cost
+    inject_cost = chord_press if args.sustain else chord_tap
+    print(f"  keypress overhead = {aim_cost * 1000:.3f} ms isolated, "
+          f"{chord_tap * 1000:.3f} ms back-to-back")
 
     # ---- focus + countdown ----
     print("Focusing target window...")
@@ -1234,7 +1393,8 @@ def main():
         daemon=True, name="focus-monitor").start()
 
     try:
-        playback_loop(events, state, kb, latency, q, args.stats, args.sustain)
+        playback_loop(events, state, kb, latency, q, args.stats,
+                      args.sustain, inject_cost=inject_cost)
     except KeyboardInterrupt:
         pass
     finally:

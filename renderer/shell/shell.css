@@ -1,235 +1,785 @@
-/* shell.css: app chrome. Design system in ../shared/tokens.css.
-   Console Pro: flat graphite toolbar, tab blocks with lime underline +
-   keyboard hints, precise modal, flat alert strips. */
+/* ===========================================================================
+   shell.css — the application chrome: custom titlebar, activity strip, tab
+   stage, bottom transport, command palette, settings sheet, boot splash.
+
+   Everything reusable lives in ../shared/tokens.css and ../shared/ui.css and is
+   documented in docs/rewrite/CONTRACT.md. What is here is chrome: one titlebar,
+   one strip, one transport, one palette, one sheet. Nothing in this file is a
+   general-purpose primitive, and nothing here restates one.
+
+   Animation rule, everywhere in this file: transform and opacity only (plus
+   colour/border-colour, which do not lay out). No width/height/top/left/
+   box-shadow/filter transitions, no permanent will-change, no idle animation.
+   ======================================================================== */
 
 html, body { height: 100%; overflow: hidden; }
-body { display: flex; flex-direction: column; }
+body { background: var(--bg); }
 
-/* ---- top bar ----------------------------------------------------------- */
-.topbar {
-  display: flex; align-items: stretch; gap: var(--s6);
-  height: 52px; padding: 0 0 0 var(--s5); flex: 0 0 auto;
-  background: #1a1b20;
-  border-bottom: 1px solid var(--line);
+/* chrome metrics; all of them tighten under compact density. The strip is
+   two text lines tall when something is running and a single quiet line when
+   nothing is; the transport stacks the scrub line over the buttons. */
+:root {
+  --h-tbar: 44px;
+  --h-astrip: 50px;
+  --h-astrip-idle: 34px;
+  --h-xport: 68px;
+  --w-setnav: 176px;
+}
+[data-density="compact"] {
+  --h-tbar: 40px;
+  --h-astrip: 44px;
+  --h-astrip-idle: 30px;
+  --h-xport: 60px;
+  --w-setnav: 158px;
+}
+
+.shell {
+  display: flex; flex-direction: column;
+  height: 100%; min-height: 0;
+  opacity: 0; transform: translateY(4px);
+}
+/* the boot hand-over: shell fades up as the splash fades out */
+body[data-boot="ready"] .shell {
+  opacity: 1; transform: translateY(0);
+  transition: opacity 220ms var(--ease-enter), transform 220ms var(--ease-enter);
+}
+
+/* ===========================================================================
+   0. THE MARK
+   The real hexagon badge, 64x64 and 7.7KB, shown at 26px beside the wordmark
+   text. Full-colour artwork is the one sanctioned exception to "accent is for
+   state only", so it is never tinted and never gets a glow behind it. The
+   600px lockup (with its own wordmark) is the splash's, and only the splash's:
+   it is 151KB and the titlebar is on the first-paint path.
+   ======================================================================== */
+.brand-mark { display: flex; align-items: center; flex: 0 0 auto; }
+.brand-img { display: block; width: 26px; height: 26px; }
+.brand-mark.is-lg .brand-img { width: 34px; height: 34px; }
+
+/* ===========================================================================
+   1. TITLEBAR
+   ======================================================================== */
+.tbar {
+  flex: 0 0 auto; display: flex; align-items: stretch; gap: var(--s4);
+  height: var(--h-tbar); padding-left: var(--s4);
+  background: #1a1b20; border-bottom: 1px solid var(--line);
   -webkit-app-region: drag; user-select: none;
 }
-.brand { display: flex; align-items: center; gap: 12px; -webkit-app-region: no-drag; }
-.brand-logo { height: 30px; width: auto; display: block; }
-#s-theme { height: 30px; }
+/* Only genuinely interactive things opt out. Listing `.tbar > *` here instead
+   left the brand block and the whole right-hand cluster as no-drag, so the
+   only draggable pixels were the gaps between them and the window could
+   barely be moved. The containers stay draggable; their controls do not. */
+.tbar button,
+.tbar input,
+.tbar a,
+.tbar select,
+.tbar [role="tab"],
+.tbar [role="button"] { -webkit-app-region: no-drag; }
 
-/* tab switcher, flat blocks, lime underline on active, key hints */
-.tabs { display: flex; gap: 0; -webkit-app-region: no-drag; align-self: stretch; }
-.tab {
-  -webkit-app-region: no-drag; position: relative;
-  background: transparent; color: var(--text-3);
-  border: 0; border-left: 1px solid var(--line); border-right: 1px solid transparent;
-  padding: 0 24px;
-  font: 600 13px/1 var(--font-body); cursor: pointer;
-  display: inline-flex; align-items: center; gap: 8px;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+.tbar-brand { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; min-width: 0; }
+.brand-text { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.brand-name {
+  font: 700 12px/1.1 var(--font-display); letter-spacing: 2.2px;
+  color: var(--text); white-space: nowrap;
 }
-.tab:last-child { border-right: 1px solid var(--line); }
-.tab::after {  /* keyboard hint chip */
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  color: var(--text-3); padding: 2px 4px; border: 1px solid var(--line-2);
-  border-radius: 3px; background: var(--bg-2);
-}
-.tab[data-tab="forge"]::after  { content: "^1"; }
-.tab[data-tab="player"]::after { content: "^2"; }
-.tab[data-tab="review"]::after { content: "^3"; }
-.tab[data-tab="audition"]::after { content: "^4"; }
-.tab:hover { color: var(--text-2); background: #1f2126; }
-.tab.is-active {
-  color: var(--text); background: var(--bg);
-  box-shadow: inset 0 2px 0 var(--accent);
-}
-.tab.is-active::after { color: var(--accent); border-color: var(--accent-line); }
-
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s3); padding-right: var(--s4); -webkit-app-region: no-drag; }
-.version-badge {
-  -webkit-app-region: no-drag; display: inline-flex; align-items: center;
-  height: 24px; padding: 0 8px; border-radius: 3px;
-  background: var(--bg-2); color: var(--text-3); border: 1px solid var(--line-2);
-  font: 600 12px/1 var(--font-mono); letter-spacing: .4px;
-  cursor: pointer;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
-}
-.version-badge:hover { color: var(--accent); border-color: var(--accent-line); }
-.iconbtn {
-  -webkit-app-region: no-drag; width: 28px; height: 28px; border-radius: var(--r-sm);
-  background: transparent; color: var(--text-3); border: 1px solid transparent;
-  font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), border-color var(--dur) var(--ease);
-}
-.iconbtn:hover { color: var(--text); background: var(--surface-2); border-color: var(--line-2); }
-
-/* ---- settings modal ----------------------------------------------------- */
-.modal-scrim { position: fixed; inset: 0; z-index: 10001; display: flex; align-items: center; justify-content: center;
-  background: rgba(8, 9, 11, .7); animation: ub-in var(--dur-2) var(--ease); }
-.modal-scrim[hidden] { display: none; }
-.modal {
-  width: min(680px, calc(100% - 48px));
-  background: var(--surface); border: 1px solid var(--line-2);
-  border-radius: var(--r-lg); box-shadow: var(--sh-pop); overflow: hidden;
-}
-.modal-head {
-  display: flex; align-items: center; justify-content: space-between; padding: var(--s3) var(--s4);
-  border-bottom: 1px solid var(--line); background: #1a1b20;
-}
-.modal-head h2 {
-  margin: 0; font-family: var(--font-mono);
-  font-size: 12px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
-  color: var(--text-2);
-}
-.modal-body { padding: var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
-.srow { display: flex; align-items: center; gap: var(--s4); justify-content: space-between; }
-.skey {
-  color: var(--text-3); flex: 0 0 100px;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  letter-spacing: 1.2px; text-transform: uppercase;
-}
-.sval { color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; }
-.storage-row { align-items: flex-start; }
-.storage-control { flex: 1; min-width: 0; display: grid; gap: var(--s2); }
-.storage-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 12px; }
-.storage-actions { display: flex; align-items: center; gap: var(--s2); }
-.storage-actions .btn { height: 28px; padding: 0 12px; }
-.modal-actions { display: flex; gap: var(--s2); flex-wrap: wrap; padding-top: var(--s1); }
-
-/* ---- tab surfaces ------------------------------------------------------- */
-.stage { position: relative; flex: 1 1 auto; min-height: 0; }
-.tabframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--bg); display: none; }
-.tabframe.is-active { display: block; }
-/* An <iframe> can composite above a parent fixed overlay; hide the tab while a
-   modal is open so the dialog renders solid. */
-body.modal-open .tabframe { visibility: hidden; }
-
-/* ---- update banner ------------------------------------------------------ */
-.update-banner {
-  display: flex; align-items: center; gap: var(--s3);
-  margin: var(--s3) var(--s4) 0; padding: var(--s3) var(--s4);
-  background: var(--surface); border: 1px solid var(--line-2);
-  border-left: 2px solid var(--accent);
-  border-radius: var(--r); box-shadow: var(--sh-2);
-  animation: ub-in var(--dur-2) var(--ease);
-}
-@keyframes ub-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-.update-banner[hidden] { display: none; }
-.ub-icon {
-  width: 30px; height: 30px; border-radius: var(--r-sm); flex: 0 0 auto;
-  display: grid; place-items: center; font-size: 15px;
-  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line);
-}
-.ub-text { flex: 1 1 auto; min-width: 0; }
-.ub-title { font-weight: 600; }
-.ub-sub { color: var(--text-3); font-size: 12px; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ub-prog { height: 6px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 2px; margin-top: 8px; overflow: hidden; }
-.ub-prog-fill { height: 100%; width: 0; background: var(--accent); transition: width var(--dur-2) var(--ease); }
-
-/* ---- toasts -------------------------------------------------------------- */
-.toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 10000; }
-.toast {
-  min-width: 220px; max-width: 380px; padding: 12px 16px; border-radius: var(--r-sm);
-  background: var(--surface-2); color: var(--text);
-  border: 1px solid var(--line-2); border-left: 2px solid var(--accent);
-  box-shadow: var(--sh-pop); font-size: 13px; font-weight: 500;
-  animation: toast-in var(--dur-2) var(--ease);
-}
-.toast.out { animation: toast-out var(--dur-2) var(--ease) forwards; }
-.toast--ok { border-left-color: var(--ok); }
-.toast--err { border-left-color: var(--err); }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
-
-.limit-row { display: flex; gap: 12px; justify-content: flex-end; }
-.limit-row label { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12px; }
-.limit-row input { width: 62px; height: 28px; padding: 0 8px; color: var(--text); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
-
-.limit-control { flex: 1; min-width: 0; display: grid; gap: 8px; justify-items: end; }
-.limit-head { display: flex; align-items: center; gap: 12px; width: 100%; }
-.limit-head input[type=range] { flex: 1; accent-color: var(--accent); }
-#s-perf-value { min-width: 42px; text-align: right; color: var(--accent); font-size: 12px; }
-.limit-explain { text-align: right; line-height: 1.5; }
-
-/* ==========================================================================
-   SETTINGS: a two-pane dialog. The old version was one flat list where the
-   accent picker sat next to "clean reinstall", so nothing had any weight.
-   ========================================================================== */
-.modal-split { display: grid; grid-template-columns: 168px minmax(0, 1fr); min-height: 0; }
-
-.snav {
-  display: flex; flex-direction: column; gap: 2px; padding: var(--s3);
-  background: var(--bg-2); border-right: 1px solid var(--line);
-}
-.snav button {
-  text-align: left; background: none; border: 0; border-radius: var(--r-sm);
-  padding: 8px 12px; color: var(--text-2);
-  font: 600 13px/1.2 var(--font-body); cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.snav button:hover { background: var(--surface-2); color: var(--text); }
-.snav button.is-active { background: var(--accent-soft); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
-
-.spanes { padding: var(--s6); overflow-y: auto; min-width: 0; }
-.spane { display: none; flex-direction: column; gap: var(--s8); }
-.spane.is-active { display: flex; }
-
-.sgroup { display: flex; flex-direction: column; gap: var(--s3); }
-.sgroup-h { display: flex; flex-direction: column; gap: 4px; }
-.sgroup-h h3 {
-  margin: 0; font: 700 13px/1.2 var(--font-mono);
-  letter-spacing: 2px; text-transform: uppercase; color: var(--text-3);
-}
-.sgroup-h p { margin: 0; color: var(--text-2); font-size: 13px; max-width: 56ch; }
-.snote { margin: 0; color: var(--text-3); font-size: 12px; max-width: 60ch; line-height: 1.5; }
-.sactions { display: flex; gap: var(--s2); flex-wrap: wrap; }
-.btn.danger { color: var(--err); }
-.btn.danger:hover { background: var(--err-soft); border-color: #5a2e2e; }
-
-/* Layout chooser: each option draws its own shape, so the choice is visible
-   rather than a word you have to imagine. */
-/* Four options, so 2x2 reads as a set. auto-fit gave 3 + 1 orphan. */
-.layout-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
-.layout-cards button {
-  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
-  padding: var(--s3); border-radius: var(--r);
-  background: var(--surface-2); border: 1px solid var(--line-2);
-  cursor: pointer; text-align: left;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
-}
-.layout-cards button:hover { background: var(--surface-3); }
-.layout-cards button.is-active { background: var(--accent-soft); border-color: var(--accent-line); }
-.lc-name { font: 600 13px/1.2 var(--font-body); color: var(--text); }
-.lc-desc { font-size: 12px; color: var(--text-3); line-height: 1.4; }
-
-/* the little diagram of each arrangement */
-.lc-art { display: grid; gap: 3px; width: 100%; height: 40px; padding: 4px;
-  background: var(--bg-2); border: 1px solid var(--line); border-radius: 3px; }
-.lc-art i { background: var(--line-2); border-radius: 1.5px; display: block; }
-.layout-cards button.is-active .lc-art i { background: var(--accent-deep); }
-.lc-classic { grid-template-rows: repeat(3, 1fr); }
-.lc-cards   { grid-template-rows: repeat(4, 1fr); }
-.lc-bench   { grid-template-rows: 8px 1fr; grid-template-columns: 1fr 1fr; }
-.lc-bench i:first-child { grid-column: 1 / -1; }
-.lc-console { grid-template-columns: 1fr 2fr 1fr; }
-
-@media (max-width: 620px) {
-  .modal-split { grid-template-columns: minmax(0, 1fr); }
-  .snav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
-  .snav button.is-active { box-shadow: inset 0 -2px 0 var(--accent); }
+.brand-tag {
+  font: 500 var(--t1)/1.2 var(--font-body); letter-spacing: .2px;
+  color: var(--text-3); white-space: nowrap;
 }
 
-/* The panes are narrower than the old full-width modal, so the 100px key
-   column wrapped "CUSTOM COLOUR" onto two lines. Give keys room and stop
-   them wrapping; the value side can shrink instead. */
-.spanes .skey { flex: 0 1 auto; white-space: nowrap; }
-.spanes .srow { gap: var(--s3); }
-.spanes .sval { min-width: 0; }
-/* A native select on a dark ground renders its text at the platform's idea of
-   "control text", which reads as disabled here. Say what it should be. */
-.spanes select.sval {
-  color: var(--text); background: var(--surface-2);
+/* --- nav ---------------------------------------------------------------- */
+.tbar-nav {
+  position: relative; display: flex; align-items: stretch; flex: 0 0 auto;
+  margin: 0 auto;
+}
+.nav-item {
+  position: relative; display: inline-flex; align-items: center; gap: 7px;
+  padding: 0 var(--s4); border: 0; background: transparent;
+  color: var(--text-3); cursor: pointer;
+  font: 600 var(--t2)/1.25 var(--font-body);
+  transition: color var(--motion-fast) var(--ease-standard),
+              background-color var(--motion-fast) var(--ease-standard);
+}
+.nav-item:hover { color: var(--text-2); background: #ffffff08; }
+.nav-item[aria-selected="true"] { color: var(--text); }
+.nav-item[aria-selected="true"] .nav-item:focus-visible { box-shadow: var(--ring); border-radius: 2px; }
+
+/* one indicator, moved with transform. width is 1px so scaleX is a pixel width */
+.nav-ind {
+  position: absolute; left: 0; bottom: 0; width: 1px; height: 2px;
+  background: var(--accent); transform-origin: left center;
+  transform: translateX(0) scaleX(0);
+  transition: transform var(--motion-normal) var(--ease-standard), opacity var(--motion-fast) linear;
+}
+.nav-ind.is-cue { opacity: .35; }
+
+/* --- right cluster ------------------------------------------------------ */
+.tbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto; }
+
+.tb-search {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: var(--h-ctl-sm); padding: 0 6px 0 8px;
+  background: var(--bg-2); color: var(--text-3);
   border: 1px solid var(--line-2); border-radius: var(--r-sm);
-  padding: 5px 8px; font: 500 13px/1 var(--font-body);
+  cursor: text; font: 500 var(--t1)/1.25 var(--font-body);
+  transition: border-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
-.spanes select.sval option { color: var(--text); background: var(--surface); }
+.tb-search:hover { border-color: #4a4e58; color: var(--text-2); }
+.tb-search:focus-visible { box-shadow: var(--ring); }
+.tb-search-txt { min-width: 46px; text-align: left; }
+.tb-search .kbd-seq { margin-left: 4px; }
+
+.tb-version {
+  height: var(--h-ctl-sm); padding: 0 8px; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-3);
+  border: 1px solid transparent; cursor: pointer;
+  font: 600 var(--t1)/1.25 var(--font-mono); letter-spacing: .4px;
+  transition: color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+.tb-version:hover { color: var(--accent); border-color: var(--accent-line); }
+.tb-version.is-new { color: var(--accent); border-color: var(--accent-line); }
+.tb-gear { align-self: center; }
+
+/* --- window controls ---------------------------------------------------- */
+.wctl { display: flex; align-items: stretch; margin-left: var(--s2); }
+.wctl-btn {
+  width: 44px; border: 0; background: transparent; color: var(--text-2);
+  display: grid; place-items: center; cursor: default;
+  transition: background-color var(--motion-instant) var(--ease-standard), color var(--motion-instant) var(--ease-standard);
+}
+.wctl-btn:hover { background: #ffffff14; color: var(--text); }
+.wctl-btn:active { background: #ffffff0a; }
+.wctl-btn.is-close:hover { background: #c42b1c; color: #fff; }
+.wctl-btn:focus-visible { box-shadow: inset var(--ring); }
+.wctl-restore { display: none; }
+body[data-maximized="1"] .wctl-max { display: none; }
+body[data-maximized="1"] .wctl-restore { display: block; }
+
+/* ===========================================================================
+   2. ACTIVITY STRIP
+   ONE clean context line for the active workflow, never a row of competing
+   items. The primary context gets the state word, the name, one metadata line,
+   its progress and its actions; everything else that is live collapses to a
+   chip in .as-alts and comes forward when it is clicked. The engine chip and
+   the log count stay small, at the end. The update notice is its own row.
+   ======================================================================== */
+.astrip {
+  flex: 0 0 auto; display: flex; flex-direction: column;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.astrip-row {
+  display: flex; align-items: center; gap: var(--s3);
+  min-height: var(--h-astrip); padding: 0 var(--s2) 0 var(--s3);
+}
+/* Nothing is running: the strip shrinks out of the way rather than shouting a
+   placeholder at the same weight as a real job. */
+.astrip[data-state="idle"] { --h-astrip: var(--h-astrip-idle); }
+
+/* --- the one primary context ------------------------------------------- */
+.as-ctx { display: flex; align-items: center; gap: var(--s3); flex: 1 1 auto; min-width: 0; }
+.as-ctx-main {
+  display: flex; align-items: center; gap: var(--s3);
+  flex: 0 1 auto; min-width: 0; height: 100%; padding: 4px var(--s2);
+  border: 0; border-radius: var(--r-sm); background: transparent;
+  color: var(--text-2); text-align: left; cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.as-ctx-main:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.as-ctx-main:focus-visible { box-shadow: var(--ring); }
+.as-ctx-main:disabled { cursor: default; }
+
+.as-ctx-badge {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 26px; height: 26px; border-radius: var(--r-pill);
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  transition: border-color var(--motion-normal) var(--ease-standard);
+}
+.as-ctx.is-live .as-ctx-badge { border-color: var(--accent-line); background: var(--accent-soft); }
+.astrip[data-state="idle"] .as-ctx-badge { display: none; }
+
+.as-ctx-lines { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.as-ctx-head { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+/* Ordinary sentence text in the body font. The reference frames read
+   "Forging", "Now Playing", "Editing" -- not a tracked-out mono micro-label. */
+.as-ctx-state {
+  flex: 0 0 auto; font: 600 var(--t2)/1.3 var(--font-body); color: var(--text-2);
+}
+.as-ctx.is-live .as-ctx-state { color: var(--accent); }
+.as-ctx.is-quiet .as-ctx-state { color: var(--text-3); }
+.as-ctx-name {
+  flex: 0 1 auto; min-width: 0;
+  font: 600 var(--t2)/1.3 var(--font-body); color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.as-ctx.is-quiet .as-ctx-name { color: var(--text-2); font-weight: 500; }
+/* The metadata is a SECOND LINE, which is the whole reason nothing on this row
+   has to be truncated any more: it is no longer competing with the name, the
+   progress bar and the actions for the same horizontal run. */
+.as-ctx-meta {
+  min-width: 0; color: var(--text-3);
+  font: 500 var(--t1)/1.3 var(--font-body);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.as-ctx-meta:empty { display: none; }
+.astrip[data-state="idle"] .as-ctx-lines { flex-direction: row; align-items: baseline; gap: var(--s2); }
+
+.as-ctx-bar { flex: 1 1 auto; min-width: 90px; max-width: 660px; }
+
+/* --- the other live contexts, one chip each ------------------------------ */
+.as-alts { display: flex; align-items: center; gap: var(--s1); flex: 0 0 auto; }
+.as-alt {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--h-ctl-sm); padding: 0 10px;
+  background: var(--surface-2); color: var(--text-2);
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  cursor: pointer; white-space: nowrap;
+  font: 600 var(--t1)/1 var(--font-body);
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+.as-alt:hover { background: var(--surface-3); color: var(--text); border-color: var(--line-2); }
+.as-alt:focus-visible { box-shadow: var(--ring); }
+.as-alt.is-live { border-color: var(--accent-line); color: var(--text); }
+
+/* --- the primary context's own actions ---------------------------------- */
+.as-acts { display: flex; align-items: center; gap: var(--s1); flex: 0 0 auto; }
+.as-acts:empty { display: none; }
+
+/* --- status chips: small, and at the end -------------------------------- */
+.as-chips { display: flex; align-items: center; gap: var(--s1); flex: 0 0 auto; margin-left: auto; }
+.as-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--h-ctl-sm); padding: 0 10px; border-radius: var(--r-pill);
+  background: transparent; color: var(--text-3);
+  border: 1px solid transparent; cursor: pointer;
+  font: 500 var(--t1)/1 var(--font-body); white-space: nowrap;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+.as-chip:hover { background: var(--surface-2); color: var(--text); border-color: var(--line); }
+.as-chip:focus-visible { box-shadow: var(--ring); }
+.as-chip.is-ok { color: var(--text-2); }
+.as-chip.is-warn { color: var(--warn); }
+.as-chip.is-err { color: var(--err); }
+
+/* --- the log's one remaining affordance on the strip -------------------- */
+/* The log lives in its own tab now. What stays here is discoverability: an
+   error must be findable from any tab, and this switches to that tab. */
+.as-errors {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--h-ctl-sm); padding: 0 10px; border-radius: var(--r-pill);
+  background: transparent; color: var(--err);
+  border: 1px solid transparent; cursor: pointer;
+  font: 500 var(--t1)/1 var(--font-body); white-space: nowrap;
+  transition: background-color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+.as-errors:hover { background: var(--err-soft); border-color: #5a2a2a; }
+.as-errors:focus-visible { box-shadow: var(--ring); }
+.as-err-count {
+  padding: 0 5px; border-radius: var(--r-pill);
+  background: var(--err-soft); color: var(--err);
+  font: 600 var(--t1)/1.5 var(--font-mono);
+}
+.as-err-txt { color: var(--text-3); }
+
+/* --- update notice: its own transient row ------------------------------- */
+/* It arrives without warning, so it never takes horizontal space away from the
+   context line. It is a full-width band under it, and it leaves the same way.
+   The version chip in the titlebar carries the same news quietly. */
+.as-update {
+  display: flex; align-items: center; gap: var(--s2);
+  min-height: 34px; padding: 4px var(--s2) 4px var(--s3);
+  border-top: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+}
+.as-upd-mark { color: var(--accent); display: flex; flex: 0 0 auto; }
+.as-upd-text { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; flex: 1 1 auto; }
+.as-upd-title { font: 600 var(--t2)/1.3 var(--font-body); color: var(--text); white-space: nowrap; }
+.as-upd-sub {
+  min-width: 0; font: 500 var(--t1)/1.3 var(--font-body); color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.as-upd-bar { width: 120px; flex: 0 0 auto; }
+
+/* ===========================================================================
+   3. TAB STAGE
+   Panels are position:absolute and toggled with [hidden]; the transition is
+   opacity + a 2-3px vertical nudge, never a horizontal page slide.
+   ======================================================================== */
+.stage { position: relative; flex: 1 1 auto; min-height: 0; background: var(--bg); }
+.tabframe {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  border: 0; background: var(--bg);
+  opacity: 0; transform: translateY(3px);
+  transition: opacity var(--motion-normal) var(--ease-standard), transform var(--motion-normal) var(--ease-standard);
+}
+.tabframe.is-active { opacity: 1; transform: translateY(0); z-index: 2; }
+.tabframe.is-leaving { opacity: 0; transform: translateY(-2px); z-index: 1; pointer-events: none; }
+/* An <iframe> can composite above a parent fixed overlay, so a panel must be
+   taken out of the picture while the palette, the settings sheet or the drop
+   veil is up. shell.js also stamps data-onscreen="0" on it, which parks its
+   draw loop instead of letting it render frames nobody can see. */
+body.is-covered .tabframe { visibility: hidden; }
+
+/* ===========================================================================
+   4. BOTTOM TRANSPORT
+   Artwork + title + subtitle on the left; the scrub line and the transport
+   buttons stacked and centred; discrete Tempo and Transpose steppers and a
+   volume slider on the right. No uppercase mono slider labels anywhere.
+   ======================================================================== */
+.xport {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s4);
+  height: var(--h-xport); padding: 0 var(--s3);
+  background: #1a1b20; border-top: 1px solid var(--line);
+}
+.xport[data-owner=""] .xp-name { color: var(--text-3); }
+
+.xp-now { display: flex; align-items: center; gap: var(--s2); flex: 1 1 260px; min-width: 132px; }
+.xp-art {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: var(--r-sm);
+  display: grid; place-items: center;
+  background: var(--bg-2); border: 1px solid var(--line-2); color: var(--text-3);
+  transition: color var(--motion-normal) var(--ease-standard), border-color var(--motion-normal) var(--ease-standard);
+}
+.xport.is-live .xp-art { color: var(--accent); border-color: var(--accent-line); }
+.xp-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 0 1 auto; }
+.xp-name { font: 600 var(--t2)/1.3 var(--font-body); color: var(--text); }
+.xp-sub { font: 500 var(--t1)/1.3 var(--font-body); color: var(--text-3); }
+.xp-status { flex: 0 0 auto; }
+
+/* The centre block. `flex: 0 1 auto` with an explicit basis, and the two side
+   blocks growing, is what keeps the buttons optically centred in the window
+   whatever the song title does. */
+.xp-center {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  flex: 0 1 640px; min-width: 260px;
+}
+
+/* No hard min-width: the default `min-width: auto` on a flex item IS its
+   min-content width, and that is the only floor that stays correct when the
+   clocks get wider (a literal 140px was narrower than two clocks plus a scrub,
+   and with "show milliseconds" on it would have been wrong by even more). */
+.xp-time { display: flex; align-items: center; gap: var(--s3); width: 100%; }
+.xp-clock { flex: 0 0 auto; font-size: var(--t1); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.xp-clock.is-total { color: var(--text-3); }
+.xp-scrub { flex: 1 1 auto; min-width: 48px; }
+
+.xp-buttons { display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto; }
+.xp-play {
+  position: relative; width: 34px; height: 34px; border-radius: var(--r-pill);
+  background: var(--surface-2); border-color: var(--line-2); color: var(--text);
+}
+.xp-play:hover:not(:disabled) { background: var(--surface-3); }
+.xport.is-live .xp-play { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.xport.is-live .xp-play:hover:not(:disabled) { background: var(--accent-2); }
+/* the two glyphs are stacked and cross-faded, so the button DOM never changes */
+.xp-play-ic {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+.xp-play-ic.is-pause { opacity: 0; transform: scale(.86); }
+.xp-play-ic.is-play  { opacity: 1; transform: scale(1); }
+.xp-play[data-mode="pause"] .xp-play-ic.is-play  { opacity: 0; transform: scale(.86); }
+.xp-play[data-mode="pause"] .xp-play-ic.is-pause { opacity: 1; transform: scale(1); }
+.xp-b:disabled, .xp-play:disabled { opacity: .35; }
+#xp-repeat { position: relative; }
+/* "repeat one" is marked by a drawn 1 inside the icon's own 16-unit grid, not by
+   a 9px text badge: the type scale bottoms out at 12px, and a 12px digit in the
+   corner of a 24px button would sit on top of the arrows. The word is still in
+   the button's aria-label, so the mark is never the only signal. */
+.xp-rep-1 {
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+#xp-repeat[data-repeat="one"] .xp-rep-1 { opacity: 1; stroke: var(--accent); }
+
+/* --- tempo / transpose / volume ----------------------------------------- */
+.xp-right { display: flex; align-items: center; justify-content: flex-end; gap: var(--s3); flex: 1 1 260px; min-width: 0; }
+.xp-knobs { display: flex; align-items: center; justify-content: flex-end; gap: var(--s4); flex: 0 1 auto; min-width: 0; }
+.xp-knob { display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto; }
+/* Ordinary sentence text, sized from the scale. Monospace stays where a real
+   machine value is: the stepper's own number and the volume readout. */
+.xp-knob-k {
+  font: 500 var(--t2)/1.25 var(--font-body); color: var(--text-2);
+  white-space: nowrap;
+}
+.xp-step > input { min-width: 52px; }
+#xp-knob-transpose .stepper > input { min-width: 44px; }
+.xp-knob.is-vol { gap: var(--s2); }
+.xp-vol-ic { display: flex; color: var(--text-3); flex: 0 0 auto; }
+.xp-knob .range { width: 92px; flex: 0 0 auto; }
+.xp-knob-v {
+  min-width: 26px; text-align: right; font-size: var(--t1);
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.xp-knob.is-off { opacity: .4; }
+
+.xp-perch { flex: 0 0 auto; gap: 6px; }
+
+/* The knobs are duplicated in the owning panel, so they are the first thing to
+   give ground when the window is narrow: the two words first, then Transpose
+   entirely. Tempo, the transport buttons, volume and Perch never go. */
+@media (max-width: 1180px) { .xp-knob-k { display: none; } }
+@media (max-width: 1040px) {
+  .xp-knobs { gap: var(--s3); }
+  .xp-knob .range { width: 64px; }
+  .xp-now { flex-basis: 200px; }
+}
+
+/* ===========================================================================
+   NARROW WINDOWS.  The supported minimum is 1040x700 (electron/main.js sets
+   minWidth/minHeight), and at 1040 the titlebar's intrinsic width was ~1173px:
+   nothing in it could shrink, so the row simply grew and pushed the three
+   WINDOW CONTROLS off the right-hand edge of the window -- unreachable, and the
+   whole page 133px wider than the viewport with it.
+
+   What gives way, in order, is duplicated LABELS. Every one of these is a
+   second copy of something the app says elsewhere:
+     the ^1..^5 nav hints  -> also in the command palette and the tooltips
+     the brand tagline     -> decoration
+     "Search" + Ctrl K     -> the field keeps its magnifier and its aria-label
+   No control is ever removed, and the window buttons never move.
+   ======================================================================== */
+@media (max-width: 1160px) { .brand-tag { display: none; } }
+@media (max-width: 1100px) {
+  .tb-search { padding: 0 7px; }
+  .tb-search-txt, .tb-search .kbd-seq { display: none; }
+}
+
+/* A last-resort safety net BELOW the supported minimum (a forced resize, a
+   200% display scale): the nav shrinks and its labels ellipsise rather than
+   shoving the window controls off screen again. */
+.tbar-nav { flex: 0 1 auto; min-width: 0; }
+.nav-item { min-width: 0; }
+.nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The strip carries ONE context now, so there is far less to give up when the
+   window narrows -- and what is left is ordered by how much of it is a second
+   copy of something else. The alt chips are the first to lose their words (the
+   dot and the tooltip still say which is which), then the progress bar, which
+   the bottom transport's scrub shows anyway. The name, the state word and the
+   actions never go. */
+@media (max-width: 1240px) { .as-ctx-bar { max-width: 320px; } }
+@media (max-width: 1120px) {
+  .as-alt-t { display: none; }
+  .as-alt { padding: 0 8px; }
+  .as-err-txt { display: none; }
+}
+@media (max-width: 1060px) { .as-ctx-bar { display: none; } }
+
+/* The toast host is `bottom: var(--s4)` in ui.css, which is correct for a page
+   with nothing pinned to its bottom edge. The shell has the transport there, so
+   a toast sat ON TOP of the Perch button and the volume knob -- 16px from the
+   window's bottom edge is 40px INTO a 56px transport. It clears the bar here,
+   where the bar's height is known. The contract already says "above the
+   transport"; this is what makes that true. */
+.toasts { bottom: calc(var(--h-xport) + var(--s3)); }
+
+/* --- a panel that could not load ---------------------------------------- */
+.tab-fallback {
+  position: absolute; inset: 0; z-index: 3;
+  background: var(--bg);
+}
+
+/* ===========================================================================
+   5. COMMAND PALETTE
+   ======================================================================== */
+.pal-scrim {
+  position: fixed; inset: 0; z-index: var(--z-scrim);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 12vh var(--s6) var(--s6);
+  background: #0a0b0dcc;
+  opacity: 0; transition: opacity 140ms var(--ease-standard);
+}
+.pal-scrim.is-open { opacity: 1; }
+.pal {
+  display: flex; flex-direction: column; min-height: 0;
+  width: min(640px, 100%); max-height: 100%;
+  background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: var(--r-lg); box-shadow: var(--sh-pop);
+  opacity: 0; transform: translateY(-6px) scale(.99);
+  transition: opacity 140ms var(--ease-enter), transform 140ms var(--ease-enter);
+}
+.pal-scrim.is-open > .pal { opacity: 1; transform: translateY(0) scale(1); }
+.pal-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--s2);
+  height: var(--h-ctl-xl); padding: 0 var(--s3);
+  border-bottom: 1px solid var(--line); color: var(--text-3);
+}
+.pal-input {
+  flex: 1 1 auto; min-width: 0; height: 100%;
+  background: transparent; border: 0; outline: none; color: var(--text);
+  font: 500 var(--t3)/1 var(--font-body);
+}
+.pal-input::placeholder { color: var(--text-3); }
+/* The palette body reuses .menu / .menu-item, so it has to undo the parts of
+   .menu that exist for a floating context menu: fixed position, the 320px cap,
+   its own surface, and the open/close transform. */
+.pal-list {
+  position: static; display: block;
+  min-width: 0; max-width: none; width: auto;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: var(--s1) 0; margin: 0;
+  background: transparent; border: 0; border-radius: 0; box-shadow: none;
+  opacity: 1; transform: none; transition: none;
+}
+.pal-list .menu-item { border-radius: 0; height: 30px; padding: 0 var(--s3); }
+.pal-list .menu-label { padding: 9px var(--s3) 4px; }
+/* The date + path is a SIBLING of the label, not a child of it. Nested inside
+   .menu-text (which truncates with an ellipsis) a long song name ate the whole
+   box and the secondary line was clipped out of existence -- and it escaped that
+   box on the way. Both parts now shrink and ellipsise on their own, and the
+   keys are pinned right by an auto margin instead of by the label growing. */
+.pal-list .menu-item > .menu-text { flex: 0 1 auto; }
+.pal-list .menu-key { margin-left: auto; }
+.pal-row-sub {
+  flex: 0 1 auto; min-width: 3ch; margin-left: 6px; margin-right: auto;
+  color: var(--text-3); font-size: var(--t1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pal-empty { flex: 1 1 auto; }
+.pal-foot {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+  padding: 6px var(--s3); border-top: 1px solid var(--line);
+  color: var(--text-3); font-size: var(--t1);
+}
+.pal-foot-t { margin-right: var(--s3); }
+.pal-foot .kbd-seq { margin-right: 2px; }
+
+/* ===========================================================================
+   6. SETTINGS SHEET
+   ======================================================================== */
+.set-body { display: grid; grid-template-columns: var(--w-setnav) minmax(0, 1fr); min-height: 0; }
+.set-nav {
+  display: flex; flex-direction: column; gap: 2px; padding: var(--s3) var(--s2);
+  background: var(--bg-2); border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+.set-nav > button {
+  position: relative; text-align: left;
+  padding: 7px 10px; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-2); cursor: pointer;
+  font: 600 var(--t2)/1.3 var(--font-body);
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.set-nav > button:hover { background: var(--surface-2); color: var(--text); }
+.set-nav > button[aria-selected="true"] { background: var(--accent-soft); color: var(--text); }
+.set-nav > button[aria-selected="true"]::before {
+  content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px;
+  background: var(--accent); border-radius: 1px;
+}
+.set-nav > button:focus-visible { box-shadow: var(--ring); }
+
+.set-panes { padding: var(--s5) var(--s5) var(--s8); min-width: 0; }
+.set-pane { display: flex; flex-direction: column; gap: var(--s6); }
+.set-sec { display: flex; flex-direction: column; gap: var(--s3); }
+.set-sec-h { display: flex; flex-direction: column; gap: 3px; }
+.set-sec-h h3 {
+  margin: 0; font: 600 var(--t3)/1.25 var(--font-body);
+  letter-spacing: 0; color: var(--text);
+}
+.set-sec-h p { margin: 0; color: var(--text-2); font-size: var(--t2); max-width: 56ch; line-height: 1.5; }
+.set-sec.is-danger { padding-top: var(--s3); border-top: 1px solid var(--line); }
+
+.set-row { display: grid; grid-template-columns: minmax(96px, 150px) minmax(0, 1fr); gap: var(--s3); align-items: center; }
+.set-key { color: var(--text-2); font-size: var(--t2); min-width: 0; }
+.set-val { min-width: 0; display: flex; align-items: center; gap: var(--s2); }
+.set-val > .selectwrap, .set-val > .segmented { flex: 1 1 auto; }
+.set-out { min-width: 46px; text-align: right; color: var(--accent); font-size: var(--t1); font-variant-numeric: tabular-nums; }
+.set-note { margin: 0; color: var(--text-3); font-size: var(--t1); line-height: 1.5; max-width: 62ch; }
+.set-actions { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.set-list { display: flex; flex-direction: column; gap: 4px; }
+.set-list-row {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: 4px 4px 4px 8px; min-height: var(--h-ctl-sm);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.set-list-row .pathchip { flex: 1 1 auto; min-width: 0; }
+.set-color {
+  width: 40px; height: var(--h-ctl-sm); padding: 0;
+  background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.set-color::-webkit-color-swatch-wrapper { padding: 2px; }
+.set-color::-webkit-color-swatch { border: 0; border-radius: 2px; }
+
+/* accent swatch inside a segment: the choice is a real mark, not just a word */
+.segmented > button > .sw {
+  width: 8px; height: 8px; border-radius: 2px; margin-right: 6px;
+  display: inline-block; flex: 0 0 auto;
+}
+.sw[data-sw="lime"]    { background: #b8e62e; }
+.sw[data-sw="cyan"]    { background: #2bd4e6; }
+.sw[data-sw="indigo"]  { background: #6c8cff; }
+.sw[data-sw="magenta"] { background: #ff5db0; }
+.sw[data-sw="amber"]   { background: #ffb02e; }
+
+/* the 3x3 park pad */
+.park { display: grid; grid-template-columns: repeat(3, 34px); grid-auto-rows: 26px; gap: 3px; }
+.park > button {
+  border: 1px solid var(--line-2); border-radius: 3px;
+  background: var(--bg-2); cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+.park > button::before {
+  content: ""; display: block; width: 12px; height: 8px; border-radius: 1px;
+  background: var(--line-2); margin: 2px;
+  transition: background-color var(--motion-fast) var(--ease-standard);
+}
+.park > button:nth-child(3n+2)::before { margin-left: auto; margin-right: auto; }
+.park > button:nth-child(3n)::before { margin-left: auto; }
+.park > button:nth-child(n+4)::before { margin-top: 7px; }
+.park > button:nth-child(n+7)::before { margin-top: 12px; margin-bottom: 2px; }
+.park > button:hover { border-color: var(--accent-line); background: var(--accent-soft); }
+.park > button:hover::before { background: var(--accent); }
+.park > button:focus-visible { box-shadow: var(--ring); }
+
+.set-about { display: flex; align-items: center; gap: var(--s3); padding-bottom: var(--s2); }
+.set-about-name { font: 700 var(--t4)/1.1 var(--font-display); letter-spacing: 2.4px; color: var(--text); }
+.set-about-tag { font: 500 var(--t2)/1.4 var(--font-body); color: var(--text-3); }
+
+@media (max-width: 720px) {
+  .set-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .set-nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .set-nav > button[aria-selected="true"]::before { left: 6px; right: 6px; top: auto; bottom: 0; width: auto; height: 2px; }
+}
+
+/* ===========================================================================
+   7. BOOT SPLASH
+   The window's backgroundColor is already --bg, so this is the first thing
+   ever painted: no white frame, no unpainted Chromium surface.
+   ======================================================================== */
+.splash {
+  position: fixed; inset: 0; z-index: 95;
+  display: grid; place-items: center;
+  background: var(--bg);
+  opacity: 1;
+  transition: opacity 200ms var(--ease-exit);
+}
+.splash-inner { display: flex; flex-direction: column; align-items: center; gap: var(--s4); }
+.splash-mark {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 9px;
+  transform: scale(1); opacity: 1;
+  transition: transform 200ms var(--ease-exit), opacity 200ms var(--ease-exit);
+}
+/* The lockup arrives once: scale + opacity, no width/height, no loop. Its
+   natural size is 600px, so 300 is a 2x-clean display size. */
+.splash-logo {
+  display: block; width: 300px; height: auto;
+  animation: logo-in 440ms var(--ease-enter) both;
+}
+@keyframes logo-in {
+  from { opacity: 0; transform: scale(.94); }
+  to   { opacity: 1; transform: none; }
+}
+/* a thin lime line sweeps under the mark, once */
+.splash-sweep {
+  width: 300px; height: 1px; background: var(--line-2); position: relative; overflow: hidden;
+}
+.splash-sweep::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  transform: translateX(-100%);
+  animation: sweep 720ms 220ms var(--ease-standard) both;
+}
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+/* The lockup carries the wordmark itself, so only the tagline is text here. */
+.splash-word { text-align: center; opacity: 0; animation: fade-up 300ms 320ms var(--ease-enter) both; }
+.splash-tag { font: 500 var(--t2)/1.4 var(--font-body); color: var(--text-3); }
+@keyframes fade-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.splash-status {
+  font: 500 var(--t1)/1 var(--font-mono); letter-spacing: .6px;
+  color: var(--text-3); text-transform: lowercase;
+  opacity: 0; animation: fade-up 260ms 460ms var(--ease-enter) both;
+}
+
+/* Handover, and the short-circuit for a fast boot: the artwork snaps to its
+   settled state instead of waiting out the arrival. */
+.splash.is-settled .splash-logo,
+.splash.is-out .splash-logo { animation: none; transform: none; opacity: 1; }
+.splash.is-settled .splash-word, .splash.is-settled .splash-status,
+.splash.is-out .splash-word, .splash.is-out .splash-status { animation: none; opacity: 1; }
+.splash.is-settled .splash-sweep::after, .splash.is-out .splash-sweep::after { animation: none; opacity: 0; }
+.splash.is-out { opacity: 0; pointer-events: none; }
+.splash.is-out .splash-mark { transform: scale(.96); opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* A plain short fade, and nothing left mid-transform: the blanket kill switch
+     collapses an animation to one ~0ms iteration and leaves it at its END
+     frame, so every one of these needs its static form spelt out. */
+  .splash-logo, .splash-word, .splash-status { animation: none !important; opacity: 1; transform: none; }
+  .splash-logo { transition: opacity 120ms linear; }
+  .splash-sweep::after { animation: none !important; opacity: 0; }
+  .nav-ind { transition: none; }
+}
+
+/* ===========================================================================
+   8. HAND-OFF CONTINUITY CUE
+   The target tab is marked for a moment so the eye follows the file across.
+   ======================================================================== */
+.nav-item.is-cue { color: var(--text); }
+.nav-item.is-cue 
+/* ===========================================================================
+   9. WHAT'S NEW
+   A .dlg with a reading column inside it. Section headings are title case in
+   the BODY font, exactly like the rest of the app's prose: the only monospace
+   here is on genuine machine values -- the version string, the date and the
+   per-section count.
+   ======================================================================== */
+/* The dialog IS the measure: a 68ch column inside an 880px sheet left two
+   thirds of the sheet empty and made the bullets look like a stray paragraph. */
+.wn { width: min(580px, 100%); max-height: min(760px, 100%); }
+/* The body is focused on open so PageDown and the arrow keys scroll the notes.
+   A scroll container is not a control, so it must not draw the focus ring --
+   and the ring here is a box-shadow, so clearing `outline` alone did nothing. */
+.wn-body:focus, .wn-body:focus-visible { outline: none; box-shadow: none; }
+.wn-head { align-items: flex-start; gap: var(--s3); padding: var(--s4); }
+.wn-mark {
+  flex: 0 0 auto; width: 34px; height: 34px; margin-top: 1px;
+  display: flex; align-items: center; justify-content: center;
+}
+.wn-mark .brand-img { width: 34px; height: 34px; }
+.wn-titles { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wn-eyebrow { font: 500 var(--t1)/1.2 var(--font-body); color: var(--text-3); }
+.wn-title { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; font-size: var(--t4); }
+.wn-ver { font: 600 var(--t4)/1.15 var(--font-mono); color: var(--text); letter-spacing: -.2px; }
+.wn-name { font: 500 var(--t3)/1.2 var(--font-body); color: var(--text-2); }
+.wn-name:empty { display: none; }
+.wn-date {
+  flex: 0 0 auto; align-self: center;
+  font: 400 var(--t1)/1.35 var(--font-mono); color: var(--text-3); white-space: nowrap;
+}
+.wn-date:empty { display: none; }
+
+.wn-body { padding: 0 var(--s4) var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
+.wn-modes { align-self: flex-start; margin-top: var(--s1); }
+.wn-offer { margin: 0; }
+
+/* The reading column. Bullets in a changelog are sentences, so they get prose
+   line-height and a measure that stops the eye running off the end of a line. */
+.wn-sections { display: flex; flex-direction: column; gap: var(--s4); }
+.wn-intro { margin: 0; font: 400 var(--t2)/1.6 var(--font-body); color: var(--text-2); }
+.wn-sec { display: flex; flex-direction: column; gap: var(--s2); }
+.wn-sec-h {
+  margin: 0; display: flex; align-items: baseline; gap: var(--s2);
+  font: 600 var(--t3)/1.2 var(--font-body); color: var(--text);
+  padding-bottom: var(--s2); border-bottom: 1px solid var(--line);
+}
+/* A count is a machine value, so it is mono -- the heading beside it is not. */
+.wn-sec-n { font: 400 var(--t1)/1.35 var(--font-mono); color: var(--text-3); }
+.wn-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s2); }
+.wn-item {
+  position: relative; padding-left: var(--s4);
+  font: 400 var(--t2)/1.6 var(--font-body); color: var(--text-2);
+}
+.wn-item::before {
+  content: ""; position: absolute; left: 3px; top: .62em;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--line-2);
+}
+.wn-lead { font-weight: 600; color: var(--text); }
+.wn-note { margin: 0 0 0 var(--s4); font: 400 var(--t1)/1.5 var(--font-body); color: var(--text-3); }
+.wn-fallback { margin: var(--s5) auto; }
+
+@media (max-width: 720px) {
+  .wn-date { display: none; }
+}

@@ -17,13 +17,38 @@ const { ForgeProvisioner } = require('./forge-provisioner');
 const forgeStorage = require('./forge-storage');
 const library = require('./library');
 const { GameWatch } = require('./gamewatch');
+const fanout = require('./fanout');
 const { Overlay } = require('./overlay');
 const updater = require('./updater');
 
 // Boot diagnostics, a packaged GUI app has no console; this captures startup
 // milestones/errors to a file so a silent early exit can be diagnosed.
 const BOOT_LOG = path.join(os.tmpdir(), 'midi-studio-boot.log');
+// The writes stay SYNCHRONOUS: a boot log that loses its last line before a
+// silent early exit is worthless, and that line is the one that matters. What
+// was missing is a bound -- the file accumulated every boot the app had ever
+// had (33KB / 713 lines on this machine after ordinary use, and nothing ever
+// trimmed it). Capped once per launch to the last BOOT_LOG_MAX bytes, cut on a
+// line boundary, so it stays a diagnostic instead of an archive.
+const BOOT_LOG_MAX = 64 * 1024;
+function trimBootLog() {
+  try {
+    if (fs.statSync(BOOT_LOG).size <= BOOT_LOG_MAX) return;
+    const tail = fs.readFileSync(BOOT_LOG, 'utf-8').slice(-BOOT_LOG_MAX);
+    fs.writeFileSync(BOOT_LOG, tail.slice(tail.indexOf('\n') + 1), 'utf-8');
+  } catch (_) { /* a diagnostic must never be able to stop the app booting */ }
+}
 function blog(m) { try { fs.appendFileSync(BOOT_LOG, `${Date.now()} ${m}\n`); } catch (_) {} }
+// The splash shows REAL initialisation state, never a fake percentage. These
+// are the milestones main actually passes; the renderer collects the ones that
+// fired before it subscribed through app:bootState, then follows the channel.
+const bootSteps = [];
+function bootMark(step, label) {
+  if (bootSteps.some((s) => s.step === step)) return;
+  bootSteps.push({ step, label, t: Date.now() });
+  blog(`boot:${step}`);
+  sendToRenderer('boot-milestone', { step, label });
+}
 blog(`--- boot --- packaged=${app.isPackaged} resources=${process.resourcesPath} argv=${process.argv.slice(1).join(' ')}`);
 
 // Self Midi / Midi Editor keep playing while you are in the game window.
@@ -34,6 +59,14 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 const OPEN_DEVTOOLS = process.argv.includes('--dev');
 const POST_UPDATE = process.argv.includes('--post-update');
+// The project's releases page. The What's New screen's "Full changelog" action
+// opens it, so the one spelling of it lives here.
+const RELEASES_URL = 'https://github.com/StarsationX/midi-studio/releases';
+// package.json carries the release NAME ("Graphite"); app.getVersion() carries
+// the number. Both halves are the app's identity, so they are read in one place.
+function releaseName() {
+  try { return String(require('../package.json').releaseName || ''); } catch (_) { return ''; }
+}
 const CONFIGURE_FORGE_INDEX = process.argv.indexOf('--configure-forge-storage');
 const CONFIGURE_FORGE_STORAGE = CONFIGURE_FORGE_INDEX >= 0
   ? String(process.argv[CONFIGURE_FORGE_INDEX + 1] || '').trim()
@@ -60,6 +93,11 @@ function setPlaybackActive(on) {
 }
 let forge = null;
 let provisioner = null;
+// Boot-path work that was moved OFF the boot path (see createServices).
+// Kept as promises so the handlers that genuinely depend on the answer can
+// await it while the window paints without waiting for anything.
+let forgePathsSettled = Promise.resolve();
+let orphanReap = Promise.resolve(0);
 let gameWatch = null;
 let lastReady = null; // cached engine 'ready' so a late-loading tab iframe still syncs
 let overlay = null;
@@ -71,6 +109,27 @@ let lastSongName = '';
 // empty white rectangle, which on a slow machine is what "it opens white and
 // never loads" actually was.
 let winPainted = false;
+// Resolves when the window is on screen.
+//
+// Protective work that nothing on the first frame depends on waits for this,
+// because moving a process spawn OFF the pre-window path is only a win if it
+// does not land on top of the renderer's first paint instead. That distinction
+// is the whole finding here: taking the synchronous orphan reap out of
+// createServices moved `boot:window` from 335ms to 199ms, and moved `painted`
+// by 11ms. 135ms was relocated, not removed. So the reap now waits until the
+// window is up, where there is nothing left to be in front of.
+//
+// The setTimeout is a FALLBACK for the headless --configure-forge-storage path,
+// where no window is ever created and the reap must still happen. It is NOT the
+// mechanism that keeps invariant 10: a job started the instant the window
+// appears cannot race the reap, because forge:run and forge:yt await
+// orphanReap before spawning anything. The timer only guarantees the promise
+// settles; the await guarantees the ordering.
+let markWindowPainted = () => {};
+const windowPainted = new Promise((resolve) => {
+  markWindowPainted = () => { resolve(); markWindowPainted = () => {}; };
+  setTimeout(() => markWindowPainted(), 3000).unref();
+});
 // The last update status, replayed to the renderer when it finishes loading.
 // Pushing it the moment the network answers loses it entirely if the renderer
 // has not subscribed yet, which is normal on a slow machine.
@@ -96,6 +155,12 @@ function deliverOpenPath() {
 
 const gotLock = CONFIGURE_FORGE_INDEX >= 0 || app.requestSingleInstanceLock();
 blog(`gotLock=${gotLock}`);
+// Rotate only in the instance that owns the app. A second launch exits
+// immediately, and if it trimmed the file it would truncate the log out from
+// under the instance that is still appending to it -- losing the first half
+// of a boot that is still in progress, which is the half that explains a
+// silent early exit.
+if (gotLock) trimBootLog();
 
 // ---- frame-aware messaging --------------------------------------------------
 // Push to the MAIN (shell) frame only, used for update-status so the shell owns
@@ -111,14 +176,26 @@ function sendToRenderer(channel, payload) {
 // the main frame, so engine/forge events must be fanned out to subframes or the
 // player + forge tabs never receive anything.
 function broadcast(channel, payload) {
+  // Every path in main that writes a MIDI already broadcasts library-changed,
+  // so this is the one place the cached library scan has to be dropped: adding
+  // it here means a new write site can never forget to.
+  if (channel === 'library-changed') { try { library.invalidate(); } catch (_) {} }
   try {
     if (!win || win.isDestroyed()) return;
     const wc = win.webContents;
     if (wc.isDestroyed()) return;
+    // The shell frame always gets it: it is the frame that owns the app's
+    // chrome and it subscribes to nearly every channel anyway, so filtering it
+    // would buy nothing and is the one send whose delivery must never be in
+    // doubt.
     wc.send(channel, payload);
     const main = wc.mainFrame;
+    // Tab iframes are skipped only when the frame has TOLD us it does not
+    // listen to this channel; a frame that has not reported yet still gets
+    // everything (electron/fanout.js explains why that direction is the safe
+    // one, and it is what keeps invariant 4 true).
     if (main) for (const f of main.framesInSubtree) {
-      if (f !== main) { try { f.send(channel, payload); } catch (_) {} }
+      if (f !== main && fanout.frameWants(f, channel)) { try { f.send(channel, payload); } catch (_) {} }
     }
   } catch (_) {}
   // Perch is a separate window, so the frame walk above never reaches it.
@@ -127,19 +204,27 @@ function broadcast(channel, payload) {
 
 // List every .mid/.midi in a folder (one level of subfolders), for the player's
 // "Songs folder" picker. Capped so a huge tree can't hang the UI.
-function listMidis(dir) {
+//
+// ASYNCHRONOUS on purpose (top_perf_items 6). This used to be a recursive
+// readdirSync executed straight inside the app:listMidis handler -- the second
+// synchronous scanner alongside library:list -- so it froze all IPC and all
+// window input for the length of the walk, including while the Library tab was
+// streaming a scan of its own. The return shape is unchanged: a flat, sorted,
+// case-insensitively ordered path array capped at 1000.
+async function listMidis(dir) {
   if (!dir || !paths.exists(dir)) return [];
   const out = [];
-  const walk = (d, depth) => {
-    let entries; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+  const walk = async (d, depth) => {
+    let entries;
+    try { entries = await fs.promises.readdir(d, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       if (out.length >= 1000) return;
       const full = path.join(d, e.name);
-      if (e.isDirectory()) { if (depth < 1) walk(full, depth + 1); }
+      if (e.isDirectory()) { if (depth < 1) await walk(full, depth + 1); }
       else if (e.isFile() && /\.midi?$/i.test(e.name)) out.push(full);
     }
   };
-  walk(dir, 0);
+  await walk(dir, 0);
   out.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   return out;
 }
@@ -206,7 +291,11 @@ function createWindow() {
     width: wb.width || 1240, height: wb.height || 880, minWidth: 1040, minHeight: 700,
     x: typeof wb.x === 'number' ? wb.x : undefined,
     y: typeof wb.y === 'number' ? wb.y : undefined,
-    backgroundColor: '#0e1014', title: 'MIDI Studio', show: false, autoHideMenuBar: true,
+    // Frameless: the shell draws its own titlebar (drag region + window
+    // controls). backgroundColor is the app's own --bg, so the very first thing
+    // Chromium paints is already the right colour: no white flash, ever.
+    frame: false,
+    backgroundColor: '#141519', title: 'MIDI Studio', show: false, autoHideMenuBar: true,
     // On by default: the usual way to play is with a game on top of this window,
     // and a player you cannot see is not much of a player. Settings turns it off.
     alwaysOnTop: settings.get('ui.alwaysOnTop') !== false,
@@ -220,14 +309,24 @@ function createWindow() {
       backgroundThrottling: false,
     },
   });
+  blog('t:browserwindow');
   win.setMenuBarVisibility(false);
   win.loadFile(paths.rendererIndexHtml());
   win.once('ready-to-show', () => {
     winPainted = true;
+    markWindowPainted();
     if (wb.maximized) win.maximize();
     win.show();
+    bootMark('painted', 'Ready');
+    sendWindowState();
     if (OPEN_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' });
   });
+
+  // A frameless window has to be told what it is: without this the shell's
+  // maximise glyph never becomes a restore glyph.
+  for (const ev of ['maximize', 'unmaximize', 'minimize', 'restore', 'enter-full-screen', 'leave-full-screen', 'focus', 'blur']) {
+    win.on(ev, sendWindowState);
+  }
 
   // The renderer subscribes to update-status as it loads. Anything that
   // arrived before then was sent into the void, so hand it over now.
@@ -283,10 +382,24 @@ function createWindow() {
   // almost the whole window, so a keydown listener in the shell frame never sees
   // them once the user has clicked into a tab.
   win.webContents.on('before-input-event', (e, input) => {
-    if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return;
-    const tab = { 1: 'forge', 2: 'player', 3: 'review', 4: 'audition' }[input.key];
-    if (!tab) return;
-    sendToRenderer('shell-shortcut', { tab });
+    if (input.type !== 'keyDown' || !input.control || input.meta) return;
+    // Ctrl+Alt+L goes to the Logs tab. Checked first, because the tab map below
+    // deliberately ignores Alt.
+    if (input.alt) {
+      if (input.key === 'l' || input.key === 'L') { sendToRenderer('shell-shortcut', { id: 'log' }); e.preventDefault(); }
+      return;
+    }
+    // The nav order is Forge, Editor, Player, Self MIDI, Library, Logs. This map
+    // and the shell's own Ctrl+1..6 handler must always list the same six keys
+    // in the same order, or the two disagree about what Ctrl+3 means.
+    const tab = { 1: 'forge', 2: 'player', 3: 'review', 4: 'audition', 5: 'library', 6: 'logs' }[input.key];
+    if (tab) { sendToRenderer('shell-shortcut', { tab }); e.preventDefault(); return; }
+    // The command palette and the settings sheet belong to the shell, so they
+    // have to come back out of the panel the same way the tab keys do.
+    const id = (input.key === 'k' || input.key === 'K') ? 'palette'
+      : input.key === ',' ? 'settings' : '';
+    if (!id) return;
+    sendToRenderer('shell-shortcut', { id });
     e.preventDefault();
   });
 
@@ -296,8 +409,19 @@ function createWindow() {
   // machine that is usually transient (antivirus still scanning the freshly
   // installed asar), so retry twice before giving up and saying so.
   let loadAttempts = 0;
-  win.webContents.on('did-fail-load', (_e, code, desc, url) => {
+  win.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
     if (code === -3) return; // aborted (normal during reloads)
+    // A panel iframe that fails (a tab whose document is not there yet) must
+    // never trigger the shell's reload recovery: that would reload the whole
+    // app in a loop instead of leaving one tab empty.
+    if (isMainFrame === false) {
+      blog(`panel did-fail-load ${code} ${desc} ${url}`);
+      // The shell covers that panel with its own empty state: a Chromium error
+      // page inside a tab is a white rectangle, which is exactly what "it opens
+      // white" looks like from the outside.
+      sendToRenderer('panel-failed', { url: String(url || ''), code, desc: String(desc || '') });
+      return;
+    }
     loadAttempts += 1;
     blog(`did-fail-load ${code} ${desc} ${url} (attempt ${loadAttempts})`);
     if (loadAttempts <= 2 && win && !win.isDestroyed()) {
@@ -311,7 +435,7 @@ function createWindow() {
   });
 
   const persist = debounce(() => {
-    if (!win) return;
+    if (!win || win.isDestroyed()) return;
     const maximized = win.isMaximized();
     const patch = { window: { maximized } };
     if (!maximized) { const b = win.getBounds(); Object.assign(patch.window, { width: b.width, height: b.height, x: b.x, y: b.y }); }
@@ -319,6 +443,8 @@ function createWindow() {
   }, 400);
   win.on('resize', persist);
   win.on('move', persist);
+  // Closing must not lose the last few hundred milliseconds of settings writes.
+  win.on('close', () => { persist.flush(); flushSettings(); });
   // Perch goes with it. It is skipTaskbar and always on top, so on its own it
   // would be an orphan the user can see but has no way to reach, and it would
   // hold window-all-closed open so the app never quits.
@@ -326,7 +452,44 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
 }
 
-function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+// Trailing-edge debounce with an explicit flush, so a pending write can always
+// be forced out before the process goes away.
+function debounce(fn, ms) {
+  let t = null, last = null;
+  const wrapped = (...a) => { last = a; clearTimeout(t); t = setTimeout(() => { t = null; fn(...last); }, ms); };
+  wrapped.flush = () => { if (!t) return; clearTimeout(t); t = null; fn(...last); };
+  return wrapped;
+}
+
+// The settings store writes the whole file synchronously on every merge, and the
+// callers include Perch drag (every 400ms while moving), the accent picker and
+// app:setUi. Coalesce the writes and guarantee a flush on quit and on window
+// close, so nothing is both slow AND lossy.
+let flushSettings = () => {};
+function installDebouncedSettings(store) {
+  const write = store._write.bind(store);
+  let dirty = false, timer = null;
+  store._write = () => {
+    dirty = true;
+    if (timer) return;
+    timer = setTimeout(() => { timer = null; if (dirty) { dirty = false; write(); } }, 600);
+  };
+  flushSettings = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (dirty) { dirty = false; write(); }
+  };
+}
+
+// The shell's custom titlebar needs to know whether the window is maximised,
+// and needs a way to drive the three window buttons.
+function windowState() {
+  if (!win || win.isDestroyed()) return { maximized: false, minimized: false, fullScreen: false, focused: false };
+  return {
+    maximized: win.isMaximized(), minimized: win.isMinimized(),
+    fullScreen: win.isFullScreen(), focused: win.isFocused()
+  };
+}
+function sendWindowState() { sendToRenderer('window-state', windowState()); }
 
 // ---- services ---------------------------------------------------------------
 function createServices() {
@@ -338,6 +501,7 @@ function createServices() {
     blog(`user mappings dir=${md}`);
   } catch (e) { blog(`ensureUserMappings failed: ${e && e.message}`); }
 
+  blog('t:mappings');
   sidecar = new PlayerSidecar({
     getSettings: () => settings.getAll(),
     onEvent: (payload) => {
@@ -359,10 +523,17 @@ function createServices() {
   // broken on a slow machine (and it is the moment Defender is scanning the
   // freshly installed files). The Player tab needs it, not the splash.
   setTimeout(() => {
+    bootMark('engine', 'Starting MIDI engine');
     Promise.resolve(sidecar.start()).catch((e) => broadcast('engine-error', `Player engine failed to start: ${e && e.message || e}`));
   }, 1200);
 
+  blog('t:sidecar-ctor');
   const forgeEmit = (payload) => {
+    // Setup changes what a capability probe would answer, so the cached
+    // verdict must not outlive it (see ForgeRunner.check).
+    if (payload && String(payload.event || '').startsWith('forge.provision.')) {
+      try { forge.invalidateCheck(); } catch (_) {}
+    }
     // Move each finished transcription into the program's output folder so they
     // collect in one place, then tell the player to re-scan.
     if (payload && payload.event === 'forge.done' && payload.ok && payload.result && payload.result.midiPath) {
@@ -418,6 +589,7 @@ function createServices() {
     getSettings: () => Object.assign({}, settings.forgePaths(), { performance: performanceSettings() }) });
   // While a game is up, this app is the guest: idle priority, smaller batches,
   // and the renderer drops to its limited draw rate.
+  blog('t:forge-ctor');
   gameWatch = new GameWatch((game) => {
     gameUp = !!game;
     const rule = performanceSettings().whenGaming;
@@ -431,15 +603,43 @@ function createServices() {
   });
   // Nothing needs to know about a running game in the first seconds.
   setTimeout(() => gameWatch.start(), 8000);
-  try { adoptInstallerForgePath(); } catch (e) { blog(`adopt forge path failed: ${e.message}`); }
-  try { recoverForgeEnv(); } catch (e) { blog(`forge env recovery failed: ${e.message}`); }
+  blog('t:gamewatch-ctor');
+  // Neither block below has anything to do with the first frame, and both used
+  // to spawn a process SYNCHRONOUSLY right here, before the window existed:
+  // reg.exe at ~24ms, and tasklist at 107-342ms PER stale pid (320ms for three,
+  // measured in benchmarks/main-perf.js). They now run alongside window
+  // creation, and the handlers that need the answer await the promise instead
+  // of the boot path waiting for it.
+  //
+  // forgePathsSettled: which folder Forge lives in. Awaited by every handler
+  // that reports or uses a Forge path, so nothing can observe a pre-adoption
+  // value. The window itself does not care which folder it is.
+  forgePathsSettled = adoptInstallerForgePath()
+    .catch((e) => blog(`adopt forge path failed: ${e && e.message}`))
+    .then(() => {
+      blog('t:adopt-forge-path');
+      try { recoverForgeEnv(); } catch (e) { blog(`forge env recovery failed: ${e.message}`); }
+      blog('t:recover-forge-env');
+    });
   // A previous run that was force-killed can leave a Forge job pinning the GPU.
-  try {
-    const reaped = reapOrphanJobs();
-    if (reaped) { blog(`reaped ${reaped} orphaned forge job(s)`); setTimeout(() =>
-      broadcast('forge:status', { event: 'forge.log', line: `Stopped ${reaped} leftover Forge job${reaped === 1 ? '' : 's'} from a previous session.`, level: 'info' }), 1500); }
-  } catch (e) { blog(`reap failed: ${e.message}`); }
+  // INVARIANT 10 still holds: the reap must complete before a NEW job starts,
+  // which is why forge:run and forge:yt await orphanReap. Nothing else needs to.
+  // The splash mark is here because this is where the app takes responsibility
+  // for leftover jobs; the reap itself runs once the window is on screen (see
+  // windowPainted). It still completes within a second of launch, and the
+  // ordering that matters is enforced by the await in forge:run, not by when
+  // this happens to start.
+  bootMark('jobs', 'Checking background jobs');
+  orphanReap = windowPainted.then(reapOrphanJobs).then((reaped) => {
+    blog('t:reap-orphans');
+    if (reaped) {
+      blog(`reaped ${reaped} orphaned forge job(s)`);
+      setTimeout(() => broadcast('forge:status', { event: 'forge.log', line: `Stopped ${reaped} leftover Forge job${reaped === 1 ? '' : 's'} from a previous session.`, level: 'info' }), 1500);
+    }
+    return reaped;
+  }).catch((e) => { blog(`reap failed: ${e && e.message}`); return 0; });
   provisioner = new ForgeProvisioner({ emit: forgeEmit, getSettings: () => settings.forgePaths(), settings });
+  blog('t:provisioner-ctor');
 }
 
 // ---- IPC --------------------------------------------------------------------
@@ -497,7 +697,7 @@ function performanceSettings() {
 // tenth of that. Warning about 15 GB on a CPU machine sends people hunting for
 // space setup does not need. Mirrors MIN_FREE_GB_START* in provision_forge.py.
 function forgeNeedGb() {
-  const sys = process.env.SystemRoot || 'C:\Windows';
+  const sys = process.env.SystemRoot || 'C:\\Windows';
   try { return fs.existsSync(path.join(sys, 'System32', 'nvcuda.dll')) ? 15 : 6; }
   catch (_) { return 15; }
 }
@@ -514,16 +714,28 @@ function forgeInfo() {
 // The installer records the folder the user picked; the app applies it on its
 // first run. (It used to be applied by the installer launching the app, which
 // caused install-time failures.)
-function adoptInstallerForgePath() {
+// ASYNCHRONOUS on purpose: this is a process spawn (24ms mean / 30ms max
+// measured, with a 5000ms timeout that a hung registry call would have spent
+// blocking the window). Nothing on the first frame depends on which folder
+// Forge is stored in, so the read overlaps window creation and every consumer
+// of a Forge path awaits forgePathsSettled instead.
+function regQueryForgeStorageDir() {
+  return new Promise((resolve) => {
+    try {
+      execFile('reg.exe', ['query', 'HKCU\\Software\\StarsationX\\MIDI Studio', '/v', 'ForgeStorageDir'],
+        { windowsHide: true, timeout: 5000 }, (error, stdout) => {
+          if (error) { resolve(''); return; }
+          const match = /ForgeStorageDir\s+REG_SZ\s+(.+)/i.exec(String(stdout || ''));
+          resolve(match ? match[1].trim() : '');
+        });
+    } catch (_) { resolve(''); }
+  });
+}
+
+async function adoptInstallerForgePath() {
   if (process.platform !== 'win32') return;
   if (settings.forgePaths().forgeEnvDir) return;         // an explicit choice already exists
-  let chosen = '';
-  try {
-    const out = spawnSync('reg.exe', ['query', 'HKCU\Software\StarsationX\MIDI Studio', '/v', 'ForgeStorageDir'],
-      { windowsHide: true, encoding: 'utf-8', timeout: 5000 });
-    const match = /ForgeStorageDir\s+REG_SZ\s+(.+)/i.exec(out.stdout || '');
-    chosen = match ? match[1].trim() : '';
-  } catch (_) { return; }
+  const chosen = await regQueryForgeStorageDir();
   if (!chosen) return;
   const current = paths.forgeEnvDir(settings.forgePaths());
   if (forgeStorage.samePath(chosen, current)) return;
@@ -800,32 +1012,97 @@ function wireIpc() {
       return { ok: true, path: r.filePath };
     } catch (error) { return { ok: false, error: String(error.message || error) }; }
   });
-  // ---- Self Midi library ----------------------------------------------------
-  const libraryDirs = () => {
-    const extra = (settings.get('library.dirs') || []).filter((d) => typeof d === 'string' && d);
-    return [programOutputDir(), path.join(os.homedir(), 'Documents', 'MIDI Studio'), ...extra];
+  // ---- MIDI library: the Library tab's data surface -------------------------
+  // The scan is asynchronous and coalesced now (electron/library.js): the old
+  // synchronous recursive walk with a statSync per file ran inside this handler
+  // and froze the whole app, and library-changed makes every frame re-list at
+  // once. library:list keeps its exact shape for the shell and Self MIDI;
+  // library:scan is the Library tab's richer entry point and streams partial
+  // batches back to the frame that asked, so the table paints as it fills.
+  const libraryExtra = () => (settings.get('library.dirs') || []).filter((d) => typeof d === 'string' && d);
+  const libraryDirs = () => [programOutputDir(), path.join(os.homedir(), 'Documents', 'MIDI Studio'), ...libraryExtra()];
+  let scanSeq = 0;
+  // Only ever to the frame that asked. webContents.send reaches the main frame
+  // alone and broadcast() would fan a scan stream out to all five panels.
+  const framePush = (frame, channel, payload) => {
+    try { if (frame) frame.send(channel, payload); } catch (_) { /* frame went away mid-scan */ }
   };
-  ipcMain.handle('library:list', () => {
+
+  ipcMain.handle('library:list', async () => {
     const dirs = libraryDirs();
-    return Object.assign({ dirs, extra: settings.get('library.dirs') || [] }, library.list(dirs));
+    const r = await library.cachedScan(dirs, libraryExtra());
+    return { dirs, extra: libraryExtra(), files: r.files, truncated: r.truncated };
+  });
+  ipcMain.handle('library:scan', async (e) => {
+    const dirs = libraryDirs();
+    const extra = libraryExtra();
+    const frame = e.senderFrame;
+    const scanId = ++scanSeq;
+    const r = await library.cachedScan(dirs, extra, (files) =>
+      framePush(frame, 'library-progress', { scanId, kind: 'scan', files }));
+    const state = library.userState();
+    return { scanId, dirs, extra, files: r.files, truncated: r.truncated,
+      storage: library.storageFor(dirs[0]), tags: state.tags, usage: state.usage,
+      indexing: library.indexRunning() };
+  });
+  // Length and Notes come out of the file itself, so they are parsed lazily for
+  // the rows that have actually been on screen, at most a handful per request,
+  // and cached by path + mtime + size so an unchanged file is never re-read.
+  ipcMain.handle('library:meta', async (_e, payload) => {
+    const p = isObj(payload) ? payload : {};
+    return library.metaFor(p.paths, { roll: p.roll });
+  });
+  ipcMain.handle('library:setTags', (_e, payload) => {
+    const p = isObj(payload) ? payload : {};
+    return { ok: true, tags: library.setTags(p.path, p.tags) };
+  });
+  ipcMain.handle('library:usage', (_e, payload) => {
+    const p = isObj(payload) ? payload : {};
+    return { ok: true, usage: library.recordUsage(p.path, p.kind, p.at) };
+  });
+  ipcMain.handle('library:index', async (e, payload) => {
+    const p = isObj(payload) ? payload : {};
+    if (p.cancel) return library.cancelIndex();
+    const r = await library.cachedScan(libraryDirs(), libraryExtra());
+    const frame = e.senderFrame;
+    return library.startIndex(r.files, (msg) =>
+      framePush(frame, 'library-progress', Object.assign({ kind: 'index' }, msg)));
+  });
+  // Deleting goes to the Recycle Bin, never straight off the disk: the Library
+  // is a file manager for work the user cannot regenerate cheaply.
+  ipcMain.handle('library:delete', async (_e, payload) => {
+    const p = isObj(payload) ? payload : {};
+    const paths = (Array.isArray(p.paths) ? p.paths : []).map(String)
+      .filter((f) => f && /\.midi?$/i.test(f));
+    const trashed = [];
+    const failed = [];
+    for (const f of paths) {
+      try { await shell.trashItem(f); trashed.push(f); }
+      catch (error) { failed.push({ path: f, error: String(error.message || error) }); }
+    }
+    if (trashed.length) broadcast('library-changed', path.dirname(trashed[0]));
+    return { ok: !failed.length, trashed, failed };
   });
   ipcMain.handle('library:addFolder', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Add a folder of MIDI files',
       properties: ['openDirectory'], buttonLabel: 'Add folder' });
     if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
-    const extra = (settings.get('library.dirs') || []).filter(Boolean);
+    const extra = libraryExtra();
     const picked = path.resolve(r.filePaths[0]);
     if (!extra.some((d) => path.resolve(d).toLowerCase() === picked.toLowerCase())) extra.push(picked);
     settings.merge({ library: { dirs: extra } });
+    broadcast('library-changed', picked);
     return { ok: true, dir: picked };
   });
   ipcMain.handle('library:removeFolder', (_e, dir) => {
     const target = path.resolve(String(dir || '')).toLowerCase();
-    const extra = (settings.get('library.dirs') || []).filter((d) => path.resolve(d).toLowerCase() !== target);
+    const extra = libraryExtra().filter((d) => path.resolve(d).toLowerCase() !== target);
     settings.merge({ library: { dirs: extra } });
+    broadcast('library-changed', String(dir || ''));
     return { ok: true };
   });
   ipcMain.handle('library:reveal', (_e, p) => shell.showItemInFolder(String(p || '')));
+
 
   ipcMain.handle('forge:pause', (_e, paused) => forge.setPaused(!!paused));
   ipcMain.handle('app:openMappingsDir', () => {
@@ -844,6 +1121,81 @@ function wireIpc() {
 
   ipcMain.handle('app:openExternal', (_e, url) => (/^https?:\/\//i.test(String(url)) ? shell.openExternal(url) : null));
   ipcMain.handle('app:version', () => app.getVersion());
+  // The release name is package.json's, not Electron's, so it comes from there.
+  ipcMain.handle('app:release', () => releaseName());
+
+  // ---- What's New ---------------------------------------------------------
+  // Main hands over the raw file and the renderer parses it: the parser is
+  // shared with the tests and the screen owns its own degraded state, so a
+  // malformed file has to reach the thing that can show a link instead.
+  ipcMain.handle('app:changelog', () => {
+    const file = paths.changelogFile();
+    try {
+      if (!paths.exists(file)) return { ok: false, error: 'not found', file, text: '' };
+      // A hand-edited file has no business being megabytes long, and reading one
+      // synchronously on the IPC thread would stall every other channel.
+      const size = fs.statSync(file).size;
+      if (size > 1024 * 1024) return { ok: false, error: 'too large', file, text: '' };
+      return { ok: true, file, text: fs.readFileSync(file, 'utf-8') };
+    } catch (e) { return { ok: false, error: String((e && e.message) || e), file, text: '' }; }
+  });
+  // Whether the notes for the RUNNING version are still owed to the user. They
+  // are owed exactly once: --post-update says an installer just ran, and the
+  // version we have already shown is remembered in settings, so a restart (or a
+  // second launch that still carries the flag) does not show them again.
+  ipcMain.handle('app:whatsNew', () => {
+    const version = app.getVersion();
+    const shownFor = String(settings.get('ui.notesShownFor') || '');
+    return {
+      version,
+      name: releaseName(),
+      postUpdate: POST_UPDATE,
+      shownFor,
+      autoShow: POST_UPDATE && shownFor !== version,
+      releasesUrl: RELEASES_URL,
+    };
+  });
+  ipcMain.handle('app:notesShown', (_e, v) => {
+    const version = String(v || app.getVersion());
+    settings.merge({ ui: { notesShownFor: version } });
+    return version;
+  });
+  // The window is frameless, so the three window buttons are the renderer's and
+  // it needs these. Nothing here can act on a window it does not own.
+  ipcMain.handle('win:state', () => windowState());
+  ipcMain.on('win:minimize', () => { if (win && !win.isDestroyed()) win.minimize(); });
+  ipcMain.on('win:maximize', () => { if (win && !win.isDestroyed()) win.maximize(); });
+  ipcMain.on('win:unmaximize', () => { if (win && !win.isDestroyed()) win.unmaximize(); });
+  ipcMain.on('win:toggleMaximize', () => {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMaximized()) win.unmaximize(); else win.maximize();
+  });
+  ipcMain.on('win:close', () => { if (win && !win.isDestroyed()) win.close(); });
+  // What the splash has to show. Whatever happened before the renderer
+  // subscribed is here; everything after arrives on 'boot-milestone'.
+  ipcMain.handle('app:bootState', () => ({ steps: bootSteps.slice(), ready: winPainted }));
+  // The renderer reaches its own milestones (first paint, splash hand-over, a
+  // tab's first usable frame) that main cannot see. They go into the SAME boot
+  // log rather than a second mechanism, so one file is the whole startup story
+  // and benchmarks/startup.js can read it. Fire-and-forget: a measurement must
+  // never add a round trip to the path it measures.
+  // Additive, fire-and-forget: a frame naming a channel it has a listener for.
+  ipcMain.on('app:subscribe', (e, channel) => {
+    if (channel == null) fanout.markReady(e.senderFrame);
+    else fanout.noteSubscription(e.senderFrame, channel);
+  });
+  ipcMain.on('app:bootMark', (_e, p) => {
+    const step = String((p && p.step) || '').slice(0, 40);
+    if (!step) return;
+    const ms = Number(p && p.ms);
+    blog(`ui:${step}${Number.isFinite(ms) ? ` +${Math.round(ms)}ms` : ''}`);
+  });
+  ipcMain.handle('app:openBootLog', () => {
+    if (!paths.exists(BOOT_LOG)) return { ok: false, error: 'no boot log yet' };
+    return shell.openPath(BOOT_LOG)
+      .then((err) => (err ? shell.showItemInFolder(BOOT_LOG) : null))
+      .then(() => ({ ok: true, path: BOOT_LOG }));
+  });
   ipcMain.handle('app:getUi', () => settings.get('ui') || {});
   ipcMain.handle('app:getOutputDir', () => programOutputDir());
   ipcMain.handle('app:getLibraryDir', () => {
@@ -854,7 +1206,7 @@ function wireIpc() {
     return d;
   });
   ipcMain.handle('app:setLibraryDir', (_e, dir) => settings.merge({ libraryDir: String(dir || '') }).libraryDir);
-  ipcMain.handle('app:listMidis', (_e, dir) => listMidis(String(dir || '')));
+  ipcMain.handle('app:listMidis', async (_e, dir) => listMidis(String(dir || '')));
   ipcMain.handle('app:pickFolder', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Choose a folder of MIDI files', properties: ['openDirectory'] });
     return r.canceled ? null : r.filePaths[0];
@@ -887,9 +1239,14 @@ function wireIpc() {
     settings.merge({ performance: clean });
     return performanceSettings();
   });
-  ipcMain.handle('app:forgeInfo', forgeInfo);
-  ipcMain.handle('app:changeForgeFolder', () => changeForgeStorage());
-  ipcMain.handle('app:resetForgeFolder', () => changeForgeStorage(paths.forgeEnvDir({})));
+  // forgePathsSettled: adoptInstallerForgePath()/recoverForgeEnv() were moved
+  // off the boot path, so anything that REPORTS a Forge path waits for them
+  // here. The wait is ~0 in practice (the registry read overlaps window
+  // creation, which is 258ms) and it is what makes the move invisible: no
+  // caller can observe a pre-adoption folder.
+  ipcMain.handle('app:forgeInfo', async () => { await forgePathsSettled; return forgeInfo(); });
+  ipcMain.handle('app:changeForgeFolder', async () => { await forgePathsSettled; return changeForgeStorage(); });
+  ipcMain.handle('app:resetForgeFolder', async () => { await forgePathsSettled; return changeForgeStorage(paths.forgeEnvDir({})); });
   ipcMain.handle('app:openSetupLog', () => {
     const p = paths.forgeSetupLog();
     if (!paths.exists(p)) return { ok: false, error: 'no setup log yet' };
@@ -923,10 +1280,19 @@ function wireIpc() {
   ipcMain.handle('update:check', (_e, opts) => updater.checkForUpdates(sendUpdate, isObj(opts) ? opts : { manual: true }));
   ipcMain.handle('update:apply', () => updater.applyUpdate(sendUpdate));
 
-  ipcMain.handle('forge:check', () => forge.check());
-  ipcMain.handle('forge:provision', () => (provisioner.isRunning() ? { running: true } : (provisioner.start(), { started: true })));
+  ipcMain.handle('forge:check', async (_e, opts) => { await forgePathsSettled; return forge.check(opts); });
+  ipcMain.handle('forge:provision', async () => {
+    await forgePathsSettled;
+    if (provisioner.isRunning()) return { running: true };
+    // Setup is about to change what a capability probe would answer.
+    forge.invalidateCheck();
+    provisioner.start();
+    return { started: true };
+  });
   ipcMain.handle('forge:provision:cancel', () => { provisioner.cancel(); return true; });
-  ipcMain.handle('forge:run', (_e, opts) => {
+  ipcMain.handle('forge:run', async (_e, opts) => {
+    await orphanReap;                                    // INVARIANT 10
+    await forgePathsSettled;
     opts = isObj(opts) ? opts : {};
     return forge.run({
       inputPath: String(opts.inputPath || ''),
@@ -937,7 +1303,9 @@ function wireIpc() {
       timing: isObj(opts.timing) ? opts.timing : {},
     });
   });
-  ipcMain.handle('forge:yt', (_e, opts) => {
+  ipcMain.handle('forge:yt', async (_e, opts) => {
+    await orphanReap;                                    // INVARIANT 10
+    await forgePathsSettled;
     opts = isObj(opts) ? opts : {};
     return forge.ytDownload({ url: String(opts.url || ''), outDir: String(opts.outDir || programOutputDir()) });
   });
@@ -996,16 +1364,23 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
     pendingOpenPath = midiPathFromArgv(process.argv);
     try {
       settings = new Settings();
+      installDebouncedSettings(settings);
+      blog('t:settings');
+      bootMark('session', 'Restoring session');
       overlay = new Overlay({
         settings,
         indexHtml: paths.overlayHtml(),
         preload: paths.preloadScript(),
         onLog: blog,
       });
+      blog('t:overlay-ctor');
       wireIpc();
       wireOverlayIpc();
       registerOverlayShortcuts();
+      blog('t:ipc-wired');
       createServices();
+      blog('t:services');
+      bootMark('window', 'Loading interface');
       createWindow();
       blog(`window created; index=${paths.rendererIndexHtml()}`);
     } catch (e) { blog(`BOOT ERROR: ${e && e.stack || e}`); throw e; }
@@ -1046,6 +1421,12 @@ if (CONFIGURE_FORGE_INDEX >= 0) {
 let cleaned = false;
 function cleanup() {
   if (cleaned) return; cleaned = true;
+  // Settings writes are debounced now, so the last one has to be forced out
+  // before the process goes away or a just-changed preference is lost.
+  try { flushSettings(); } catch (_) {}
+  // The library metadata index is debounced the same way and lives in its own
+  // file, so it needs the same forced flush or a just-added tag is lost.
+  try { library.flush(); } catch (_) {}
   // The overlay is skipTaskbar and always-on-top: left behind it would be a
   // window the user can see but cannot close from anywhere.
   try { if (overlay) overlay.close(); } catch {}

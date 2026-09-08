@@ -1,0 +1,220 @@
+{
+  "at": "2026-09-07T07:04:26.683Z",
+  "electron": "32.3.3",
+  "node": "20.18.1",
+  "cycles": 12,
+  "docNotes": 30000,
+  "results": {
+    "memory": [
+      {
+        "name": "documents actually opened during the run",
+        "unit": "loads",
+        "value": 12,
+        "note": "each cycle really did load a fresh 30k-note document"
+      },
+      {
+        "name": "renderer V8 heap over 12 open/close cycles (after forced GC)",
+        "unit": "bytes",
+        "baseline": 13194056,
+        "afterFirstCycle": 21856164,
+        "afterLastCycle": 22173300,
+        "growthPerCycleAfterFirst": 28830.545454545456
+      },
+      {
+        "name": "renderer process working set over 12 cycles",
+        "unit": "bytes",
+        "baseline": 139767808,
+        "afterFirstCycle": 207753216,
+        "afterLastCycle": 198901760,
+        "growthPerCycleAfterFirst": -804677.8181818182
+      },
+      {
+        "name": "main-process V8 heap over 12 cycles",
+        "unit": "bytes",
+        "baseline": 4771584,
+        "afterFirstCycle": 5476816,
+        "afterLastCycle": 4772796,
+        "growthPerCycleAfterFirst": -64001.818181818184
+      },
+      {
+        "name": "main process working set over 12 cycles",
+        "unit": "bytes",
+        "baseline": 100081664,
+        "afterFirstCycle": 109809664,
+        "afterLastCycle": 129249280,
+        "growthPerCycleAfterFirst": 1767237.8181818181
+      },
+      {
+        "name": "per-cycle samples",
+        "unit": "bytes",
+        "series": [
+          {
+            "cycle": 0,
+            "phase": "baseline",
+            "mainHeap": 4771584,
+            "rendererJsHeap": 13194056,
+            "rendererJsHeapTotal": 15216640,
+            "mainWorkingSet": 100081664,
+            "rendererWorkingSet": 139767808,
+            "gpuWorkingSet": 130355200,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 1,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 5476816,
+            "rendererJsHeap": 21856164,
+            "rendererJsHeapTotal": 23805952,
+            "mainWorkingSet": 109809664,
+            "rendererWorkingSet": 207753216,
+            "gpuWorkingSet": 141860864,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 2,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 11123552,
+            "rendererJsHeap": 22080488,
+            "rendererJsHeapTotal": 24068096,
+            "mainWorkingSet": 115195904,
+            "rendererWorkingSet": 209711104,
+            "gpuWorkingSet": 142970880,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 3,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 5203188,
+            "rendererJsHeap": 22069928,
+            "rendererJsHeapTotal": 24068096,
+            "mainWorkingSet": 120213504,
+            "rendererWorkingSet": 209711104,
+            "gpuWorkingSet": 144596992,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 4,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 3888956,
+            "rendererJsHeap": 22085452,
+            "rendererJsHeapTotal": 23805952,
+            "mainWorkingSet": 101388288,
+            "rendererWorkingSet": 211271680,
+            "gpuWorkingSet": 144093184,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 5,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 4199368,
+            "rendererJsHeap": 22086008,
+            "rendererJsHeapTotal": 23543808,
+            "mainWorkingSet": 113733632,
+            "rendererWorkingSet": 211144704,
+            "gpuWorkingSet": 144875520,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 6,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 8460608,
+            "rendererJsHeap": 21958660,
+            "rendererJsHeapTotal": 23543808,
+            "mainWorkingSet": 121532416,
+            "rendererWorkingSet": 211546112,
+            "gpuWorkingSet": 144740352,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 7,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 14891260,
+            "rendererJsHeap": 21988692,
+            "rendererJsHeapTotal": 23543808,
+            "mainWorkingSet": 125001728,
+            "rendererWorkingSet": 211496960,
+            "gpuWorkingSet": 144990208,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 8,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 4742420,
+            "rendererJsHeap": 22072348,
+            "rendererJsHeapTotal": 23543808,
+            "mainWorkingSet": 130191360,
+            "rendererWorkingSet": 212172800,
+            "gpuWorkingSet": 145649664,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 9,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 10852776,
+            "rendererJsHeap": 22114148,
+            "rendererJsHeapTotal": 23543808,
+            "mainWorkingSet": 129617920,
+            "rendererWorkingSet": 201965568,
+            "gpuWorkingSet": 145911808,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 10,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 4710300,
+            "rendererJsHeap": 22142712,
+            "rendererJsHeapTotal": 23805952,
+            "mainWorkingSet": 129155072,
+            "rendererWorkingSet": 198496256,
+            "gpuWorkingSet": 145383424,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 11,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 11037956,
+            "rendererJsHeap": 22192164,
+            "rendererJsHeapTotal": 23805952,
+            "mainWorkingSet": 129425408,
+            "rendererWorkingSet": 199065600,
+            "gpuWorkingSet": 146546688,
+            "rendererProcesses": 1
+          },
+          {
+            "cycle": 12,
+            "phase": "after open+tabs+1500 forge lines",
+            "mainHeap": 4772796,
+            "rendererJsHeap": 22173300,
+            "rendererJsHeapTotal": 23805952,
+            "mainWorkingSet": 129249280,
+            "rendererWorkingSet": 198901760,
+            "gpuWorkingSet": 145252352,
+            "rendererProcesses": 1
+          }
+        ]
+      },
+      {
+        "name": "DOM census after the run",
+        "unit": "nodes",
+        "census": {
+          "iframes": 6,
+          "forgeNodes": 731,
+          "forgeLogCount": "600",
+          "reviewNodes": 418,
+          "playerNodes": 702,
+          "libraryNodes": 718,
+          "logsNodes": 287,
+          "logsRows": 1,
+          "auditionNodes": 520
+        }
+      }
+    ],
+    "meta": [
+      {
+        "name": "stub IPC calls answered during the run",
+        "value": 196,
+        "unit": "calls"
+      }
+    ]
+  }
+}

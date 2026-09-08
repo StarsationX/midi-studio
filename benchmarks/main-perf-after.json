@@ -1,0 +1,154 @@
+{
+  "when": "2026-09-07T08:11:50.829Z",
+  "reps": 8,
+  "results": [
+    {
+      "group": "reap",
+      "name": "reapOrphanJobs(3 dead pids): calling thread BLOCKED",
+      "unit": "ms",
+      "n": 8,
+      "mean": 16.062,
+      "p50": 13.363,
+      "p95": 26.806,
+      "p99": 26.806,
+      "max": 26.806,
+      "min": 11.787
+    },
+    {
+      "group": "reap",
+      "name": "reapOrphanJobs(3 dead pids): wall clock to completion",
+      "unit": "ms",
+      "n": 8,
+      "mean": 109.459,
+      "p50": 104.86,
+      "p95": 133.724,
+      "p99": 133.724,
+      "max": 133.724,
+      "min": 97.086
+    },
+    {
+      "group": "reap",
+      "name": "reapOrphanJobs returns a promise (does not block the boot path)",
+      "unit": "bool",
+      "value": 1
+    },
+    {
+      "group": "gamewatch",
+      "name": "a watched game IS running (javaw.exe) -- the no-game cost is the one that repeats forever",
+      "unit": "bool",
+      "value": 1
+    },
+    {
+      "group": "gamewatch",
+      "name": "one GameWatch.probe() cycle",
+      "unit": "ms",
+      "n": 8,
+      "mean": 148.85,
+      "p50": 150.024,
+      "p95": 154.051,
+      "p99": 154.051,
+      "max": 154.051,
+      "min": 139.516
+    },
+    {
+      "group": "gamewatch",
+      "name": "child processes spawned per probe cycle",
+      "unit": "procs",
+      "n": 8,
+      "mean": 2,
+      "p50": 2,
+      "p95": 2,
+      "p99": 2,
+      "max": 2,
+      "min": 2
+    },
+    {
+      "group": "adopt",
+      "name": "reg.exe query, spawnSync (blocks the boot path)",
+      "unit": "ms",
+      "n": 8,
+      "mean": 23.092,
+      "p50": 22.275,
+      "p95": 26.995,
+      "p99": 26.995,
+      "max": 26.995,
+      "min": 21.684
+    },
+    {
+      "group": "adopt",
+      "name": "reg.exe query, execFile: calling thread BLOCKED",
+      "unit": "ms",
+      "n": 8,
+      "mean": 4.073,
+      "p50": 3.998,
+      "p95": 4.722,
+      "p99": 4.722,
+      "max": 4.722,
+      "min": 3.808
+    },
+    {
+      "group": "adopt",
+      "name": "reg.exe query, execFile: wall clock",
+      "unit": "ms",
+      "n": 8,
+      "mean": 21.495,
+      "p50": 21.491,
+      "p95": 22.898,
+      "p99": 22.898,
+      "max": 22.898,
+      "min": 20.378
+    },
+    {
+      "group": "adopt",
+      "name": "adoptInstallerForgePath still uses spawnSync",
+      "unit": "bool",
+      "value": 0
+    },
+    {
+      "group": "pump",
+      "name": "provisioner stdout pump, 20k carriage-return chunks (shared makePump)",
+      "unit": "ms",
+      "value": 8.504,
+      "msPerChunk": 0.0004,
+      "linesEmitted": 19999,
+      "bytesRetained": 0
+    },
+    {
+      "group": "pump",
+      "name": "forge-provisioner uses the shared carriage-return pump",
+      "unit": "bool",
+      "value": 1
+    },
+    {
+      "group": "pump",
+      "name": "forge-provisioner writes to its log synchronously per chunk",
+      "unit": "bool",
+      "value": 0
+    },
+    {
+      "group": "bootlog",
+      "name": "fs.appendFileSync, one boot mark",
+      "unit": "ms",
+      "n": 400,
+      "mean": 0.188,
+      "p50": 0.174,
+      "p95": 0.245,
+      "p99": 0.339,
+      "max": 0.494,
+      "min": 0.165
+    },
+    {
+      "group": "bootlog",
+      "name": "live %TEMP%/midi-studio-boot.log",
+      "unit": "bytes",
+      "value": 56805,
+      "lines": 1379
+    },
+    {
+      "group": "bootlog",
+      "name": "main.js caps the boot log",
+      "unit": "bool",
+      "value": 1
+    }
+  ]
+}

@@ -1,0 +1,773 @@
+{
+ "subsystem": "shell (renderer/index.html + renderer/shell/shell.js + renderer/shell/shell.css + renderer/shared/{tokens.css,icons.js,resize.js,timeline-zoom.js})",
+ "features": [
+  {
+   "name": "Four-tab top bar (Midi Forge / Midi Player / Midi Editor / Self Midi)",
+   "how_it_works": "index.html:16-21 nav#tabs holds 4 <button class=\"tab\" data-tab=\"forge|player|review|audition\">. First one has is-active in markup. shell.js:90 one delegated click listener on #tabs -> e.target.closest('.tab') -> activate(b.dataset.tab). activate() (shell.js:75-89) bails if no frame has that data-tab, calls ensureFrame(name), then toggles .is-active + aria-selected on every .tab, toggles .is-active on every .tabframe, calls markVisibility(), sets document.title from a titles map {forge:'MIDI Studio: Midi Forge', player:'MIDI Studio: Midi Player', review:'MIDI Studio: Midi Editor', audition:'MIDI Studio: Self Midi'} defaulting to 'MIDI Studio', and (when persist!==false) studio.setUi({lastTab:name}).",
+   "must_survive": true,
+   "element_ids": [
+    "tabs",
+    "frame-forge",
+    "frame-player",
+    "frame-review",
+    "frame-audition"
+   ],
+   "backend_calls": [
+    "studio.setUi({lastTab})"
+   ]
+  },
+  {
+   "name": "Lazy iframe loading via data-src",
+   "how_it_works": "index.html:214 frame-forge has a real src=\"./forge/index.html\" and class is-active (eager, it is the default tab). frames 215-217 (player/review/audition) carry NO src, only data-src. shell.js:8-12 ensureFrame(name) finds the frame by dataset.tab and, if it has no src attribute but has data-src, does frame.setAttribute('src', frame.dataset.src) — one-shot, never reset. Every entry point that shows a tab calls ensureFrame via activate(). Consequence: a tab's document does not exist until the tab is first opened, so any hand-off must wait for the frame's 'load' event.",
+   "must_survive": true,
+   "element_ids": [
+    "frame-forge",
+    "frame-player",
+    "frame-review",
+    "frame-audition"
+   ]
+  },
+  {
+   "name": "data-onscreen stamping (off-screen draw suppression for iframes)",
+   "how_it_works": "shell.js:63-74 markVisibility(): for each frame, get f.contentDocument.documentElement (skip if null, i.e. not yet loaded), compute on = f.classList.contains('is-active') ? '1' : '0'; if el.dataset.onscreen already equals it, return early (dedupe); otherwise set el.dataset.onscreen = on, and when turning ON and f.contentWindow exists, dispatch a custom Event('midi-studio:onscreen') into that contentWindow inside try/catch. Called from activate() (shell.js:84) and from applyPerf() (shell.js:56). Frames are expected to read documentElement.dataset.onscreen and skip drawing entirely while '0', and to listen for 'midi-studio:onscreen' to resume/redraw immediately.",
+   "must_survive": true,
+   "element_ids": [
+    "frame-forge",
+    "frame-player",
+    "frame-review",
+    "frame-audition"
+   ]
+  },
+  {
+   "name": "data-drawms stamping (frame-rate budget push-down)",
+   "how_it_works": "shell.js:44 module state perf = {percent:100, drawMs:33, whenGaming:'limit'} and gameActive = ''. effectiveDrawMs() (46-48) = (perf.drawMs||33), tripled (base*3) when gameActive is truthy AND perf.whenGaming !== 'nothing'. applyPerf() (49-57) writes String(effectiveDrawMs()) to document.documentElement.dataset.drawms and to every loaded frame's documentElement.dataset.drawms, then calls markVisibility(). Called on every frame 'load' (shell.js:35), from showPerf() (shell.js:296) and from the game-active handler (shell.js:186). Frames read data-drawms to throttle their own rAF/draw loops without an IPC round trip.",
+   "must_survive": true
+  },
+  {
+   "name": "Theme (accent preset) application across shell + all iframes",
+   "how_it_works": "shell.js:15 curTheme/curVars module state; ACCENT_KEYS = ['--accent','--accent-2','--accent-deep','--accent-ink','--accent-soft','--accent-line','--ok']. skin(el) (27-31) sets el.dataset.theme = curTheme and, if curVars, setProperty for each ACCENT_KEY, else removeProperty for each — all wrapped in try/catch (cross-frame access can throw). applySkin() (32) skins document.documentElement AND every frame's contentDocument.documentElement. applyTheme(t) sets curTheme = t||'' then applySkin(). tokens.css:88-103 defines [data-theme=\"cyan\"|\"indigo\"|\"magenta\"|\"amber\"] blocks that override the 8 accent vars; unset/'' = lime default from :root. Every frame's 'load' handler re-skins it (shell.js:35) so a lazily-loaded tab inherits the current theme.",
+   "must_survive": true,
+   "element_ids": [
+    "s-theme"
+   ],
+   "backend_calls": [
+    "studio.setUi({theme, accent})",
+    "studio.getUi()"
+   ]
+  },
+  {
+   "name": "Custom accent colour derivation from one hex",
+   "how_it_works": "shell.js:17-26 deriveAccent(hex): regex /^#?([0-9a-f]{6})$/i, returns null on mismatch. Parses r,g,b; h2() clamps 0-255 and hex-pads; blend(tr,tg,tb,p) linearly interpolates toward a target colour; lum = (0.2126r + 0.7152g + 0.0722b)/255. Returns --accent = the hex, --accent-2 = blend toward white 0.18, --accent-deep = blend toward black 0.28, --accent-ink = lum > 0.6 ? '#0c0d10' : '#f4f6ff', --accent-soft = blend toward #141519 (20,21,25) 0.86, --accent-line = same target at 0.62, --ok = the hex. applyAccent(hex) sets curVars = hex ? deriveAccent(hex) : null, then applySkin() — so passing '' clears the inline overrides and lets the data-theme preset win again.",
+   "must_survive": true,
+   "element_ids": [
+    "s-accent"
+   ],
+   "backend_calls": [
+    "studio.setUi({accent})"
+   ]
+  },
+  {
+   "name": "Settings modal open/close",
+   "how_it_works": "index.html:28 div.modal-scrim#settings-modal[hidden] wrapping div.modal[role=dialog][aria-modal=true][aria-labelledby=settings-title]. openSettings() (shell.js:263-273): modal.hidden=false, document.body.classList.add('modal-open'), refreshForgeInfo(), studio.getPerformance() -> sets #s-perf-gaming.value = p.whenGaming||'limit' then showPerf(p), studio.getUi() -> #s-autoupdate.checked = ui.autoCheckUpdates !== false, #s-ontop.checked = ui.alwaysOnTop !== false, #s-theme.value = ui.theme||'lime', #s-accent.value = ui.accent || computed --accent || '#b8e62e'. closeSettings() (274) hides + removes modal-open. Wired: #settings-btn click -> open (275), #settings-close click -> close (276), click on the scrim itself (e.target === modal) -> close (277), Escape -> close (352-353). shell.css:105 body.modal-open .tabframe { visibility:hidden } exists because an iframe can composite above a parent fixed overlay.",
+   "must_survive": true,
+   "element_ids": [
+    "settings-modal",
+    "settings-btn",
+    "settings-close",
+    "settings-title"
+   ],
+   "backend_calls": [
+    "studio.forgeInfo()",
+    "studio.getPerformance()",
+    "studio.getUi()"
+   ]
+  },
+  {
+   "name": "Settings two-pane section nav (Appearance / Performance / Forge engine / Updates / About)",
+   "how_it_works": "index.html:36-42 nav.snav#snav with 5 buttons carrying data-pane; 'appearance' is is-active. index.html:44-197 div.spanes holds 5 <section class=\"spane\" data-pane=...>, appearance is-active. shell.js:101-109 delegated click on #snav: closest('button[data-pane]'), toggle is-active across all nav buttons (x === b), toggle is-active across all .spane by p.dataset.pane === b.dataset.pane. CSS: .spane{display:none} / .spane.is-active{display:flex} (shell.css:174-175); .modal-split is a 168px + 1fr grid that collapses to a single column with a horizontal scrolling nav under 620px (shell.css:216-220).",
+   "must_survive": true,
+   "element_ids": [
+    "snav"
+   ]
+  },
+  {
+   "name": "Forge layout chooser (Classic / Cards / Bench / Console)",
+   "how_it_works": "index.html:52-73 div.layout-cards#s-forge-layout[role=radiogroup] with 4 buttons[role=radio][data-layout] each containing a span.lc-art diagram (.lc-classic 3 rows, .lc-cards 4 rows, .lc-bench 8px+1fr two-col with first child spanning, .lc-console 1fr/2fr/1fr columns — shell.css:210-214), a .lc-name and a .lc-desc. shell.js:113-131: mark(name) toggles is-active + aria-checked across the 4 buttons. Click handler pushes the choice INTO the forge frame: f.contentWindow.setForgeLayout(layout) when that function exists, else falls back to studio.setUi({forgeLayout}). On startup studio.getUi() -> mark(u.forgeLayout || 'classic'). Comment at shell.js:111-112 states the chooser lives in Settings but the layout belongs to the Forge tab, so the frame persists it.",
+   "must_survive": true,
+   "element_ids": [
+    "s-forge-layout"
+   ],
+   "backend_calls": [
+    "window.setForgeLayout (forge frame)",
+    "studio.setUi({forgeLayout})",
+    "studio.getUi()"
+   ]
+  },
+  {
+   "name": "Accent preset select",
+   "how_it_works": "index.html:80-86 select#s-theme with options lime (default) / cyan / indigo / magenta / amber. shell.js:280-281 on 'change': applyAccent('') first (clears any custom hex), then applyTheme(value), then studio.setUi({theme:value, accent:''}) — the custom accent is deliberately wiped when a preset is chosen. It then re-reads the computed --accent and writes it back into #s-accent.value so the colour picker shows the preset's colour (falling back to '#b8e62e'). shell.css:18 #s-theme { height: 30px }.",
+   "must_survive": true,
+   "element_ids": [
+    "s-theme",
+    "s-accent"
+   ],
+   "backend_calls": [
+    "studio.setUi({theme, accent})"
+   ]
+  },
+  {
+   "name": "Custom accent colour picker",
+   "how_it_works": "index.html:90 input[type=color]#s-accent value=\"#b8e62e\". shell.js:282 on 'input' (live, every drag step): applyAccent(e.target.value) + studio.setUi({accent:value}).",
+   "must_survive": true,
+   "element_ids": [
+    "s-accent"
+   ],
+   "backend_calls": [
+    "studio.setUi({accent})"
+   ]
+  },
+  {
+   "name": "Always-on-top toggle",
+   "how_it_works": "index.html:98 label.check > input[type=checkbox]#s-ontop checked, with snote 'On by default, so the piano roll stays visible with a game in front of it.' shell.js:279 change -> studio.setUi({alwaysOnTop: checked}). Restored in openSettings as !ui || ui.alwaysOnTop !== false (default true). main.js:212 reads settings 'ui.alwaysOnTop' !== false at window creation.",
+   "must_survive": true,
+   "element_ids": [
+    "s-ontop"
+   ],
+   "backend_calls": [
+    "studio.setUi({alwaysOnTop})"
+   ]
+  },
+  {
+   "name": "Performance: single 'Use at most N%' slider",
+   "how_it_works": "index.html:113-114 input[type=range]#s-perf-percent min=10 max=100 step=5 value=100 + output.mono#s-perf-value '100%'. shell.js:301-303 'input' updates only the #s-perf-value text (no IPC). shell.js:304 'change' -> savePerf({percent:Number(value)}) -> studio.setPerformance(patch).then(showPerf). Main process (main.js:465-492) derives everything from percent: rounds to nearest 5 and clamps 10-100, threads = round(cores*percent/100), batch = max(1, round(percent/50)), drawMs = round(1000/max(4, 60*percent/100)), lowPriority = percent <= 50.",
+   "must_survive": true,
+   "element_ids": [
+    "s-perf-percent",
+    "s-perf-value"
+   ],
+   "backend_calls": [
+    "studio.setPerformance({percent})",
+    "studio.getPerformance()"
+   ]
+  },
+  {
+   "name": "Performance: derived-values explainer line",
+   "how_it_works": "index.html:116 div#s-perf-explain.muted.small default text 'of this computer'. showPerf(p) (shell.js:284-297) rewrites it to `${p.threads} of ${p.cores} CPU cores · GPU batch ${p.batch} · ${fps} fps visuals` where fps = max(1, round(1000/p.drawMs)), appending ' · low priority' when p.lowPriority and ' · set by hand' when p.custom.threads or p.custom.batch is set. Comment at shell.js:283: 'Say what the number will actually do, a percentage on its own means nothing.'",
+   "must_survive": true,
+   "element_ids": [
+    "s-perf-explain"
+   ]
+  },
+  {
+   "name": "Performance: advanced exact-numbers row (threads / GPU batch / back to automatic)",
+   "how_it_works": "index.html:117-121 div.limit-row#s-perf-advanced[hidden] holding input[type=number]#s-perf-threads (min1 max64 step1), #s-perf-batch (min1 max8 step1) and button.link#s-perf-auto 'Back to automatic'. index.html:122 button.link#s-perf-toggle 'Set exact numbers…'. shell.js:306-310 toggle flips row.hidden and swaps the toggle label between 'Set exact numbers…' and 'Hide exact numbers'. shell.js:311 #s-perf-auto -> savePerf({percent: perf.percent}) (re-sends the current percent with no advanced patch, which clears hand-set values). shell.js:312-315 both number inputs on 'change' -> savePerf({advanced:{threads:Number(threads), batch:Number(batch)}}). showPerf writes both values back from p.threads / p.batch.",
+   "must_survive": true,
+   "element_ids": [
+    "s-perf-advanced",
+    "s-perf-threads",
+    "s-perf-batch",
+    "s-perf-auto",
+    "s-perf-toggle"
+   ],
+   "backend_calls": [
+    "studio.setPerformance({advanced:{threads,batch}})",
+    "studio.setPerformance({percent})"
+   ]
+  },
+  {
+   "name": "Performance: 'While gaming' policy select",
+   "how_it_works": "index.html:133-137 select#s-perf-gaming with options nothing='Carry on as normal', limit='Go easy (idle priority, smaller batches)', pause='Pause Forge jobs entirely'. shell.js:305 change -> savePerf({whenGaming:value}). Value restored in openSettings from p.whenGaming||'limit'. snote (index.html:139): 'The Player always takes priority over Forge while it is playing, whatever this is set to. A late keypress cannot be made up afterwards.' Locally, effectiveDrawMs() consults perf.whenGaming !== 'nothing' to decide whether a running game triples drawMs.",
+   "must_survive": true,
+   "element_ids": [
+    "s-perf-gaming"
+   ],
+   "backend_calls": [
+    "studio.setPerformance({whenGaming})"
+   ]
+  },
+  {
+   "name": "Game-detected reaction + toasts",
+   "how_it_works": "shell.js:183-189 studio.onGameActive(p): was = gameActive; gameActive = p.game || ''; applyPerf(); if now-active and wasn't -> toast(`${game.replace(/\\.exe$/i,'')} detected, going easy on the GPU`,'ok'); if now-clear and was -> toast('Game closed, full speed again','ok'). Edge-triggered so no toast spam on repeated events. Main process broadcasts 'game-active' {game, rule} (main.js:430) for Roblox / Roblox Studio / Minecraft.",
+   "must_survive": true,
+   "backend_calls": [
+    "studio.onGameActive"
+   ]
+  },
+  {
+   "name": "Forge engine status + storage location pane",
+   "how_it_works": "index.html:147 span#s-forge 'checking…'; index.html:156 span.storage-path.mono#s-forgedir 'not set'; buttons #s-changeforge 'Change…', #s-resetforge 'Default' (hidden by default), #s-openforge 'Open folder'. showForgeInfo(info) (shell.js:252-259) sets #s-version = 'v'+info.version, #s-forge = info.forgeReady ? 'Ready' : 'Not set up', #s-forgedir textContent+title = info.forgeEnvDir || 'not set' (title '' when unset), #s-resetforge.hidden = !info.forgeCustom. refreshForgeInfo() = studio.forgeInfo().then(showForgeInfo) guarded by existence, returns Promise.resolve() otherwise. #s-openforge -> studio.openForgeFolder(). snote: 'Moving it copies what is already downloaded. Nothing is downloaded twice.'",
+   "must_survive": true,
+   "element_ids": [
+    "s-forge",
+    "s-forgedir",
+    "s-changeforge",
+    "s-resetforge",
+    "s-openforge",
+    "s-version"
+   ],
+   "backend_calls": [
+    "studio.forgeInfo()",
+    "studio.openForgeFolder()"
+   ]
+  },
+  {
+   "name": "Forge storage relocate / reset with busy-state and frame refresh",
+   "how_it_works": "shell.js:317-334 async relocateForge(method, button): bails if studio[method] missing; disables BOTH #s-changeforge and #s-resetforge; saves button.textContent and sets 'Moving…'; awaits studio[method](); on result.ok -> showForgeInfo(result), toast(result.moved ? 'Forge storage moved' : 'Forge storage location updated','ok'), and if the forge frame's contentWindow exposes refreshForgeEnvironment() calls it; on !result.ok && !result.canceled -> toast(result.error || 'Could not change Forge storage','err'); catch -> toast(error.message||same,'err'); finally restores label and re-enables both buttons. Bound to changeForgeFolder / resetForgeFolder.",
+   "must_survive": true,
+   "element_ids": [
+    "s-changeforge",
+    "s-resetforge"
+   ],
+   "backend_calls": [
+    "studio.changeForgeFolder()",
+    "studio.resetForgeFolder()",
+    "window.refreshForgeEnvironment (forge frame)"
+   ]
+  },
+  {
+   "name": "Open setup log",
+   "how_it_works": "index.html:169 button#s-setuplog 'Open setup log'. shell.js:336-339: r = studio.openSetupLog ? await studio.openSetupLog() : null; if (r && !r.ok) toast(r.error || 'No setup log yet','err').",
+   "must_survive": true,
+   "element_ids": [
+    "s-setuplog"
+   ],
+   "backend_calls": [
+    "studio.openSetupLog()"
+   ]
+  },
+  {
+   "name": "Clean reinstall (destructive, confirm-gated)",
+   "how_it_works": "index.html:170 button.btn.btn-ghost.danger#s-clean 'Clean reinstall…'. shell.js:341-349: window.confirm(\"Clean reinstall? This deletes MIDI Studio's managed Forge environment so it re-downloads next time. (It never touches a separate Midi-Forge install.)\") — returns early if declined; then studio.cleanReinstall().then(r => toast(r.ok ? 'Forge storage cleared' : (r.error || 'Nothing to clean'), r.ok?'ok':'err')), calls the forge frame's refreshForgeEnvironment() if present, and refreshForgeInfo(). shell.css:186-187 .btn.danger { color: var(--err) } with err-soft hover and #5a2e2e border.",
+   "must_survive": true,
+   "element_ids": [
+    "s-clean"
+   ],
+   "backend_calls": [
+    "studio.cleanReinstall()",
+    "window.refreshForgeEnvironment (forge frame)"
+   ]
+  },
+  {
+   "name": "Auto-check-updates toggle",
+   "how_it_works": "index.html:182 input[type=checkbox]#s-autoupdate checked. shell.js:278 change -> studio.setUi({autoCheckUpdates: checked}). Restored as !ui || ui.autoCheckUpdates !== false (default on).",
+   "must_survive": true,
+   "element_ids": [
+    "s-autoupdate"
+   ],
+   "backend_calls": [
+    "studio.setUi({autoCheckUpdates})"
+   ]
+  },
+  {
+   "name": "Check-now button (closes the modal)",
+   "how_it_works": "index.html:184 button#s-recheck 'Check now'. shell.js:335: studio.checkForUpdates({manual:true}); closeSettings(); — deliberately closes so the banner is visible.",
+   "must_survive": true,
+   "element_ids": [
+    "s-recheck"
+   ],
+   "backend_calls": [
+    "studio.checkForUpdates({manual:true})"
+   ]
+  },
+  {
+   "name": "About pane: version + repo link",
+   "how_it_works": "index.html:193 span.sval.mono#s-version (filled by showForgeInfo as 'v'+version); index.html:194 a.link#s-repo href=\"#\" text 'github.com/StarsationX/midi-studio'. shell.js:340 click -> e.preventDefault() then studio.openExternal('https://github.com/StarsationX/midi-studio') (opens in the OS browser, never in-app).",
+   "must_survive": true,
+   "element_ids": [
+    "s-version",
+    "s-repo"
+   ],
+   "backend_calls": [
+    "studio.openExternal(url)"
+   ]
+  },
+  {
+   "name": "Version badge / manual update check",
+   "how_it_works": "index.html:24 button.version-badge#version-badge title='Check for updates' initial text 'v...'. shell.js:196-198: studio.getVersion().then(v => badge.textContent = 'v'+v); click -> studio.checkForUpdates({manual:true}). shell.css:49-57 styles it as a mono chip that turns accent-coloured on hover.",
+   "must_survive": true,
+   "element_ids": [
+    "version-badge"
+   ],
+   "backend_calls": [
+    "studio.getVersion()",
+    "studio.checkForUpdates({manual:true})"
+   ]
+  },
+  {
+   "name": "Update banner: 8-state machine",
+   "how_it_works": "index.html:202-211 div.update-banner#update-banner[hidden] with .ub-icon (icon 'up' @16), #ub-title, #ub-sub, #ub-prog[hidden] > #ub-prog-fill, button.btn.btn-primary#ub-apply 'Update & restart', button.btn.btn-ghost#ub-dismiss (icon 'close' @12). shell.js:210-243. Module flag `staged` = an update is downloaded/available and ready to apply. States from studio.onUpdateStatus(s), keyed on s.state: 'available' -> staged=true, title `Update available: v${s.version}`, sub = `From v${s.current}${s.size ? ' · '+(s.size/1048576).toFixed(0)+' MB' : ''} · ${firstNonBlankLineOf(s.notes) || 'A new version is ready.'}` with a leading markdown '#'s stripped, prog hidden, apply enabled and labelled s.canSelfUpdate ? 'Update & restart' : 'Open download page', display restored, show(). 'checking' -> staged=false, title 'Checking for updates…', sub '', apply display:none, prog hidden, show(). 'downloading' -> title `Downloading update… ${s.percent||0}%`, prog shown, fill width = percent%, apply disabled, show(). 'verifying' -> title 'Verifying download…' only. 'ready' -> title 'Restarting to apply update…', sub ''. 'manual' -> title 'Finish the update in your browser', sub 'The download page has opened.', apply hidden, show(). 'updated' -> banner hidden + toast('Updated to v'+version,'ok'). 'none' -> banner hidden + toast(\"You're on the latest version (v\"+s.current+')','ok'). 'error' -> staged=false, title 'Update failed', sub = s.message || 'Try again later.', prog hidden, apply enabled + relabelled 'Retry' + shown, show(). Bails when !s || !s.state.",
+   "must_survive": true,
+   "element_ids": [
+    "update-banner",
+    "ub-title",
+    "ub-sub",
+    "ub-prog",
+    "ub-prog-fill",
+    "ub-apply",
+    "ub-dismiss"
+   ],
+   "backend_calls": [
+    "studio.onUpdateStatus",
+    "studio.applyUpdate()",
+    "studio.checkForUpdates({manual:true})"
+   ]
+  },
+  {
+   "name": "Update banner apply / dismiss buttons",
+   "how_it_works": "shell.js:214 #ub-dismiss click -> el.hidden = true (banner only; nothing cancels). shell.js:215-218 #ub-apply click: if !staged, treat as a re-check (studio.checkForUpdates({manual:true})) and return — this is the retry path after an error; otherwise disable the button, set its label to 'Working…' and call studio.applyUpdate().",
+   "must_survive": true,
+   "element_ids": [
+    "ub-apply",
+    "ub-dismiss"
+   ],
+   "backend_calls": [
+    "studio.applyUpdate()",
+    "studio.checkForUpdates({manual:true})"
+   ]
+  },
+  {
+   "name": "Toast system",
+   "how_it_works": "shell.js:201-207. Lazily creates a single div.toasts appended to body on first use. Each toast: div.toast(+' toast--ok'/' toast--err' when kind given), role='status', textContent = msg. Auto-dismiss: after 3600ms add class 'out', then remove the node 260ms later. CSS shell.css:130-142: fixed bottom-right 16/16, z-index 10000, column with 8px gap; min-width 220px max-width 380px; accent left border, toast--ok uses --ok, toast--err uses --err; toast-in slides up 8px, toast-out slides back with forwards.",
+   "must_survive": true
+  },
+  {
+   "name": "Cross-frame hand-off: open Midi Player with a file",
+   "how_it_works": "shell.js:158-168 openPlayer(payload). Comment: 'The Player frame is loaded on demand now, so a hand-off has to wait for it instead of reaching into a contentWindow that has nothing in it yet.' deliver() calls frame.contentWindow.setMidiFile(payload.midiPath||'') when that exists, else falls back to target.api.send({cmd:'load_midi', path, mapping:'roblox', tempo:1.0}). If setMidiFile already exists -> deliver now; else attach a once 'load' listener that waits setTimeout(deliver, 120). Always ends with activate('player').",
+   "must_survive": true,
+   "element_ids": [
+    "frame-player"
+   ],
+   "backend_calls": [
+    "window.setMidiFile (player frame)",
+    "api.send({cmd:'load_midi'})"
+   ]
+  },
+  {
+   "name": "Cross-frame hand-off: open Self Midi (audition)",
+   "how_it_works": "shell.js:134-145 openAudition(payload): deliver() calls contentWindow.loadAudition(payload.midiPath||'', payload.projectPath||'', {play: payload.play}). Immediate if the function exists, else a once 'load' listener (no extra timeout here). Then activate('audition').",
+   "must_survive": true,
+   "element_ids": [
+    "frame-audition"
+   ],
+   "backend_calls": [
+    "window.loadAudition (audition frame)"
+   ]
+  },
+  {
+   "name": "Cross-frame hand-off: open Midi Editor (review)",
+   "how_it_works": "shell.js:146-155 openReview(payload): deliver() calls contentWindow.openReviewProject(payload.projectPath || payload.midiPath || ''). Immediate if present, else once 'load'. Then activate('review').",
+   "must_survive": true,
+   "element_ids": [
+    "frame-review"
+   ],
+   "backend_calls": [
+    "window.openReviewProject (review frame)"
+   ]
+  },
+  {
+   "name": "postMessage router from child frames",
+   "how_it_works": "shell.js:170-174 window 'message' listener: event.data.type === 'studio:open-player' -> openPlayer(event.data); 'studio:open-audition' -> openAudition; 'studio:open-review' -> openReview. No origin check. The whole payload object doubles as the args object (midiPath / projectPath / play).",
+   "must_survive": true
+  },
+  {
+   "name": "Ctrl+1..Ctrl+4 tab shortcuts (two independent paths)",
+   "how_it_works": "Path A, shell.js:92-98: window keydown, requires e.ctrlKey, maps '1'->forge '2'->player '3'->review '4'->audition, calls activate() and preventDefault(). Path B, shell.js:177: studio.onShortcut(p => p.tab && activate(p.tab)) — main.js:285-292 before-input-event catches keyDown with control and neither alt nor meta, maps 1-4 to the same tabs, sends 'shell-shortcut' and preventDefaults. Comment at shell.js:175-176 and main.js:283-284: the shortcut MUST be caught in the main process because the stage iframe covers almost the whole window and swallows key events aimed at the shell. The hint chips on the tabs (shell.css:32-40, content '^1'..'^4') advertise these.",
+   "must_survive": true,
+   "backend_calls": [
+    "studio.onShortcut"
+   ]
+  },
+  {
+   "name": "Escape key handling (modal first, then banner)",
+   "how_it_works": "shell.js:352-353: on Escape, if the settings modal is open close it; ELSE if the update banner is visible hide it. Strict precedence, one Escape only affects one thing.",
+   "must_survive": true
+  },
+  {
+   "name": "Arrow-key tab navigation (roving, wrapping)",
+   "how_it_works": "shell.js:354-359: on ArrowRight/ArrowLeft, only when document.activeElement has class 'tab'. order = ['forge','player','review','audition']; cur = index of the currently .is-active tab's data-tab; next = order[(cur + (right ? 1 : order.length-1)) % order.length] (wraps both ways); activate(next), then focus() the matching .tab[data-tab=...], preventDefault().",
+   "must_survive": true
+  },
+  {
+   "name": "Windows file association / 'Open with' a .mid",
+   "how_it_works": "shell.js:178-180: studio.onOpenMidi(p => p.midiPath && openPlayer(p)). Comment: 'Windows handed us a .mid (double-click, Open with). Same path as Forge's \"Send to Midi Player\".' main.js:94 sends 'open-midi' {midiPath}; main.js:236 delays deliverOpenPath by 600ms after did-finish-load because the player iframe needs a beat more.",
+   "must_survive": true,
+   "backend_calls": [
+    "studio.onOpenMidi"
+   ]
+  },
+  {
+   "name": "Engine-error surfacing from any tab",
+   "how_it_works": "shell.js:246-248: studio.onEngineError(msg) — only if typeof msg === 'string' AND /missing|couldn't launch|not running|crashed/i matches, toast('Player engine: ' + msg.slice(0,120), 'err'). Deliberate filter so ordinary sidecar noise does not toast, and a hard 120-char truncation.",
+   "must_survive": true,
+   "backend_calls": [
+    "studio.onEngineError"
+   ]
+  },
+  {
+   "name": "Session restore on boot",
+   "how_it_works": "shell.js:192: studio.getUi().then(ui => { if (ui.lastTab) activate(ui.lastTab, false) — persist=false so restoring does not re-write it; applyTheme(ui.theme); if (ui.accent) applyAccent(ui.accent) }). shell.js:193: studio.getPerformance().then(showPerf) so perf/drawMs is live before Settings is ever opened. Both .catch(()=>{}). Note the restored tab's frame gets its src set by activate -> ensureFrame, so a non-forge lastTab loads two frames at boot (forge is eager in markup).",
+   "must_survive": true,
+   "backend_calls": [
+    "studio.getUi()",
+    "studio.getPerformance()"
+   ]
+  },
+  {
+   "name": "Frameless-window drag region",
+   "how_it_works": "shell.css:14 .topbar { -webkit-app-region: drag; user-select: none } with -webkit-app-region: no-drag re-applied on .brand (16), .tabs (21), .tab (23), .topbar-right (48), .version-badge (50) and .iconbtn (59). Anything interactive in the title bar must opt out of drag or it becomes unclickable.",
+   "must_survive": true
+  },
+  {
+   "name": "Brand logo",
+   "how_it_works": "index.html:13-15 div.brand > img.brand-logo src=\"./shared/logo.png\" alt=\"MIDI Studio\". shell.css:17 height 30px, width auto, display block.",
+   "must_survive": true
+  },
+  {
+   "name": "Content Security Policy",
+   "how_it_works": "index.html:5-6 meta http-equiv CSP: default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; frame-src 'self'. This is why tokens.css bundles woff2 fonts locally (tokens.css:9 comment 'bundled fonts (offline; CSP blocks remote)') and why no CDN can be introduced.",
+   "must_survive": true
+  },
+  {
+   "name": "Inline SVG icon system (shared/icons.js)",
+   "how_it_works": "IIFE exposing window.Icon = {svg, apply, has, names}. One stroke weight S = 1.6, all paths on a 16x16 grid, square caps, miter joins. STROKE set: close, plus, minus, check, up, down, caretDown, caretUp, caretRight, refresh, undo, dots, alert, search, folder, send, drop, keyboard. FILL (solid) set: play, pause, stop, next, prev, record — solid because a triangle/square reads faster filled, and the play triangle is given extra size so it matches a square optically. gear() is generated: a r=4.6 ring, a r=1.5 hub, and 8 teeth from r=4.6 to r=6.6 at i*PI/4. svg(name,size) emits <svg class=\"ic\" viewBox=\"0 0 16 16\" width/height=size (default 16) fill=currentColor aria-hidden=true focusable=false>; returns '' for unknown names. apply(root) upgrades every [data-icon] under root, skipping any whose firstElementChild is already an svg (idempotent, safe to re-call after a partial re-render), reading el.dataset.icon and el.dataset.iconSize. Self-boots on DOMContentLoaded or immediately if the document is already parsed. Shell uses: gear@16 (#settings-btn), close@14 (#settings-close), up@16 (.ub-icon), close@12 (#ub-dismiss). Header comment records the original bug: the app used to use font glyphs, which arrived at different weights/optical sizes, shifted on font fallback, and rendered as full-colour emoji on Windows.",
+   "must_survive": true,
+   "element_ids": [
+    "settings-btn",
+    "settings-close",
+    "ub-dismiss"
+   ]
+  },
+  {
+   "name": "Draggable split dividers (shared/resize.js) — NOT loaded by the shell page",
+   "how_it_works": "IIFE exposing window.Resize = {apply, attach}; self-boots on DOMContentLoaded / immediately. Markup contract: an ancestor [data-split=\"name\"] plus <i class=\"grip-h|grip-v\" data-resize=\"prop\" data-min data-max [data-axis=\"y\"] [data-invert]>. A divider drives ONE CSS custom property (--<data-resize>) on the [data-split] owner so the grid keeps owning the layout. Persistence: localStorage key 'midi-studio:splits', per-divider key `${owner.dataset.split||'root'}:${handle.dataset.resize}`. clamp() uses data-min (default 80) / data-max (default 900), rounded. currentPx() reads the computed custom property and, when unset, measures the adjacent pane (previousElementSibling, or nextElementSibling when data-invert) so the first drag does not jump. attach() is idempotent via data-resizeReady, and sets role=separator, tabindex=0, aria-orientation (horizontal for axis y, vertical for x) and a default aria-label 'Resize'. Pointer drag: pointerdown (button 0 only) captures {x,y,px}, adds body.is-resizing, listens on window for pointermove/pointerup; delta is inverted for data-invert; pointerup removes the listeners, drops the class, remembers the size and dispatches a synthetic window 'resize'. Keyboard: ArrowLeft/Right (or Up/Down on axis y) nudge by 8px, 40px with Shift, inverted for data-invert, then remember + synthetic resize. Double-click removes the custom property, forgets the stored size and fires a synthetic resize. Styling lives in tokens.css:286-305. IMPORTANT: index.html loads only shared/icons.js and shell/shell.js — resize.js is a per-tab module, so no divider exists in the shell chrome itself.",
+   "must_survive": true
+  },
+  {
+   "name": "Shared wheel/zoom for time-axis canvases (shared/timeline-zoom.js) — NOT loaded by the shell page",
+   "how_it_works": "IIFE setting window.TimelineZoom = createTimelineZoom(element, getDuration, onChange). Keeps a visible window {start, span} in seconds where span 0 means 'show everything'. span() clamps to 0.25..total; start() clamps to 0..(total-span). API: span(), start(), zoomed() (span>0 && span<duration), xFor(time,width) = (time-start())/span()*width, timeAt(x,width) = start()+(x/width)*span(), reset() (span=0,start=0,onChange), follow(time) which, only while zoomed and only when the time falls outside the window, re-anchors start to time - span*0.35 clamped. wheel listener registered {passive:false} and always preventDefault()s once a duration exists: shift+wheel PANS (start += deltaY/rect.width*span), plain wheel ZOOMS around the pointer (ratio = clamped (clientX-rect.left)/rect.width; anchor = start + ratio*span; next = clamp(span*Math.exp(deltaY*0.0016), 0.5, total); span becomes 0 when next >= total, i.e. it snaps back to 'show everything'). dblclick -> reset(). Header names the three consumers: Forge waveform, Editor waveform, Player range overview. Again: index.html does not include this file; it is a per-tab module.",
+   "must_survive": true
+  },
+  {
+   "name": "Tab hint chips + active-tab underline",
+   "how_it_works": "shell.css:22-46. .tab is a flat transparent block, 0 24px padding, 600 13px, left 1px --line border (right border on :last-child only). .tab::after is a mono 12px chip in a --line-2 border with --bg-2 background whose content is set per tab: '^1' forge, '^2' player, '^3' review, '^4' audition. Hover: colour --text-2, background #1f2126. .tab.is-active: colour --text, background --bg (matching the stage so the tab merges into it), box-shadow inset 0 2px 0 var(--accent) as the underline (drawn at the TOP, inset), and the chip recolours to --accent with --accent-line border.",
+   "must_survive": true
+  },
+  {
+   "name": "Design token system (tokens.css) shared by shell + every tab",
+   "how_it_works": "Single stylesheet loaded first by every frame. Declares 2 @font-face families from local woff2 variable fonts, ~60 custom properties on :root, 4 accent-only theme overrides, a global reset (* box-sizing; [hidden] display:none !important), html/body base type, and a component layer: .mono/.muted/.small, .lbl (CSS-counter numbered section label), .btn/.btn.big/.btn-primary/.btn-ghost/.link, .input + input[type=text|number], .card, .bar/.bar-fill/.bar-fill.indet, .dot(.ok/.warn/.err), .check, .seg segmented radio blocks, :focus-visible ring, webkit scrollbars, prefers-reduced-motion kill-switch, .ic/[data-icon] icon rules, an appearance:none reset for button[role=radio|checkbox|switch|tab], and the .grip-h/.grip-v resize divider styling plus body.is-resizing rules. Full name -> value -> consumer table is in data_structures.",
+   "must_survive": true
+  }
+ ],
+ "element_ids": [
+  "tabs",
+  "settings-btn",
+  "version-badge",
+  "settings-modal",
+  "settings-title",
+  "settings-close",
+  "snav",
+  "s-forge-layout",
+  "s-theme",
+  "s-accent",
+  "s-ontop",
+  "s-perf-percent",
+  "s-perf-value",
+  "s-perf-explain",
+  "s-perf-advanced",
+  "s-perf-threads",
+  "s-perf-batch",
+  "s-perf-auto",
+  "s-perf-toggle",
+  "s-perf-gaming",
+  "s-forge",
+  "s-forgedir",
+  "s-changeforge",
+  "s-resetforge",
+  "s-openforge",
+  "s-setuplog",
+  "s-clean",
+  "s-autoupdate",
+  "s-recheck",
+  "s-version",
+  "s-repo",
+  "update-banner",
+  "ub-title",
+  "ub-sub",
+  "ub-prog",
+  "ub-prog-fill",
+  "ub-apply",
+  "ub-dismiss",
+  "frame-forge",
+  "frame-player",
+  "frame-review",
+  "frame-audition"
+ ],
+ "listeners": [
+  "#tabs click (shell.js:90) -> delegated .tab -> activate(dataset.tab)",
+  "window keydown (shell.js:92-98) -> Ctrl+1..4 -> activate(forge|player|review|audition) + preventDefault",
+  "window keydown (shell.js:352-360) -> Escape closes settings modal else hides update banner; ArrowLeft/Right while a .tab is focused rotates tabs with wrap and moves focus",
+  "each .tabframe 'load' (shell.js:35) -> skin(that frame's documentElement) + applyPerf()",
+  "frame-player 'load' {once} (shell.js:166) -> setTimeout(deliver,120) for the pending setMidiFile hand-off",
+  "frame-audition 'load' {once} (shell.js:143) -> deliver loadAudition",
+  "frame-review 'load' {once} (shell.js:153) -> deliver openReviewProject",
+  "window 'message' (shell.js:170-174) -> studio:open-player / studio:open-audition / studio:open-review router, no origin check",
+  "#snav click (shell.js:102) -> delegated button[data-pane] -> swap .is-active on nav buttons and .spane sections",
+  "#s-forge-layout click (shell.js:122) -> delegated button[data-layout] -> mark() + forge frame setForgeLayout() or studio.setUi({forgeLayout})",
+  "#settings-btn click (shell.js:275) -> openSettings()",
+  "#settings-close click (shell.js:276) -> closeSettings()",
+  "#settings-modal click (shell.js:277) -> closeSettings() only when e.target is the scrim itself",
+  "#s-autoupdate change (shell.js:278) -> studio.setUi({autoCheckUpdates})",
+  "#s-ontop change (shell.js:279) -> studio.setUi({alwaysOnTop})",
+  "#s-theme change (shell.js:280) -> applyAccent('') + applyTheme(v) + studio.setUi({theme,accent:''}) + resync #s-accent from computed --accent",
+  "#s-accent input (shell.js:282) -> applyAccent(v) + studio.setUi({accent}) on EVERY input event",
+  "#s-perf-percent input (shell.js:301) -> update #s-perf-value text only",
+  "#s-perf-percent change (shell.js:304) -> savePerf({percent})",
+  "#s-perf-gaming change (shell.js:305) -> savePerf({whenGaming})",
+  "#s-perf-toggle click (shell.js:306) -> toggle #s-perf-advanced.hidden and swap the label text",
+  "#s-perf-auto click (shell.js:311) -> savePerf({percent: perf.percent}) to clear hand-set values",
+  "#s-perf-threads change and #s-perf-batch change (shell.js:312-315) -> savePerf({advanced:{threads,batch}})",
+  "#s-openforge click (shell.js:316) -> studio.openForgeFolder()",
+  "#s-changeforge click (shell.js:333) -> relocateForge('changeForgeFolder')",
+  "#s-resetforge click (shell.js:334) -> relocateForge('resetForgeFolder')",
+  "#s-recheck click (shell.js:335) -> studio.checkForUpdates({manual:true}) + closeSettings()",
+  "#s-setuplog click (shell.js:336) -> await studio.openSetupLog(), toast on failure",
+  "#s-repo click (shell.js:340) -> preventDefault + studio.openExternal(github url)",
+  "#s-clean click (shell.js:341) -> window.confirm gate -> studio.cleanReinstall() -> toast + forge frame refreshForgeEnvironment() + refreshForgeInfo()",
+  "#version-badge click (shell.js:198) -> studio.checkForUpdates({manual:true})",
+  "#ub-dismiss click (shell.js:214) -> hide banner",
+  "#ub-apply click (shell.js:215) -> studio.applyUpdate() when staged, else a manual re-check",
+  "studio.onUpdateStatus (shell.js:220) -> the 8-state update banner machine",
+  "studio.onEngineError (shell.js:246) -> regex-filtered error toast",
+  "studio.onGameActive (shell.js:183) -> gameActive latch + applyPerf() + edge-triggered toasts",
+  "studio.onShortcut (shell.js:177) -> activate(p.tab) for the main-process Ctrl+1..4 path",
+  "studio.onOpenMidi (shell.js:180) -> openPlayer(p) for a Windows file association",
+  "TIMERS: toast auto-dismiss setTimeout 3600ms then a nested 260ms removal (shell.js:206); openPlayer's setTimeout(deliver,120) (shell.js:166). No intervals, no rAF loop in the shell itself.",
+  "icons.js:108 document DOMContentLoaded -> Icon.apply() (or immediate apply when already parsed)",
+  "resize.js (per-tab, not the shell page): handle pointerdown/keydown/dblclick, plus window pointermove/pointerup added only during a drag, and a synthetic window 'resize' dispatched on drag end, arrow nudge and dblclick reset; DOMContentLoaded -> Resize.apply()",
+  "timeline-zoom.js (per-tab, not the shell page): element 'wheel' {passive:false} zoom/pan and element 'dblclick' reset"
+ ],
+ "perf_findings": [
+  {
+   "file": "renderer/shell/shell.js",
+   "line": 282,
+   "issue": "The colour picker's 'input' handler fires applyAccent() AND studio.setUi({accent}) on every single input event, which for a native <input type=color> drag is one event per pixel of movement.",
+   "why_it_costs": "Each event runs deriveAccent (regex + parse + 6 channel blends), then applySkin, which writes 7 setProperty calls into 5 separate documents (the shell plus up to 4 loaded iframes) = up to 35 cross-document style mutations, each invalidating that document's whole style tree because the custom properties are set on <html>. In parallel it issues one IPC invoke ('app:setUi') per event, so a two-second drag can queue hundreds of IPC round trips and disk-backed settings writes.",
+   "fix": "Apply the visual change on 'input' but debounce/rAF-coalesce it, and move the studio.setUi persistence to the 'change' event (the same split the percent slider already uses at shell.js:301 vs 304)."
+  },
+  {
+   "file": "renderer/shell/shell.js",
+   "line": 49,
+   "issue": "applyPerf() writes documentElement.dataset.drawms unconditionally on every call, with no equality check, and then calls markVisibility() which walks the frame list a second time.",
+   "why_it_costs": "It is called on every frame 'load' (shell.js:35), on every showPerf() (296), and on every game-active event (186). Each call is 2 full passes over the frames and up to 5 dataset writes into 5 documents; a dataset write on <html> invalidates attribute selectors and forces a style recalc in each iframe even when the value is identical. markVisibility() at line 67 already guards with an equality check — applyPerf does not.",
+   "fix": "Guard the write the same way markVisibility does (compare el.dataset.drawms to the new value and return early), and fold the two frame walks into one loop."
+  },
+  {
+   "file": "renderer/shell/shell.css",
+   "line": 105,
+   "issue": "body.modal-open .tabframe { visibility: hidden } hides the active tab while Settings is open, but visibility:hidden keeps the iframe laid out, composited and running, and it does NOT flip data-onscreen (markVisibility at shell.js:63 keys only off the .is-active class).",
+   "why_it_costs": "While the settings modal is open, the active tab's rAF/draw loop keeps producing frames that are never seen — full GPU and CPU cost for zero pixels, and with backgroundThrottling:false (electron/main.js:220) plus disable-renderer-backgrounding (main.js:32-33) nothing else throttles it either. On the Editor or Self Midi tab that is a live piano-roll canvas.",
+   "fix": "Have openSettings/closeSettings stamp data-onscreen='0'/'1' (or call a markVisibility variant that also considers document.body.classList.contains('modal-open')) so the frame parks its draw loop while the modal covers it."
+  },
+  {
+   "file": "renderer/shared/tokens.css",
+   "line": 218,
+   "issue": "@keyframes indet animates margin-left from -34% to 102% on .bar-fill.indet, infinitely (1.15s loop), on an element that also paints a linear-gradient.",
+   "why_it_costs": "margin-left is a layout property, so every animation frame forces layout + paint of the bar and its ancestors on the compositor's main thread rather than running as a compositor-only transform. Any indeterminate progress bar left on screen (a Forge setup download, a provision step) pays this for the whole duration, in whichever frame it lives, and it is not covered by the data-drawms budget because CSS animations ignore it.",
+   "fix": "Animate transform: translateX() instead of margin-left (add will-change: transform), which keeps it off the layout path; the prefers-reduced-motion block at tokens.css:265 already neutralises it for users who opt out."
+  },
+  {
+   "file": "renderer/shared/resize.js",
+   "line": 128,
+   "issue": "The keyboard nudge handler calls remember() (a localStorage read + JSON.parse + JSON.stringify + write) and then dispatches a synthetic window 'resize' event on every single arrow keypress, including OS key auto-repeat.",
+   "why_it_costs": "Holding an arrow key on a focused divider produces ~30 events/second, each doing a synchronous localStorage round trip (parse of the whole splits object, stringify, write) plus a global 'resize' broadcast that makes every canvas in that frame re-measure and fully redraw. The comment at line 105-107 confirms the resize event exists precisely because canvases redraw on it, so this is a redraw storm by construction.",
+   "fix": "Debounce both the remember() write and the synthetic resize dispatch (e.g. a trailing ~120ms timer) so a key-repeat run does one persist and one redraw at the end; the pointer path at line 104 already only persists once, on pointerup."
+  },
+  {
+   "file": "renderer/shared/timeline-zoom.js",
+   "line": 41,
+   "issue": "The wheel handler calls onChange() synchronously at the end of every wheel event (line 57), with no rAF coalescing, and the listener is registered {passive:false} with an unconditional preventDefault.",
+   "why_it_costs": "A high-resolution trackpad or a free-spinning wheel delivers many wheel events per animation frame; each one triggers a full consumer redraw (Forge waveform, Editor waveform, Player overview) that will be overwritten before it is ever presented. Because the listener is non-passive, the compositor must also wait for this JS on every event before it can decide about scrolling.",
+   "fix": "Coalesce onChange behind a requestAnimationFrame latch (set a dirty flag, schedule one callback per frame) so a burst of wheel events produces one redraw."
+  },
+  {
+   "file": "renderer/shell/shell.js",
+   "line": 233,
+   "issue": "The 'downloading' branch of the update-status handler does 5 fresh document.getElementById lookups (via the $ helper at line 211) plus a style.width write for every progress tick.",
+   "why_it_costs": "Progress events arrive per-percent (or more often) for a multi-hundred-MB installer, and every one re-queries the DOM for #ub-title, #ub-prog, #ub-prog-fill and #ub-apply instead of using cached references. #ub-prog-fill also carries transition: width var(--dur-2) (shell.css:127), so each write starts a new 170ms width transition that is immediately superseded — a stream of half-finished layout animations.",
+   "fix": "Cache the banner element references once at module scope (the shell already does exactly that for #update-banner at line 210), and only rewrite the width when the integer percent actually changed."
+  },
+  {
+   "file": "renderer/shell/shell.js",
+   "line": 32,
+   "issue": "applySkin() unconditionally re-skins every frame, including frames whose contentDocument is null because they were never loaded (data-src still unresolved).",
+   "why_it_costs": "skin() is called with `undefined` for every unloaded frame and relies on the try/catch at line 27-31 to swallow the resulting TypeError. Throwing and catching an exception per unloaded frame per theme/accent change is far more expensive than a null check, and on a fresh launch (3 of 4 frames unloaded) every accent drag event throws 3 exceptions.",
+   "fix": "Have skin() return early on a falsy element, or filter frames to those with a live contentDocument before mapping, and keep the try/catch only for genuine cross-origin/disposal races."
+  }
+ ],
+ "gotchas": [
+  "shell.js:60-62 (and electron/main.js:220, 30-33): a hidden tab still has a LIVE document, and backgroundThrottling is deliberately false plus disable-backgrounding-occluded-windows / disable-renderer-backgrounding are set, so the platform will NOT slow a hidden tab's animation loops. An iframe cannot detect that it is off-screen (document.hidden tracks only the window), which is exactly why the shell stamps data-onscreen on each frame's <html> and dispatches 'midi-studio:onscreen' when a frame comes back. Removing or renaming data-onscreen silently burns GPU forever in every hidden tab.",
+  "electron/main.js:110-113 iframe broadcast fan-out: webContents.send() reaches ONLY the main (shell) frame. Engine/forge events must be walked out to mainFrame.framesInSubtree or the Forge and Player tabs receive nothing. Conversely sendToRenderer() is main-frame-only ON PURPOSE (main.js:101-102, 922) so the shell owns the single updater banner and the player iframe cannot pop a second one. A rewrite must keep update-status shell-only and everything else fanned out.",
+  "electron/main.js:283-284 and shell.js:175-176: Ctrl+1..4 must be caught in the MAIN process via before-input-event, because the stage iframe covers almost the whole window and a keydown listener in the shell frame stops seeing keys the moment the user clicks into a tab. The in-shell window keydown handler (shell.js:92) is only the fallback for when focus is still in the chrome. Do not delete either path.",
+  "shell.js:38-43: the resource limit is pushed onto every frame's <html> so animation loops can read it without another IPC round trip. The comment records a past bug: the user's preference and 'a game is running' were once folded into one flag, which LATCHED the limit on permanently the first time Roblox was seen. They must stay separate — a running game can raise the level (triple drawMs) but must never lower or overwrite the user's choice.",
+  "shell.js:156-157 and 166: the Player frame is lazily loaded, so a hand-off cannot reach into contentWindow immediately; it must wait for 'load' AND then an extra setTimeout(deliver, 120), because the frame's own scripts have not defined setMidiFile at the moment 'load' fires. electron/main.js:236 encodes the same hazard with a 600ms delay before deliverOpenPath.",
+  "shell.css:103-104: an <iframe> can composite ABOVE a parent fixed overlay, so the tab must be hidden (body.modal-open .tabframe { visibility:hidden }) or the settings dialog renders see-through. Any rewrite that keeps iframes must keep an equivalent.",
+  "tokens.css:277-281: a <button role=\"radio\"> keeps appearance:auto from the UA sheet and Chromium then paints a NATIVE radio control on top of the button's content — a grey ring straight through the middle of the label. The appearance:none reset for button[role=radio|checkbox|switch|tab] is global on purpose because every segmented picker in the app is built that way (the Forge layout cards are role=radio buttons).",
+  "tokens.css:106-107: [hidden] { display:none !important } is a deliberate restoration — component display rules (e.g. .spane.is-active{display:flex}, .modal-scrim{display:flex}) would otherwise beat the hidden attribute. The shell relies on el.hidden for the settings modal, the update banner, #ub-prog, #s-perf-advanced and #s-resetforge, so removing this line breaks all of them at once. Note shell.css also re-states .modal-scrim[hidden]{display:none} (line 69) and .update-banner[hidden]{display:none} (117) as belt-and-braces.",
+  "tokens.css:9 and 10-19: fonts are bundled woff2 files served locally because the page CSP (index.html:5-6) blocks remote anything. No Google Fonts, no CDN, in the rewrite.",
+  "tokens.css:43: --text-3 (#868a92) is documented as the AA contrast floor — 5.27 on --bg and 4.82 on --surface. Darkening it breaks accessibility on both surfaces.",
+  "tokens.css:65-69: the type scale is deliberately FOUR steps with nothing between; the comment records that an older 8.5-11.5px band was unreadable at 100% on a 1080p panel and was collapsed into --t1: 12px. Do not reintroduce sub-12px text.",
+  "resize.js:31-34: every tab is a separate frame with its own copy of resize.js sharing ONE localStorage. Writing a whole snapshot back erased what other tabs had saved since this frame started, so only the last pane touched survived a reload. remember()/forget() must keep doing read-merge-write, never a blind setItem of a cached object.",
+  "resize.js:105-107 and 128: canvases size themselves off their box and several only redraw on a window 'resize', so a synthetic window resize event MUST be dispatched after a divider drag, an arrow nudge and a dblclick reset. Silently dropping it leaves stale canvases.",
+  "resize.js:69-70: when no custom property is set yet, the first drag measures the adjacent pane so it starts from where the layout actually is rather than jumping.",
+  "tokens.css:302-305: while a divider is being dragged, body.is-resizing kills user-select globally and sets pointer-events:none on iframes, because otherwise text selects, canvases start their own drags and buttons light up mid-drag.",
+  "shell.css:189-192: the layout chooser grid is a hard repeat(2, 1fr); the comment records that auto-fit produced '3 + 1 orphan' for the four options.",
+  "shell.css:222-227: the settings panes are narrower than the old full-width modal, which made the 100px .skey column wrap 'CUSTOM COLOUR' onto two lines. .spanes .skey overrides to flex:0 1 auto + white-space:nowrap and the value side shrinks instead.",
+  "shell.css:228-235: a native <select> on a dark ground renders its text at the platform's idea of 'control text', which reads as disabled; .spanes select.sval and its option children must state colour/background explicitly.",
+  "shell.css:154-157: the settings dialog is intentionally two-pane. The comment records that the old flat single list put the accent picker next to 'clean reinstall', so nothing had any weight. Do not flatten it back.",
+  "icons.js:1-16: the icon set exists because the app previously used whatever glyph the font had — different weights and optical sizes, shifting on font fallback, and some rendering as full-colour EMOJI on Windows in the middle of a graphite panel. All new icons must stay on the 16-unit grid at stroke weight 1.6 with square caps.",
+  "icons.js:91-93 / 97: Icon.apply() is idempotent (it skips any [data-icon] whose first child is already an <svg>), so a partial re-render does not rebuild the whole set — keep that guard if the call site changes.",
+  "shell.js:280-281: choosing an accent PRESET deliberately clears the custom accent (applyAccent('') and setUi({accent:''})) and then reads the resulting computed --accent back into the colour input. Skipping either half leaves the custom inline vars overriding the chosen preset, or the picker showing a stale swatch.",
+  "shell.js:192: the restored tab is activated with persist=false so restoring a session does not re-write lastTab. Also note that restoring a non-forge lastTab loads TWO frames at boot, because frame-forge has a hard src in the markup.",
+  "shell.js:216: #ub-apply doubles as a Retry button — when nothing is staged, clicking it re-checks instead of applying. The `staged` flag is the only thing distinguishing the two behaviours and is reset to false on 'checking' and 'error'.",
+  "shell.js:246-247: engine errors are regex-filtered (/missing|couldn't launch|not running|crashed/i) and truncated to 120 chars on purpose, so ordinary sidecar chatter does not toast the user.",
+  "shell.js:187: the toast strips a trailing .exe from the detected game name, and the game toasts are edge-triggered off the previous gameActive value so repeated 'game-active' broadcasts do not spam.",
+  "shell.js:170-174: the postMessage router does NOT validate event.origin. Any frame (all are 'self' under the CSP) can drive tab switching and file loading; if the rewrite ever loads remote content into a frame this becomes an injection surface.",
+  "electron/forge-runner.js:323-331: Torch's OpenMP pool SPIN-WAITS between parallel regions by default, so idle worker threads keep burning CPU and never yield below normal priority. OMP_WAIT_POLICY=PASSIVE (plus OMP_NUM_THREADS from the perf threads value) is what makes the 'go easy while gaming' setting actually mean anything — the shell's percent slider feeds that.",
+  "timeline-zoom.js:53-54: the zoom snaps view.span back to 0 ('show everything') once the computed span reaches the full duration, and the minimum span is clamped to 0.25s in span() / 0.5s in the wheel step. reset() is bound to dblclick on the element, which means a consumer canvas cannot use dblclick for anything else."
+ ],
+ "data_structures": "FULL tokens.css TOKEN TABLE (name -> value -> what uses it)\n\nFONTS\n--font-body \"Archivo\",\"Segoe UI\",sans-serif -> html/body base, .tab, .btn, .btn.big, .link, .snav button, .lc-name, .spanes select.sval, .layout-cards\n--font-display \"Archivo\",\"Segoe UI\",sans-serif -> declared only; NOT referenced anywhere in the shell files (dead in shell scope)\n--font-mono \"JetBrains Mono\",\"Cascadia Code\",ui-monospace,monospace -> .mono, .lbl, .input/input[type=text|number], .tab::after hint chips, .version-badge, .modal-head h2, .skey, .sgroup-h h3, .ub-sub, #s-forgedir(.mono), #s-version(.mono)\n\nSURFACES\n--bg #141519 -> html/body background; .tabframe background; .tab.is-active background (so the active tab merges into the stage); --ring inner ring colour\n--bg-2 #0f1013 -> .input/number inputs, .bar track, .ub-prog track, .limit-row input, .lc-art background, .snav background, .tab::after chip background\n--surface #1c1e23 -> .card, .modal, .update-banner, .toast option list (.spanes select.sval option), .seg is-active::before inset ring colour\n--surface-2 #25272d -> .btn, .btn-ghost:hover, .toast, .iconbtn:hover, .version-badge background, .snav button:hover, .layout-cards button, .spanes select.sval, .seg button\n--surface-3 #2b2e36 -> .btn:hover, .seg button:hover, .layout-cards button:hover\n\nLINES\n--line #2b2e36 -> .topbar border-bottom, .tab border-left/right, .modal-head border-bottom, .snav border-right (border-bottom in the narrow layout), .card border, .bar border, .ub-prog border, .input border, .seg button border-right, .lc-art border, .grip-h/.grip-v ::after hairline\n--line-2 #3a3d45 -> .modal border, .btn border, .toast border, .update-banner border, .version-badge border, .iconbtn:hover border, .layout-cards button border, .limit-row input border, .spanes select.sval border, .seg outer border, .lc-art i fill, .tab::after chip border\n--line-soft #3a3d4566 -> declared; not used by any shell/tokens rule (available to tabs)\n--edge #0c0d10 -> declared; not used by any shell rule (same value is hard-coded as the light --accent-ink)\n\nTEXT\n--text #e8e9ea -> html/body colour, .btn, .sval, .toast, .tab.is-active, .iconbtn:hover, .snav button:hover / .is-active, .lc-name, .limit-row input, .spanes select.sval (+option), .seg is-active / hover\n--text-2 #9b9ea6 -> .tab:hover, .modal-head h2, .storage-path, .snav button, .sgroup-h p, .check, .limit-row label, .seg button\n--text-3 #868a92 (AA: 5.27 on --bg, 4.82 on --surface) -> .muted, .lbl, .tab default + .tab::after, .version-badge, .iconbtn default, .skey, .sgroup-h h3, .snote, .ub-sub, .lc-desc, .btn-ghost, input::placeholder, .dot default, .btn-primary:disabled colour, .seg ::before ring border\n\nACCENT (lime default; all 7 overridable per-theme and by the custom-accent inline vars)\n--accent #b8e62e -> .tab.is-active underline (inset box-shadow) + active hint chip colour, .version-badge:hover, .btn-primary background, .link, .bar-fill, .ub-prog-fill, .ub-icon colour, .update-banner left border, .toast left border, .snav is-active inset bar, .limit-head range accent-color, #s-perf-value colour, .check accent-color, .seg is-active ::before, .grip hover/focus hairline, --accent-grad\n--accent-2 #c6f23e -> .btn-primary:hover, .link:hover\n--accent-deep #8fb320 -> .btn-primary border + :active, .lbl::before counter colour, input:focus border-color, --ring outer ring, .layout-cards is-active .lc-art i fill\n--accent-ink #161900 -> .btn-primary text colour (derived accent picks #0c0d10 or #f4f6ff by luminance)\n--accent-grad var(--accent) -> declared as flat, no-gradient alias; not consumed in the shell files\n--accent-soft #252a1a -> .ub-icon background, .snav button.is-active background, .layout-cards button.is-active background, .seg button.is-active background\n--accent-line #4d5640 -> .tab.is-active::after border, .version-badge:hover border, .ub-icon border, .layout-cards button.is-active border\n\nSEMANTIC\n--ok #b8e62e (theme-swapped alongside --accent) -> .toast--ok left border, .dot.ok\n--ok-soft #22261a -> theme-swapped; not consumed in shell files\n--warn #e6c84a -> .dot.warn\n--warn-soft #2a2517 -> not consumed in shell files\n--err #e65a5a -> .toast--err left border, .dot.err, .btn.danger colour (#s-clean)\n--err-soft #2a1a1a -> .btn.danger:hover background\n\nRADIUS\n--r-sm 4px -> .btn, .input, .toast, .iconbtn, .ub-icon, .snav button, .limit-row input, .spanes select.sval\n--r 5px -> .btn.big, .card? (no, card uses r-lg), .update-banner, .seg, .layout-cards button\n--r-lg 6px -> .modal, .card\n--r-pill 999px -> ::-webkit-scrollbar-thumb\n\nSPACING (4-based)\n--s1 4px -> .modal-actions padding-top\n--s2 8px -> .btn gap, .check gap, .storage-control gap, .storage-actions gap, .modal-actions gap, .sactions gap, .layout-cards gap\n--s3 12px -> .topbar-right gap, .modal-head padding, .modal-body gap, .update-banner gap + margin/padding, .lbl margin-bottom, .snav padding, .sgroup gap, .layout-cards button padding, .spanes .srow gap\n--s4 16px -> .card padding, .modal-body padding, .modal-head padding-x, .srow gap, .update-banner padding-x, .topbar-right padding-right\n--s5 20px -> .topbar padding-left\n--s6 24px -> .topbar gap, .spanes padding\n--s8 32px -> .spane gap (between setting groups)\n\nTYPE SCALE (four steps only)\n--t1 12px, --t2 13px, --t3 15px, --t4 18px -> declared for the tab modules; the shell hard-codes 12/13/15px literals rather than using them\n\nELEVATION / MOTION / FOCUS\n--sh-1 0 1px 2px rgba(0,0,0,.3) -> declared; unused in shell files\n--sh-2 0 6px 18px -8px rgba(0,0,0,.5) -> .update-banner\n--sh-pop 0 16px 40px -16px rgba(0,0,0,.7) -> .modal, .toast\n--glow none -> declared as an explicit \"no glow theater\" no-op\n--well inset 0 1px 2px rgba(0,0,0,.35) -> .input / input[type=text|number]\n--dur 110ms -> .tab, .btn, .link, .version-badge, .iconbtn, .snav button, .layout-cards button, .seg, .input border, .grip ::after transitions\n--dur-2 170ms -> .bar-fill width, .ub-prog-fill width, ub-in / toast-in / toast-out animations, .modal-scrim animation\n--ease cubic-bezier(.2,.7,.2,1) -> every transition and keyframe above\n--ring 0 0 0 1px var(--bg), 0 0 0 3px var(--accent-deep) -> :focus-visible, and explicitly on .btn / .seg button / .link / .tab :focus-visible\n\nNON-TOKEN HARD-CODED COLOURS worth carrying over\n#1a1b20 -> .topbar background and .modal-head background (shell.css:12, 77)\n#1f2126 -> .tab:hover background (shell.css:41) and .btn:active (tokens.css:152)\n#4a4e58 -> .btn:hover border-color (tokens.css:151)\n#5a2e2e -> .btn.danger:hover border-color (shell.css:187)\n#34373f / #44474f -> scrollbar thumb and thumb:hover (tokens.css:260-261)\nrgba(8,9,11,.7) -> .modal-scrim background (shell.css:68)\n#b8e62e66 / #e6c84a66 / #e65a5a66 -> .dot ok/warn/err glow shadows (tokens.css:222-224)\nZ-INDEX MAP: .modal-scrim 10001, .toasts 10000, .grip-h/.grip-v 4\n\nSHELL JS STATE OBJECTS\ncurTheme: string ('' = lime default, else 'cyan'|'indigo'|'magenta'|'amber')\ncurVars: null | { '--accent','--accent-2','--accent-deep','--accent-ink','--accent-soft','--accent-line','--ok' } (output of deriveAccent)\nACCENT_KEYS: the 7 property names above, the exact set pushed to / removed from every document\nperf: { percent:number(10-100 step 5), drawMs:number, whenGaming:'nothing'|'limit'|'pause' } plus, as returned by studio.getPerformance(): { percent, cores, threads, batch, drawMs, lowPriority:boolean, whenGaming, custom:{threads,batch} }\ngameActive: '' | the detected executable name (e.g. 'RobloxPlayerBeta.exe')\nstaged: boolean, true only while an update is downloaded/available and #ub-apply should apply rather than re-check\nframes: [HTMLIFrameElement x4] cached once at module scope from document.querySelectorAll('.tabframe')\ntitles map: { forge:'MIDI Studio: Midi Forge', player:'MIDI Studio: Midi Player', review:'MIDI Studio: Midi Editor', audition:'MIDI Studio: Self Midi' }\ntab order array (arrow-key nav): ['forge','player','review','audition']\nUI settings object (studio.getUi/setUi): { lastTab, theme, accent, forgeLayout, autoCheckUpdates, alwaysOnTop }\nforgeInfo object: { version, forgeReady, forgeEnvDir, forgeCustom } (and on relocate: { ok, moved, canceled, error, ...same fields })\nupdate-status payload: { state:'available'|'checking'|'downloading'|'verifying'|'ready'|'manual'|'updated'|'none'|'error', version, current, size(bytes), notes, canSelfUpdate, percent, message }\nresize.js persisted shape: localStorage['midi-studio:splits'] = { \"<data-split>:<data-resize>\": px, ... }\ntimeline-zoom.js view: { start:seconds, span:seconds } where span 0 means \"show everything\"",
+ "ipc_contracts": [
+  {
+   "channel": "app:version",
+   "direction": "renderer->main (invoke)",
+   "args": "none",
+   "returns": "version string; used by #version-badge and #s-version (prefixed with 'v')"
+  },
+  {
+   "channel": "app:getUi",
+   "direction": "renderer->main (invoke)",
+   "args": "none",
+   "returns": "{ lastTab, theme, accent, forgeLayout, autoCheckUpdates, alwaysOnTop }"
+  },
+  {
+   "channel": "app:setUi",
+   "direction": "renderer->main (invoke)",
+   "args": "partial patch: {lastTab} | {theme,accent} | {accent} | {forgeLayout} | {autoCheckUpdates} | {alwaysOnTop}",
+   "returns": "ignored by the shell"
+  },
+  {
+   "channel": "app:performance",
+   "direction": "renderer->main (invoke)",
+   "args": "none",
+   "returns": "{ percent, cores, threads, batch, drawMs, lowPriority, whenGaming, custom:{threads,batch} }"
+  },
+  {
+   "channel": "app:setPerformance",
+   "direction": "renderer->main (invoke)",
+   "args": "{percent} | {whenGaming} | {advanced:{threads,batch}}",
+   "returns": "the same performance object, fed straight into showPerf()"
+  },
+  {
+   "channel": "app:forgeInfo",
+   "direction": "renderer->main (invoke)",
+   "args": "none",
+   "returns": "{ version, forgeReady, forgeEnvDir, forgeCustom }"
+  },
+  {
+   "channel": "app:openForgeFolder",
+   "direction": "renderer->main (invoke)",
+   "args": "none",
+   "returns": "ignored"
+  },
+  {
+   "channel": "app:changeForgeFolder",
+   "direction": "renderer->main (invoke)",
+   "args": "none (opens a native folder picker)",
+   "returns": "{ ok, moved, canceled, error, version, forgeReady, forgeEnvDir, forgeCustom }"
+  },
+  {
+   "channel": "app:resetForgeFolder",
+   "direction": "renderer->main (invoke)",
+   "args": "none",
+   "returns": "same shape as app:changeForgeFolder"
+  },
+  {
+   "channel": "app:openSetupLog",
+   "direction": "renderer->main (invoke)",
+   "args": "none",
+   "returns": "{ ok, error } — shell toasts error || 'No setup log yet'"
+  },
+  {
+   "channel": "app:cleanReinstall",
+   "direction": "renderer->main (invoke)",
+   "args": "none",
+   "returns": "{ ok, error }"
+  },
+  {
+   "channel": "app:openExternal",
+   "direction": "renderer->main (invoke)",
+   "args": "url string (the GitHub repo)",
+   "returns": "ignored"
+  },
+  {
+   "channel": "update:check",
+   "direction": "renderer->main (invoke)",
+   "args": "{ manual: true } from the version badge, #s-recheck and the un-staged #ub-apply",
+   "returns": "ignored; results arrive on update-status"
+  },
+  {
+   "channel": "update:apply",
+   "direction": "renderer->main (invoke)",
+   "args": "none",
+   "returns": "ignored; progress arrives on update-status"
+  },
+  {
+   "channel": "update-status",
+   "direction": "main->renderer (MAIN FRAME ONLY, sendToRenderer)",
+   "args": "{ state, version, current, size, notes, canSelfUpdate, percent, message }",
+   "returns": "drives the update banner state machine; deliberately not broadcast so only the shell shows a banner. main.js caches lastUpdateStatus and replays it 300ms after did-finish-load."
+  },
+  {
+   "channel": "shell-shortcut",
+   "direction": "main->renderer (main frame)",
+   "args": "{ tab: 'forge'|'player'|'review'|'audition' }",
+   "returns": "shell calls activate(tab); emitted from before-input-event for Ctrl+1..4"
+  },
+  {
+   "channel": "open-midi",
+   "direction": "main->renderer (main frame)",
+   "args": "{ midiPath }",
+   "returns": "shell calls openPlayer(p); fired for a double-clicked / 'Open with' .mid, delivered 600ms after did-finish-load"
+  },
+  {
+   "channel": "game-active",
+   "direction": "main->renderer (broadcast to shell + all subframes)",
+   "args": "{ game: '' | exe name, rule }",
+   "returns": "shell latches gameActive, calls applyPerf() and edge-toasts"
+  },
+  {
+   "channel": "engine-error",
+   "direction": "main->renderer (broadcast)",
+   "args": "message string",
+   "returns": "shell regex-filters and toasts as 'Player engine: ...' truncated to 120 chars"
+  },
+  {
+   "channel": "engine:send",
+   "direction": "renderer->main (invoke, via window.api in the player frame)",
+   "args": "{ cmd:'load_midi', path, mapping:'roblox', tempo:1.0 }",
+   "returns": "used only as the shell's fallback when the player frame has no setMidiFile()"
+  },
+  {
+   "channel": "window.postMessage (frame -> shell, not IPC)",
+   "direction": "iframe->shell",
+   "args": "{ type:'studio:open-player'|'studio:open-audition'|'studio:open-review', midiPath?, projectPath?, play? }",
+   "returns": "routes to openPlayer / openAudition / openReview, each of which also activates the tab"
+  },
+  {
+   "channel": "cross-frame function calls (shell -> iframe contentWindow, not IPC)",
+   "direction": "shell->iframe",
+   "args": "setForgeLayout(name); refreshForgeEnvironment(); setMidiFile(midiPath); loadAudition(midiPath, projectPath, {play}); openReviewProject(path)",
+   "returns": "each is feature-detected with typeof === 'function' before calling, with a 'load'-event fallback for lazily-loaded frames"
+  }
+ ]
+}
