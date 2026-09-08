@@ -872,7 +872,7 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   // where the release name is spelt out.
   {
     const pkg2 = require(path.join(root, 'package.json'));
-    ok(pkg2.version === '3.0.0', 'package version is 3.0.0');
+    ok(pkg2.version === '3.0.1', 'package version is 3.0.1');
     ok(pkg2.releaseName === 'Graphite', 'package declares the release name');
     const mainSrc3 = rd('electron/main.js');
     ok(/ipcMain\.handle\('app:release'/.test(mainSrc3), 'main exposes the release name');
@@ -976,8 +976,8 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     // Half a heading, an unterminated bold run, a stray bracket, 60KB of one
     // line, control bytes: none of it may throw and none of it may hang.
     const nasty = [
-      '## 3.0.0 "Graphite\n### New\n- **unterminated bold\n- [link](\n',
-      '##3.0.0\n###New\n-nospace',
+      '## 3.0.1 "Graphite\n### New\n- **unterminated bold\n- [link](\n',
+      '##3.0.1\n###New\n-nospace',
       '## 1.0.0\n' + '- ' + 'x'.repeat(60000) + '\n',
       '## 1.0.0 - \n### \n- \n-\n\n###\n',
       '## 1.0.0\n �\n- a\r\n- b\r\n',

@@ -6,7 +6,7 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
-## 3.0.0 "Graphite" — 2026-09-07
+## 3.0.1 "Graphite" — 2026-09-08
 
 A full rewrite of the interface. Every workflow now lives in one application
 instead of four separate mini-apps that happened to share a window.

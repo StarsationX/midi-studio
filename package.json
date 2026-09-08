@@ -1,6 +1,6 @@
 {
   "name": "midi-studio",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "releaseName": "Graphite",
   "description": "Turn a song into MIDI, edit it, and play it back on any keyboard.",
   "author": "StarsationX",
