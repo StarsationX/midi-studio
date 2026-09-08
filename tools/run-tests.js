@@ -1354,9 +1354,14 @@ ok(typeof env.MIDI_STUDIO_FORGE_ENV_DIR === 'string' && env.MIDI_STUDIO_FORGE_EN
     return f;
   };
 
+  // A python that merely STARTS is not enough: this block compares against
+  // midi_document.py, which imports mido. CI installs a bare interpreter, so
+  // probing for 'pass' found it and every assertion below then died on
+  // ModuleNotFoundError. Require the import in the probe itself.
   const pyExe = [path.join(engineDir, 'python', 'python.exe'), 'py', 'python'].find((c) => {
-    try { return cp2.spawnSync(c, ['-c', 'pass'], { timeout: 20000 }).status === 0; } catch (_) { return false; }
+    try { return cp2.spawnSync(c, ['-c', 'import mido'], { timeout: 30000 }).status === 0; } catch (_) { return false; }
   });
+
   const pyLoad = (f) => {
     const r = cp2.spawnSync(pyExe, [docPy, 'load', f], { cwd: engineDir, encoding: 'utf-8',
       maxBuffer: 512 * 1024 * 1024, windowsHide: true,
@@ -1397,7 +1402,7 @@ ok(typeof env.MIDI_STUDIO_FORGE_ENV_DIR === 'string' && env.MIDI_STUDIO_FORGE_EN
   const NOTE_OFF = (ch, p) => [0x80 | ch, p, 0];
 
   if (!pyExe) {
-    console.log('  SKIP: no python interpreter, midi-parse parity not checked');
+    console.log('  SKIP: no python with mido, midi-parse parity not checked (CI has no engine)');
   } else {
     // ---- every shipped fixture, field for field ----------------------------
     const fixDir = path.join(root, 'benchmarks', 'fixtures');
