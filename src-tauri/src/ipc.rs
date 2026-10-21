@@ -417,6 +417,7 @@ fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Result<Value, Str
             h.ack_close();
             Value::Null
         }
+        "win:canClose" => json!(true), // no Forge, nothing to guard
         "win:close" => {
             h.close_now(&win()?);
             Value::Null

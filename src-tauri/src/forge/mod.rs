@@ -490,10 +490,15 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
     let opts = || if a0.is_object() { a0.clone() } else { json!({}) };
     let obj = |v: &Value, k: &str| v.get(k).filter(|x| x.is_object()).cloned().unwrap_or(json!({}));
     Some(Ok(match channel {
-        "win:close" => match close_guard(app, &f) {
-            Some(()) => Value::Null,
-            None => return None, // ipc.rs closes
-        },
+        // The shell asks before it tears its panels down, so "Keep running"
+        // leaves them live; the close that follows says it already asked.
+        "win:canClose" => json!(close_guard(app, &f).is_none()),
+        "win:close" => {
+            if truthy(a0.get("confirmed")) || close_guard(app, &f).is_none() {
+                return None; // ipc.rs closes
+            }
+            Value::Null
+        }
         "forge:check" => {
             f.settled.wait();
             f.runner.check(truthy(a0.get("fresh")))

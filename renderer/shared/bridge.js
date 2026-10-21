@@ -425,14 +425,17 @@
       }
     }
   }
+  // Every guard is asked before anything is torn down: after "Keep editing"
+  // or "Keep running" the panels have to still be live.
   async function requestClose() {
     if (closing) return;
     closing = true;
     try {
       if (editorHasUnsavedEdits() && !(await invoke('ipc', { channel: 'dialog:confirmClose', args: [] }))) return;
+      if (!(await invoke('ipc', { channel: 'win:canClose', args: [] }))) return;
       unloadEverything();
       await new Promise((r) => setTimeout(r, 150));   // let the flushes' IPC land first
-      await invoke('ipc', { channel: 'win:close', args: [] });
+      await invoke('ipc', { channel: 'win:close', args: [{ confirmed: true }] });
     } catch (_) {
       fire('win:close', []);
     } finally {

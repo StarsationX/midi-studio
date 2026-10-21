@@ -360,6 +360,30 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/loadAttempts <= 2/.test(m), 'a failed renderer load is retried before giving up');
 }
 
+// Tauri close: every guard answers before any panel is torn down, or "Keep
+// running" leaves a frozen Forge and an Editor that no longer guards its edits.
+{
+  const fsx = require('fs');
+  const br = fsx.readFileSync(path.join(root, 'renderer', 'shared', 'bridge.js'), 'utf8');
+  const fm = fsx.readFileSync(path.join(root, 'src-tauri', 'src', 'forge', 'mod.rs'), 'utf8');
+  const ipcRs = fsx.readFileSync(path.join(root, 'src-tauri', 'src', 'ipc.rs'), 'utf8');
+  const rc = /async function requestClose\(\) \{[\s\S]*?\r?\n  \}\r?\n/.exec(br);
+  ok(!!rc, 'requestClose is findable');
+  if (rc) {
+    const body = rc[0];
+    const at = (s) => body.indexOf(s);
+    ok(at('dialog:confirmClose') > 0 && at('dialog:confirmClose') < at('win:canClose'),
+      'the Editor is asked before the host guards');
+    ok(at("'win:canClose'") > 0 && at("'win:canClose'") < at('unloadEverything()'),
+      'the host guards are asked before any panel is unloaded');
+    ok(/win:canClose[^\n]*\)\)\) return;/.test(body), 'a refused close returns before tearing anything down');
+    ok(/channel: 'win:close', args: \[\{ confirmed: true \}\]/.test(body), 'the final close says it already asked');
+  }
+  ok(/"win:canClose" => json!\(close_guard\(app, &f\)\.is_none\(\)\)/.test(fm), 'win:canClose answers from the Forge close guard');
+  ok(/"win:close" => \{\s*if truthy\(a0\.get\("confirmed"\)\) \|\| close_guard/.test(fm), 'a confirmed win:close skips the guard');
+  ok(/"win:canClose" => json!\(true\)/.test(ipcRs), 'win:canClose has an answer when Forge is not loaded');
+}
+
 // verifyDigest, verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
   const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
