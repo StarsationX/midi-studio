@@ -1,0 +1,53 @@
+{
+ "cases": [
+  {
+   "chunk": 2000,
+   "overlap": 2,
+   "length": 700,
+   "batch": 1,
+   "seed": 10,
+   "file": "rofo_demix_0.npy"
+  },
+  {
+   "chunk": 2000,
+   "overlap": 2,
+   "length": 1800,
+   "batch": 1,
+   "seed": 11,
+   "file": "rofo_demix_1.npy"
+  },
+  {
+   "chunk": 2000,
+   "overlap": 2,
+   "length": 5100,
+   "batch": 1,
+   "seed": 12,
+   "file": "rofo_demix_2.npy"
+  },
+  {
+   "chunk": 2000,
+   "overlap": 2,
+   "length": 5100,
+   "batch": 3,
+   "seed": 13,
+   "file": "rofo_demix_3.npy"
+  },
+  {
+   "chunk": 2205,
+   "overlap": 4,
+   "length": 7000,
+   "batch": 1,
+   "seed": 14,
+   "file": "rofo_demix_4.npy"
+  },
+  {
+   "chunk": 2205,
+   "overlap": 4,
+   "length": 7000,
+   "batch": 2,
+   "seed": 15,
+   "file": "rofo_demix_5.npy"
+  }
+ ],
+ "torch_cpu": "AVX2"
+}
