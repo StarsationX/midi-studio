@@ -121,6 +121,9 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(!srcs.some((s) => /ipc_main|midi_player|test_|benchmark_|python-engine\/python\b|models|onnx_out|downloads/.test(s)),
     'no Python Player engine, tests, light Python or models in the bundle');
   ok(res['../forge-rs/target/release/forge-rs.exe'] === 'forge-rs.exe', 'forge-rs.exe ships next to the main exe');
+  // CARGO_TARGET_DIR would otherwise build somewhere else and ship a stale exe.
+  ok(/--target-dir forge-rs\/target/.test(JSON.parse(rd('package.json')).scripts['build:forge-rs']),
+    'build:forge-rs builds into the folder the bundle ships from');
 }
 
 // Torch's OpenMP pool spin-waits by default, which pins every core at 100%
