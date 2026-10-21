@@ -4,6 +4,7 @@ version = "3.0.1"
 edition = "2021"
 description = "MIDI Studio desktop host (Tauri 2). Boots the existing renderer/ and runs player-rs in-process."
 license = "MIT"
+default-run = "midi-studio"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -14,8 +15,16 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-global-shortcut = "2"
-serde_json = { version = "1", features = ["preserve_order"] }
+# float_roundtrip: the default parser is best-effort and can land a float one
+# ULP off; python's json is exact, and the Editor's documents (note times) come
+# through the IPC as JSON, so a save would otherwise move a tick-boundary note.
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 midi-player = { path = "../player-rs" }
+midly = { version = "0.5", default-features = false, features = ["std"] }
+trash = "5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
 
 [profile.release]
 debug = false

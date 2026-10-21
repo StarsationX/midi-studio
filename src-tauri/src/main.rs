@@ -7,7 +7,10 @@
 
 mod engine;
 mod ipc;
+mod library;
+mod midi_doc;
 mod paths;
+mod review;
 mod settings;
 
 use std::io::Write;
@@ -124,6 +127,11 @@ pub fn allow_dir(app: &AppHandle, p: &Path) {
 
 impl Host {
     pub fn push(app: &AppHandle, channel: &str, payload: Value) {
+        // Every write site broadcasts library-changed, so this is the one place
+        // the cached scan is dropped and a new one can never forget to.
+        if channel == "library-changed" {
+            library::invalidate();
+        }
         let _ = app.emit_to(MAIN, channel, payload);
     }
 
@@ -201,6 +209,7 @@ impl Host {
         self.closing.store(true, Ordering::SeqCst);
         self.persist_bounds(w);
         self.settings.flush();
+        library::flush();
         let _ = w.close();
     }
 
@@ -211,6 +220,7 @@ impl Host {
     fn cleanup(&self) {
         blog("cleanup");
         self.settings.flush();
+        library::flush();
         self.engine.shutdown();
     }
 }

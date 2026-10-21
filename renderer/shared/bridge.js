@@ -92,6 +92,22 @@
       p.then((v) => resolve(copyInto(win, v)), (e) => reject(new win.Error(errText(e))));
     });
   }
+  // library:scan / library:index stream library-progress back to the frame
+  // that asked and to no other (main.js sent it to e.senderFrame). The frame
+  // opens a channel of its own for the call and the host writes into it.
+  function callWithProgress(win, channel, pushChannel, args) {
+    const progress = new T.core.Channel();
+    progress.onmessage = (payload) => {
+      const set = handlers.get(pushChannel);
+      if (!set) return;
+      for (const h of [...set]) if (h.win === win && set.has(h)) deliver(h, pushChannel, payload);
+    };
+    const p = invoke('ipc', { channel, args, progress });
+    if (win === window) return p.catch((e) => { throw new Error(errText(e)); });
+    return new win.Promise((resolve, reject) => {
+      p.then((v) => resolve(copyInto(win, v)), (e) => reject(new win.Error(errText(e))));
+    });
+  }
   // ipcRenderer.send: nobody waits and nobody hears about a failure.
   function fire(channel, args) {
     invoke('ipc', { channel, args }).catch(() => {});
@@ -175,11 +191,11 @@
         removeFolder: c('library:removeFolder'),
         reveal: c('library:reveal'),
         onChanged: on('library-changed'),
-        scan: c('library:scan'),
+        scan: (...args) => callWithProgress(win, 'library:scan', 'library-progress', args),
         meta: c('library:meta'),
         setTags: c('library:setTags'),
         usage: c('library:usage'),
-        index: c('library:index'),
+        index: (...args) => callWithProgress(win, 'library:index', 'library-progress', args),
         remove: c('library:delete'),
         onProgress: on('library-progress'),
         fileUrl,
