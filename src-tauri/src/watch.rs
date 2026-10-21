@@ -5,8 +5,7 @@
 //     the way. One Toolhelp32 snapshot every 20 seconds, names only: no
 //     process is opened, and nothing is ever done to one.
 //   * step-aside: playback is live or a game is up, so Forge should give way
-//     (main.js refreshForgeBackground). Forge is not ported yet; this is the
-//     event it will subscribe to.
+//     (main.js refreshForgeBackground). forge/mod.rs subscribes to it.
 //   * panel-failed: a panel iframe that did not load. The bridge spots it
 //     (Tauri has no did-fail-load for subframes) and the host logs and pushes
 //     it, as main.js did.
@@ -86,11 +85,10 @@ fn watch(app: &AppHandle) -> Option<Arc<Watch>> {
     app.try_state::<Arc<Watch>>().map(|s| s.inner().clone())
 }
 
-/// Where the Forge port hooks in. `f` gets
+/// Where Forge hooks in. `f` gets
 /// {"background": bool, "pause": bool, "playback": bool, "game": name, "rule": whenGaming}
 /// every time either flag changes: background means drop to idle priority and
 /// smaller batches; pause means hand the GPU back entirely until the game closes.
-#[allow(dead_code)]
 pub fn on_step_aside(app: &AppHandle, f: StepHook) {
     if let Some(w) = watch(app) {
         w.hooks.lock().unwrap_or_else(|e| e.into_inner()).push(f);

@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod engine;
+mod forge;
 mod ipc;
 mod library;
 mod midi_doc;
@@ -484,6 +485,7 @@ fn main() {
             overlay::init(&handle);
             updater::init(&handle);
             watch::init(&handle);
+            forge::init(&handle);
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -491,6 +493,7 @@ fn main() {
 
     app.run(|app, event| {
         if let RunEvent::Exit = event {
+            forge::shutdown(app);
             if let Some(h) = app.try_state::<Arc<Host>>() {
                 h.cleanup();
             }

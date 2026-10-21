@@ -27,12 +27,20 @@ ureq = { version = "2.12", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
 sha2 = "0.10"
 url = "2"
+# Forge: the installer's ForgeStorageDir value, the provisioner's embedded
+# Python bootstrap, and the pipeline's line classifier.
+winreg = "0.56"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+regex = "1"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Accessibility",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_Storage_FileSystem",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_Security",
 ] }
 
 [dev-dependencies]
