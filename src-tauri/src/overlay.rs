@@ -744,12 +744,13 @@ pub fn state_changed(app: &AppHandle) {
 
 /// main.js openOverlay(): it opens with an empty roll otherwise, because the
 /// notes arrived on a midi_loaded long before this window existed, so the
-/// Player tab is asked to say it again.
-pub fn open_overlay(app: &AppHandle) {
+/// Player tab is asked to say it again. `auto`: a Play opened it, so a Play
+/// that fails before it starts closes it again (overlay.js).
+pub fn open_overlay(app: &AppHandle, auto: bool) {
     open(app);
     Host::push(app, "overlay-wants-state", json!({}));
     let song = perch(app).map(|p| lock(&p.st).song.clone()).unwrap_or_default();
-    send(app, "engine-event", json!({"event": "now_playing", "name": song}));
+    send(app, "engine-event", json!({"event": "now_playing", "name": song, "autoShown": auto}));
     state_changed(app);
 }
 
@@ -757,7 +758,7 @@ fn toggle(app: &AppHandle) {
     if is_open(app) {
         close(app);
     } else {
-        open_overlay(app);
+        open_overlay(app, false);
     }
     state_changed(app);
 }
@@ -771,7 +772,7 @@ pub fn shortcut(app: &AppHandle, p_key: bool) {
     std::thread::spawn(move || {
         if p_key {
             if !is_open(&app) {
-                open_overlay(&app);
+                open_overlay(&app, false);
                 return;
             }
             let on = config(&app)["clickThrough"] != json!(true);
@@ -811,7 +812,7 @@ pub fn on_engine_send(app: &AppHandle, msg: &Value) {
         send(app, "engine-event", json!({"event": "now_playing", "name": song}));
     }
     if cmd == "play" && config(app)["autoShow"] != json!(false) && !is_open(app) {
-        open_overlay(app);
+        open_overlay(app, true);
     }
 }
 

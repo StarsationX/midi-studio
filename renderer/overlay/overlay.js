@@ -24,6 +24,7 @@ let focusLost = false;
 let playedCount = 0;
 let totalNotes = 0;
 let songName = '';
+let autoShown = false;   // opened by a Play, not by the user
 let cfg = {
   mode: 'full', opacity: 0.92, clickThrough: false, locked: false,
   autoShow: true, autoHide: true, lookahead: 3, showKeys: true, showTransport: true,
@@ -177,6 +178,7 @@ function onEngineEvent(evt) {
     case 'now_playing':          // synthesised by the main process from the
       songName = evt.name || ''; // load/play command, which is where the
       paintChrome();             // filename actually lives
+      if (evt.autoShown) autoShown = true;
       break;
 
     case 'countdown':
@@ -187,6 +189,7 @@ function onEngineEvent(evt) {
     case 'playback_started':
       $('count').hidden = true;
       playing = true; paused = false; focusLost = false;
+      autoShown = false;
       viz.startClock(totalDuration, evt.start_elapsed || 0);
       paintChrome();
       break;
@@ -209,6 +212,15 @@ function onEngineEvent(evt) {
       viz.stopClock();
       paintChrome();
       if (cfg.autoHide !== false) bridge.close && bridge.close();
+      break;
+
+    // A Play that fails before it starts ("Target window no longer exists.")
+    // never reaches playback_done; the Perch it opened goes with it.
+    case 'error':
+      if (playing || !autoShown) break;
+      autoShown = false;
+      $('count').hidden = true;
+      bridge.close && bridge.close();
       break;
   }
 }
