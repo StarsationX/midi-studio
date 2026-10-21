@@ -2,7 +2,7 @@
 name = "forge-rs"
 version = "0.1.0"
 edition = "2021"
-description = "Transkun v2 piano transcription without Python: audio -> MIDI, ONNX backbone via ONNX Runtime"
+description = "MIDI Studio Forge without Python: BS-Roformer separation + Transkun v2 transcription on ONNX Runtime"
 license = "MIT"
 publish = false
 
@@ -15,7 +15,7 @@ name = "forge-rs"
 path = "src/main.rs"
 
 [dependencies]
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-24"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-22", "cuda"] }
 rustfft = "6.4"
 symphonia = { version = "0.5.4", default-features = false, features = ["wav", "pcm", "flac", "mp3", "ogg", "vorbis", "aac", "isomp4", "alac", "aiff"] }
 midly = "0.5.3"

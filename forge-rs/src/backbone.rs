@@ -68,7 +68,7 @@ pub fn init_ort(explicit: Option<&Path>) -> Result<PathBuf> {
     }
 }
 
-fn environment() -> Result<&'static ort::environment::Environment> {
+pub fn environment() -> Result<&'static ort::environment::Environment> {
     match ORT_INIT.get() {
         Some(Ok((_, env))) => Ok(env),
         _ => bail!("ONNX Runtime not initialised (call init_ort first)"),
