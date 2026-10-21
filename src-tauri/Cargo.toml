@@ -1,0 +1,22 @@
+[package]
+name = "midi-studio"
+version = "3.0.1"
+edition = "2021"
+description = "MIDI Studio desktop host (Tauri 2). Boots the existing renderer/ and runs player-rs in-process."
+license = "MIT"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["custom-protocol", "protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-global-shortcut = "2"
+serde_json = { version = "1", features = ["preserve_order"] }
+midi-player = { path = "../player-rs" }
+
+[profile.release]
+debug = false
+strip = true

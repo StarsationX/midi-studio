@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' file:; connect-src 'self' file:;" />
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' file: http://asset.localhost; connect-src 'self' file: http://asset.localhost;" />
   <title>Forge</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="../shared/ui.css" />
@@ -590,6 +590,7 @@
   </div>
 </div>
 
+<script src="../shared/bridge-frame.js"></script>
 <script src="../shared/tokens.js"></script>
 <script src="../shared/fmt.js"></script>
 <script src="../shared/draw.js"></script>

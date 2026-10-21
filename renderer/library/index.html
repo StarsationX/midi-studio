@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' file:; connect-src 'self' file:;" />
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' file: http://asset.localhost; connect-src 'self' file: http://asset.localhost;" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Library</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
@@ -359,6 +359,7 @@
 
 <audio id="preview" preload="none"></audio>
 
+<script src="../shared/bridge-frame.js"></script>
 <script src="../shared/tokens.js"></script>
 <script src="../shared/fmt.js"></script>
 <script src="../shared/draw.js"></script>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; frame-src 'self';" />
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; frame-src 'self'; connect-src 'self' ipc: http://ipc.localhost;" />
   <title>MIDI Studio</title>
   <link rel="stylesheet" href="./shared/tokens.css" />
   <link rel="stylesheet" href="./shared/ui.css" />
@@ -36,9 +36,11 @@
   <!-- ========================================================================
        1. CUSTOM TITLEBAR. The window is frameless; this bar is the drag region
        and every interactive child opts out with -webkit-app-region:no-drag.
+       Under Tauri the same regions are data-tauri-drag-region="deep", where
+       buttons and other controls opt out by themselves.
        ===================================================================== -->
   <aside class="studio-sidebar" aria-label="Studio navigation">
-    <div class="tbar-brand" id="brand">
+    <div class="tbar-brand" id="brand" data-tauri-drag-region="deep">
       <span class="brand-mark" aria-hidden="true"><img class="brand-img" src="./shared/mark.png" width="64" height="64" alt="" /></span>
       <span class="brand-text">
         <span class="brand-name">MIDI Studio</span>
@@ -86,7 +88,7 @@
     </div>
   </aside>
 
-  <header class="tbar" id="titlebar">
+  <header class="tbar" id="titlebar" data-tauri-drag-region="deep">
     <div class="studio-breadcrumb"><span>Workspace</span><i data-icon="caretRight" data-icon-size="11" aria-hidden="true"></i><span id="workspace-crumb">Forge</span></div>
     <div class="tbar-right">
       <div class="as-chips">
@@ -698,6 +700,7 @@
 
 <div class="toasts" id="toasts" role="region" aria-label="Notifications" aria-live="polite"></div>
 
+<script src="./shared/bridge.js"></script>
 <script src="./shared/tokens.js"></script>
 <script src="./shared/fmt.js"></script>
 <script src="./shared/draw.js"></script>

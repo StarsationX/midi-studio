@@ -25,3 +25,6 @@ nul
 # Rust player engine build output
 player-rs/target/
 prototypes/*/target/
+
+# Tauri host build output
+src-tauri/target/

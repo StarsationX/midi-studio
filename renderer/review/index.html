@@ -9,7 +9,7 @@
        them is what keeps an instrument change off the per-byte atob path.
        Nothing remote is allowed: no CDN, no remote fonts, no inline handlers. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' file: blob: data:; connect-src 'self' file: blob: data:;" />
+        content="default-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' file: blob: data: http://asset.localhost; connect-src 'self' file: blob: data: http://asset.localhost;" />
   <title>MIDI Studio · Editor</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="../shared/ui.css" />
@@ -477,6 +477,7 @@
 </div>
 
 <!-- required, in this order -->
+<script src="../shared/bridge-frame.js"></script>
 <script src="../shared/tokens.js"></script>
 <script src="../shared/fmt.js"></script>
 <script src="../shared/draw.js"></script>
