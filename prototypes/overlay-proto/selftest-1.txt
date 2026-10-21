@@ -1,0 +1,4 @@
+DPI: tauri scale_factor=1 GetDpiForWindow=96 (1.00x) per-monitor-v2=true
+     tauri work_area (physical) = (0,0 2560x1392)  Win32 rcWork = (0,0 2560x1392)
+[PASS] DPI placement: Electron DIP rect (2076,24 460x300) via LogicalPosition/LogicalSize -> GetWindowRect (2076, 24, 460, 300), expected physical (2076, 24, 460, 300)
+FAIL: notepad window never appeared

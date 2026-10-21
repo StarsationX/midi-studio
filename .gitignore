@@ -24,3 +24,4 @@ nul
 
 # Rust player engine build output
 player-rs/target/
+prototypes/*/target/

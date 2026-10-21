@@ -1,0 +1,141 @@
+DPI: tauri scale_factor=1 GetDpiForWindow=96 (1.00x) per-monitor-v2=true
+     tauri work_area (physical) = (0,0 2560x1392)  Win32 rcWork = (0,0 2560x1392)
+[PASS] DPI placement: Electron DIP rect (2076,24 460x300) via LogicalPosition/LogicalSize -> GetWindowRect (2076, 24, 460, 300), expected physical (2076, 24, 460, 300)
+
+Phase A: notepad pid=36116 hwnd=0x68b12e2, foreground via already foreground; fg is notepad: true
+[FAIL] A1 raw show: ShowWindow(SW_SHOWNOACTIVATE)+SetWindowPos(HWND_TOPMOST,SWP_NOACTIVATE)
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2076,24 460x300) bar_px=(32, 32, 32) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=-0.03 hit=OVERLAY 
+       !! alpha Some(-0.032407407407407406) expected 1
+[PASS] A1b desync probe: tauri set_ignore_cursor_events(false) right after a raw show (tao thinks hidden)
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2076,24 460x300) bar_px=(32, 32, 32) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=-0.03 hit=OVERLAY 
+[PASS] A2 raw hide: ShowWindow(SW_HIDE)
+       fg=target vis=false above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2076,24 460x300) bar_px=(39, 39, 39) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=0.00 hit=target 
+[PASS] A3 tauri show() (tao SW_SHOW on a focusable(false)=WS_EX_NOACTIVATE window)
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2076,24 460x300) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A4 tauri hide()
+       fg=target vis=false above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2076,24 460x300) bar_px=(39, 39, 39) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=0.00 hit=target 
+[PASS] A5 tauri show() again
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2076,24 460x300) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A6 tauri set_position (physical)
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2016,64 460x300) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A7 tauri set_size (physical)
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2016,64 540x340) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A8 raw SetWindowPos move+resize (SWP_NOZORDER|SWP_NOACTIVATE)
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A9 tauri set_always_on_top(true) re-assert
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A10 opacity 0.5 via WS_EX_LAYERED+SetLayeredWindowAttributes(LWA_ALPHA)
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=true toolwin=false lwa=Some(128)
+       rect=(2046,44 500x320) bar_px=(147, 19, 19) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=0.50 hit=OVERLAY 
+[PASS] A11 opacity 0.92 (Perch default) via LWA_ALPHA
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=true toolwin=false lwa=Some(235)
+       rect=(2046,44 500x320) bar_px=(238, 3, 3) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=0.92 hit=OVERLAY 
+[PASS] A12 click-through ON via tauri set_ignore_cursor_events(true)
+       fg=target vis=true above=true topmost=true noact=true transp=true layered=true toolwin=false lwa=Some(235)
+       rect=(2046,44 500x320) bar_px=(238, 3, 3) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=0.92 hit=target 
+[PASS] A13 click-through OFF via tauri set_ignore_cursor_events(false)
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A14 LWA alpha 0.6 then tauri click-through ON (does tao's exstyle rewrite keep the alpha?)
+       fg=target vis=true above=- topmost=true noact=true transp=true layered=true toolwin=false lwa=Some(153)
+       rect=(2046,44 500x320) bar_px=(169, 16, 16) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=0.60 hit=target 
+[PASS] A15 tauri click-through OFF after LWA alpha (tao drops WS_EX_LAYERED?)
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A16 opacity 0.5 via CSS (documentElement.style.opacity) on the transparent webview
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(147, 19, 19) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=0.50 hit=OVERLAY 
+[PASS] A17 CSS opacity back to 1
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A18 click-through ON via raw WS_EX_TRANSPARENT|WS_EX_LAYERED (+LWA 255)
+       fg=target vis=true above=- topmost=true noact=true transp=true layered=true toolwin=false lwa=Some(255)
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=target 
+[PASS] A19 click-through OFF via raw exstyle
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A20 raw add WS_EX_TOOLWINDOW
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=false toolwin=true lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A21 after a tauri flag change: did WS_EX_TOOLWINDOW survive? (see toolwin=)
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A22 burst: 6x (move, hide, show, opacity) back-to-back
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=true toolwin=false lwa=Some(255)
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+[PASS] A23 main-window op (set_title) does not pull focus either
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=true toolwin=false lwa=Some(255)
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(39, 39, 39) clear_px=(39, 39, 39) alpha=1.00 hit=OVERLAY 
+Phase A: WM_CLOSE to notepad pid=36116: closed=true
+
+Phase B: borderless fullscreen WS_POPUP pid=40860 rect=(0,0 2560x1440), foreground via already foreground; fg is dummy: true
+[PASS] B1 tauri show() over fullscreen window
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] B2 re-assert SetWindowPos(HWND_TOPMOST,SWP_NOACTIVATE)
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] B3 raw hide + SW_SHOWNOACTIVATE + HWND_TOPMOST
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(2046,44 500x320) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] B4 tauri move + resize
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1946,144 500x260) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] B5 LWA opacity 0.5 over fullscreen
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=true toolwin=false lwa=Some(128)
+       rect=(1946,144 500x260) bar_px=(128, 0, 127) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=0.50 hit=OVERLAY 
+[PASS] B6 tauri click-through ON
+       fg=target vis=true above=true topmost=true noact=true transp=true layered=true toolwin=false lwa=Some(128)
+       rect=(1946,144 500x260) bar_px=(128, 0, 127) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=0.50 hit=target 
+[PASS] B7 tauri click-through OFF
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1946,144 500x260) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] B8 game re-activated (via SetForegroundWindow); is overlay still above?
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1946,144 500x260) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] B9 after re-activation: re-assert HWND_TOPMOST|SWP_NOACTIVATE
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1946,144 500x260) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+Phase B: closed dummy pid=40860
+
+Phase C: borderless fullscreen WS_POPUP+WS_EX_TOPMOST (game that is itself topmost) pid=17008 rect=(0,0 2560x1440), foreground via already foreground; fg is dummy: true
+[PASS] C1 tauri show() over fullscreen window
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1946,144 500x260) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] C2 re-assert SetWindowPos(HWND_TOPMOST,SWP_NOACTIVATE)
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1946,144 500x260) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] C3 raw hide + SW_SHOWNOACTIVATE + HWND_TOPMOST
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1946,144 500x260) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] C4 tauri move + resize
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1846,244 500x200) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] C5 LWA opacity 0.5 over fullscreen
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=true toolwin=false lwa=Some(128)
+       rect=(1846,244 500x200) bar_px=(128, 0, 127) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=0.50 hit=OVERLAY 
+[PASS] C6 tauri click-through ON
+       fg=target vis=true above=true topmost=true noact=true transp=true layered=true toolwin=false lwa=Some(128)
+       rect=(1846,244 500x200) bar_px=(128, 0, 127) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=0.50 hit=target 
+[PASS] C7 tauri click-through OFF
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1846,244 500x200) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+[PASS] C8 game re-activated (via SetForegroundWindow); is overlay still above?
+       fg=target vis=true above=- topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1846,244 500x200) bar_px=(0, 0, 255) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=-0.00 hit=target 
+[PASS] C9 after re-activation: re-assert HWND_TOPMOST|SWP_NOACTIVATE
+       fg=target vis=true above=true topmost=true noact=true transp=false layered=false toolwin=false lwa=None
+       rect=(1846,244 500x200) bar_px=(255, 0, 0) under_px=(0, 0, 255) clear_px=(0, 0, 255) alpha=1.00 hit=OVERLAY 
+Phase C: closed dummy pid=17008
+
+TOTAL: 42 pass, 1 fail
