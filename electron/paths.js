@@ -33,6 +33,15 @@ function bundledPlayerPython() {
   return exists(p) ? p : null;
 }
 
+// The Rust player engine (player-rs), a drop-in for ipc_main.py. Packaged it
+// ships as resources/player-rs/midi-player.exe; in dev it is the cargo build.
+function rustPlayerExe() {
+  const p = isPackaged()
+    ? path.join(process.resourcesPath, 'player-rs', 'midi-player.exe')
+    : path.join(DEV_ROOT, 'player-rs', 'target', 'release', 'midi-player.exe');
+  return exists(p) ? p : null;
+}
+
 // ---- forge heavy env --------------------------------------------------------
 
 // Default home for the ~10 GB Forge engine.
@@ -242,7 +251,7 @@ function forgeChildEnv(settings) {
 
 module.exports = {
   isPackaged, exists, localAppData,
-  pythonEngineDir, bundledPlayerPython,
+  pythonEngineDir, bundledPlayerPython, rustPlayerExe,
   forgeEnvDir, defaultForgeEnvDir, legacyDefaultForgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
   candidateForgeEnvDirs, findReadyForgeEnv,
   modelsDir, rendererIndexHtml, overlayHtml, changelogFile, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,

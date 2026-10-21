@@ -1,4 +1,5 @@
-// sidecar.js: the PLAYER engine sidecar (python-engine/ipc_main.py).
+// sidecar.js: the PLAYER engine sidecar (python-engine/ipc_main.py, or its Rust
+// drop-in player-rs when MIDI_PLAYER_ENGINE=rust / settings.player.engine).
 // NDJSON over stdio. Prefers a bundled light Python; else probes the Windows
 // launcher / PATH. Surfaces actionable errors (missing module -> run install).
 'use strict';
@@ -51,9 +52,34 @@ class PlayerSidecar {
     return this._startPromise;
   }
 
+  // 'rust' | 'python'. MIDI_PLAYER_ENGINE wins over settings.player.engine.
+  _engineChoice() {
+    let fromSettings = '';
+    try { fromSettings = ((this._getSettings() || {}).player || {}).engine || ''; } catch (_) {}
+    return String(process.env.MIDI_PLAYER_ENGINE || fromSettings || 'python').trim().toLowerCase();
+  }
+
   async _doStart() {
     if (this.isAlive()) return;
     const engineDir = paths.pythonEngineDir();
+    if (this._engineChoice() === 'rust') {
+      const exe = paths.rustPlayerExe();
+      if (exe) {
+        let child;
+        try {
+          // Same protocol, same cwd and mappings env as ipc_main.py. The bundled
+          // presets still live in python-engine/mappings.
+          child = spawn(exe, ['--script-dir', engineDir], {
+            cwd: engineDir, env: process.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+          });
+        } catch (e) { this._fail(`Failed to spawn player engine: ${e.message}`); return; }
+        try { os.setPriority(child.pid, os.constants.priority.PRIORITY_ABOVE_NORMAL); } catch {}
+        this._bind(child, exe, 'rs');
+        return;
+      }
+      this._onEvent({ event: 'log', level: 'warn',
+        message: 'Rust player engine selected but midi-player.exe was not found; using Python.' });
+    }
     const script = path.join(engineDir, 'ipc_main.py');
     if (!fs.existsSync(script)) { this._fail(`ipc_main.py not found at ${script}`); return; }
 
@@ -93,7 +119,7 @@ class PlayerSidecar {
     this._bind(child, [exe, ...prefix].join(' '));
   }
 
-  _bind(child, launchCmd) {
+  _bind(child, launchCmd, tag = 'py') {
     this._proc = child; this._buf = ''; this._stderrTail = ''; this._lastError = '';
     // Its executable lives inside the install folder, so a leftover copy makes
     // the next installer refuse with "MIDI Studio cannot be closed".
@@ -117,7 +143,7 @@ class PlayerSidecar {
     child.stderr.on('data', (chunk) => {
       this._stderrTail = (this._stderrTail + chunk).slice(-4000);
       chunk.split(/\r?\n/).filter(Boolean).forEach((line) =>
-        this._onEvent({ event: 'log', level: 'warn', message: `[py] ${line}` }));
+        this._onEvent({ event: 'log', level: 'warn', message: `[${tag}] ${line}` }));
     });
 
     child.on('exit', (code, signal) => {

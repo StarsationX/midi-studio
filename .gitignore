@@ -21,3 +21,6 @@ _gentest/
 # design mockups / scratch
 _design/
 nul
+
+# Rust player engine build output
+player-rs/target/

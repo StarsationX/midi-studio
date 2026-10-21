@@ -130,7 +130,7 @@ function isOurPython(pid) {
     try {
       execFile('tasklist.exe', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'],
         { windowsHide: true, timeout: 5000 },
-        (error, stdout) => resolve(!error && /^"python(w)?\.exe"/i.test(String(stdout || '').trim())));
+        (error, stdout) => resolve(!error && /^"(python(w)?|midi-player)\.exe"/i.test(String(stdout || '').trim())));
     } catch { resolve(false); }
   });
 }
