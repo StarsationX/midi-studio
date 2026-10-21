@@ -1,0 +1,10 @@
+{
+  "productName": "MIDI Studio Test",
+  "mainBinaryName": "MIDI Studio Test",
+  "identifier": "com.starsationx.midistudio.test",
+  "bundle": {
+    "fileAssociations": [
+      { "ext": ["msmtest"], "name": "MIDI Studio Test file", "description": "MIDI Studio Test song", "role": "Viewer" }
+    ]
+  }
+}

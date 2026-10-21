@@ -10,6 +10,7 @@ mod forge;
 mod ipc;
 mod library;
 mod midi_doc;
+mod migrate;
 mod overlay;
 mod paths;
 mod review;
@@ -57,6 +58,9 @@ pub struct Host {
     open_path: Mutex<String>,
     last_window_state: Mutex<Value>,
     persist_bounds: Mutex<Option<Sender<()>>>,
+    // The Electron build's localStorage, injected this launch (migrate.rs);
+    // marked done once the page has painted with it.
+    migration: Mutex<Option<migrate::Pending>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -263,6 +267,17 @@ fn on_painted(app: &AppHandle) {
     h.send_window_state(app, &w);
 }
 
+/// A real page load, not on_painted's 3 s fallback: the document that ran the
+/// migration script has finished loading.
+fn commit_migration(app: &AppHandle) {
+    let Some(h) = app.try_state::<Arc<Host>>() else { return };
+    let pending = lock(&h.migration).take();
+    if let Some(m) = pending {
+        m.commit();
+        blog(&format!("migrate: offered {} Electron localStorage keys (only missing ones are filled, once)", m.key_count()));
+    }
+}
+
 fn create_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let h = host(app);
     let wb = h.settings.get("window");
@@ -280,6 +295,11 @@ fn create_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .additional_browser_args(&args);
     if let (Some(x), Some(y)) = (num("x"), num("y")) {
         b = b.position(x, y);
+    }
+    // Main frame only: the panels are same-origin iframes the page creates
+    // after this has run, so they see the carried-over keys.
+    if let Some(m) = lock(&h.migration).as_ref() {
+        b = b.initialization_script(m.script.clone());
     }
     let w = b.build()?;
     blog("t:window");
@@ -440,6 +460,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![ipc::ipc, ipc::asset_allow])
         .on_page_load(|webview, payload| {
             if webview.label() == MAIN && payload.event() == PageLoadEvent::Finished {
+                commit_migration(webview.app_handle());
                 on_painted(webview.app_handle());
             }
         })
@@ -476,6 +497,7 @@ fn main() {
                 open_path: Mutex::new(open_path.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()),
                 last_window_state: Mutex::new(Value::Null),
                 persist_bounds: Mutex::new(None),
+                migration: Mutex::new(migrate::prepare()),
             }));
             let h = host(&handle);
             h.boot_mark(&handle, "session", "Restoring session");

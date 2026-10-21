@@ -1,0 +1,29 @@
+{
+  "bundle": {
+    "resources": {
+      "../python-engine/song_to_midi.py": "python-engine/song_to_midi.py",
+      "../python-engine/transcribe.py": "python-engine/transcribe.py",
+      "../python-engine/transcribe_fast.py": "python-engine/transcribe_fast.py",
+      "../python-engine/transcribe_onnx_dml.py": "python-engine/transcribe_onnx_dml.py",
+      "../python-engine/stem_to_midi.py": "python-engine/stem_to_midi.py",
+      "../python-engine/melody_to_midi.py": "python-engine/melody_to_midi.py",
+      "../python-engine/melody_shape.py": "python-engine/melody_shape.py",
+      "../python-engine/drums_to_midi.py": "python-engine/drums_to_midi.py",
+      "../python-engine/separate_onnx_dml.py": "python-engine/separate_onnx_dml.py",
+      "../python-engine/audio_utils.py": "python-engine/audio_utils.py",
+      "../python-engine/analyze.py": "python-engine/analyze.py",
+      "../python-engine/yt_download.py": "python-engine/yt_download.py",
+      "../python-engine/env_probe.py": "python-engine/env_probe.py",
+      "../python-engine/provision_forge.py": "python-engine/provision_forge.py",
+      "../python-engine/download_assets.py": "python-engine/download_assets.py",
+      "../python-engine/verify_install.py": "python-engine/verify_install.py",
+      "../python-engine/export_transkun_aux.py": "python-engine/export_transkun_aux.py",
+      "../python-engine/export_transkun_onnx.py": "python-engine/export_transkun_onnx.py",
+      "../python-engine/export_roformer_onnx.py": "python-engine/export_roformer_onnx.py",
+      "../python-engine/requirements.txt": "python-engine/requirements.txt",
+      "../python-engine/wheelhouse/*.whl": "python-engine/wheelhouse/",
+      "../python-engine/mappings/*.json": "python-engine/mappings/",
+      "../forge-rs/target/release/forge-rs.exe": "forge-rs.exe"
+    }
+  }
+}

@@ -43,7 +43,7 @@ if (!rsExe) {
   }
 }
 if (!rsExe) {
-  const b = cp.spawnSync('cargo', ['build', '--bin', 'midi-document'], { cwd: path.join(ROOT, 'src-tauri'), stdio: 'inherit' });
+  const b = cp.spawnSync('cargo', ['build', '--bin', 'midi-document', '--features', 'parity-cli'], { cwd: path.join(ROOT, 'src-tauri'), stdio: 'inherit' });
   if (b.status !== 0) process.exit(2);
   rsExe = path.join(ROOT, 'src-tauri', 'target', 'debug', 'midi-document.exe');
 }

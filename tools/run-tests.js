@@ -71,6 +71,58 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/process\.platform !== 'win32'/.test(launch), 'launchInstaller only spawns directly off Windows');
 }
 
+// The Tauri installer (build/nsis/): the same invariants as installer.nsh,
+// plus the Electron hand-over and the bundle's resource list.
+{
+  const fsx = require('fs');
+  const rd = (rel) => fsx.readFileSync(path.join(root, ...rel.split('/')), 'utf8');
+  const hooks = rd('build/nsis/hooks.nsh');
+  const nsi = rd('build/nsis/installer.nsi');
+  const conf = JSON.parse(rd('src-tauri/tauri.conf.json'));
+  const bundle = JSON.parse(rd('src-tauri/tauri.bundle.json'));
+  const code = hooks.split('\n').filter((l) => !/^\s*;/.test(l));
+  const kill = code.find((l) => /taskkill/i.test(l)) || '';
+  ok(/MAINBINARYNAME/.test(kill), 'Tauri hooks close the running app by its own image name');
+  ok(!/\/t\b/i.test(kill), 'Tauri hooks app-close does NOT use taskkill /t');
+  ok(/ExecutablePath\.StartsWith\(\$\$d,/.test(hooks) && /\+ '\\'/.test(hooks), 'the folder sweep matches the folder plus a backslash');
+  ok(/\$\{If\} \$\{Silent\}\s*\n\s*\$\{AndIf\} \$ExistingForgeStorage != ""/.test(hooks), 'a silent Tauri install keeps an existing Forge choice');
+  ok(/WriteRegStr HKCU "\$\{MS_FORGE_KEY\}"/.test(hooks) && /WriteRegStr HKLM "\$\{MS_FORGE_KEY\}"/.test(hooks), 'ForgeStorageDir goes to HKCU with the HKLM mirror');
+  ok(/!define MS_FORGE_KEY "\$\{MANUPRODUCTKEY\}"/.test(hooks), 'the Forge key follows the product, so a test build has its own');
+  ok(/Page custom ForgeStoragePageCreate ForgeStoragePageLeave/.test(hooks), 'the Forge storage page is defined');
+  ok(/!if "\$\{BUNDLEID\}" == "com\.starsationx\.midistudio"\s*\n\s*!define MS_ELECTRON_GUID "ab5bc8e7-f120-5de1-b7c5-f5b41892fd91"/.test(hooks),
+    'only the real product looks for (and uninstalls) the Electron build');
+  const unin = code.find((l) => /electron-uninstaller\.exe" \/S/.test(l)) || '';
+  ok(/\/KEEP_APP_DATA/.test(unin) && /--updated/.test(unin) && !/delete-app-data/.test(hooks), 'the Electron uninstaller keeps app data');
+  ok(hooks.indexOf('$appExe') < 0 && !/Exec(Wait)?\s+'?"?\$INSTDIR\\\$\{MAINBINARYNAME\}/.test(hooks), 'the Tauri hooks never launch the app');
+  ok((nsi.match(/; MIDI Studio:/g) || []).length === 5, 'installer.nsi keeps its marked changes');
+  const mu = nsi.indexOf('!include MultiUser.nsh'), inc = nsi.indexOf('!include "{{installer_hooks}}"');
+  ok(mu > 0 && inc > mu && inc < nsi.indexOf('Page custom PageReinstall'), 'hooks are included after MultiUser.nsh and before the pages');
+  const dirPage = nsi.indexOf('!insertmacro MUI_PAGE_DIRECTORY');
+  ok(dirPage > 0 && nsi.indexOf('!insertmacro MIDISTUDIO_FORGE_PAGE') > dirPage, 'the Forge page follows the directory page');
+  ok(/MIDISTUDIO_ONINIT_EARLY[\s\S]*SetContext[\s\S]*MULTIUSER_INIT[\s\S]*MIDISTUDIO_ONINIT_LATE/.test(nsi.slice(nsi.indexOf('Function .onInit'))),
+    '.onInit runs the Forge default before SetContext and the Electron follow-up after MULTIUSER_INIT');
+  const nsis = conf.bundle.windows.nsis;
+  ok(nsis.template === '../build/nsis/installer.nsi' && nsis.installerHooks === '../build/nsis/hooks.nsh', 'tauri.conf.json uses the custom template and hooks');
+  ok(nsis.installMode === 'both', 'install scope is offered like the Electron installer');
+  ok(conf.productName === 'MIDI Studio' && conf.mainBinaryName === 'MIDI Studio', 'the exe keeps the Electron build\'s name');
+  const assoc = (conf.bundle.fileAssociations || [])[0] || {};
+  ok(JSON.stringify(assoc.ext) === '["mid","midi"]', '.mid/.midi are associated');
+  ok(!conf.bundle.resources, 'plain cargo builds copy no resources (they live in tauri.bundle.json)');
+  const res = bundle.bundle.resources;
+  const srcs = Object.keys(res);
+  const runner = rd('src-tauri/src/forge/runner.rs');
+  const named = new Set([...runner.matchAll(/"([a-z_]+\.py)"/g)].map((m) => m[1]));
+  for (const s of ['provision_forge.py', 'download_assets.py', 'verify_install.py', 'requirements.txt']) named.add(s);
+  for (const n of named) ok(res[`../python-engine/${n}`] === `python-engine/${n}`, `bundle ships python-engine/${n}`);
+  for (const s of srcs) {
+    if (s.includes('*') || s.startsWith('../forge-rs/')) continue;
+    ok(fsx.existsSync(path.join(root, 'src-tauri', s)), `bundle resource exists: ${s}`);
+  }
+  ok(!srcs.some((s) => /ipc_main|midi_player|test_|benchmark_|python-engine\/python\b|models|onnx_out|downloads/.test(s)),
+    'no Python Player engine, tests, light Python or models in the bundle');
+  ok(res['../forge-rs/target/release/forge-rs.exe'] === 'forge-rs.exe', 'forge-rs.exe ships next to the main exe');
+}
+
 // Torch's OpenMP pool spin-waits by default, which pins every core at 100%
 // between parallel regions and makes the whole app stutter while a song
 // transcribes. Below-normal priority does not help: a spinning thread never

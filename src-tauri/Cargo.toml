@@ -6,6 +6,16 @@ description = "MIDI Studio desktop host (Tauri 2). Boots the existing renderer/ 
 license = "MIT"
 default-run = "midi-studio"
 
+# The parity CLI (tools/midi-doc-parity.js) is a dev tool: behind a feature so
+# the Tauri bundler, which ships every enabled [[bin]], leaves it out.
+[[bin]]
+name = "midi-document"
+path = "src/bin/midi-document.rs"
+required-features = ["parity-cli"]
+
+[features]
+parity-cli = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -32,6 +42,9 @@ url = "2"
 winreg = "0.56"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 regex = "1"
+# First run after the Electron build: its per-panel localStorage is read out of
+# a COPY of Chromium's leveldb (migrate.rs). Pure Rust, snappy included.
+rusty-leveldb = "4"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",

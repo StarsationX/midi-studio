@@ -12,9 +12,13 @@
     "test": "node tools/run-tests.js",
     "build:engine": "cmd /c \"%CD%\\build-portable.bat\"",
     "build:dir": "npm run build:engine && electron-builder --win --x64 -c.win.target=dir -p never",
-    "build:nsis": "npm run build:engine && electron-builder --win nsis --x64 -p never"
+    "build:nsis": "npm run build:engine && electron-builder --win nsis --x64 -p never",
+    "build:forge-rs": "cargo build --release --manifest-path forge-rs/Cargo.toml --bin forge-rs",
+    "build:tauri": "npm run build:forge-rs && tauri build --config src-tauri/tauri.bundle.json",
+    "build:tauri-test": "npm run build:forge-rs && tauri build --config src-tauri/tauri.bundle.json --config src-tauri/tauri.test-variant.json"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "2.12.4",
     "electron": "^32.0.0",
     "electron-builder": "^25.0.0"
   },

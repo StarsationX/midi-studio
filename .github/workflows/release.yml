@@ -47,3 +47,47 @@ jobs:
           files: |
             dist/*.exe
           generate_release_notes: true
+
+  # The Tauri build (src-tauri + forge-rs), built and kept as a workflow
+  # artifact only. It is not attached to the release yet: both updaters take
+  # the first "*setup*.exe" asset, so the release carries exactly one installer
+  # until the switch-over moves the publish step here.
+  build-windows-tauri:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            forge-rs
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Rust tests
+        # winjob's grandchild check is timing-sensitive under parallel tests.
+        run: cargo test --manifest-path src-tauri/Cargo.toml -- --test-threads=1
+
+      - name: Build installer (forge-rs + Tauri NSIS)
+        run: npm run build:tauri
+
+      - name: Name it like the Electron installer
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          New-Item -ItemType Directory -Force dist-tauri | Out-Null
+          Copy-Item "src-tauri/target/release/bundle/nsis/*-setup.exe" "dist-tauri/MIDI-Studio-$v-Setup.exe"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: midi-studio-windows-tauri
+          path: dist-tauri/*.exe
