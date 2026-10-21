@@ -19,14 +19,8 @@ const PACKAGE_JSON: &str = include_str!("../../package.json");
 const CHANGELOG: &str = include_str!("../../CHANGELOG.md");
 const FORGE_SETTINGS_KEYS: [&str; 5] = ["pipeline", "skipSeparation", "advanced", "outputDir", "timing"];
 
-/// Registered, not ported yet (milestone 2+).
-pub const STUBBED: &[&str] = &[
-    // Forge runner / provisioner / storage
-    "forge:check", "forge:provision", "forge:provision:cancel", "forge:run", "forge:yt",
-    "forge:cancel", "forge:pause",
-    "app:forgeInfo", "app:openForgeFolder", "app:changeForgeFolder", "app:resetForgeFolder",
-    "app:openSetupLog", "app:cleanReinstall",
-];
+/// Registered, not ported yet. Empty since milestone 3 (Forge, in forge/).
+pub const STUBBED: &[&str] = &[];
 
 fn release_name() -> String {
     serde_json::from_str::<Value>(PACKAGE_JSON)
@@ -216,8 +210,10 @@ fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Result<Value, Str
     if STUBBED.contains(&channel) {
         return Err(format!("{channel} is not yet ported to the Tauri build"));
     }
-    // Channels that live in their own modules: Perch, the updater, the watchers.
-    if let Some(r) = crate::overlay::dispatch(app, channel, args)
+    // Channels that live in their own modules: Forge (which also guards
+    // win:close while a job runs), Perch, the updater, the watchers.
+    if let Some(r) = crate::forge::dispatch(app, channel, args)
+        .or_else(|| crate::overlay::dispatch(app, channel, args))
         .or_else(|| crate::updater::dispatch(app, channel, args))
         .or_else(|| crate::watch::dispatch(app, channel, args))
     {
