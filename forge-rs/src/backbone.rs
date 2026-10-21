@@ -4,6 +4,7 @@
 //! the app can ship whichever build it bundles.
 
 use crate::config::{frames_per_segment, CTX_DIM, N_MELS, N_SYMBOLS, N_WINDOWS};
+use crate::roformer::Ep;
 use anyhow::{anyhow, bail, Context, Result};
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -46,6 +47,21 @@ pub fn ort_dylib_candidates(explicit: Option<&Path>) -> Vec<PathBuf> {
     v
 }
 
+/// ORT's log, warnings and up, minus one known-benign line: cuDNN's frontend
+/// reports "No execution plans support the graph" at error level for a conv
+/// it cannot fuse, and ORT then runs the plain cuDNN kernel. Left in, the app
+/// shows it as a red error on every CUDA transcription.
+fn ort_log(level: ort::logging::LogLevel, _category: &str, _id: &str, location: &str, message: &str) {
+    use ort::logging::LogLevel;
+    if !matches!(level, LogLevel::Warning | LogLevel::Error | LogLevel::Fatal) {
+        return;
+    }
+    if message.contains("No execution plans support the graph") {
+        return;
+    }
+    eprintln!("[onnxruntime {level:?}] {message} ({location})");
+}
+
 /// Load ONNX Runtime once per process.
 pub fn init_ort(explicit: Option<&Path>) -> Result<PathBuf> {
     let r = ORT_INIT.get_or_init(|| {
@@ -55,7 +71,7 @@ pub fn init_ort(explicit: Option<&Path>) -> Result<PathBuf> {
         };
         // ORT resolves onnxruntime_providers_shared.dll etc. next to itself.
         match ort::init_from(&path) {
-            Ok(b) => match b.with_name("forge-rs").build() {
+            Ok(b) => match b.with_name("forge-rs").with_logger(std::sync::Arc::new(ort_log)).build() {
                 Ok(env) => Ok((path, env)),
                 Err(e) => Err(format!("ORT environment: {e}")),
             },
@@ -65,6 +81,14 @@ pub fn init_ort(explicit: Option<&Path>) -> Result<PathBuf> {
     match r {
         Ok((p, _)) => Ok(p.clone()),
         Err(e) => Err(anyhow!(e.clone())),
+    }
+}
+
+/// The onnxruntime.dll init_ort loaded, if it has run.
+pub fn loaded_dylib() -> Option<PathBuf> {
+    match ORT_INIT.get() {
+        Some(Ok((p, _))) => Some(p.clone()),
+        _ => None,
     }
 }
 
@@ -79,14 +103,56 @@ pub struct Backbone {
     session: Session,
 }
 
+/// ORT_ENABLE_LAYOUT (ort's `Level3`) only exists from ORT 1.23; 1.22, the
+/// CUDA 12 build a CUDA run loads for both models, needs ORT_ENABLE_ALL.
+/// FORGE_RS_TK_OPT=3|all is a diagnostic override.
+fn transkun_opt_level() -> GraphOptimizationLevel {
+    match std::env::var("FORGE_RS_TK_OPT").as_deref() {
+        Ok("3") => return GraphOptimizationLevel::Level3,
+        Ok("all") => return GraphOptimizationLevel::All,
+        _ => {}
+    }
+    match crate::ortenv::loaded_version() {
+        Some((1, m)) if m >= 23 => GraphOptimizationLevel::Level3,
+        Some((major, _)) if major > 1 => GraphOptimizationLevel::Level3,
+        _ => GraphOptimizationLevel::All,
+    }
+}
+
 impl Backbone {
     pub fn load(onnx: &Path, intra_threads: Option<usize>) -> Result<Self> {
+        Self::load_on(onnx, intra_threads, Ep::Cpu)
+    }
+
+    /// On the CUDA EP the graph runs fp32 with TF32 off (as the Roformer),
+    /// with a 2 GiB arena grown only as far as asked.
+    pub fn load_on(onnx: &Path, intra_threads: Option<usize>, ep: Ep) -> Result<Self> {
         let mut b = Session::builder(environment()?)?
-            .with_optimization_level(GraphOptimizationLevel::Level3)
+            .with_optimization_level(transkun_opt_level())
             .map_err(|e| anyhow!("{e}"))?;
         if let Some(n) = intra_threads {
             b = b.with_intra_threads(n).map_err(|e| anyhow!("{e}"))?;
         }
+        if let Ep::Cuda { device_id } = ep {
+            use ort::ep::cuda::ConvAlgorithmSearch;
+            // cuDNN conv algorithm search: ORT's default, exhaustive, made the
+            // backbone 5x slower than heuristic (20.5 vs 4.1 s for six
+            // segments on an RTX 5060), slower even than the CPU, and gave the
+            // same MIDI. FORGE_RS_TK_CUDNN=exhaustive|default is diagnostic.
+            let search = match std::env::var("FORGE_RS_TK_CUDNN").as_deref() {
+                Ok("exhaustive") => ConvAlgorithmSearch::Exhaustive,
+                Ok("default") => ConvAlgorithmSearch::Default,
+                _ => ConvAlgorithmSearch::Heuristic,
+            };
+            let cuda = ort::ep::CUDA::default().with_conv_algorithm_search(search);
+            let cuda = cuda
+                .with_device_id(device_id)
+                .with_tf32(false)
+                .with_memory_limit(2 << 30)
+                .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested)
+                .build()
+                .error_on_failure();
+            b = b.with_execution_providers([cuda]).map_err(|e| anyhow!("CUDA EP: {e}"))?;        }
         let session = b
             .commit_from_file(onnx)
             .with_context(|| format!("loading {}", onnx.display()))?;

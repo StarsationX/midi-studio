@@ -3,7 +3,7 @@ use forge_rs::assets::AssetPaths;
 use forge_rs::dump::Dump;
 use forge_rs::demix::DemixParams;
 use forge_rs::roformer::{self, Ep, Roformer, RoformerOptions};
-use forge_rs::{audio, memlimit, midi, post, separate, Options, Transcriber};
+use forge_rs::{audio, memlimit, midi, ortenv, pipeline, post, separate, Options, Transcriber};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -15,6 +15,12 @@ USAGE:
   forge-rs separate <audio> <store_dir> [options]
                                     BS-Rofo-SW-Fixed 6-stem separation (MSST
                                     inference.py): <store_dir>/<name>/<instr>.wav
+  forge-rs pipeline <audio> [<out.mid>] [options]
+                                    song_to_midi.py for piano / general mode
+                                    (--skip-separation: transcribe.py), same
+                                    env knobs, stage / TSEG / SSEG / DONE lines
+  forge-rs probe [options]          JSON: which runtime, EP and models a
+                                    pipeline run would use (loads nothing)
   forge-rs memcheck                 prove the memory cap refuses 9 GiB
 
 OPTIONS:
@@ -30,6 +36,19 @@ OPTIONS:
   --notes-json FILE   write the raw transkun notes (full precision)
   --dump DIR          dump intermediates (features, ORT outputs, paths, heads)
   --mem-limit-gb G    job-object memory cap (default 7.5; 0 disables)
+
+PIPELINE OPTIONS:
+  --mode piano|general  default: GENERAL_MODE env (song_to_midi's switch)
+  --skip-separation   transcribe.py: no separation, Transkun on the input
+  --ep auto|cpu|cuda  default auto: CUDA when the NVIDIA driver, onnxruntime-gpu
+                      1.22 and the CUDA 12 / cuDNN 9 DLLs are all found, else CPU
+  --transkun-ep same|cpu  Transkun backbone on the separator's EP (default) or CPU
+  --python FILE / --engine-dir DIR  forge env Python + python-engine, for the
+                      sparse-piano basic-pitch check (default: forge env +
+                      MIDI_STUDIO_ENGINE_DIR)
+  --no-sparse-recovery  skip that check
+  Env: FORGE_RS_ORT_GPU_DIR, FORGE_RS_CUDA_DIR, FORGE_RS_AUX,
+  FORGE_RS_ROFO_MODEL, FORGE_RS_CACHE_DIR, FORGE_RS_MODEL_CACHE=0
 
 SEPARATE OPTIONS:
   --model FILE        bsrofo_sw_body.onnx (default: <models>/bs_rofo_sw/)
@@ -67,7 +86,13 @@ fn run() -> Result<()> {
     let mut dump_dir = None;
     let mut mem_gb = 7.5f64;
     let mut rofo_model = None;
-    let mut ep = Ep::Cpu;
+    let mut ep_arg: Option<String> = None;
+    let mut mode: Option<pipeline::Mode> = None;
+    let mut skip_sep = false;
+    let mut transkun_gpu = true;
+    let mut python: Option<PathBuf> = None;
+    let mut engine_dir: Option<PathBuf> = None;
+    let mut sparse = true;
     let mut cuda_dir: Option<PathBuf> = None;
     let mut msst_batch = 1usize;
     let mut general_mix: Option<PathBuf> = None;
@@ -89,13 +114,19 @@ fn run() -> Result<()> {
             "--dump" => dump_dir = Some(PathBuf::from(val()?)),
             "--mem-limit-gb" => mem_gb = val()?.parse()?,
             "--model" => rofo_model = Some(PathBuf::from(val()?)),
-            "--ep" => {
-                ep = match val()?.as_str() {
-                    "cpu" => Ep::Cpu,
-                    "cuda" => Ep::Cuda { device_id: 0 },
-                    o => bail!("--ep {o}: expected cpu or cuda"),
+            "--ep" => ep_arg = Some(val()?),
+            "--mode" => mode = Some(pipeline::Mode::parse(&val()?)?),
+            "--skip-separation" => skip_sep = true,
+            "--transkun-ep" => {
+                transkun_gpu = match val()?.as_str() {
+                    "same" => true,
+                    "cpu" => false,
+                    o => bail!("--transkun-ep {o}: expected same or cpu"),
                 }
             }
+            "--python" => python = Some(PathBuf::from(val()?)),
+            "--engine-dir" => engine_dir = Some(PathBuf::from(val()?)),
+            "--no-sparse-recovery" => sparse = false,
             "--cuda-dll-dir" => cuda_dir = Some(PathBuf::from(val()?)),
             "--msst-batch" => msst_batch = val()?.parse()?,
             "--general-mix" => general_mix = Some(PathBuf::from(val()?)),
@@ -117,7 +148,46 @@ fn run() -> Result<()> {
         eprintln!("[memcap] job memory limit {:.2} GiB", lim as f64 / (1u64 << 30) as f64);
     }
 
+    let pipeline_args = |input: PathBuf| -> Result<pipeline::Args> {
+        let mut a = pipeline::Args::new(input);
+        a.ep = ortenv::EpChoice::parse(ep_arg.as_deref().unwrap_or("auto"))?;
+        a.mode = mode;
+        a.skip_separation = skip_sep;
+        a.transkun_gpu = transkun_gpu;
+        a.ort_dylib = opts.ort_dylib.clone();
+        a.cuda_dir = cuda_dir.clone();
+        a.models = models.clone();
+        a.aux = aux.clone();
+        a.rofo_model = rofo_model.clone();
+        a.threads = opts.intra_threads;
+        a.cpu_arena = cpu_arena;
+        a.cuda_mem_gb = cuda_mem_gb;
+        a.python = python.clone();
+        a.engine_dir = engine_dir.clone();
+        a.sparse_recovery = sparse;
+        if (opts.segment_hop - forge_rs::config::SEGMENT_HOP_SEC).abs() > 0.0 {
+            bail!("pipeline reads SEGMENT_HOP from the environment, as song_to_midi.py does");
+        }
+        Ok(a)
+    };
+
     match pos.first().map(String::as_str) {
+        Some("probe") => {
+            println!("{}", serde_json::to_string(&pipeline::probe(&pipeline_args(PathBuf::new())?))?);
+            Ok(())
+        }
+        Some("pipeline") => {
+            let (input, output) = match pos.as_slice() {
+                [_, i] => (i, None),
+                [_, i, o] => (i, Some(PathBuf::from(o))),
+                _ => bail!("pipeline needs <audio> [<out.mid>]
+
+{USAGE}"),
+            };
+            let mut a = pipeline_args(PathBuf::from(input))?;
+            a.output = output;
+            pipeline::run(&a)
+        }
         Some("memcheck") => {
             let nine = 9usize << 30;
             if memlimit::can_allocate(nine) {
@@ -149,10 +219,15 @@ fn run() -> Result<()> {
                 None => roformer::default_model_path(models.as_deref())?,
             };
             let t_all = Instant::now();
+            let ep = match ep_arg.as_deref().unwrap_or("cpu") {
+                "cpu" => Ep::Cpu,
+                "cuda" => Ep::Cuda { device_id: 0 },
+                o => bail!("--ep {o}: expected cpu or cuda"),
+            };
             let ropts = RoformerOptions { ep, intra_threads: opts.intra_threads, ort_dylib: opts.ort_dylib.clone(), cpu_arena, cuda_mem_limit_gb: Some(cuda_mem_gb) };
-            let mut rofo = Roformer::load(&model_path, &ropts)?;
+            let (mut rofo, cache_use) = Roformer::load_cached(&model_path, &ropts, forge_rs::model_cache::ModelCache::from_env().as_ref())?;
             let load_s = t_all.elapsed().as_secs_f64();
-            eprintln!("Separator: BS-Rofo-SW-Fixed body {} on {:?}, loaded in {load_s:.2}s", model_path.display(), ep);
+            eprintln!("Separator: BS-Rofo-SW-Fixed body {} on {:?}, loaded in {load_s:.2}s (model cache {cache_use})", model_path.display(), ep);
             eprintln!("[memcap] after load: {}", memlimit::peaks());
             let t0 = Instant::now();
             let mix = separate::load_mix(std::path::Path::new(input))?;
@@ -199,6 +274,15 @@ fn run() -> Result<()> {
                 bail!("transcribe needs <audio> <out.mid>\n\n{USAGE}");
             };
             let paths = AssetPaths::resolve(models.as_deref(), aux.as_deref())?;
+            if ep_arg.as_deref() == Some("cuda") {
+                // Diagnostic: the backbone on the CUDA EP (fp32, TF32 off).
+                let plan = ortenv::plan(ortenv::EpChoice::Cuda, opts.ort_dylib.as_deref(), cuda_dir.as_deref())?;
+                if let Some(d) = &plan.cuda_dir {
+                    ortenv::prepend_path(d)?;
+                }
+                opts.ort_dylib = Some(plan.dylib);
+                opts.ep = Ep::Cuda { device_id: 0 };
+            }
             for p in std::iter::once(std::path::Path::new(output)).chain(notes_json.as_deref()) {
                 if let Some(d) = p.parent().filter(|d| !d.as_os_str().is_empty()) {
                     std::fs::create_dir_all(d).with_context(|| format!("create {}", d.display()))?;
@@ -210,7 +294,7 @@ fn run() -> Result<()> {
             };
             let t_all = Instant::now();
             let mut tr = Transcriber::new(&paths, &opts)?;
-            eprintln!("Backbone: ONNX Runtime CPU ({}), models loaded in {:.2}s", paths.onnx.display(), tr.load_s);
+            eprintln!("Backbone: ONNX Runtime {:?} ({}), models loaded in {:.2}s (ORT {:?})", opts.ep, paths.onnx.display(), tr.load_s, ortenv::loaded_version());
             let t0 = Instant::now();
             let mut a = audio::load(std::path::Path::new(input))?;
             let decode_s = t0.elapsed().as_secs_f64();

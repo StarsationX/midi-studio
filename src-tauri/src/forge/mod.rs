@@ -74,6 +74,26 @@ fn forge_paths(h: &Host) -> ForgePaths {
     ForgePaths::from_settings(&h.settings.get("paths"))
 }
 
+/// settings.forge.engine, "python" unless it says "rust".
+fn forge_engine_setting(h: &Host) -> String {
+    if h.settings.get_str("forge.engine") == "rust" { "rust".into() } else { "python".into() }
+}
+
+/// Settings > Engines: the Forge engine choice and whether the Rust engine
+/// could take a job right now (forge-rs found and its models and runtime
+/// resolved).
+pub fn engine_info(h: &Host) -> Value {
+    let chosen = forge_engine_setting(h);
+    let exe = fpaths::forge_rs_exe();
+    let probe = exe.as_ref().map(|e| runner::probe_rust(e, &fpaths::forge_child_env(&forge_paths(h))));
+    let (ready, why, ep) = match &probe {
+        None => (false, "This build does not include the Rust engine.".to_string(), Value::Null),
+        Some(Ok(v)) => (true, String::new(), v["ep"].clone()),
+        Some(Err(e)) => (false, e.clone(), Value::Null),
+    };
+    json!({"chosen": chosen, "rustAvailable": exe.is_some(), "ready": ready, "why": why, "ep": ep, "rustModes": runner::RUST_MODES})
+}
+
 fn output_dir(h: &Host) -> PathBuf {
     paths::program_output_dir(&h.settings.get_str("forge.outputDir"))
 }
@@ -240,7 +260,11 @@ pub fn init(app: &AppHandle) {
     let ctx_app = app.clone();
     let ctx: runner::GetCtx = Arc::new(move || {
         let h = host(&ctx_app);
-        Ctx { paths: forge_paths(&h), perf: crate::ipc::performance(&h.settings.get("performance"), &h.settings.get("ui")) }
+        Ctx {
+            paths: forge_paths(&h),
+            perf: crate::ipc::performance(&h.settings.get("performance"), &h.settings.get("ui")),
+            forge_engine: forge_engine_setting(&h),
+        }
     });
     let f = Arc::new(Forge {
         runner: Runner::new(emit.clone(), log.clone(), ctx, fpaths::forge_jobs_file()),
@@ -524,6 +548,13 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
                 d => d,
             };
             json!(f.runner.yt(&js_str(o.get("url")), &out))
+        }
+        "app:setForgeEngine" => {
+            let want = js_str(Some(&a0)).to_lowercase();
+            if want == "rust" || want == "python" {
+                h.settings.merge(&json!({"forge": {"engine": want}}));
+            }
+            engine_info(&h)
         }
         "forge:cancel" => json!(f.runner.cancel(&js_str(Some(&a0)))),
         "forge:pause" => {

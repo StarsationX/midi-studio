@@ -76,8 +76,10 @@ def segment_frames(model, x, hop):
 
 
 def producer_cuda(model, frames, nSym, out_q):
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
+    # FORGE_FP32=1 (song_to_midi's strict switch): plain fp32, no TF32.
+    tf32 = os.environ.get("FORGE_FP32", "0") not in ("1", "true", "True", "yes")
+    torch.backends.cuda.matmul.allow_tf32 = tf32
+    torch.backends.cudnn.allow_tf32 = tf32
     gpu = model.cuda()
     batch = BATCH
     i = 0

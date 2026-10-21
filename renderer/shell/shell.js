@@ -2328,7 +2328,47 @@
     else if (!builtIn && r) note = 'Switching restarts the engine. A song that is playing finishes first.';
     $('s-engine-note').textContent = note;
     $('s-engine-note').hidden = !note;
+    renderForgeEngine();
   }
+  // Forge engine: only a host whose runner knows forge-rs answers runtime()
+  // with a forge key (Tauri). Electron's has none, so the section stays hidden.
+  let forgeEngineBusy = false;
+  function renderForgeEngine() {
+    const f = runtimeInfo && runtimeInfo.forge;
+    $('s-forge-engine-sec').hidden = !f;
+    if (!f) return;
+    const chosen = f.chosen === 'rust' ? 'rust' : 'python';
+    for (const b of $('s-forge-engine').querySelectorAll('button[role=radio]')) {
+      const on = b.dataset.engine === chosen;
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+      b.disabled = forgeEngineBusy;
+    }
+    let note = '';
+    if (chosen === 'rust') {
+      if (!f.rustAvailable) note = 'This build doesn’t include the Rust engine, so Forge uses Python for now.';
+      else if (!f.ready) note = 'The Rust engine isn’t set up on this computer yet, so Forge uses Python for now.';
+      else note = f.ep === 'cuda' ? 'Runs on your NVIDIA graphics card.' : 'Runs on the processor.';
+    }
+    const n = $('s-forge-engine-note');
+    n.textContent = note;
+    n.title = chosen === 'rust' && f.why ? f.why : '';
+    n.hidden = !note;
+  }
+  wireRadios('s-forge-engine', async (b) => {
+    if (!studio.setForgeEngine || forgeEngineBusy) return;
+    forgeEngineBusy = true;
+    renderForgeEngine();
+    try {
+      const forge = await studio.setForgeEngine(b.dataset.engine);
+      if (forge && runtimeInfo) runtimeInfo = Object.assign({}, runtimeInfo, { forge });
+      logPush('Forge engine set to ' + (ENGINE_NAME[b.dataset.engine] || b.dataset.engine) + '.', 'info', 'forge');
+    } catch (e) {
+      toast({ severity: 'err', title: 'Could not switch the Forge engine', message: (e && e.message) || String(e) });
+    }
+    forgeEngineBusy = false;
+    renderForgeEngine();
+  });
   function adoptRuntime(r) {
     if (!r) return;
     runtimeInfo = r;

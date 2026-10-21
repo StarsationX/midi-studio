@@ -76,6 +76,10 @@ GENERAL_MODE = os.environ.get("GENERAL_MODE", "0") in ("1", "true", "True", "yes
 EXCLUDE_STEMS = [s.strip().lower() for s in
                  os.environ.get("EXCLUDE_STEMS", "drum,percussion").split(",") if s.strip()]
 EXCLUDE_VOCALS = os.environ.get("EXCLUDE_VOCALS", "0") in ("1", "true", "True", "yes")
+# FORGE_FP32=1: strict fp32 (MSST without fp16 autocast, no TF32 in MSST or
+# Transkun). Slower; the Rust engine always runs this way, so parity checks
+# compare against it.
+STRICT_FP32 = os.environ.get("FORGE_FP32", "0") in ("1", "true", "True", "yes")
 # Cap simultaneous notes (keep loudest per chord) for cleaner piano-key playback.
 MAX_POLYPHONY = int(os.environ.get("MAX_POLYPHONY", "0"))
 
@@ -141,7 +145,7 @@ def cleanup_work(work_dir: Path) -> None:
     shutil.rmtree(work_dir, ignore_errors=True)
 
 
-def _patched_msst_config(work_dir: Path, batch: int) -> Path:
+def _patched_msst_config(work_dir: Path, batch: int, strict_fp32: bool = False) -> Path:
     """Copy of the BS-Rofo YAML with inference.batch_size bumped. Textual edit
     on purpose: the YAML carries !!python/tuple tags that safe_load rejects,
     and a byte-preserving copy can't break MSST's own loader."""
@@ -153,6 +157,10 @@ def _patched_msst_config(work_dir: Path, batch: int) -> Path:
     if n != 1:
         print("  [warn] couldn't patch inference.batch_size, using stock config")
         return BS_ROFO_YAML
+    if strict_fp32:
+        new, m = re.subn(r"(\n[ \t]+use_amp:)[ \t]*true", r"\g<1> false", new, count=1)
+        if m != 1:
+            print("  [warn] couldn't turn off use_amp; MSST may still use fp16")
     patched = work_dir / "bs_rofo_inference.yaml"
     patched.write_text(new, encoding="utf-8")
     return patched
@@ -168,7 +176,8 @@ def run_separation(src: Path, work_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     stage_input(src, input_dir)
 
-    config = _patched_msst_config(work_dir, batch) if batch > 1 else BS_ROFO_YAML
+    config = (_patched_msst_config(work_dir, batch, STRICT_FP32)
+              if batch > 1 or STRICT_FP32 else BS_ROFO_YAML)
     cmd = [
         str(PY), "inference.py",
         "--model_type", "bs_roformer",
@@ -182,8 +191,9 @@ def run_separation(src: Path, work_dir: Path) -> Path:
         cmd.append("--use_tta")
     if BIGSHIFTS > 1:
         cmd += ["--bigshifts", str(BIGSHIFTS)]
-    # TF32 for cuBLAS/cuDNN inside MSST without touching its code.
-    env = dict(os.environ, NVIDIA_TF32_OVERRIDE="1")
+    # TF32 for cuBLAS/cuDNN inside MSST without touching its code (off in
+    # strict fp32).
+    env = dict(os.environ, NVIDIA_TF32_OVERRIDE="0" if STRICT_FP32 else "1")
     rc = subprocess.run(cmd, cwd=str(MSST_DIR), check=False, env=env).returncode
     if rc != 0:
         raise RuntimeError(f"MSST inference failed with exit code {rc}")

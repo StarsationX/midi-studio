@@ -21,7 +21,8 @@
 use crate::demix::{Planar, Stems};
 use crate::stft::{n_frames, Stft, N_BINS};
 use anyhow::{anyhow, bail, Context, Result};
-use ort::session::builder::GraphOptimizationLevel;
+use crate::model_cache::{CacheUse, ModelCache};
+use ort::session::builder::{GraphOptimizationLevel, SessionBuilder};
 use ort::session::Session;
 use ort::value::Tensor;
 use rayon::prelude::*;
@@ -35,6 +36,11 @@ pub const FEAT: usize = N_BINS * N_CHANNELS * 2;
 /// config.training.instruments, in mask-estimator order.
 pub const INSTRUMENTS: [&str; N_STEMS] = ["bass", "drums", "other", "vocals", "guitar", "piano"];
 pub const SAMPLE_RATE: u32 = 44100;
+/// STFT frames of one demix chunk (588800 samples, hop 512): the only time
+/// length the network ever sees, pinned in the session.
+pub const CHUNK_FRAMES: usize = 1151;
+/// The body's symbolic time axis (input `spec` is [1, T, 4100]).
+const TIME_DIM: &str = "T";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ep {
@@ -86,48 +92,148 @@ pub struct Roformer {
 
 impl Roformer {
     pub fn load(onnx: &Path, opts: &RoformerOptions) -> Result<Self> {
+        Ok(Self::load_cached(onnx, opts, None)?.0)
+    }
+
+    /// `load`, through the optimized-model cache when one is given.
+    ///
+    /// Session creation used to take 18-27 s, and almost none of it was
+    /// optimization: with the time axis symbolic, ORT's allocation planner
+    /// spends ~20 s on buffer reuse over the 14.8k-node graph. demix always
+    /// feeds full chunks, so T is pinned to `CHUNK_FRAMES` and the planner's
+    /// reuse is switched off (with T static it would raise peak commit from
+    /// ~2 to ~7 GiB; see ortopts). The session then comes up in ~4 s, and
+    /// in ~2 s from the optimized-model cache, with bit-identical masks.
+    pub fn load_cached(onnx: &Path, opts: &RoformerOptions, cache: Option<&ModelCache>) -> Result<(Self, CacheUse)> {
         crate::backbone::init_ort(opts.ort_dylib.as_deref())?;
-        let mut b = Session::builder(crate::backbone::environment()?)?
-            // FORGE_RS_ORT_OPT=0/1/2 is a diagnostic override (all levels give
-            // bit-identical masks on this graph).
-            .with_optimization_level(match std::env::var("FORGE_RS_ORT_OPT").as_deref() {
-                Ok("0") => GraphOptimizationLevel::Disable,
-                Ok("1") => GraphOptimizationLevel::Level1,
-                Ok("2") => GraphOptimizationLevel::Level2,
-                // ORT_ENABLE_ALL, as Python ORT defaults to; Level3 (ORT_ENABLE_LAYOUT)
-                // does not exist before ORT 1.23 and 1.22 is the CUDA 12 build.
-                _ => GraphOptimizationLevel::All,
-            })
-            .map_err(|e| anyhow!("{e}"))?;
-        if let Some(n) = opts.intra_threads {
-            b = b.with_intra_threads(n).map_err(|e| anyhow!("{e}"))?;
-        }
-        if opts.ep == Ep::Cpu && !opts.cpu_arena {
-            let cpu = ort::ep::CPU::default().with_arena_allocator(false).build();
-            b = b.with_execution_providers([cpu]).map_err(|e| anyhow!("{e}"))?;
-        }
-        if let Ep::Cuda { device_id } = opts.ep {
-            let mut cuda = ort::ep::CUDA::default().with_device_id(device_id).with_tf32(false);
-            if let Some(gb) = opts.cuda_mem_limit_gb.filter(|g| *g > 0.0) {
-                cuda = cuda
-                    .with_memory_limit((gb * (1u64 << 30) as f64) as usize)
-                    .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested);
+        // Pin T only where buffer reuse can be switched off (see ortopts);
+        // FORGE_RS_PIN_T=0 (diagnostic) leaves T symbolic, as before the pin.
+        let pin = std::env::var("FORGE_RS_PIN_T").as_deref() != Ok("0")
+            && match crate::ortopts::disable_mem_reuse(&mut Session::builder(crate::backbone::environment()?)?) {
+                Ok(()) => true,
+                Err(why) => {
+                    eprintln!("  [roformer] buffer reuse cannot be turned off on this ONNX Runtime ({why}); slow session start");
+                    false
+                }
+            };
+        let base = |level: GraphOptimizationLevel| -> Result<SessionBuilder> {
+            let mut b = Session::builder(crate::backbone::environment()?)?.with_optimization_level(level).map_err(|e| anyhow!("{e}"))?;
+            if let Some(n) = opts.intra_threads {
+                b = b.with_intra_threads(n).map_err(|e| anyhow!("{e}"))?;
             }
-            let cuda = cuda.build().error_on_failure();
-            b = b.with_execution_providers([cuda]).map_err(|e| anyhow!("CUDA EP: {e}"))?;
-        }
-        let session = b.commit_from_file(onnx).with_context(|| format!("loading {}", onnx.display()))?;
+            if pin {
+                crate::ortopts::disable_mem_reuse(&mut b).map_err(|e| anyhow!("{e}"))?;
+            }
+            if opts.ep == Ep::Cpu && !opts.cpu_arena {
+                let cpu = ort::ep::CPU::default().with_arena_allocator(false).build();
+                b = b.with_execution_providers([cpu]).map_err(|e| anyhow!("{e}"))?;
+            }
+            if let Ep::Cuda { device_id } = opts.ep {
+                let mut cuda = ort::ep::CUDA::default().with_device_id(device_id).with_tf32(false);
+                if let Some(gb) = opts.cuda_mem_limit_gb.filter(|g| *g > 0.0) {
+                    cuda = cuda
+                        .with_memory_limit((gb * (1u64 << 30) as f64) as usize)
+                        .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested);
+                }
+                let cuda = cuda.build().error_on_failure();
+                b = b.with_execution_providers([cuda]).map_err(|e| anyhow!("CUDA EP: {e}"))?;
+            }
+            Ok(b)
+        };
+        // FORGE_RS_ORT_OPT=0/1/2 is a diagnostic override (all levels give
+        // bit-identical masks on this graph). Default ORT_ENABLE_ALL, as
+        // Python ORT; Level3 (ORT_ENABLE_LAYOUT) does not exist before ORT
+        // 1.23 and 1.22 is the CUDA 12 build.
+        let level = match std::env::var("FORGE_RS_ORT_OPT").as_deref() {
+            Ok("0") => GraphOptimizationLevel::Disable,
+            Ok("1") => GraphOptimizationLevel::Level1,
+            Ok("2") => GraphOptimizationLevel::Level2,
+            _ => GraphOptimizationLevel::All,
+        };
+        // FORGE_RS_MEM_PATTERN=1 (diagnostic) keeps ORT's planned pattern.
+        let mem_pattern = std::env::var("FORGE_RS_MEM_PATTERN").as_deref() == Ok("1");
+        let pinned = |b: SessionBuilder| -> Result<SessionBuilder> {
+            if pin {
+                // Static shapes with the planner's reuse off: buffers are
+                // allocated as needed and freed after their last use.
+                b.with_dimension_override(TIME_DIM, CHUNK_FRAMES as i64)
+                    .and_then(|b| b.with_memory_pattern(mem_pattern))
+                    .map_err(|e| anyhow!("{e}"))
+            } else {
+                Ok(b)
+            }
+        };
+        let ctx = || format!("loading {}", onnx.display());
+        let tag = match opts.ep {
+            Ep::Cpu if !pin => "cpu-dyn".to_string(),
+            Ep::Cuda { device_id } if !pin => format!("cuda{device_id}-dyn"),
+            Ep::Cpu => format!("cpu-t{CHUNK_FRAMES}"),
+            Ep::Cuda { device_id } => format!("cuda{device_id}-t{CHUNK_FRAMES}"),
+        };
+        let entry = cache.filter(|_| level == GraphOptimizationLevel::All).and_then(|c| match c.entry(onnx, &tag) {
+            Ok(e) => Some(e),
+            Err(e) => {
+                eprintln!("  [model cache] unavailable: {e:#}");
+                None
+            }
+        });
+        let (session, used) = match entry {
+            None => (pinned(base(level)?)?.commit_from_file(onnx).with_context(ctx)?, CacheUse::Off),
+            Some(e) => {
+                let hit = if e.path.is_file() {
+                    match base(GraphOptimizationLevel::Disable)?.commit_from_file(&e.path) {
+                        Ok(s) => Some(s),
+                        Err(err) => {
+                            eprintln!("  [model cache] {} unreadable ({err}); rebuilding", e.path.display());
+                            let _ = std::fs::remove_file(&e.path);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                match hit {
+                    Some(s) => (s, CacheUse::Hit),
+                    None => {
+                        let tmp = e.temp_path();
+                        let stored = pinned(base(level)?)?.with_optimized_model_path(&tmp).map_err(|e| anyhow!("{e}"))?.commit_from_file(onnx);
+                        match stored {
+                            Ok(s) => match e.commit(&tmp) {
+                                Ok(()) => (s, CacheUse::Stored),
+                                Err(err) => {
+                                    eprintln!("  [model cache] could not store {}: {err:#}", e.path.display());
+                                    (s, CacheUse::Unwritable)
+                                }
+                            },
+                            Err(err) => {
+                                let _ = std::fs::remove_file(&tmp);
+                                eprintln!("  [model cache] could not write {} ({err}); loading without it", tmp.display());
+                                (pinned(base(level)?)?.commit_from_file(onnx).with_context(ctx)?, CacheUse::Unwritable)
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        let r = Self::from_session(session, onnx, opts.ep)?;
+        Ok((r, used))
+    }
+
+    fn from_session(session: Session, onnx: &Path, ep: Ep) -> Result<Self> {
         let ins: Vec<String> = session.inputs().iter().map(|o| o.name().to_string()).collect();
         let outs: Vec<String> = session.outputs().iter().map(|o| o.name().to_string()).collect();
         if ins != ["spec"] || outs != ["mask"] {
             bail!("{}: inputs {ins:?} outputs {outs:?}, expected [spec] -> [mask] (export with tools/export_bsrofo_body.py)", onnx.display());
         }
-        Ok(Roformer { session, stft: Stft::new(), ep: opts.ep })
+        Ok(Roformer { session, stft: Stft::new(), ep })
     }
 
     /// Network body on one spectrum: `spec` [T][FEAT] -> masks [N_STEMS][T][FEAT].
     pub fn run_body(&mut self, spec: Vec<f32>, t: usize) -> Result<Vec<f32>> {
         assert_eq!(spec.len(), t * FEAT);
+        if t != CHUNK_FRAMES {
+            bail!("body input has {t} frames; the session is pinned to {CHUNK_FRAMES} (one 588800-sample chunk)");
+        }
         let input = Tensor::from_array(([1usize, t, FEAT], spec))?;
         let outputs = self.session.run(ort::inputs!["spec" => input])?;
         let (shape, data) = outputs["mask"].try_extract_tensor::<f32>()?;

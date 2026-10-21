@@ -242,6 +242,7 @@
         getRelease: c('app:release'),
         runtime: c('app:runtime'),
         setPlayerEngine: c('app:setPlayerEngine'),
+        setForgeEngine: c('app:setForgeEngine'),
         checkForUpdates: c('update:check'),
         applyUpdate: c('update:apply'),
         onUpdateStatus: on('update-status'),
