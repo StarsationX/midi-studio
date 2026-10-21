@@ -400,6 +400,23 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(!/no CUDA GPU was found/.test(sh), 'the CPU chip does not claim there is no GPU (Rust on CPU may sit on one)');
 }
 
+// A job the user cancelled is not a failure: a "Cancelled" pill, no error card.
+{
+  const fsx = require('fs');
+  const fj = fsx.readFileSync(path.join(root, 'renderer', 'forge', 'forge.js'), 'utf8');
+  const od = /function onDone\(s\) \{[\s\S]*?\r?\n  \}\r?\n/.exec(fj);
+  ok(!!od, 'forge onDone is findable');
+  if (od) {
+    const cancel = /\} else if \(\/cancel\/i\.test\(s\.error \|\| ''\)\) \{([\s\S]*?)\} else \{/.exec(od[0]);
+    ok(!!cancel, 'a cancelled forge.done has its own branch');
+    if (cancel) {
+      ok(/setJobPill\('warn', 'Cancelled'\)/.test(cancel[1]), 'a cancelled job shows a Cancelled pill');
+      ok(!/showError|errcard/.test(cancel[1]), 'a cancelled job shows no error card');
+      ok(!/—/.test(cancel[1]), 'no em dashes in the cancel copy');
+    }
+  }
+}
+
 // verifyDigest, verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
   const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');

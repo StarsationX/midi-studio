@@ -2445,8 +2445,17 @@
         addResults(result, pipeline);
         logLine('Done: ' + result.midiPath, { level: 'ok' });
       }
+    } else if (/cancel/i.test(s.error || '')) {
+      // The user asked for this: no error card, and the shell logs it.
+      activeState = 'cancelled';
+      if (currentStage) {
+        stageEl[currentStage].dataset.state = 'wait';
+        stageEl[currentStage].querySelector('.stg-meta').textContent = 'Cancelled';
+        stageEl[currentStage].querySelector('.bar-fill').classList.remove('indet');
+      }
+      setJobPill('warn', 'Cancelled');
     } else {
-      activeState = /cancel/i.test(s.error || '') ? 'cancelled' : 'failed';
+      activeState = 'failed';
       showError(s.error || 'The job failed.');
       // The shell already toasts a failed forge.done from its own IPC listener.
       logLine((s.error || 'failed'), { localOnly: true, level: 'error' });
