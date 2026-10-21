@@ -24,6 +24,7 @@ const DEFAULTS = {
   },
   paths: { forgeEnvDir: '', forgePythonPath: '', modelsDir: '' },
   ui: { lastTab: 'forge', autoCheckUpdates: true, alwaysOnTop: true },
+  player: { engine: 'python' },  // python | rust (player-rs); MIDI_PLAYER_ENGINE overrides
   // Perch, the always-on-top playback overlay. See electron/overlay.js; the
   // shape is kept there so the two cannot drift apart.
   overlay: {
