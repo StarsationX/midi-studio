@@ -796,7 +796,7 @@ Legacy aliases still accepted on receive and rewritten:
 | Constant | Type | Payload |
 |---|---|---|
 | `NAV_ACTIVATE` | `nav:activate` | `{tab:'forge'\|'review'\|'player'\|'audition'\|'library'\|'logs', focus?:boolean}` |
-| `NAV_ACTIVATED` | `nav:activated` | `{tab, previous}` |
+| `NAV_ACTIVATED` | `nav:activated` | `{tab, previous, focus}`; `focus: false` = keep focus where it is (the sidebar's arrow keys) |
 | `NAV_OPEN_FORGE` | `nav:open-forge` | `{inputPath?:string, url?:string}` |
 | `NAV_OPEN_EDITOR` | `nav:open-editor` | `{projectPath?:string, midiPath?:string}` |
 | `NAV_OPEN_PLAYER` | `nav:open-player` | `{midiPath?:string, play?:boolean}` |

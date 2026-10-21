@@ -1083,7 +1083,7 @@
     if (o.focus !== false) { try { inc.frame.contentWindow.focus(); } catch (_) {} }
     if (o.persist !== false) saveUi({ lastTab: key });
     if (window.Bus) {
-      window.Bus.send(T.NAV_ACTIVATED, { tab: key, previous }, { to: 'frames' });
+      window.Bus.send(T.NAV_ACTIVATED, { tab: key, previous, focus: o.focus !== false }, { to: 'frames' });
     }
     // The palette filters by scope explicitly; the shell's OWN default scope
     // stays 'global' so a shell command never inherits a tab's scope.

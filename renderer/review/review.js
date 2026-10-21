@@ -3390,7 +3390,8 @@
     readSpacePref();
     maybeClaim();
     relayout();
-    rollCanvas.focus({ preventScroll: true });
+    // Arrow keys walking the sidebar keep the focus there.
+    if (p.focus !== false) rollCanvas.focus({ preventScroll: true });
   }));
   disposers.push(Bus.on(T.UI_DENSITY, () => {
     ROW_H = document.documentElement.dataset.density === 'compact' ? 12 : 14;
