@@ -606,7 +606,7 @@ body.is-covered .tabframe { visibility: hidden; }
   width: 8px; height: 8px; border-radius: 2px; margin-right: 6px;
   display: inline-block; flex: 0 0 auto;
 }
-.sw[data-sw="lime"]    { background: #b8e62e; }
+.sw[data-sw="mint"]    { background: #9cdbbb; }
 .sw[data-sw="cyan"]    { background: #2bd4e6; }
 .sw[data-sw="indigo"]  { background: #6c8cff; }
 .sw[data-sw="magenta"] { background: #ff5db0; }

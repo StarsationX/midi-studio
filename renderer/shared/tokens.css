@@ -1,9 +1,8 @@
 /* tokens.css: ONE design system shared by the shell + Midi-Forge + Midi-Player.
    ============================================================================
-   "CONSOLE PRO", professional audio software (Ableton/FL class).
-   Flat graphite panels, exact 1px borders, dense precise controls, tabular
-   mono readouts, ONE functional accent: acid lime. No gradients-for-decoration,
-   no glow theater. Confidence through precision.
+   Calm studio surfaces, readable controls and a restrained mint accent.
+   Layout and component refinements live in studio.css, loaded after each
+   workspace's structural stylesheet. Numeric readouts retain the mono font.
    ============================================================================ */
 
 /* ---- bundled fonts (offline; CSP blocks remote) ------------------------- */
@@ -25,39 +24,39 @@
   --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
 
   /* ---- surfaces (flat graphite stack) ---- */
-  --bg:          #141519;   /* page */
-  --bg-2:        #0f1013;   /* recessed wells (inputs, log) */
-  --surface:     #1c1e23;   /* panels */
-  --surface-2:   #25272d;   /* controls */
-  --surface-3:   #2b2e36;   /* hover / raised */
+  --bg:          #111516;
+  --bg-2:        #0d1112;
+  --surface:     #191e20;
+  --surface-2:   #22282b;
+  --surface-3:   #2b3336;
 
   /* ---- exact 1px lines ---- */
-  --line:        #2b2e36;
-  --line-2:      #3a3d45;
-  --line-soft:   #3a3d4566;
-  --edge:        #0c0d10;
+  --line:        #2a3235;
+  --line-2:      #3d494d;
+  --line-soft:   #2a323580;
+  --edge:        #0b0e0f;
 
   /* ---- text ---- */
-  --text:        #e8e9ea;
-  --text-2:      #9b9ea6;
-  --text-3:      #868a92;   /* AA on --bg (5.27) and --surface (4.82) */
+  --text:        #edf2ef;
+  --text-2:      #a6b2b3;
+  --text-3:      #8e9d9f;
 
-  /* ---- accent: ACID LIME (functional only) ---- */
-  --accent:      #b8e62e;
-  --accent-2:    #c6f23e;             /* hover */
-  --accent-deep: #8fb320;
-  --accent-ink:  #161900;             /* text on lime */
-  --accent-grad: var(--accent);       /* flat, no gradients */
-  --accent-soft: #252a1a;             /* lime-tinted panel */
-  --accent-line: #4d5640;             /* lime-tinted border */
+  /* ---- accent: studio mint ---- */
+  --accent:      #9cdbbb;
+  --accent-2:    #b6ebcf;
+  --accent-deep: #6eac8d;
+  --accent-ink:  #10271c;
+  --accent-grad: var(--accent);
+  --accent-soft: #1c3028;
+  --accent-line: #3d6352;
 
   /* ---- semantic ---- */
-  --ok:   #b8e62e;  --ok-soft:   #22261a;
+  --ok:   #9cdbbb;  --ok-soft:   #1c3028;
   --warn: #e6c84a;  --warn-soft: #2a2517;
   --err:  #e65a5a;  --err-soft:  #2a1a1a;
 
   /* ---- radius (tight) ---- */
-  --r-sm: 4px;  --r: 5px;  --r-lg: 6px;  --r-pill: 999px;
+  --r-sm: 7px;  --r: 9px;  --r-lg: 12px;  --r-pill: 999px;
 
   /* ---- spacing (4-based) ---- */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
@@ -188,7 +187,7 @@ html, body {
   border-radius: var(--r);
 }
 
-/* primary = the lime GO control */
+/* Primary action */
 .btn-primary {
   background: var(--accent); color: var(--accent-ink);
   border-color: var(--accent-deep);
@@ -268,7 +267,7 @@ input::placeholder { color: var(--text-3); }
 
 /* ---- status dot ---- */
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: 0 0 auto; }
-.dot.ok   { background: var(--ok);   box-shadow: 0 0 6px #b8e62e66; }
+.dot.ok   { background: var(--ok); }
 .dot.warn { background: var(--warn); box-shadow: 0 0 6px #e6c84a66; }
 .dot.err  { background: var(--err);  box-shadow: 0 0 6px #e65a5a66; }
 

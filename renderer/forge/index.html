@@ -8,10 +8,15 @@
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="../shared/ui.css" />
   <link rel="stylesheet" href="./forge.css" />
+  <link rel="stylesheet" href="../shared/studio.css" />
 </head>
-<body>
+<body class="studio-workspace">
+<header class="studio-page-head">
+  <div><div class="studio-eyebrow">Create something new</div><h1 class="studio-page-title">Audio to MIDI</h1><p class="studio-page-description">Start with a song. Leave with something you can play.</p></div>
+  <div class="studio-workflow" aria-label="Conversion workflow"><span><b>1</b> Import audio</span><i aria-hidden="true">&rarr;</i><span><b>2</b> Convert</span><i aria-hidden="true">&rarr;</i><span><b>3</b> Make it yours</span></div>
+</header>
 
-<div class="fg split" id="fg" data-split="forge" style="--rail: 368px; --insp: 420px">
+<div class="fg split" id="fg" data-split="forge" style="--rail: 288px; --insp: 264px">
 
   <!-- ====================================================================
        LEFT COLUMN — Input | Queue | Settings, with the primary action pinned
@@ -32,55 +37,24 @@
     <!-- ---------------- INPUT ---------------- -->
     <div class="tabpanel fg-tp scroll-y" id="tp-input" role="tabpanel" aria-labelledby="tab-input">
 
+      <span class="fg-source-label">Your source audio</span>
+
       <button class="dropzone" id="dropzone" type="button">
         <span class="dz-icon" aria-hidden="true"><i data-icon="drop" data-icon-size="22"></i></span>
-        <span class="dz-title">Drop audio file here</span>
-        <span class="dz-sub">or click to browse</span>
-        <span class="dz-types">Supports MP3, WAV, FLAC, M4A, OGG, etc.</span>
+        <span class="dz-title">Drop your audio here</span>
+        <span class="dz-sub">or click to choose a file</span>
+        <span class="dz-types">MP3 &middot; WAV &middot; FLAC &middot; M4A &middot; OGG</span>
       </button>
 
       <span class="input-wrap fg-url" title="Downloads the audio, then loads it as the current input.">
         <input class="input is-body" id="url" type="text" spellcheck="false"
                aria-label="Paste a link to download"
-               placeholder="Paste URL (YouTube, SoundCloud, etc.)" />
+               placeholder="Or paste a YouTube / SoundCloud link" />
         <button class="input-affix fg-affix-btn" id="fetch" type="button" hidden>Fetch</button>
       </span>
 
       <div class="insp-sec fg-sec">
-        <button class="insp-sec-head" id="out-toggle" type="button" aria-expanded="true" aria-controls="out-body">Output</button>
-        <div class="insp-sec-body" id="out-body">
-          <div class="fg-outrow">
-            <span class="pathchip fg-outpath" id="out-chip">
-              <span class="fg-outicon" aria-hidden="true"><i data-icon="folder" data-icon-size="13"></i></span>
-              <span class="pathchip-dir" id="out-dir"></span><span class="pathchip-name" id="out-base"></span>
-              <button class="pathchip-reveal" id="out-reveal" type="button" aria-label="Open the output folder"><i data-icon="send" data-icon-size="12"></i></button>
-            </span>
-            <button class="btn btn-icon fg-sq" id="pick-out" type="button"
-                    aria-label="Choose the output folder" data-tip="Choose the output folder"><i data-icon="dots" data-icon-size="14"></i></button>
-          </div>
-          <div class="fg-outfoot">
-            <span class="field-hint" id="out-note">Program output folder.</span>
-            <button class="link" id="clear-out" type="button" hidden>Reset</button>
-          </div>
-
-          <div class="field" id="outname-field">
-            <label class="field-label" for="out-name">Filename</label>
-            <div class="fg-outrow">
-              <span class="input-wrap">
-                <input class="input" id="out-name" type="text" spellcheck="false" placeholder="same name as the song" />
-                <span class="input-affix">.mid</span>
-              </span>
-              <button class="btn btn-icon fg-sq" id="samename" type="button" role="switch" aria-checked="true"
-                      aria-label="Name the file after the song"
-                      data-tip="Name the file after the song"><i data-icon="check" data-icon-size="13"></i></button>
-            </div>
-            <span class="field-hint" id="samename-hint">Named after the song. Turn the tick off to name it yourself.</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="insp-sec fg-sec">
-        <button class="insp-sec-head" id="pipe-toggle" type="button" aria-expanded="true" aria-controls="pipe-body">Pipeline</button>
+        <button class="insp-sec-head" id="pipe-toggle" type="button" aria-expanded="true" aria-controls="pipe-body">What do you want to extract?</button>
         <div class="insp-sec-body fg-tiles-body" id="pipe-body">
           <div class="tiles" id="pipeline" role="radiogroup" aria-label="Pipeline">
             <button class="tile" role="radio" type="button" data-v="piano" aria-checked="false" tabindex="-1">
@@ -109,6 +83,39 @@
               <span class="tile-title">Fast</span>
               <span class="tile-sub">Quick preview (lower accuracy)</span>
             </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="insp-sec fg-sec">
+        <button class="insp-sec-head" id="out-toggle" type="button" aria-expanded="false" aria-controls="out-body">Save location &amp; filename</button>
+        <div class="insp-sec-body" id="out-body" hidden>
+          <div class="fg-outrow">
+            <span class="pathchip fg-outpath" id="out-chip">
+              <span class="fg-outicon" aria-hidden="true"><i data-icon="folder" data-icon-size="13"></i></span>
+              <span class="pathchip-dir" id="out-dir"></span><span class="pathchip-name" id="out-base"></span>
+              <button class="pathchip-reveal" id="out-reveal" type="button" aria-label="Open the output folder"><i data-icon="send" data-icon-size="12"></i></button>
+            </span>
+            <button class="btn btn-icon fg-sq" id="pick-out" type="button"
+                    aria-label="Choose the output folder" data-tip="Choose the output folder"><i data-icon="dots" data-icon-size="14"></i></button>
+          </div>
+          <div class="fg-outfoot">
+            <span class="field-hint" id="out-note">Program output folder.</span>
+            <button class="link" id="clear-out" type="button" hidden>Reset</button>
+          </div>
+
+          <div class="field" id="outname-field">
+            <label class="field-label" for="out-name">Filename</label>
+            <div class="fg-outrow">
+              <span class="input-wrap">
+                <input class="input" id="out-name" type="text" spellcheck="false" placeholder="same name as the song" />
+                <span class="input-affix">.mid</span>
+              </span>
+              <button class="btn btn-icon fg-sq" id="samename" type="button" role="switch" aria-checked="true"
+                      aria-label="Name the file after the song"
+                      data-tip="Name the file after the song"><i data-icon="check" data-icon-size="13"></i></button>
+            </div>
+            <span class="field-hint" id="samename-hint">Named after the song. Turn the tick off to name it yourself.</span>
           </div>
         </div>
       </div>
@@ -299,7 +306,7 @@
     </footer>
   </aside>
 
-  <i class="grip-h has-handle" data-resize="rail" data-min="264" data-max="520" aria-label="Resize the input column"></i>
+  <i class="grip-h has-handle" data-resize="rail" data-min="248" data-max="340" aria-label="Resize the input column"></i>
 
   <!-- ====================================================================
        CENTRE — song, waveform, transcription settings, progress / log
@@ -308,8 +315,8 @@
 
     <header class="fg-song">
       <div class="fg-song-main">
-        <h1 class="fg-song-title u-truncate" id="song-title">No input loaded</h1>
-        <p class="fg-song-meta" id="song-meta">Drop an audio file, paste a link, or browse.</p>
+        <h2 class="fg-song-title u-truncate" id="song-title">Your next idea starts here</h2>
+        <p class="fg-song-meta" id="song-meta">Import audio to preview it and choose a range.</p>
       </div>
       <div class="fg-song-tools">
         <span class="tag is-mono" id="song-fmt" hidden></span>
@@ -365,11 +372,11 @@
 
     <section class="panel fg-cards" aria-label="Transcription settings">
       <div class="fg-cards-head">
-        <h2 class="fg-cards-h">Transcription Settings</h2>
-        <p class="fg-cards-sub">Fine-tune the pipeline for the best MIDI results. These settings are optimised for clean, musical transcriptions.</p>
+        <h2 class="fg-cards-h">Make it sound right</h2>
+        <p class="fg-cards-sub">A few choices before the notes take shape.</p>
       </div>
       <div class="fg-cards-grid">
-        <div class="fg-card">
+        <div class="fg-card" hidden>
           <label class="fg-card-t" for="c-model">Model</label>
           <span class="selectwrap"><select class="select is-sm" id="c-model">
             <option value="piano">Piano</option>
@@ -446,7 +453,7 @@
           <span class="u-fill" id="err-msg"></span>
           <button class="link" id="err-dismiss" type="button">Dismiss</button>
         </div>
-        <p class="field-hint" id="prog-foot">Nothing running. The seven stages fill in as the pipeline reports them.</p>
+        <p class="field-hint" id="prog-foot">Ready when you are. Import audio, then choose Forge MIDI.</p>
       </div>
 
       <div class="tabpanel fg-tp is-flush" id="tp-log" role="tabpanel" aria-labelledby="tab-log" hidden>
@@ -461,7 +468,7 @@
     </section>
   </main>
 
-  <i class="grip-h has-handle" data-resize="insp" data-min="248" data-max="560" data-invert aria-label="Resize the results column"></i>
+  <i class="grip-h has-handle" data-resize="insp" data-min="232" data-max="340" data-invert aria-label="Resize the results column"></i>
 
   <!-- ====================================================================
        RIGHT COLUMN — Results | History + the selected result

@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="./shared/tokens.css" />
   <link rel="stylesheet" href="./shared/ui.css" />
   <link rel="stylesheet" href="./shell/shell.css" />
+  <link rel="stylesheet" href="./shared/studio.css" />
 </head>
 <body>
 
@@ -36,45 +37,75 @@
        1. CUSTOM TITLEBAR. The window is frameless; this bar is the drag region
        and every interactive child opts out with -webkit-app-region:no-drag.
        ===================================================================== -->
-  <header class="tbar" id="titlebar">
+  <aside class="studio-sidebar" aria-label="Studio navigation">
     <div class="tbar-brand" id="brand">
       <span class="brand-mark" aria-hidden="true"><img class="brand-img" src="./shared/mark.png" width="64" height="64" alt="" /></span>
       <span class="brand-text">
-        <span class="brand-name">MIDI STUDIO</span>
-        <span class="brand-tag">Listen. Edit. Play. Anywhere.</span>
+        <span class="brand-name">MIDI Studio</span>
+        <span class="brand-tag">Your music, in motion.</span>
       </span>
     </div>
 
-    <nav class="tbar-nav" id="nav" role="tablist" aria-label="Workspaces">
+    <button class="tb-search" id="search-trigger" aria-label="Search commands and songs">
+      <i data-icon="search" data-icon-size="15"></i>
+      <span class="tb-search-txt">Quick search</span>
+      <kbd class="kbd">Ctrl K</kbd>
+    </button>
+    <div class="studio-nav-label">Workspace</div>
+    <nav class="tbar-nav" id="nav" role="tablist" aria-label="Workspaces" aria-orientation="vertical">
       <span class="nav-ind" id="nav-ind" aria-hidden="true"></span>
-      <button class="nav-item" id="nav-forge" data-tip="Ctrl+1" role="tab" data-frame="forge" aria-selected="true" tabindex="0" aria-controls="frame-forge">
-        <span class="nav-label">Forge</span>
+      <button class="nav-item" id="nav-forge" aria-label="Forge" data-tip="Forge · Ctrl+1" role="tab" data-frame="forge" aria-selected="true" tabindex="0" aria-controls="frame-forge">
+        <i data-icon="wave" data-icon-size="18" aria-hidden="true"></i><span class="nav-label">Forge</span><span class="nav-key" aria-hidden="true">1</span>
       </button>
-      <button class="nav-item" id="nav-player" data-tip="Ctrl+2" role="tab" data-frame="player" aria-selected="false" tabindex="-1" aria-controls="frame-player">
-        <span class="nav-label">Player</span>
+      <button class="nav-item" id="nav-player" aria-label="Player" data-tip="Player · Ctrl+2" role="tab" data-frame="player" aria-selected="false" tabindex="-1" aria-controls="frame-player">
+        <i data-icon="keyboard" data-icon-size="18" aria-hidden="true"></i><span class="nav-label">Player</span><span class="nav-key" aria-hidden="true">2</span>
       </button>
-      <button class="nav-item" id="nav-review" data-tip="Ctrl+3" role="tab" data-frame="review" aria-selected="false" tabindex="-1" aria-controls="frame-review">
-        <span class="nav-label">Editor</span>
+      <button class="nav-item" id="nav-review" aria-label="Editor" data-tip="Editor · Ctrl+3" role="tab" data-frame="review" aria-selected="false" tabindex="-1" aria-controls="frame-review">
+        <i data-icon="pencil" data-icon-size="18" aria-hidden="true"></i><span class="nav-label">Editor</span><span class="nav-key" aria-hidden="true">3</span>
       </button>
-      <button class="nav-item" id="nav-audition" data-tip="Ctrl+4" role="tab" data-frame="audition" aria-selected="false" tabindex="-1" aria-controls="frame-audition">
-        <span class="nav-label">Listen</span>
+      <button class="nav-item" id="nav-audition" aria-label="Listen" data-tip="Listen · Ctrl+4" role="tab" data-frame="audition" aria-selected="false" tabindex="-1" aria-controls="frame-audition">
+        <i data-icon="note" data-icon-size="18" aria-hidden="true"></i><span class="nav-label">Listen</span><span class="nav-key" aria-hidden="true">4</span>
       </button>
-      <button class="nav-item" id="nav-library" data-tip="Ctrl+5" role="tab" data-frame="library" aria-selected="false" tabindex="-1" aria-controls="frame-library">
-        <span class="nav-label">Library</span>
+      <button class="nav-item" id="nav-library" aria-label="Library" data-tip="Library · Ctrl+5" role="tab" data-frame="library" aria-selected="false" tabindex="-1" aria-controls="frame-library">
+        <i data-icon="folder" data-icon-size="18" aria-hidden="true"></i><span class="nav-label">Library</span><span class="nav-key" aria-hidden="true">5</span>
       </button>
-      <button class="nav-item" id="nav-logs" data-tip="Ctrl+6" role="tab" data-frame="logs" aria-selected="false" tabindex="-1" aria-controls="frame-logs">
-        <span class="nav-label">Logs</span>
+      <button class="nav-item" id="nav-logs" aria-label="Logs" data-tip="Logs · Ctrl+6" role="tab" data-frame="logs" aria-selected="false" tabindex="-1" aria-controls="frame-logs">
+        <i data-icon="list" data-icon-size="18" aria-hidden="true"></i><span class="nav-label">Logs</span><span class="nav-key" aria-hidden="true">6</span>
       </button>
     </nav>
-
-    <div class="tbar-right">
-      <button class="tb-search" id="search-trigger" aria-label="Search commands and songs">
-        <i data-icon="search" data-icon-size="13"></i>
-        <span class="tb-search-txt">Search</span>
-        <span class="kbd-seq" aria-hidden="true"><kbd class="kbd">Ctrl</kbd><kbd class="kbd">K</kbd></span>
-      </button>
+    <div class="studio-sidebar-note">
+      <span class="studio-note-icon" aria-hidden="true"><i data-icon="note" data-icon-size="20"></i></span>
+      <strong>From sound to possibility.</strong>
+      <span>Turn a recording into notes.<br>Make something your own.</span>
+    </div>
+    <div class="studio-sidebar-foot">
+      <button class="studio-settings" id="settings-btn" aria-label="Settings" data-tip="Settings (Ctrl+,)"><i data-icon="gear" data-icon-size="17"></i><span>Settings</span><span class="nav-key" aria-hidden="true">,</span></button>
+      <div class="studio-version"><span class="studio-version-label">MIDI Studio</span>
       <button class="tb-version mono tip-below tip-end" id="version-chip" data-tip="What&#8217;s new" aria-label="Version, what&#8217;s new">v&#8230;</button>
-      <button class="btn btn-icon is-sm is-bare tb-gear tip-below tip-end" id="settings-btn" aria-label="Settings" data-tip="Settings (Ctrl+,)"><i data-icon="gear" data-icon-size="16"></i></button>
+      </div>
+    </div>
+  </aside>
+
+  <header class="tbar" id="titlebar">
+    <div class="studio-breadcrumb"><span>Workspace</span><i data-icon="caretRight" data-icon-size="11" aria-hidden="true"></i><span id="workspace-crumb">Forge</span></div>
+    <div class="tbar-right">
+      <div class="as-chips">
+        <button class="as-chip tip-below" id="as-engine" aria-label="Forge engine status">
+          <span class="dot"></span><span class="as-chip-txt">Engine</span>
+        </button>
+        <button class="as-chip tip-below" id="as-game" hidden aria-label="Detected game">
+          <span class="dot warn"></span><span class="as-chip-txt">Game</span>
+        </button>
+
+        <!-- The log itself is the Logs tab (Ctrl+6). All that is left on the
+             strip is the discoverability affordance: an error must still be
+             findable from any tab, and clicking this goes there. -->
+        <button class="as-errors tip-end" id="as-errors" hidden data-tip="Show the Logs tab (Ctrl+6)">
+          <span class="dot err"></span>
+          <span class="as-err-count mono" id="as-log-count">0</span>
+          <span class="as-err-txt">in the log</span>
+        </button>
+      </div>
       <div class="wctl" role="group" aria-label="Window">
         <button class="wctl-btn" id="win-min" aria-label="Minimise">
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M3 8.5 L13 8.5" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
@@ -103,23 +134,7 @@
       <div class="as-alts" id="as-alts"></div>
       <div class="as-acts" id="as-acts"></div>
 
-      <div class="as-chips">
-        <button class="as-chip tip-below" id="as-engine" aria-label="Forge engine status">
-          <span class="dot"></span><span class="as-chip-txt">Engine</span>
-        </button>
-        <button class="as-chip tip-below" id="as-game" hidden aria-label="Detected game">
-          <span class="dot warn"></span><span class="as-chip-txt">Game</span>
-        </button>
 
-        <!-- The log itself is the Logs tab (Ctrl+6). All that is left on the
-             strip is the discoverability affordance: an error must still be
-             findable from any tab, and clicking this goes there. -->
-        <button class="as-errors tip-end" id="as-errors" hidden data-tip="Show the Logs tab (Ctrl+6)">
-          <span class="dot err"></span>
-          <span class="as-err-count mono" id="as-log-count">0</span>
-          <span class="as-err-txt">in the log</span>
-        </button>
-      </div>
     </div>
 
     <!-- The update notice arrives without warning, so it gets its OWN row
@@ -305,7 +320,7 @@
               <span class="set-key">Preset</span>
               <div class="set-val">
                 <div class="segmented is-wide" id="s-theme" role="radiogroup" aria-label="Accent preset">
-                  <button role="radio" data-theme=""        aria-checked="true"><span class="sw" data-sw="lime"></span>Lime</button>
+                  <button role="radio" data-theme=""        aria-checked="true"><span class="sw" data-sw="mint"></span>Mint</button>
                   <button role="radio" data-theme="cyan"    aria-checked="false"><span class="sw" data-sw="cyan"></span>Cyan</button>
                   <button role="radio" data-theme="indigo"  aria-checked="false"><span class="sw" data-sw="indigo"></span>Indigo</button>
                   <button role="radio" data-theme="magenta" aria-checked="false"><span class="sw" data-sw="magenta"></span>Magenta</button>
@@ -316,8 +331,8 @@
             <div class="set-row">
               <span class="set-key"><label for="s-accent">Custom colour</label></span>
               <div class="set-val u-row">
-                <input type="color" id="s-accent" class="set-color" value="#b8e62e" />
-                <span class="mono small" id="s-accent-hex">#b8e62e</span>
+                <input type="color" id="s-accent" class="set-color" value="#9cdbbb" />
+                <span class="mono small" id="s-accent-hex">#9cdbbb</span>
                 <button class="link" id="s-accent-clear" type="button">Back to preset</button>
               </div>
             </div>

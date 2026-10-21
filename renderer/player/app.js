@@ -119,7 +119,7 @@
     panicHotkey: '',
     transpose: 0, tempoStep: 0.1, tempoPreset: 1.0, seekStep: 5,
     targetHint: '', autoPickTarget: true,
-    openSection: 'source', leftClosed: '',
+    openSection: 'source', leftClosed: 'prefs',
     noteColor: '', fallSpeed: 1,
     mapCollapsed: true, railSections: '',
     recentFiles: [], playlist: [], playlistCurrent: '', queueLoop: false,
@@ -138,9 +138,8 @@
   const saveSettings = debounce(persist, 350);
   keep(() => saveSettings.flush());
 
-  // Four stacked cards, every one of them collapsible and all of them open by
-  // default. The column scrolls, so 'everything closed' is a legal state and
-  // needs no defending; only what the user shut is remembered.
+  // Preferences starts folded away; saved disclosure choices take precedence.
+  // The column scrolls and every card can be opened or closed independently.
   const LEFT_TABS = ['song', 'target', 'playback', 'prefs'];
 
   // Mirrored control values. Read these in the scheduled paths; never a DOM
@@ -2665,7 +2664,7 @@
     $('ramp-start').value = String(rampStartVal);
     $('ramp-step').value = String(rampStepVal);
     $('fall-speed').value = String(fallSpeedVal);
-    $('note-color').value = noteColorVal || '#b8e62e';
+    $('note-color').value = noteColorVal || window.Tokens.get('accent', '#9cdbbb');
     $('sustain').setAttribute('aria-checked', sustainVal ? 'true' : 'false');
     $('stats').setAttribute('aria-checked', statsVal ? 'true' : 'false');
     $('auto-pick').setAttribute('aria-checked', autoPickVal ? 'true' : 'false');

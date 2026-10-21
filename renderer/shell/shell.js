@@ -238,6 +238,7 @@
   function stampFrame(f) {
     const el = frameRoot(f);
     if (!el) return;
+    el.dataset.embedded = '1';
     const ms = String(perf.drawMs || 33);
     if (el.dataset.drawms !== ms) el.dataset.drawms = ms;
     const g = gameRaises() ? '1' : '';
@@ -615,7 +616,7 @@
 
     // -- live playback -----------------------------------------------------
     const pb = activity.playback;
-    if (pb && pb.owner && pb.status !== 'idle') {
+    if (pb && pb.owner && pb.status !== 'idle' && (pb.duration > 0 || pb.label)) {
       const live = pb.status === 'playing' || pb.status === 'counting';
       const caps = pb.caps || {};
       const home = pb.owner === 'selfmidi' ? 'audition' : pb.owner === 'editor' ? 'review' : 'player';
@@ -1024,7 +1025,7 @@
     if (!f || !f.navEl) return;
     const host = navHost.getBoundingClientRect();
     const item = f.navEl.getBoundingClientRect();
-    navInd.style.transform = `translateX(${(item.left - host.left).toFixed(1)}px) scaleX(${item.width.toFixed(1)})`;
+    navInd.style.transform = `translateY(${(item.top - host.top).toFixed(1)}px) scaleY(${item.height.toFixed(1)})`;
   });
   window.addEventListener('resize', moveIndicator);
 
@@ -1066,6 +1067,7 @@
     markVisibility();
     moveIndicator();
     document.title = inc.title;
+    $('workspace-crumb').textContent = inc.label;
     if (o.focus !== false) { try { inc.frame.contentWindow.focus(); } catch (_) {} }
     if (o.persist !== false) saveUi({ lastTab: key });
     if (window.Bus) {
@@ -1081,12 +1083,12 @@
     if (b) activate(b.dataset.frame);
   });
   navHost.addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return;
+    if (!['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
     const cur = ORDER.indexOf(activeKey);
     let next;
     if (e.key === 'Home') next = 0;
     else if (e.key === 'End') next = ORDER.length - 1;
-    else next = (cur + (e.key === 'ArrowRight' ? 1 : ORDER.length - 1)) % ORDER.length;
+    else next = (cur + (e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : ORDER.length - 1)) % ORDER.length;
     activate(ORDER[next], { focus: false });
     byKey[ORDER[next]].navEl.focus();
     e.preventDefault();

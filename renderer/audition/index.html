@@ -16,8 +16,10 @@
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="../shared/ui.css" />
   <link rel="stylesheet" href="./audition.css" />
+  <link rel="stylesheet" href="../shared/studio.css" />
 </head>
-<body>
+<body class="studio-workspace">
+<header class="studio-page-head"><div><div class="studio-eyebrow">Press play. Stay a while.</div><h1 class="studio-page-title">Listening room</h1><p class="studio-page-description">Explore your MIDI collection with real instruments, right here.</p></div></header>
 <div class="split sm-split" data-split="audition">
 
   <!-- ==================================================================== -->
@@ -97,8 +99,7 @@
       <span class="selectwrap" id="candidate-field" hidden>
         <select class="select is-sm" id="candidate" aria-label="Version"></select>
       </span>
-      <span class="toolbar-spacer"></span>
-      <span class="toolbar-label">Sound</span>
+      <span class="sm-setting">
       <span class="selectwrap sm-inst">
         <select class="select is-sm" id="instrument" aria-label="Instrument">
           <option value="grand_piano">Grand Piano</option>
@@ -111,19 +112,23 @@
           <option value="synth_drum">Synth Drum</option>
         </select>
       </span>
-      <span class="toolbar-sep"></span>
+      </span>
+      <span class="sm-setting">
       <span class="toolbar-label" id="sustain-label">Sustain</span>
       <button class="switch" type="button" id="sustain" role="switch" aria-checked="true"
               aria-labelledby="sustain-label"></button>
-      <span class="toolbar-sep"></span>
+      </span>
+      <span class="sm-setting">
       <span class="toolbar-label" id="volume-label">Volume</span>
       <input class="range sm-volume" id="volume" type="range" min="0" max="100" step="1" value="65"
              aria-labelledby="volume-label" />
       <output class="mono small sm-volume-val" id="volume-value" for="volume">65%</output>
-      <span class="toolbar-sep"></span>
+      </span>
+      <span class="sm-setting">
       <span class="toolbar-label" id="autoplay-label">Autoplay</span>
       <button class="switch" type="button" id="autoplay" role="switch" aria-checked="false"
               aria-labelledby="autoplay-label" data-tip="Play a file as soon as it opens"></button>
+      </span>
       <span class="mono small u-truncate sm-inst-status" id="instrument-status">Grand Piano</span>
     </header>
 

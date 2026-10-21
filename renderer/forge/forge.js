@@ -876,8 +876,8 @@
   // =========================================================================
   function syncSong() {
     if (!inputPath) {
-      $('song-title').textContent = 'No input loaded';
-      $('song-meta').textContent = 'Drop an audio file, paste a link, or browse.';
+      $('song-title').textContent = 'Your next idea starts here';
+      $('song-meta').textContent = 'Import audio to preview it and choose a range.';
       $('song-fmt').hidden = true;
       return;
     }
