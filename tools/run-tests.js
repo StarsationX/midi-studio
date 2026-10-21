@@ -384,6 +384,22 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/"win:canClose" => json!\(true\)/.test(ipcRs), 'win:canClose has an answer when Forge is not loaded');
 }
 
+// forge:check with the Rust engine chosen asks forge-rs, not env_probe.py:
+// that import of torch costs 1.3 GB and seconds, and names a device Rust never uses.
+{
+  const fsx = require('fs');
+  const rn = fsx.readFileSync(path.join(root, 'src-tauri', 'src', 'forge', 'runner.rs'), 'utf8');
+  const rc = /fn run_check\([\s\S]*?\r?\n    \}\r?\n/.exec(rn);
+  ok(!!rc, 'run_check is findable');
+  if (rc) {
+    const rustAt = rc[0].indexOf('ctx.forge_engine == "rust"');
+    ok(rustAt > 0 && rustAt < rc[0].indexOf('env_probe.py'), 'a ready Rust engine answers before env_probe.py is spawned');
+    ok(/return rust_verdict\(/.test(rc[0]), 'the Rust answer comes from rust_verdict');
+  }
+  const sh = fsx.readFileSync(path.join(root, 'renderer', 'shell', 'shell.js'), 'utf8');
+  ok(!/no CUDA GPU was found/.test(sh), 'the CPU chip does not claim there is no GPU (Rust on CPU may sit on one)');
+}
+
 // verifyDigest, verifies a file against GitHub's per-asset "sha256:<hex>" digest
 (async () => {
   const os = require('os'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');

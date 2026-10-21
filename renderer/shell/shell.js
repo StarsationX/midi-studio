@@ -884,7 +884,7 @@
     } else {
       cls += ' is-ok'; dcls += ' ok';
       label = 'CPU mode';
-      tip = 'Forge is ready, but no CUDA GPU was found. Transcriptions will be slower.';
+      tip = 'Forge is ready and runs on the processor. Transcriptions will be slower.';
     }
     chip.className = cls;
     dot.className = dcls;
@@ -2363,6 +2363,7 @@
       const forge = await studio.setForgeEngine(b.dataset.engine);
       if (forge && runtimeInfo) runtimeInfo = Object.assign({}, runtimeInfo, { forge });
       logPush('Forge engine set to ' + (ENGINE_NAME[b.dataset.engine] || b.dataset.engine) + '.', 'info', 'forge');
+      if (forgeApi.check) forgeApi.check().then(adoptEnvProbe).catch(() => {});   // the other engine names the device
     } catch (e) {
       toast({ severity: 'err', title: 'Could not switch the Forge engine', message: (e && e.message) || String(e) });
     }

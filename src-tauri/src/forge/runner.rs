@@ -1008,6 +1008,14 @@ impl Runner {
 
     fn run_check(&self, py: Option<PathBuf>, ctx: &Ctx) -> Value {
         let py_v = py.as_ref().map_or(Value::Null, |p| json!(p.to_string_lossy()));
+        // Rust chosen and ready: its own probe answers, so no torch import
+        // and the GPU named is the one the jobs will really run on. A Rust
+        // engine that is not ready sends jobs to Python, so Python answers.
+        if ctx.forge_engine == "rust" {
+            if let Some(Ok(v)) = fpaths::forge_rs_exe().map(|e| probe_rust(&e, &fpaths::forge_child_env(&ctx.paths))) {
+                return rust_verdict(&v, py_v, fpaths::nvidia_gpu_name);
+            }
+        }
         let none = |missing: &str| json!({"forgeReady": false, "forgePython": py_v, "gpu": null, "torch": false, "missing": [missing]});
         let Some(py) = py else { return none("forge-env") };
         let Ok(job) = Job::new(winjob::mem_limit()) else { return none("forge-env") };
@@ -1066,6 +1074,25 @@ pub fn probe_verdict(out: &str, forge_python: Value, env_ready: bool) -> Value {
         "gpu": probe.as_ref().and_then(|p| p.get("gpu")).cloned().unwrap_or(Value::Null),
         "torch": torch,
         "missing": missing,
+    })
+}
+
+/// forge:check from a ready `forge-rs probe`. gpu follows its EP: CUDA names
+/// the card, CPU is null so the UI says CPU.
+pub fn rust_verdict(probe: &Value, forge_python: Value, gpu_name: impl FnOnce() -> Option<String>) -> Value {
+    let gpu = if probe["ep"] == "cuda" {
+        json!(format!("{} (CUDA)", gpu_name().unwrap_or_else(|| "NVIDIA GPU".into())))
+    } else {
+        Value::Null
+    };
+    json!({
+        "forgeReady": true,
+        "forgePython": forge_python,
+        "gpu": gpu,
+        "torch": false,
+        "missing": [],
+        "engine": "rust",
+        "ep": probe["ep"],
     })
 }
 
@@ -1424,6 +1451,18 @@ mod tests {
         assert_eq!(v["missing"], json!(["torch"]));
         let v = probe_verdict("{\"torch\": true}", json!("py"), false);
         assert_eq!(v["forgeReady"], false, "torch without the .ready marker is not ready");
+    }
+
+    #[test]
+    fn rust_verdict_follows_the_ep() {
+        let cpu = rust_verdict(&json!({"ready": true, "ep": "cpu"}), json!("py"), || panic!("a CPU verdict names no card"));
+        assert_eq!(cpu["forgeReady"], true);
+        assert_eq!(cpu["gpu"], Value::Null, "the UI says CPU");
+        assert_eq!(cpu["missing"], json!([]));
+        let cuda = rust_verdict(&json!({"ready": true, "ep": "cuda"}), json!("py"), || Some("NVIDIA GeForce RTX 5060".into()));
+        assert_eq!(cuda["gpu"], "NVIDIA GeForce RTX 5060 (CUDA)");
+        assert_eq!(rust_verdict(&json!({"ep": "cuda"}), json!(null), || None)["gpu"], "NVIDIA GPU (CUDA)");
+        assert!(!cuda["gpu"].as_str().unwrap().contains("DirectML"));
     }
 
     #[test]

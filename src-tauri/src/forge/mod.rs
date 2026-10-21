@@ -558,6 +558,7 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
             let want = js_str(Some(&a0)).to_lowercase();
             if want == "rust" || want == "python" {
                 h.settings.merge(&json!({"forge": {"engine": want}}));
+                f.runner.invalidate_check(); // the other engine answers forge:check
             }
             engine_info(&h)
         }

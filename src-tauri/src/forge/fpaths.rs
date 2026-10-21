@@ -186,6 +186,20 @@ pub fn forge_rs_exe() -> Option<PathBuf> {
     c.into_iter().find(|p| p.is_file())
 }
 
+/// The NVIDIA adapter's name from the display class key, which is what CUDA
+/// device 0 is on a one-GPU machine. Read for the label only: nothing loads.
+pub fn nvidia_gpu_name() -> Option<String> {
+    let class = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}", KEY_READ)
+        .ok()?;
+    class.enum_keys().flatten().find_map(|sub| {
+        let k = class.open_subkey_with_flags(&sub, KEY_READ).ok()?;
+        let name = k.get_value::<String, _>("DriverDesc").ok()?.trim().to_string();
+        let vendor = k.get_value::<String, _>("ProviderName").unwrap_or_default();
+        (!name.is_empty() && (vendor.contains("NVIDIA") || name.contains("NVIDIA"))).then_some(name)
+    })
+}
+
 /// Pids of running Forge jobs, the fallback for a host that died without its
 /// job objects closing (they always close, but a pid file costs nothing).
 pub fn forge_jobs_file() -> PathBuf {

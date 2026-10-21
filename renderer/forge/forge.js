@@ -2186,7 +2186,7 @@
       setEnv('ok', envGpu ? 'Ready · ' + envGpu : 'Ready · CPU (slow)');
       if (!envGpu && !cpuNoticeShown) {
         cpuNoticeShown = true;
-        logLine('No GPU detected. Piano and Full Song take 20 to 40 minutes per song here. Fast finishes in a couple of minutes at lower quality.', { level: 'warn' });
+        logLine('Forge runs on the processor here. Piano and Full Song take 20 to 40 minutes per song here. Fast finishes in a couple of minutes at lower quality.', { level: 'warn' });
       }
       closeSetup();
     } else {
