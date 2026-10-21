@@ -2,7 +2,7 @@
 <html lang="en" data-mode="full">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost;" />
   <title>Perch</title>
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="overlay.css" />
@@ -14,7 +14,7 @@
     <div class="meter"><i id="meter-fill"></i></div>
 
     <!-- One row: what is playing, where it is, and the two controls. Drag here. -->
-    <header class="head" id="head">
+    <header class="head" id="head" data-tauri-drag-region="deep">
       <span class="sig" id="sig" aria-hidden="true"></span>
       <span class="name" id="song">NO FILE</span>
       <span class="read" id="clock">0:00</span>
@@ -100,6 +100,9 @@
        in a Draw.LayerCache, so both have to be here before it. Perch shares
        that file with the Player tab: when the Player's copy changed, this
        window silently threw once per frame until these were added. -->
+  <!-- window.perch under Tauri. Electron's preload already provides it, and
+       then this file does nothing. -->
+  <script src="../shared/bridge.js"></script>
   <script src="../shared/tokens.js"></script>
   <script src="../shared/draw.js"></script>
   <script src="../shared/icons.js"></script>

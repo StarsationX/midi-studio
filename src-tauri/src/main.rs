@@ -7,8 +7,11 @@
 
 mod engine;
 mod ipc;
+mod overlay;
 mod paths;
 mod settings;
+mod updater;
+mod watch;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -84,8 +87,20 @@ fn trim_boot_log() {
     }
 }
 
+/// Every webview gets the same switches: WebView2 shares one environment per
+/// user-data folder, and a second webview asking for different ones fails.
+pub fn browser_args() -> String {
+    let mut args = BROWSER_ARGS.to_string();
+    if let Ok(port) = std::env::var("MIDI_STUDIO_CDP_PORT") {
+        if port.parse::<u16>().is_ok() {
+            args.push_str(&format!(" --remote-debugging-port={port}"));
+        }
+    }
+    args
+}
+
 /// Trailing-edge debounce on its own thread: f runs `ms` after the last poke.
-fn debounce(ms: u64, f: impl Fn() + Send + 'static) -> Sender<()> {
+pub fn debounce(ms: u64, f: impl Fn() + Send + 'static) -> Sender<()> {
     let (tx, rx) = mpsc::channel::<()>();
     let _ = std::thread::Builder::new().name("debounce".into()).spawn(move || {
         while rx.recv().is_ok() {
@@ -241,12 +256,7 @@ fn create_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let h = host(app);
     let wb = h.settings.get("window");
     let num = |k: &str| wb.get(k).and_then(Value::as_f64);
-    let mut args = BROWSER_ARGS.to_string();
-    if let Ok(port) = std::env::var("MIDI_STUDIO_CDP_PORT") {
-        if port.parse::<u16>().is_ok() {
-            args.push_str(&format!(" --remote-debugging-port={port}"));
-        }
-    }
+    let args = browser_args();
     let mut b = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
         .title("MIDI Studio")
         .decorations(false)
@@ -347,13 +357,11 @@ fn on_drag_drop(app: &AppHandle, d: &DragDropEvent) {
 }
 
 /// Ctrl+Alt+P / Ctrl+Alt+O. Global because they are needed while the game
-/// has focus. Perch itself is not ported yet, so for now they say so.
+/// has focus. See overlay::shortcut.
 fn on_overlay_shortcut(app: &AppHandle, shortcut: &Shortcut) {
-    let which = if shortcut.key == Code::KeyP { "Ctrl+Alt+P" } else { "Ctrl+Alt+O" };
-    blog(&format!("shortcut {which}"));
-    Host::push(app, "engine-event", json!({"event": "log", "level": "warn",
-        "message": format!("{which}: Perch (the overlay) is not ported to the Tauri build yet.")}));
-    Host::push(app, "overlay-state", json!({"open": false}));
+    let p_key = shortcut.key == Code::KeyP;
+    blog(&format!("shortcut {}", if p_key { "Ctrl+Alt+P" } else { "Ctrl+Alt+O" }));
+    overlay::shortcut(app, p_key);
 }
 
 fn register_overlay_shortcuts(app: &AppHandle) {
@@ -432,7 +440,11 @@ fn main() {
             blog(&format!("user mappings dir={}", mappings.display()));
 
             let push_app = handle.clone();
-            let push: engine::Push = Arc::new(move |channel: &str, v: Value| Host::push(&push_app, channel, v));
+            let push: engine::Push = Arc::new(move |channel: &str, v: Value| {
+                overlay::fan_out(&push_app, channel, &v);
+                watch::on_engine_event(&push_app, channel, &v);
+                Host::push(&push_app, channel, v)
+            });
             let engine = Engine::new(push, paths::engine_dir(), Some(mappings), engine::dry_run_requested());
             blog(&format!("engine dir={} dry_run={}", paths::engine_dir().display(), engine.dry_run()));
 
@@ -459,6 +471,9 @@ fn main() {
             register_overlay_shortcuts(&handle);
             h.boot_mark(&handle, "window", "Loading interface");
             create_window(&handle)?;
+            overlay::init(&handle);
+            updater::init(&handle);
+            watch::init(&handle);
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -16,6 +16,28 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-global-shortcut = "2"
 serde_json = { version = "1", features = ["preserve_order"] }
 midi-player = { path = "../player-rs" }
+# updater: GitHub releases over the OS's own TLS (schannel), no C toolchain.
+ureq = { version = "2.12", default-features = false, features = ["native-tls"] }
+native-tls = "0.2"
+sha2 = "0.10"
+url = "2"
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Accessibility",
+  "Win32_System_Diagnostics_ToolHelp",
+] }
+
+[dev-dependencies]
+# tests/perch_focus.rs drives the running app over the WebView2 DevTools port.
+tungstenite = "0.26"
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_System_Threading",
+  "Win32_System_LibraryLoader",
+  "Win32_Graphics_Gdi",
+] }
 
 [profile.release]
 debug = false

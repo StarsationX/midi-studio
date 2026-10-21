@@ -1,0 +1,76 @@
+app pid=40888 devtools=:9568 user-data=C:\Users\stars\AppData\Local\Temp\claude\C--Users-stars-claude\08926a52-29f6-4dc1-a760-4187451d6733\scratchpad\ud-m2b mock=http://127.0.0.1:51762
+notepad hwnd=0xe50cec, foreground: true
+[PASS] S0 baseline: app up, our Notepad in front
+       fg=target perch=hidden
+[PASS] S1 toggle open (studio.toggleOverlay), and WebView2 painted
+       fg=target perch=(2076,24 460x300) topmost=true noactivate=true transparent=false above=true | centre pixel (15, 19, 20) (dark = painted over white Notepad)
+[PASS] S1b page booted with its config (mode, opacity) and its bridge
+       fg=target perch=(2076,24 460x300) topmost=true noactivate=true transparent=false above=true | page=["second-instance","0.92",true]
+[PASS] S2.1 snap bottom-left
+       fg=target perch=(24,1068 460x300) topmost=true noactivate=true transparent=false above=true | at (24,1068)-(484,1368)
+[PASS] S2.2 snap middle-center
+       fg=target perch=(1050,546 460x300) topmost=true noactivate=true transparent=false above=true | at (1050,546)-(1510,846)
+[PASS] S2.3 snap top-left
+       fg=target perch=(24,24 460x300) topmost=true noactivate=true transparent=false above=true | at (24,24)-(484,324)
+[PASS] S2.4 snap top-right
+       fg=target perch=(2076,24 460x300) topmost=true noactivate=true transparent=false above=true | at (2076,24)-(2536,324)
+[PASS] S3 resize from the page (perch.resize 520x330)
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true | size 520x330 want (520, 330)
+[PASS] S4.1 mode slim
+       fg=target perch=(2116,24 420x96) topmost=true noactivate=true transparent=false above=true | page mode ok=true size 420x96
+[PASS] S4.2 mode mini
+       fg=target perch=(2368,24 168x64) topmost=true noactivate=true transparent=false above=true | page mode ok=true size 168x64
+[PASS] S4.3 mode full
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true | page mode ok=true size 520x330
+[PASS] S5 opacity 0.5 (CSS on the page, not LWA)
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true | css opacity 0.5: true
+[PASS] S6 click-through on
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=true above=true | WS_EX_TRANSPARENT=true
+[PASS] S7 click-through off
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true | WS_EX_TRANSPARENT cleared=true
+[PASS] S8 lock (no drag region, not resizable)
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true | drag region off=true
+[PASS] S9 unlock
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true | drag region back=true
+[PASS] S10 settings sheet opened from the page (clicked in-page, no OS input)
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true | screenshot=true
+[PASS] S11 toggle closed
+       fg=target perch=hidden
+[PASS] S11b open while MIDI Studio's own window is in front (fg=true)
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true
+[PASS] S11c closed again, our Notepad back in front
+       fg=target perch=hidden
+[PASS] S12 play -> Perch opens by itself (autoShow), painted
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true | sent=[true,true] centre pixel (15, 19, 20)
+[PASS] S13 Perch shows the song (now_playing) and the live engine stream
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true | name=true state=playing:true screenshot=true
+[PASS] S14 mode switches during playback
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true
+[PASS] S15 playback_done -> Perch steps aside (autoHide)
+       hidden=true fg=target:true
+[PASS] S16 Player's queue advance (re-shown by it: see detail) put away
+       fg=target perch=hidden | re-shown by the Player's own queue: false; hidden=true
+[PASS] T1 over a TOPMOST window (fg=true)
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true
+[PASS] T2 topmost window re-activated (via SetForegroundWindow: true); foreground hook re-asserts
+       fg=target perch=(2076,24 520x330) topmost=true noactivate=true transparent=false above=true
+[PASS] T3 snap while the topmost window has the foreground
+       fg=target perch=(2016,24 520x330) topmost=true noactivate=true transparent=false above=true
+[PASS] G1 gamewatch: our Notepad (watched as a test name) -> game-active push + step-aside event
+       game-active="[{\"game\":\"notepad.exe\",\"rule\":\"nothing\"}]" step-aside logged=true
+[PASS] P1 a missing panel page -> panel-failed, and the fallback shell inside it is stopped
+       events="[{\"url\":\"http://tauri.localhost/nope-panel/index.html\",\"code\":-6,\"desc\":\"ERR_FILE_NOT_FOUND\"}]" nested scripts left=0
+[PASS] U1 up to date (mock tag v3.0.1)
+       states="checking,none"
+[PASS] U2 update available (mock tag v3.1.0)
+       states="checking,available" last="{\"state\":\"available\",\"version\":\"3.1.0\",\"current\":\"3.0.1\",\"size\":74,\"notes\":\"mock release\",\"canSelfUpdate\":true,\"htmlUrl\":\"http://127.0.0.1:51762/release\"}"
+[PASS] U3 download + SHA-256 pass, stopped before launch with the exact command line
+       states="downloading,downloading,verifying,ready,ready" launch="{\"dryRun\":true,\"program\":\"powershell.exe\",\"args\":[\"-NoProfile\",\"-NonInteractive\",\"-Command\",\"Start-Process -FilePath 'C:\\\\Users\\\\stars\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-stars-claude\\\\08926a52-29f6-4dc1-a760-4187451d6733\\\\scratchpad\\\\ud-m2b\\\\updates\\\\MIDI-Studio-3.1.0-Setup.exe'\"],\"elevated\":false}" staged-bytes-match=true
+[PASS] U3b the app did not quit (no-launch run)
+[PASS] U4 checksum mismatch -> error, never ready, never launched
+       states="checking,available,downloading,downloading,verifying,error" last="{\"state\":\"error\",\"message\":\"Checksum mismatch, download does not match the GitHub release digest\"}"
+closed our Notepad: true
+[PASS] G2 gamewatch: Notepad closed -> game-active cleared
+app exited by itself: true
+
+TOTAL: 36 pass, 0 fail

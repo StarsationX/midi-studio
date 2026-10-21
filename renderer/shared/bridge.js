@@ -22,11 +22,29 @@
 //   * will-prevent-unload: the Editor's unsaved-edits guard runs before close.
 (() => {
   'use strict';
+  // Only the shell (index.html) loads this file, so running inside a frame
+  // means a panel's own page was missing and Tauri's asset fallback served the
+  // shell in its place. Stop before shell.js boots a second app in a tab, and
+  // tell the real shell, which covers the panel with its empty state.
+  if (window.parent !== window) {
+    try {
+      const report = window.parent.__studioPanelFailed;
+      if (typeof report === 'function') report(location.href, 'ERR_FILE_NOT_FOUND', -6);
+    } catch (_) {}
+    try { window.stop(); document.documentElement.innerHTML = ''; } catch (_) {}
+    return;
+  }
   const T = window.__TAURI__;
   if (!T || window.api) return;
   const invoke = T.core.invoke;
-  const listen = T.event.listen;
   const convertFileSrc = T.core.convertFileSrc;
+  // Every listener is scoped to this window. A bare listen() hears events
+  // emitted to ANY window, so the shell would also get Perch's copy of the
+  // engine stream and Perch the shell's.
+  let label = 'main';
+  try { label = T.webviewWindow.getCurrentWebviewWindow().label || 'main'; } catch (_) {}
+  const isShell = label === 'main';
+  const listen = (channel, fn) => T.event.listen(channel, fn, { target: label });
 
   const PUSH = [
     'engine-event', 'engine-error', 'update-status', 'overlay-wants-state', 'overlay-state',
@@ -96,6 +114,11 @@
   function fire(channel, args) {
     invoke('ipc', { channel, args }).catch(() => {});
   }
+  // Resolves once every push channel is subscribed. ipcRenderer.on was
+  // synchronous; listen() is not, so anything that makes the host start
+  // talking (Perch's ready) waits for it.
+  let attached = null;
+  const whenAttached = (fn) => (...args) => { (attached || Promise.resolve()).then(() => fn(...args), () => fn(...args)); };
 
   // ---- files --------------------------------------------------------------
   // Paths the host handed over are already in the asset scope. Anything else
@@ -187,11 +210,13 @@
         openPath: c('shell:openPath'),
       },
       perch: {
-        ready: f('overlay:ready'),
-        close: f('overlay:close'),
+        // Each says which Perch window it came from: a page still being torn
+        // down must not close, or mark ready, the window that replaced it.
+        ready: whenAttached(() => fire('overlay:ready', [label])),
+        close: () => fire('overlay:close', [label]),
         apply: c('overlay:apply'),
         snap: c('overlay:snap'),
-        resize: (width, height) => fire('overlay:resize', [{ width, height }]),
+        resize: (width, height) => fire('overlay:resize', [{ width, height, from: label }]),
         command: f('overlay:command'),
         onEngineEvent: on('engine-event'),
         onConfig: on('overlay-config'),
@@ -405,9 +430,47 @@
     if (el && el.closest && el.closest('[data-tauri-drag-region]') && !el.closest(CLICKABLE)) e.stopImmediatePropagation();
   }, true);
 
+  // ---- panel-failed (main.js did-fail-load for subframes) ----------------------
+  // Tauri reports no load failure for an iframe. Two ways one shows up: the
+  // asset fallback serves the shell in its place (caught at the top of this
+  // file, inside the frame), or the frame lands on an error page or an error
+  // status, checked here when it fires load.
+  const failedOnce = new Set();
+  function panelFailed(url, desc, code) {
+    const key = String(url || '');
+    if (!key || failedOnce.has(key)) return;
+    failedOnce.add(key);
+    setTimeout(() => failedOnce.delete(key), 2000);
+    fire('app:panelFailed', [{ url: key, desc: String(desc || ''), code: Number(code) || -6 }]);
+  }
+  function checkFrame(frame) {
+    const src = frame.getAttribute('src');
+    if (!src || src === 'about:blank') return;
+    let url = '';
+    try { url = new URL(src, location.href).href; } catch (_) { url = src; }
+    let doc = null;
+    try { doc = frame.contentDocument; } catch (_) {}
+    // Chromium's error page is cross-origin to us.
+    if (!doc) { panelFailed(url, 'ERR_FAILED', -2); return; }
+    // Tauri's asset fallback answers a missing page with the shell itself.
+    // Its scripts resolve against the panel's folder and fall back too, so it
+    // never boots; it only has to be recognised (only the shell loads this
+    // file) and emptied.
+    if (doc.querySelector('script[src$="shared/bridge.js"]')) {
+      try { frame.contentWindow.stop(); doc.documentElement.innerHTML = ''; } catch (_) {}
+      panelFailed(url, 'ERR_FILE_NOT_FOUND', -6);
+      return;
+    }
+    try {
+      const nav = frame.contentWindow.performance.getEntriesByType('navigation')[0];
+      const status = nav && nav.responseStatus;
+      if (status >= 400) panelFailed(url, `HTTP ${status}`, -6);
+    } catch (_) {}
+  }
+
   // ---- wiring ---------------------------------------------------------------------
   function bridgeFor(win) {
-    routeKeys(win);
+    if (isShell) routeKeys(win);
     if (win !== window) win.addEventListener('pagehide', () => dropFrame(win), { once: true });
     return namespacesFor(win);
   }
@@ -417,7 +480,16 @@
     Object.defineProperty(window, k, { value: own[k], configurable: true, enumerable: true });
   }
 
-  Promise.all(PUSH.map((channel) => listen(channel, (e) => dispatch(channel, e.payload))))
+  attached = Promise.all(PUSH.map((channel) => listen(channel, (e) => dispatch(channel, e.payload))));
+  // Perch is not the shell: it has no panels, no close guard, no drops, and
+  // must not take the open-midi hand-off meant for the Player.
+  if (!isShell) return;
+  window.__studioPanelFailed = panelFailed;
+  document.addEventListener('load', (e) => {
+    if (e.target && e.target.tagName === 'IFRAME') checkFrame(e.target);
+  }, true);
+
+  attached
     .then(() => {
       subscribe(window, 'studio-drag', onDrag);
       subscribe(window, 'close-requested', () => { fire('win:closeAck', []); requestClose(); });

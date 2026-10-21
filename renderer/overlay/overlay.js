@@ -100,6 +100,8 @@ function applyConfig(next) {
   root.dataset.mode = cfg.mode;
   root.dataset.transport = cfg.showTransport === false ? '0' : '1';
   card.dataset.locked = cfg.locked ? '1' : '0';
+  // Tauri's drag region (Electron's is the CSS app-region, keyed off the same flag).
+  $('head').setAttribute('data-tauri-drag-region', cfg.locked ? 'false' : 'deep');
   // The visualizer takes a speed multiplier off a 3 second baseline; the user
   // thinks in seconds of music, so convert at the boundary.
   viz.setStyle({

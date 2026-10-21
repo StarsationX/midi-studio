@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "perch",
+  "description": "Perch, the overlay: listening for its pushes and dragging by its header. Nothing else, and no maximise on a double click.",
+  "windows": ["perch-*"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-start-dragging"]
+}
