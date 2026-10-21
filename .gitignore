@@ -28,3 +28,4 @@ prototypes/*/target/
 
 # Tauri host build output
 src-tauri/target/
+forge-rs/assets/
