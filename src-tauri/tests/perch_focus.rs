@@ -502,6 +502,11 @@ fn perch_never_takes_the_foreground() {
     let midi = std::path::absolute(&midi).unwrap();
     assert!(midi.is_file(), "{} missing", midi.display());
     assert!(notepads().is_empty(), "a Notepad is already open; not touching it. Close it and run again.");
+    // Every Tauri build shares the app identifier, so single-instance would
+    // swallow this launch (or route another build's launch into ours), and a
+    // second instance also holds Ctrl+Alt+P/O. Refuse rather than measure that.
+    let running = Command::new("tasklist").args(["/FI", "IMAGENAME eq midi-studio.exe", "/NH"]).output().map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase()).unwrap_or_default();
+    assert!(!running.contains("midi-studio.exe"), "another midi-studio.exe is running; its single-instance lock would swallow or hijack this run");
     let boot_log = user_data.join("boot.log");
     let _ = std::fs::remove_file(&boot_log);
     // Perch's remembered per-mode bounds would make the expected sizes depend
@@ -817,6 +822,9 @@ fn perch_never_takes_the_foreground() {
         let _ = app.wait();
     }
     rep.line(format!("app exited by itself: {exited}"));
+    let log = std::fs::read_to_string(&boot_log).unwrap_or_default();
+    let clean = !log.contains("second-instance") && !log.contains("unavailable") && log.matches("--- boot ---").count() == 1;
+    rep.result(clean, "Z1 run was not contaminated (no second-instance routed in, hotkeys were ours, one boot)", String::new());
     rep.line(format!("\nTOTAL: {} pass, {} fail", rep.pass, rep.fail));
     let _ = std::fs::write(&out, rep.lines.join("\n"));
     assert_eq!(rep.fail, 0, "see {}", out.display());
