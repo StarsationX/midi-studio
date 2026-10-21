@@ -31,11 +31,6 @@ pub const STUBBED: &[&str] = &[
     "forge:cancel", "forge:pause",
     "app:forgeInfo", "app:openForgeFolder", "app:changeForgeFolder", "app:resetForgeFolder",
     "app:openSetupLog", "app:cleanReinstall",
-    // Editor load / save
-    "review:load", "review:saveProject", "review:exportMidi",
-    // Library scan, index, tags, trash
-    "library:list", "library:scan", "library:meta", "library:setTags", "library:usage",
-    "library:index", "library:delete", "library:addFolder", "library:removeFolder",
 ];
 
 fn release_name() -> String {
@@ -411,14 +406,27 @@ fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Result<Value, Str
 }
 
 /// The whole IPC surface. Runs on the blocking pool: the dialogs block until
-/// the user answers, and nothing here may hold up the UI thread.
+/// the user answers, and nothing here may hold up the UI thread. `progress`
+/// is a channel the calling frame opened for itself (library:scan/index), so
+/// a stream reaches the frame that asked and no other (Electron's senderFrame).
 #[tauri::command]
-pub async fn ipc(app: AppHandle, channel: String, args: Option<Vec<Value>>) -> Result<Value, String> {
+pub async fn ipc(
+    app: AppHandle,
+    webview: tauri::Webview,
+    channel: String,
+    args: Option<Vec<Value>>,
+    progress: Option<tauri::ipc::JavaScriptChannelId>,
+) -> Result<Value, String> {
     let args = args.unwrap_or_default();
+    let progress = progress.map(|id| id.channel_on::<_, Value>(webview));
     let ch = channel.clone();
-    tauri::async_runtime::spawn_blocking(move || dispatch(&app, &channel, &args))
-        .await
-        .map_err(|e| format!("{ch} failed: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::library::handle(&app, &channel, &args, progress)
+            .or_else(|| crate::review::handle(&app, &channel, &args))
+            .unwrap_or_else(|| dispatch(&app, &channel, &args))
+    })
+    .await
+    .map_err(|e| format!("{ch} failed: {e}"))?
 }
 
 /// fileUrl() for a path the host never handed over itself (a recent file from
