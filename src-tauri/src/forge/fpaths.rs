@@ -171,6 +171,21 @@ pub fn models_dir(p: &ForgePaths) -> PathBuf {
     engine_dir().join("models")
 }
 
+/// The Rust Forge engine: FORGE_RS_EXE, next to the app's exe (the
+/// installer's externalBin), then a dev build in the repo's
+/// forge-rs\target\release. None = this build has no Rust engine.
+pub fn forge_rs_exe() -> Option<PathBuf> {
+    let mut c: Vec<PathBuf> = Vec::new();
+    c.extend(env_path("FORGE_RS_EXE"));
+    if let Some(d) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+        c.push(d.join("forge-rs.exe"));
+    }
+    if let Some(repo) = engine_dir().parent() {
+        c.push(repo.join("forge-rs").join("target").join("release").join("forge-rs.exe"));
+    }
+    c.into_iter().find(|p| p.is_file())
+}
+
 /// Pids of running Forge jobs, the fallback for a host that died without its
 /// job objects closing (they always close, but a pid file costs nothing).
 pub fn forge_jobs_file() -> PathBuf {

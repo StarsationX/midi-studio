@@ -59,21 +59,30 @@ pub struct SepTimings {
     pub write_s: f64,
 }
 
+/// How many chunks `demix` will run on a mix of `len` samples.
+pub fn chunk_count(len: usize, p: &DemixParams) -> usize {
+    let lp = if len > 2 * p.border() && p.border() > 0 { len + 2 * p.border() } else { len };
+    lp.div_ceil(p.step())
+}
+
 /// MSST `demix` with the network on `model`, printing progress per chunk.
 pub fn separate_mix(model: &mut Roformer, mix: &Planar, p: &DemixParams, verbose: bool) -> Result<(Stems, usize)> {
-    let total = {
-        let len = mix[0].len();
-        let lp = if len > 2 * p.border() && p.border() > 0 { len + 2 * p.border() } else { len };
-        lp.div_ceil(p.step())
-    };
-    let mut done = 0usize;
     let t0 = Instant::now();
-    let stems = demix(mix, N_STEMS, p, |part| {
-        let out = model.forward(part)?;
-        done += 1;
+    separate_mix_with(model, mix, p, |done, total| {
         if verbose {
             eprintln!("  chunk {done}/{total}  ({:.1}s)", t0.elapsed().as_secs_f64());
         }
+    })
+}
+
+/// `separate_mix` with `progress(done, total)` after every chunk.
+pub fn separate_mix_with(model: &mut Roformer, mix: &Planar, p: &DemixParams, mut progress: impl FnMut(usize, usize)) -> Result<(Stems, usize)> {
+    let total = chunk_count(mix[0].len(), p);
+    let mut done = 0usize;
+    let stems = demix(mix, N_STEMS, p, |part| {
+        let out = model.forward(part)?;
+        done += 1;
+        progress(done, total);
         Ok(out)
     })?;
     Ok((stems, done))
@@ -163,14 +172,7 @@ pub fn write_stems(store_dir: &Path, file_name: &str, stems: &Stems) -> Result<V
 /// summed in fp32 (`mix = mix + audio`), then `mix / peak * 0.98` when the
 /// peak exceeds 1.0.
 pub fn mix_pitched(stems: &Stems, exclude: &[&str]) -> Planar {
-    let mut order: Vec<usize> = (0..N_STEMS).collect();
-    order.sort_by_key(|&i| format!("{}.wav", INSTRUMENTS[i]));
-    let picked: Vec<usize> = order
-        .iter()
-        .copied()
-        .filter(|&i| !exclude.iter().any(|x| format!("{}.wav", INSTRUMENTS[i]).contains(x)))
-        .collect();
-    let picked = if picked.is_empty() { order } else { picked };
+    let picked = pitched_stems(exclude);
     let mut mix: Planar = stems[picked[0]].clone();
     for &i in &picked[1..] {
         for (m, a) in mix.iter_mut().zip(&stems[i]) {
@@ -186,6 +188,20 @@ pub fn mix_pitched(stems: &Stems, exclude: &[&str]) -> Planar {
         }
     }
     mix
+}
+
+/// The stems mix_pitched_stems sums, as INSTRUMENTS indices in its order:
+/// sorted by file name, minus any name containing an excluded word (all of
+/// them when that leaves none).
+pub fn pitched_stems(exclude: &[&str]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..N_STEMS).collect();
+    order.sort_by_key(|&i| format!("{}.wav", INSTRUMENTS[i]));
+    let picked: Vec<usize> = order
+        .iter()
+        .copied()
+        .filter(|&i| !exclude.iter().any(|x| format!("{}.wav", INSTRUMENTS[i]).contains(x)))
+        .collect();
+    if picked.is_empty() { order } else { picked }
 }
 
 /// Default song_to_midi EXCLUDE_STEMS ("drum,percussion"), + "vocal" when

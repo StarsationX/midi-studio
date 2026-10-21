@@ -561,11 +561,28 @@
             <p class="set-note" id="s-engine-note" hidden></p>
           </div>
 
+          <!-- Forge engine: shown under Tauri, whose runner can hand piano and
+               general jobs to forge-rs. Electron's runner only knows Python,
+               so its runtime answer has no forge key and this stays hidden. -->
+          <div class="set-sec" id="s-forge-engine-sec" hidden>
+            <div class="set-sec-h"><h3>Forge engine</h3><p>Separates stems and turns songs into MIDI.</p></div>
+            <div class="set-row">
+              <span class="set-key" id="s-forge-engine-label">Engine</span>
+              <div class="set-val">
+                <div class="segmented is-wide" id="s-forge-engine" role="radiogroup" aria-labelledby="s-forge-engine-label">
+                  <button role="radio" data-engine="rust"   aria-checked="false">Rust (piano and general)</button>
+                  <button role="radio" data-engine="python" aria-checked="false">Python (all modes)</button>
+                </div>
+              </div>
+            </div>
+            <p class="set-note">Melody, Drums and Fast always use Python.</p>
+            <p class="set-note" id="s-forge-engine-note" hidden></p>
+          </div>
+
           <div class="set-sec">
             <div class="set-sec-h"><h3>Precision</h3></div>
             <p class="set-note">Transcription and stem separation always run at full 32-bit precision.</p>
           </div>
-          <!-- The Forge backend choice goes here once Forge runs on Rust. -->
         </section>
 
         <!-- -------------------------------------------------- FORGE SETUP -->

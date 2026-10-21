@@ -263,7 +263,7 @@ pub fn kill_tree(pid: u32) -> bool {
 /// is ever reaped from the pid file, never whatever reused the number.
 pub fn is_reapable_name(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
-    n == "python.exe" || n == "pythonw.exe" || n == "midi-player.exe"
+    n == "python.exe" || n == "pythonw.exe" || n == "midi-player.exe" || n == "forge-rs.exe"
 }
 
 #[cfg(test)]
@@ -354,6 +354,7 @@ mod tests {
     #[test]
     fn reapable_names() {
         assert!(is_reapable_name("python.exe"));
+        assert!(is_reapable_name("forge-rs.exe"));
         assert!(is_reapable_name("PythonW.exe"));
         assert!(is_reapable_name("midi-player.exe"));
         assert!(!is_reapable_name("python3.exe.bak"));

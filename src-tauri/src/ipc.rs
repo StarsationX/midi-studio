@@ -198,6 +198,7 @@ fn runtime(h: &Host) -> Value {
         "host": "tauri",
         "versions": {"tauri": tauri::VERSION, "webview2": tauri::webview_version().unwrap_or_default()},
         "player": player_engine(h),
+        "forge": crate::forge::engine_info(h),
     })
 }
 

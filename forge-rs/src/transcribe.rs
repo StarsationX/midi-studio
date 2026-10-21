@@ -37,11 +37,13 @@ pub struct Options {
     /// ORT intra-op threads (None = ORT default, as the Python session).
     pub intra_threads: Option<usize>,
     pub ort_dylib: Option<std::path::PathBuf>,
+    /// Where the backbone runs (CPU unless asked; CUDA is fp32, TF32 off).
+    pub ep: crate::roformer::Ep,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { segment_hop: SEGMENT_HOP_SEC, intra_threads: None, ort_dylib: None }
+        Options { segment_hop: SEGMENT_HOP_SEC, intra_threads: None, ort_dylib: None, ep: crate::roformer::Ep::Cpu }
     }
 }
 
@@ -63,6 +65,8 @@ pub struct Transcriber {
     backbone: Backbone,
     pitches: Vec<i32>,
     pub load_s: f64,
+    /// Called after each segment's backbone pass with (done, total).
+    pub progress: Option<Box<dyn FnMut(usize, usize) + Send>>,
 }
 
 impl Transcriber {
@@ -71,8 +75,8 @@ impl Transcriber {
         crate::backbone::init_ort(opts.ort_dylib.as_deref())?;
         let aux = Aux::load(&paths.aux)?;
         let frontend = FrontEnd::new(&aux);
-        let backbone = Backbone::load(&paths.onnx, opts.intra_threads)?;
-        Ok(Transcriber { aux, frontend, backbone, pitches: target_midi_pitch(), load_s: t0.elapsed().as_secs_f64() })
+        let backbone = Backbone::load_on(&paths.onnx, opts.intra_threads, opts.ep)?;
+        Ok(Transcriber { aux, frontend, backbone, pitches: target_midi_pitch(), load_s: t0.elapsed().as_secs_f64(), progress: None })
     }
 
     /// readAudio scaling + soxr (if fs != 44100) + downmix, in
@@ -115,6 +119,7 @@ impl Transcriber {
     /// discardSecondHalf=False, mergeIncompleteEvent=True)
     pub fn transcribe_mono(&mut self, mono: &[f32], opts: &Options, timings: &mut Timings, dump: &Dump) -> Result<Vec<Note>> {
         let seg = Segmenter::new(mono, opts.segment_hop);
+        let n_segments = seg.count();
         let n_frames = frames_per_segment();
         let start_frame_idx = (seg.pad_time_begin * FS as f64 / HOP_SIZE as f64).floor() as usize;
         let mut start_pos = vec![start_frame_idx; N_SYMBOLS];
@@ -135,6 +140,9 @@ impl Transcriber {
             let t0 = Instant::now();
             let out = self.backbone.run(feats)?;
             timings.backbone_s += t0.elapsed().as_secs_f64();
+            if let Some(cb) = self.progress.as_mut() {
+                cb(k + 1, n_segments);
+            }
             if dump.enabled() {
                 dump.npy_f32(&format!("seg{k:02}_score"), &[n_frames, n_frames, N_SYMBOLS], &out.score);
                 dump.npy_f32(&format!("seg{k:02}_noise"), &[n_frames - 1, N_SYMBOLS], &out.noise);

@@ -16,6 +16,7 @@ pub fn defaults() -> Value {
         "performance": { "percent": 100, "whenGaming": "limit", "advanced": {} },
         "forge": {
             "pipeline": "melody",
+            "engine": "python",
             "skipSeparation": false,
             "advanced": {},
             "outputDir": "",

@@ -27,6 +27,8 @@ pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 pub struct Ctx {
     pub paths: ForgePaths,
     pub perf: Value,
+    /// settings.forge.engine: "rust" sends the modes forge-rs covers to it.
+    pub forge_engine: String,
 }
 pub type GetCtx = Arc<dyn Fn() -> Ctx + Send + Sync>;
 
@@ -86,6 +88,78 @@ pub fn select_script(pipeline: &str, skip_separation: bool) -> (&'static str, &'
         "fast" => ("stem_to_midi.py", STAGES_2),
         _ if skip_separation => ("transcribe.py", STAGES_2),
         _ => ("song_to_midi.py", STAGES_3),
+    }
+}
+
+/// The pipelines forge-rs runs end to end (with or without separation).
+pub const RUST_MODES: [&str; 2] = ["piano", "general"];
+
+fn env_flag(env: &EnvMap, k: &str) -> bool {
+    matches!(env.get(k), Some("1" | "true" | "True" | "yes"))
+}
+
+/// Why this job has to run on the Python engine even with Rust chosen, or
+/// None when forge-rs covers it. Read from the job's final environment, so
+/// it sees exactly what forge-rs would (Advanced overrides included).
+pub fn rust_blocker(pipeline: &str, env: &EnvMap) -> Option<String> {
+    if !RUST_MODES.contains(&pipeline) {
+        return Some(format!("{pipeline} mode only runs on Python"));
+    }
+    if env_flag(env, "USE_TTA") {
+        return Some("test-time augmentation only runs on Python".into());
+    }
+    if env.get("BIGSHIFTS").and_then(|v| v.trim().parse::<i64>().ok()).is_some_and(|n| n > 1) {
+        return Some("big shifts only run on Python".into());
+    }
+    if env.get("SEGMENT_SIZE").filter(|v| !v.is_empty()).is_some_and(|v| v.trim().parse::<f64>().ok() != Some(16.0)) {
+        return Some("a segment size other than 16 s only runs on Python".into());
+    }
+    if env.get("SEPARATION_BACKEND").is_some_and(|v| v.eq_ignore_ascii_case("onnx_dml")) {
+        return Some("the DirectML separator only runs on Python".into());
+    }
+    None
+}
+
+/// `forge-rs probe`: loads nothing, answers in well under a second. Err is a
+/// reason a person can read.
+pub fn probe_rust(exe: &Path, env: &EnvMap) -> Result<Value, String> {
+    let mut cmd = Command::new(exe);
+    cmd.arg("probe").arg("--mem-limit-gb").arg("0").current_dir(engine_dir()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    env.apply(&mut cmd);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let mut child = cmd.spawn().map_err(|e| format!("could not start forge-rs ({e})"))?;
+    let mut out = child.stdout.take();
+    let reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(o) = out.as_mut() {
+            let _ = o.read_to_string(&mut s);
+        }
+        s
+    });
+    let t = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if t.elapsed() > Duration::from_secs(10) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("forge-rs did not answer".into());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(15)),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    let text = reader.join().unwrap_or_default();
+    let v: Value = text.lines().rev().find_map(|l| serde_json::from_str(l.trim()).ok()).ok_or("forge-rs gave no answer")?;
+    if v["ready"] == json!(true) {
+        Ok(v)
+    } else {
+        let why = v["missing"].as_array().map(|m| m.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; ")).unwrap_or_default();
+        Err(if why.is_empty() { "the Rust engine is not ready".into() } else { why })
     }
 }
 
@@ -277,6 +351,8 @@ pub struct JobParser {
     t_idx: Option<usize>,
     t_from: i64,
     t_to: i64,
+    /// The same for Separate and forge-rs's SSEG chunk counts.
+    s_span: Option<(i64, i64)>,
 }
 
 impl JobParser {
@@ -286,6 +362,7 @@ impl JobParser {
         let t_idx = table.iter().position(|(_, s, _)| *s == "Transcribe");
         let t_from = t_idx.map_or(0, |i| table[i].2);
         let t_to = t_idx.and_then(|i| table.get(i + 1)).map_or(t_from, |n| n.2 - 2);
+        let s_span = table.iter().position(|(_, s, _)| *s == "Separate").map(|i| (table[i].2, table.get(i + 1).map_or(table[i].2, |n| n.2 - 2)));
         JobParser {
             job_id: job_id.into(),
             table,
@@ -299,6 +376,7 @@ impl JobParser {
             t_idx,
             t_from,
             t_to,
+            s_span,
         }
     }
 
@@ -329,6 +407,17 @@ impl Lines for JobParser {
             if self.t_idx.is_some() && total > 0.0 && done.is_finite() {
                 let pct = js_round(self.t_from as f64 + (self.t_to - self.t_from) as f64 * (done / total));
                 return vec![self.progress("Transcribe", pct, &format!("Transcribing segment {}/{}", js_num(done), js_num(total)))];
+            }
+            return vec![];
+        }
+        // SSEG|k|N from forge-rs: separation chunk k of N.
+        if let Some(rest) = line.strip_prefix("SSEG|") {
+            let mut it = rest.split('|');
+            let done: f64 = it.next().map(str::trim).and_then(|s| s.parse().ok()).unwrap_or(f64::NAN);
+            let total: f64 = it.next().map(str::trim).and_then(|s| s.parse().ok()).unwrap_or(f64::NAN);
+            if let Some((from, to)) = self.s_span.filter(|_| total > 0.0 && done.is_finite()) {
+                let pct = js_round(from as f64 + (to - from) as f64 * (done / total));
+                return vec![self.progress("Separate", pct, &format!("Separating part {}/{}", js_num(done), js_num(total)))];
             }
             return vec![];
         }
@@ -741,11 +830,49 @@ impl Runner {
         }
         let env = job_env(fpaths::forge_child_env(&ctx.paths), &ctx.perf, self.background.load(Ordering::SeqCst), advanced, start, end, pipeline, skip);
         let audio_out = output_midi_path(input, start, end, output_name);
-        (self.emit)(json!({"event": "forge.progress", "jobId": job_id, "stage": "Queued", "percent": -1, "message": format!("Starting {script}")}));
-        let meta = json!({"pipeline": pipeline, "timing": {"start": start.map_or(Value::Null, num_val), "end": end.map_or(Value::Null, num_val)}});
-        let args = vec![py.into_os_string(), engine_dir().join(script).into_os_string(), input.into(), audio_out.clone().into()];
+        let rust = if ctx.forge_engine == "rust" { self.rust_engine_for(&job_id, pipeline, &env) } else { None };
+        let label = if rust.is_some() { "forge-rs pipeline (Rust engine)".to_string() } else { script.to_string() };
+        (self.emit)(json!({"event": "forge.progress", "jobId": job_id, "stage": "Queued", "percent": -1, "message": format!("Starting {label}")}));
+        let meta = json!({
+            "pipeline": pipeline,
+            "engine": if rust.is_some() { "rust" } else { "python" },
+            "timing": {"start": start.map_or(Value::Null, num_val), "end": end.map_or(Value::Null, num_val)},
+        });
+        let args = match rust {
+            // Same input and output as the script; forge-rs reads the same
+            // env knobs, and the job runs under the same Job Object, cap,
+            // pause, cancel and priority as any other.
+            Some(exe) => {
+                let mut a: Vec<OsString> = vec![exe.into_os_string(), "pipeline".into(), input.into(), audio_out.clone().into(), "--mode".into(), pipeline.into()];
+                if skip {
+                    a.push("--skip-separation".into());
+                }
+                a.extend(["--python".into(), py.into_os_string()]);
+                a
+            }
+            None => vec![py.into_os_string(), engine_dir().join(script).into_os_string(), input.into(), audio_out.clone().into()],
+        };
         self.launch(&job_id, args, env, Box::new(JobParser::new(&job_id, table, &audio_out, meta)));
         job_id
+    }
+
+    /// forge-rs for this job, when the Rust engine is chosen, covers the
+    /// mode and is ready; otherwise None, with one log line saying why the
+    /// job stays on Python.
+    fn rust_engine_for(&self, job_id: &str, pipeline: &str, env: &EnvMap) -> Option<PathBuf> {
+        let why = match rust_blocker(pipeline, env) {
+            Some(why) => why,
+            None => match fpaths::forge_rs_exe() {
+                None => "this build does not include the Rust engine".into(),
+                Some(exe) => match probe_rust(&exe, env) {
+                    Ok(_) => return Some(exe),
+                    Err(e) => format!("the Rust engine is not ready ({e})"),
+                },
+            },
+        };
+        (self.log)(&format!("forge {job_id}: python engine: {why}"));
+        (self.emit)(json!({"event": "forge.log", "jobId": job_id, "level": "info", "line": format!("Using the Python engine for this job: {why}.")}));
+        None
     }
 
     pub fn yt(self: &Arc<Self>, url: &str, out_dir: &str) -> String {
@@ -1059,6 +1186,81 @@ mod tests {
         assert_eq!(ev[0]["level"], "error");
         let ev = p.line("RuntimeError: CUDA out of memory");
         assert_eq!(ev[0]["level"], "error");
+    }
+
+    #[test]
+    fn forge_rs_pipeline_lines() {
+        // forge-rs pipeline's own stdout for a piano job (CUDA), in order.
+        let mut p = JobParser::new("job-7", STAGES_3, r"C:\m\song.mid", json!({"pipeline": "piano", "engine": "rust"}));
+        let ev = feed(&mut p, &[
+            "Device: cuda (NVIDIA GeForce RTX 5060)",
+            "Input: song.wav",
+            "Engine: forge-rs, ONNX Runtime 1.22 (C:\\fe\\ort-gpu\\onnxruntime.dll), fp32, CUDA (TF32 off)",
+            "[1/3] Separating with BS-Rofo-SW-Fixed (SOTA 6-stem, batch 2)",
+            "separator ready in 2.1s on cuda (fp32, model cache hit)",
+            "SSEG|1|4",
+            "SSEG|4|4",
+            "separation done in 9.0s",
+            "using piano stem -> piano.wav",
+            "Normalizing stem to -20.0 dB RMS (peak ceiling -1.0 dB)",
+            "[2/3] Transcribing with Transkun V2 (SOTA piano MIDI), cuda",
+            "TSEG|1|3",
+            "TSEG|3|3",
+            "done in 1.2s",
+            "[3/3] Cleaning MIDI (drop notes < 0.03s or velocity < 20); velocity gamma 0.85",
+            "90 -> 88 notes (dropped 2)",
+            "DONE.",
+        ]);
+        let pr: Vec<(String, i64)> =
+            ev.iter().filter(|e| e["event"] == "forge.progress").map(|e| (e["stage"].as_str().unwrap().into(), e["percent"].as_i64().unwrap())).collect();
+        assert_eq!(
+            pr,
+            vec![
+                ("Separate".into(), 15),
+                ("Separating".into(), 18),
+                ("Separate".into(), 25),
+                ("Separate".into(), 53),
+                ("Separating".into(), 53),
+                ("Transcribing".into(), 53),
+                ("Transcribe".into(), 55),
+                ("Transcribe".into(), 66),
+                ("Transcribe".into(), 88),
+                ("Clean".into(), 90),
+                ("Done".into(), 100),
+            ]
+        );
+        let done = ev.last().unwrap();
+        assert_eq!(done["result"]["engine"], "rust");
+        assert_eq!(done["result"]["midiPath"], r"C:\m\song.mid");
+        // A table without a Separate stage ignores SSEG.
+        let mut p = JobParser::new("j", STAGES_2, "x", json!({}));
+        assert!(p.line("SSEG|1|2").is_empty());
+    }
+
+    #[test]
+    fn rust_engine_routing() {
+        let env = |pairs: &[(&str, &str)]| {
+            let mut e = EnvMap::default();
+            for (k, v) in pairs {
+                e.set(k, v);
+            }
+            e
+        };
+        assert_eq!(rust_blocker("piano", &env(&[])), None);
+        assert_eq!(rust_blocker("general", &env(&[("USE_TTA", "0"), ("BIGSHIFTS", "1"), ("SEGMENT_SIZE", "16")])), None);
+        for m in ["melody", "drums", "fast", "stems"] {
+            assert!(rust_blocker(m, &env(&[])).is_some(), "{m}");
+        }
+        assert!(rust_blocker("piano", &env(&[("USE_TTA", "1")])).is_some());
+        assert!(rust_blocker("piano", &env(&[("BIGSHIFTS", "3")])).is_some());
+        assert!(rust_blocker("piano", &env(&[("SEGMENT_SIZE", "12")])).is_some());
+        assert!(rust_blocker("general", &env(&[("SEPARATION_BACKEND", "ONNX_DML")])).is_some());
+        // What the Advanced panel sends becomes these env values.
+        let adv = json!({"USE_TTA": true});
+        let e = job_env(EnvMap::default(), &json!({}), false, &adv, None, None, "piano", false);
+        assert!(rust_blocker("piano", &e).is_some());
+        let e = job_env(EnvMap::default(), &json!({}), false, &json!({"USE_TTA": false, "SEGMENT_HOP": "4"}), None, None, "piano", false);
+        assert_eq!(rust_blocker("piano", &e), None);
     }
 
     #[test]
