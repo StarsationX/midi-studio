@@ -1,5 +1,5 @@
-app pid=40888 devtools=:9568 user-data=C:\Users\stars\AppData\Local\Temp\claude\C--Users-stars-claude\08926a52-29f6-4dc1-a760-4187451d6733\scratchpad\ud-m2b mock=http://127.0.0.1:51762
-notepad hwnd=0xe50cec, foreground: true
+app pid=39740 devtools=:9784 user-data=C:\Users\stars\AppData\Local\Temp\claude\C--Users-stars-claude\08926a52-29f6-4dc1-a760-4187451d6733\scratchpad\ud-m2b mock=http://127.0.0.1:31766
+notepad hwnd=0x41016c6, foreground: true
 [PASS] S0 baseline: app up, our Notepad in front
        fg=target perch=hidden
 [PASS] S1 toggle open (studio.toggleOverlay), and WebView2 painted
@@ -63,7 +63,7 @@ notepad hwnd=0xe50cec, foreground: true
 [PASS] U1 up to date (mock tag v3.0.1)
        states="checking,none"
 [PASS] U2 update available (mock tag v3.1.0)
-       states="checking,available" last="{\"state\":\"available\",\"version\":\"3.1.0\",\"current\":\"3.0.1\",\"size\":74,\"notes\":\"mock release\",\"canSelfUpdate\":true,\"htmlUrl\":\"http://127.0.0.1:51762/release\"}"
+       states="checking,available" last="{\"state\":\"available\",\"version\":\"3.1.0\",\"current\":\"3.0.1\",\"size\":74,\"notes\":\"mock release\",\"canSelfUpdate\":true,\"htmlUrl\":\"http://127.0.0.1:31766/release\"}"
 [PASS] U3 download + SHA-256 pass, stopped before launch with the exact command line
        states="downloading,downloading,verifying,ready,ready" launch="{\"dryRun\":true,\"program\":\"powershell.exe\",\"args\":[\"-NoProfile\",\"-NonInteractive\",\"-Command\",\"Start-Process -FilePath 'C:\\\\Users\\\\stars\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-stars-claude\\\\08926a52-29f6-4dc1-a760-4187451d6733\\\\scratchpad\\\\ud-m2b\\\\updates\\\\MIDI-Studio-3.1.0-Setup.exe'\"],\"elevated\":false}" staged-bytes-match=true
 [PASS] U3b the app did not quit (no-launch run)
@@ -72,5 +72,6 @@ notepad hwnd=0xe50cec, foreground: true
 closed our Notepad: true
 [PASS] G2 gamewatch: Notepad closed -> game-active cleared
 app exited by itself: true
+[PASS] Z1 run was not contaminated (no second-instance routed in, hotkeys were ours, one boot)
 
-TOTAL: 36 pass, 0 fail
+TOTAL: 37 pass, 0 fail
