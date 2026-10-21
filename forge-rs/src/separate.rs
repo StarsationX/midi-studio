@@ -141,6 +141,15 @@ pub fn f32_to_pcm16(x: f32) -> i16 {
     (v >> 16) as i16
 }
 
+/// Double -> PCM_16 as the same libsndfile writes a float64 array:
+/// `rint(x * 2^31)` in f64, clamped to i32, then `>> 16` (measured: 0
+/// mismatches over 1.6M boundary-dense samples).
+#[inline]
+pub fn f64_to_pcm16(x: f64) -> i16 {
+    let v = (x * 2147483648.0).round_ties_even().clamp(-2147483648.0, 2147483647.0) as i64;
+    (v >> 16) as i16
+}
+
 /// 16-bit PCM WAV, as `sf.write(path, float32_array, sr)` writes it.
 pub fn write_wav_pcm16(path: &Path, ch: &[Vec<f32>], rate: u32) -> Result<()> {
     let data = interleave(ch);

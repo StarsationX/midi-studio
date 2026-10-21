@@ -358,9 +358,20 @@ def recover_sparse_piano(stem_wav: Path, out_midi: Path, note_count: int,
           "checking the broad recognizer...")
     fallback = work_dir / "fallback_basic_pitch.mid"
     try:
-        rc = subprocess.run(
+        # stem_to_midi.py prints its own "DONE." line; passed through as is,
+        # the app's runner took it for this job's DONE and finished early.
+        # Prefix its output so it is only a log line. The stem is already
+        # the selected range, so the time-range variables must not clip it
+        # a second time.
+        env = {k: v for k, v in os.environ.items() if k not in ("FORGE_START_SEC", "FORGE_END_SEC")}
+        proc = subprocess.Popen(
             [str(PY), str(ROOT / "stem_to_midi.py"), str(stem_wav), str(fallback)],
-            check=False, env=os.environ).returncode
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace")
+        for line in proc.stdout:
+            if line.strip():
+                print("  basic-pitch: " + line.strip(), flush=True)
+        rc = proc.wait()
         if rc != 0 or not fallback.exists():
             print("  [warn] broad-recognizer check failed; keeping Transkun output")
             return note_count

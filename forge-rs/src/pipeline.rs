@@ -1,15 +1,20 @@
-//! `forge-rs pipeline`: python-engine/song_to_midi.py (and, with
-//! `--skip-separation`, transcribe.py) for the modes forge-rs covers end to
-//! end: piano and general.
+//! `forge-rs pipeline`: every Midi Forge mode without Python.
+//!
+//! * piano / general: song_to_midi.py (with `--skip-separation`,
+//!   transcribe.py), including the sparse-piano basic-pitch check.
+//! * melody: melody_to_midi.py (Clean / Balanced / Detailed candidates).
+//! * drums: drums_to_midi.py.
+//! * fast: stem_to_midi.py (basic-pitch straight on the audio).
 //!
 //! Same inputs (`<audio> [<out.mid>]`), the same environment knobs, the same
-//! output file, and the same stdout lines the app's runner parses: `[1/3]`
-//! `[2/3]` `[3/3]` stage markers, `TSEG|done|total` after every Transkun
-//! segment, `SSEG|done|total` after every separation chunk, `DONE.`. The
-//! intermediate WAV files song_to_midi writes are reproduced in memory with
-//! their exact sample formats (time-range clip and normalised stem as
-//! soundfile PCM_16, MSST stems as float), so nothing touches disk unless
-//! FORGE_KEEP_STEMS=1 or the sparse-piano check needs Python's basic-pitch.
+//! output files, and the same stdout lines the app's runner parses: the
+//! scripts' `[n/N]` stage markers and prose, `TSEG|done|total` after every
+//! Transkun segment, `SSEG|done|total` after every separation chunk,
+//! `RESULT|{json}` (melody) and `DONE`. The intermediate WAV and MIDI files
+//! the scripts write are reproduced in memory with their exact formats
+//! (clips and normalised audio as soundfile PCM_16, MSST stems as float,
+//! basic-pitch's MIDI written and read back through pretty_midi), so nothing
+//! touches disk unless FORGE_KEEP_STEMS=1.
 //!
 //! fp32 everywhere: CPU, or CUDA with TF32 off. The Python app runs MSST in
 //! fp16 autocast with NVIDIA_TF32_OVERRIDE=1 and Transkun in TF32; none of
@@ -37,15 +42,51 @@ use std::time::Instant;
 pub enum Mode {
     Piano,
     General,
+    Melody,
+    Drums,
+    Fast,
 }
+
+pub const MODES: [&str; 5] = ["piano", "general", "melody", "drums", "fast"];
 
 impl Mode {
     pub fn parse(s: &str) -> Result<Self> {
         match s.to_ascii_lowercase().as_str() {
             "piano" => Ok(Mode::Piano),
             "general" => Ok(Mode::General),
-            o => bail!("mode {o} is not covered by forge-rs (piano and general are; melody, drums, fast and stems need the Python engine)"),
+            "melody" => Ok(Mode::Melody),
+            "drums" => Ok(Mode::Drums),
+            "fast" => Ok(Mode::Fast),
+            o => bail!("unknown mode {o} (expected one of {})", MODES.join(", ")),
         }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::Piano => "piano",
+            Mode::General => "general",
+            Mode::Melody => "melody",
+            Mode::Drums => "drums",
+            Mode::Fast => "fast",
+        }
+    }
+
+    /// Whether a run in this mode separates (its scripts' rules: fast never
+    /// does; melody and drums also skip on SKIP_SEPARATION=1).
+    pub fn separates(self, skip_flag: bool) -> bool {
+        match self {
+            Mode::Fast => false,
+            Mode::Melody | Mode::Drums => !(skip_flag || env_flag("SKIP_SEPARATION", false)),
+            Mode::Piano | Mode::General => !skip_flag,
+        }
+    }
+
+    fn uses_transkun(self) -> bool {
+        matches!(self, Mode::Piano | Mode::General)
+    }
+
+    fn uses_basic_pitch(self) -> bool {
+        matches!(self, Mode::Melody | Mode::Fast)
     }
 }
 
@@ -153,20 +194,30 @@ impl Knobs {
     /// Settings this port does not implement; the app routes such a job to
     /// Python instead, and the CLI refuses it rather than ignoring it.
     pub fn unsupported(&self) -> Vec<String> {
+        self.unsupported_for(Mode::Piano, false)
+    }
+
+    /// Only the settings the job would actually use: separation knobs when
+    /// it separates, the Transkun segment size when it runs Transkun.
+    pub fn unsupported_for(&self, mode: Mode, skip_flag: bool) -> Vec<String> {
         let mut v = Vec::new();
-        if self.use_tta {
-            v.push("USE_TTA=1 (test-time augmentation)".into());
-        }
-        if self.bigshifts > 1 {
-            v.push(format!("BIGSHIFTS={}", self.bigshifts));
-        }
-        if let Some(s) = &self.segment_size {
-            if s.trim().parse::<f64>().ok() != Some(16.0) {
-                v.push(format!("SEGMENT_SIZE={s} (Transkun runs 16 s segments)"));
+        if mode.separates(skip_flag) {
+            if self.use_tta {
+                v.push("USE_TTA=1 (test-time augmentation)".into());
+            }
+            if self.bigshifts > 1 {
+                v.push(format!("BIGSHIFTS={}", self.bigshifts));
+            }
+            if self.separation_backend == "onnx_dml" {
+                v.push("SEPARATION_BACKEND=onnx_dml (MDX-Net on DirectML)".into());
             }
         }
-        if self.separation_backend == "onnx_dml" {
-            v.push("SEPARATION_BACKEND=onnx_dml (MDX-Net on DirectML)".into());
+        if mode.uses_transkun() {
+            if let Some(s) = &self.segment_size {
+                if s.trim().parse::<f64>().ok() != Some(16.0) {
+                    v.push(format!("SEGMENT_SIZE={s} (Transkun runs 16 s segments)"));
+                }
+            }
         }
         v
     }
@@ -191,10 +242,12 @@ pub struct Args {
     pub threads: Option<usize>,
     pub cpu_arena: bool,
     pub cuda_mem_gb: f64,
-    /// For song_to_midi's sparse-piano check (basic-pitch via stem_to_midi.py).
+    /// Accepted for older callers; nothing runs Python any more.
     pub python: Option<PathBuf>,
     pub engine_dir: Option<PathBuf>,
     pub sparse_recovery: bool,
+    /// basic-pitch's nmp.onnx (default: basicpitch::default_model_path).
+    pub bp_model: Option<PathBuf>,
 }
 
 impl Args {
@@ -217,7 +270,16 @@ impl Args {
             python: None,
             engine_dir: None,
             sparse_recovery: true,
+            bp_model: None,
         }
+    }
+}
+
+fn bp_model_path(args: &Args) -> Result<PathBuf> {
+    match &args.bp_model {
+        Some(p) if p.is_file() => Ok(p.clone()),
+        Some(p) => Err(anyhow!("{} not found", p.display())),
+        None => crate::basicpitch::default_model_path(),
     }
 }
 
@@ -265,25 +327,50 @@ pub fn roformer_model(models: Option<&Path>, explicit: Option<&Path>) -> Result<
 }
 
 /// What a run would use, without loading anything: the app asks this before
-/// routing a job here.
+/// routing a job here. With `args.mode` set, `ready` / `missing` cover only
+/// what that mode (and `--skip-separation`) needs; without it, every model.
 pub fn probe(args: &Args) -> serde_json::Value {
     let plan = ortenv::plan(args.ep, args.ort_dylib.as_deref(), args.cuda_dir.as_deref());
     let tk = transkun_assets(args.models.as_deref(), args.aux.as_deref());
     let rofo = roformer_model(args.models.as_deref(), args.rofo_model.as_deref());
+    let bp = bp_model_path(args);
     let p = |r: &Result<PathBuf>| r.as_ref().map_or(serde_json::Value::Null, |p| json!(p.to_string_lossy()));
-    let mut missing = Vec::new();
-    if let Err(e) = &tk {
-        missing.push(format!("transkun: {e:#}"));
-    }
-    if let Err(e) = &rofo {
-        missing.push(format!("roformer: {e:#}"));
-    }
-    if let Err(e) = &plan {
-        missing.push(format!("onnxruntime: {e:#}"));
-    }
+    let needs = |m: Mode| -> Vec<&'static str> {
+        let mut v = Vec::new();
+        if m.uses_transkun() {
+            v.push("transkun");
+        }
+        if m.separates(args.skip_separation) {
+            v.push("roformer");
+        }
+        if m.uses_basic_pitch() {
+            v.push("basic-pitch");
+        }
+        if !v.is_empty() {
+            v.push("onnxruntime");
+        }
+        v
+    };
+    let err_of = |what: &str| -> Option<String> {
+        match what {
+            "transkun" => tk.as_ref().err().map(|e| format!("transkun: {e:#}")),
+            "roformer" => rofo.as_ref().err().map(|e| format!("roformer: {e:#}")),
+            "basic-pitch" => bp.as_ref().err().map(|e| format!("basic-pitch: {e:#}")),
+            _ => plan.as_ref().err().map(|e| format!("onnxruntime: {e:#}")),
+        }
+    };
+    let wanted: Vec<&str> = match args.mode {
+        Some(m) => needs(m),
+        None => vec!["transkun", "roformer", "basic-pitch", "onnxruntime"],
+    };
+    let missing: Vec<String> = wanted.iter().filter_map(|w| err_of(w)).collect();
+    let modes_ready: serde_json::Map<String, serde_json::Value> =
+        MODES.iter().map(|m| (m.to_string(), json!(needs(Mode::parse(m).expect("mode")).iter().all(|w| err_of(w).is_none())))).collect();
     json!({
         "ready": missing.is_empty(),
-        "modes": ["piano", "general"],
+        "modes": MODES,
+        "modesReady": modes_ready,
+        "basicPitch": p(&bp),
         "ep": plan.as_ref().map_or("none", |p| if p.ep == Ep::Cpu { "cpu" } else { "cuda" }),
         "whyCpu": plan.as_ref().map_or(String::new(), |p| p.why_cpu.clone()),
         "ort": plan.as_ref().map_or(serde_json::Value::Null, |p| json!(p.dylib.to_string_lossy())),
@@ -311,9 +398,9 @@ fn py_float(v: f64) -> String {
     if v.is_finite() && v.fract() == 0.0 && v.abs() < 1e16 { format!("{v:.1}") } else { format!("{v}") }
 }
 
-/// song_to_midi.work_root: `<forge env>\work\<name>-<tag>`, or
-/// `<song dir>\stems\...` outside the app. Created only when needed.
-fn work_root(src: &Path) -> PathBuf {
+/// song_to_midi.work_root(src, suffix): `<forge env>\work\<name><suffix>-<tag>`,
+/// or `<song dir>\stems\...` outside the app. Created only when needed.
+fn work_root(src: &Path, suffix: &str) -> PathBuf {
     let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let mut h = std::collections::hash_map::DefaultHasher::new();
     h.write(src.to_string_lossy().as_bytes());
@@ -322,7 +409,16 @@ fn work_root(src: &Path) -> PathBuf {
         Some(b) => b.join("work"),
         None => src.parent().unwrap_or(Path::new(".")).join("stems"),
     };
-    root.join(format!("{}-{}", safe_name(&stem), &tag[..8]))
+    root.join(format!("{}{suffix}-{}", safe_name(&stem), &tag[..8]))
+}
+
+/// song_to_midi.cleanup_work
+fn cleanup_work(work: &Path, keep: bool) {
+    if keep {
+        say!("  (kept stems: {})", work.display());
+    } else if work.exists() {
+        let _ = std::fs::remove_dir_all(work);
+    }
 }
 
 /// audio_utils.audio_window_from_env: FORGE_START_SEC / FORGE_END_SEC, as
@@ -378,66 +474,6 @@ fn write_stem_wav(path: &Path, a: &Audio) -> Result<()> {
     }
 }
 
-/// Run a helper with its output re-emitted line by line behind `prefix`.
-/// stem_to_midi.py ends with its own "DONE. MIDI: ..." line; passed through
-/// as is (song_to_midi.py does exactly that), the app's runner takes it for
-/// this job's DONE, finishes the job early and moves the MIDI away before the
-/// recovered one is copied in. Prefixed, it is just a log line. Returns
-/// whether the helper exited 0.
-fn run_prefixed(cmd: &mut std::process::Command, prefix: &str) -> bool {
-    use std::io::Read;
-    let child = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn();
-    let Ok(mut child) = child else { return false };
-    let pump = |r: Option<Box<dyn Read + Send>>, prefix: String| {
-        std::thread::spawn(move || {
-            let Some(mut r) = r else { return };
-            let mut buf = Vec::new();
-            let mut chunk = [0u8; 4096];
-            let emit = |b: &[u8]| {
-                let l = String::from_utf8_lossy(b);
-                let l = l.trim();
-                if !l.is_empty() {
-                    say!("{prefix}{l}");
-                }
-            };
-            while let Ok(n) = r.read(&mut chunk) {
-                if n == 0 {
-                    break;
-                }
-                buf.extend_from_slice(&chunk[..n]);
-                while let Some(i) = buf.iter().position(|&c| c == b'\n' || c == b'\r') {
-                    emit(&buf[..i]);
-                    buf.drain(..=i);
-                }
-            }
-            emit(&buf);
-        })
-    };
-    let out = pump(child.stdout.take().map(|s| Box::new(s) as Box<dyn Read + Send>), prefix.to_string());
-    let err = pump(child.stderr.take().map(|s| Box::new(s) as Box<dyn Read + Send>), prefix.to_string());
-    let ok = child.wait().is_ok_and(|s| s.success());
-    let _ = out.join();
-    let _ = err.join();
-    ok
-}
-
-/// Notes in a MIDI file, as pretty_midi counts them (note-on/off pairs).
-fn count_midi_notes(path: &Path) -> Result<usize> {
-    let bytes = std::fs::read(path)?;
-    let smf = midly::Smf::parse(&bytes).map_err(|e| anyhow!("{e}"))?;
-    let mut n = 0usize;
-    for track in &smf.tracks {
-        for ev in track {
-            if let midly::TrackEventKind::Midi { message: midly::MidiMessage::NoteOn { vel, .. }, .. } = ev.kind {
-                if vel.as_int() > 0 {
-                    n += 1;
-                }
-            }
-        }
-    }
-    Ok(n)
-}
-
 // ---- runtime ---------------------------------------------------------------------
 
 struct Runtime {
@@ -446,8 +482,11 @@ struct Runtime {
     device: Option<(String, u64)>,
 }
 
-fn start_runtime(args: &Args) -> Result<Runtime> {
-    let plan = ortenv::plan(args.ep, args.ort_dylib.as_deref(), args.cuda_dir.as_deref())?;
+/// Load ONNX Runtime for this process. basic-pitch only ever runs on the
+/// CPU EP (as the forge env's basic_pitch does), so a run that needs nothing
+/// else asks for the CPU build: the same onnxruntime the Python uses.
+fn start_runtime_with(args: &Args, choice: EpChoice) -> Result<Runtime> {
+    let plan = ortenv::plan(choice, args.ort_dylib.as_deref(), args.cuda_dir.as_deref())?;
     if let Some(d) = &plan.cuda_dir {
         ortenv::prepend_path(d)?;
     }
@@ -455,6 +494,10 @@ fn start_runtime(args: &Args) -> Result<Runtime> {
     let version = ortenv::loaded_version().map_or("?".into(), |(a, b)| format!("{a}.{b}"));
     let device = plan.cuda_dir.as_deref().and_then(ortenv::cuda_device_info);
     Ok(Runtime { plan, version, device })
+}
+
+fn start_runtime(args: &Args) -> Result<Runtime> {
+    start_runtime_with(args, args.ep)
 }
 
 fn ep_name(ep: Ep) -> &'static str {
@@ -519,7 +562,8 @@ fn clean_and_write(notes: &[crate::Note], out: &Path, o: &CleanOpts) -> Result<(
 
 pub fn run(args: &Args) -> Result<()> {
     let knobs = Knobs::from_env()?;
-    let unsupported = knobs.unsupported();
+    let mode = args.mode.unwrap_or(if knobs.general_mode { Mode::General } else { Mode::Piano });
+    let unsupported = knobs.unsupported_for(mode, args.skip_separation);
     if !unsupported.is_empty() {
         bail!("not supported by the Rust engine: {} (use the Python engine for this job)", unsupported.join(", "));
     }
@@ -530,12 +574,18 @@ pub fn run(args: &Args) -> Result<()> {
     }
     let out = match &args.output {
         Some(o) => std::path::absolute(o).unwrap_or(o.clone()),
+        None if mode == Mode::Melody => {
+            let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            src.with_file_name(format!("{stem}_melody.mid"))
+        }
         None => src.with_extension("mid"),
     };
-    if args.skip_separation {
-        transcribe_only(args, &knobs, &src, &out)
-    } else {
-        song_to_midi(args, &knobs, &src, &out)
+    match mode {
+        Mode::Fast => fast(args, &knobs, &src, &out),
+        Mode::Melody => melody(args, &knobs, &src, &out),
+        Mode::Drums => drums(args, &knobs, &src, &out),
+        _ if args.skip_separation => transcribe_only(args, &knobs, &src, &out),
+        _ => song_to_midi(args, &knobs, &src, &out, mode),
     }
 }
 
@@ -586,23 +636,101 @@ fn why_cpu_note(plan: &OrtPlan) -> String {
     }
 }
 
-/// song_to_midi.py with the msst backend.
-fn song_to_midi(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()> {
-    let t_all = Instant::now();
-    let mode = args.mode.unwrap_or(if knobs.general_mode { Mode::General } else { Mode::Piano });
-    let rt = start_runtime(args)?;
+fn file_name(p: &Path) -> String {
+    p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+fn file_stem(p: &Path) -> String {
+    p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+fn say_device(rt: &Runtime) {
     match (rt.plan.ep, &rt.device) {
         (Ep::Cuda { .. }, Some((name, _))) => say!("Device: cuda ({name})"),
         (Ep::Cuda { .. }, None) => say!("Device: cuda"),
         _ => say!("Device: cpu"),
     }
-    say!("Input: {}", src.file_name().map(|s| s.to_string_lossy()).unwrap_or_default());
+}
+
+fn say_engine(rt: &Runtime) {
     say!("Engine: forge-rs, ONNX Runtime {} ({}), fp32{}", rt.version, rt.plan.dylib.display(), why_cpu_note(&rt.plan));
+}
+
+fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
+    let p = dir.join(name);
+    if p.is_file() {
+        return Some(p);
+    }
+    std::fs::read_dir(dir).ok()?.flatten().filter(|e| e.path().is_dir()).find_map(|e| find_file(&e.path(), name))
+}
+
+struct Separated {
+    stems: crate::demix::Stems,
+    ep: Ep,
+    secs: f64,
+    chunks: usize,
+}
+
+/// song_to_midi.run_separation (MSST BS-Rofo-SW-Fixed), with its lines:
+/// "[1/3] Separating ...", "separation done in". Writes the six stems under
+/// `work` only with FORGE_KEEP_STEMS=1.
+fn run_separation(args: &Args, knobs: &Knobs, rt: &Runtime, rofo_path: &Path, a: &Audio, work: &Path, name: &str) -> Result<Separated> {
+    let batch = knobs.separation_batch.unwrap_or_else(|| match (rt.plan.ep, &rt.device) {
+        (Ep::Cuda { .. }, Some((_, total))) if *total > 0 => ortenv::separation_batch_for_vram(*total),
+        _ => 1,
+    });
+    say!();
+    say!("[1/3] Separating with BS-Rofo-SW-Fixed (SOTA 6-stem, batch {batch})");
+    let t_sep = Instant::now();
+    // FORGE_RS_STEMS_DIR=<dir holding <instr>.wav>: parity diagnostics only,
+    // take MSST's own stems instead of separating.
+    if let Some(dir) = env_file("FORGE_RS_STEMS_DIR") {
+        let mut stems = Vec::new();
+        for name in INSTRUMENTS {
+            let a = audio::load(&find_file(&dir, &format!("{name}.wav")).ok_or_else(|| anyhow!("{name}.wav not in {}", dir.display()))?)?;
+            stems.push(planar(&a));
+        }
+        say!("  separation done in 0.0s (stems from {})", dir.display());
+        return Ok(Separated { stems, ep: rt.plan.ep, secs: 0.0, chunks: 0 });
+    }
+    let cache = ModelCache::from_env();
+    let t0 = Instant::now();
+    let (mut rofo, used) = match load_roformer(rofo_path, args, rt.plan.ep, cache.as_ref()) {
+        Ok(r) => r,
+        Err(e) if rt.plan.ep != Ep::Cpu && args.ep == EpChoice::Auto => {
+            say!("  CUDA session failed ({e:#}); separating on the CPU");
+            load_roformer(rofo_path, args, Ep::Cpu, cache.as_ref())?
+        }
+        Err(e) => return Err(e),
+    };
+    let ep = rofo.ep;
+    say!("  separator ready in {:.1}s on {} (fp32, model cache {used})", t0.elapsed().as_secs_f64(), ep_name(ep));
+    let mix = separate::prepare_mix(a)?;
+    let mut p = DemixParams::bs_rofo_sw();
+    p.batch_size = batch;
+    let (stems, chunks) = separate::separate_mix_with(&mut rofo, &mix, &p, |done, total| say!("SSEG|{done}|{total}"))?;
+    drop(rofo);
+    drop(mix);
+    let secs = t_sep.elapsed().as_secs_f64();
+    say!("  separation done in {secs:.1}s");
+    if knobs.keep_stems {
+        separate::write_stems(&work.join("stems"), name, &stems)?;
+    }
+    Ok(Separated { stems, ep, secs, chunks })
+}
+
+/// song_to_midi.py with the msst backend.
+fn song_to_midi(args: &Args, knobs: &Knobs, src: &Path, out: &Path, mode: Mode) -> Result<()> {
+    let t_all = Instant::now();
+    let rt = start_runtime(args)?;
+    say_device(&rt);
+    say!("Input: {}", file_name(src));
+    say_engine(&rt);
     // Resolve every model before the long part starts.
     let rofo_path = roformer_model(args.models.as_deref(), args.rofo_model.as_deref())?;
     let tk_paths = transkun_assets(args.models.as_deref(), args.aux.as_deref())?;
 
-    let work = work_root(src);
+    let work = work_root(src, "");
     let a = audio::load(src)?;
     let (a, label) = apply_window(a, &knobs.start_raw, &knobs.end_raw)?;
     if let Some(l) = label {
@@ -611,48 +739,13 @@ fn song_to_midi(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()
     if mode == Mode::General {
         say!("Mode: General (mixing all pitched stems, not just piano)");
     }
-    let batch = knobs.separation_batch.unwrap_or_else(|| match (rt.plan.ep, &rt.device) {
-        (Ep::Cuda { .. }, Some((_, total))) if *total > 0 => ortenv::separation_batch_for_vram(*total),
-        _ => 1,
-    });
-
-    // [1/3] separation
-    say!();
-    say!("[1/3] Separating with BS-Rofo-SW-Fixed (SOTA 6-stem, batch {batch})");
-    let t_sep = Instant::now();
-    let cache = ModelCache::from_env();
-    let t0 = Instant::now();
-    let (mut rofo, used) = match load_roformer(&rofo_path, args, rt.plan.ep, cache.as_ref()) {
-        Ok(r) => r,
-        Err(e) if rt.plan.ep != Ep::Cpu && args.ep == EpChoice::Auto => {
-            say!("  CUDA session failed ({e:#}); separating on the CPU");
-            load_roformer(&rofo_path, args, Ep::Cpu, cache.as_ref())?
-        }
-        Err(e) => return Err(e),
-    };
-    let sep_ep = rofo.ep;
-    say!("  separator ready in {:.1}s on {} (fp32, model cache {used})", t0.elapsed().as_secs_f64(), ep_name(sep_ep));
-    let mix = separate::prepare_mix(&a)?;
+    let name = safe_name(&file_stem(src));
+    let sep = run_separation(args, knobs, &rt, &rofo_path, &a, &work, &name)?;
     drop(a);
-    let mut p = DemixParams::bs_rofo_sw();
-    p.batch_size = batch;
-    let (stems, chunks) = separate::separate_mix_with(&mut rofo, &mix, &p, |done, total| say!("SSEG|{done}|{total}"))?;
-    drop(rofo);
-    drop(mix);
-    let sep_s = t_sep.elapsed().as_secs_f64();
-    say!("  separation done in {sep_s:.1}s");
-    let name = safe_name(&src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
     let stem_dir = work.join("stems").join(&name);
-    if knobs.keep_stems {
-        separate::write_stems(&work.join("stems"), &name, &stems)?;
-    }
+    let stems = sep.stems;
 
     let (stem, stem_path) = match mode {
-        Mode::Piano => {
-            let i = INSTRUMENTS.iter().position(|n| *n == "piano").expect("piano stem");
-            say!("  using piano stem -> piano.wav");
-            (stereo_audio(&stems[i], SourceKind::Float), stem_dir.join("piano.wav"))
-        }
         Mode::General => {
             let mut excl: Vec<&str> = knobs.exclude_stems.iter().map(String::as_str).collect();
             if knobs.exclude_vocals {
@@ -665,6 +758,11 @@ fn song_to_midi(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()
             // sf.write(general_mix.wav, mix, sr): PCM_16.
             let f = stereo_audio(&m, SourceKind::Float);
             (post::as_pcm16(&f, &f.samples), work.join("general_mix.wav"))
+        }
+        _ => {
+            let i = INSTRUMENTS.iter().position(|n| *n == "piano").expect("piano stem");
+            say!("  using piano stem -> piano.wav");
+            (stereo_audio(&stems[i], SourceKind::Float), stem_dir.join("piano.wav"))
         }
     };
     drop(stems);
@@ -683,7 +781,7 @@ fn song_to_midi(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()
     }
 
     // [2/3] transcription
-    let tk_ep = if args.transkun_gpu { sep_ep } else { Ep::Cpu };
+    let tk_ep = if args.transkun_gpu { sep.ep } else { Ep::Cpu };
     say!();
     say!("[2/3] Transcribing with Transkun V2 (SOTA piano MIDI), {}", ep_name(tk_ep));
     let t0 = Instant::now();
@@ -701,26 +799,23 @@ fn song_to_midi(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()
         if co.max_polyphony > 0 { format!(", cap {} simultaneous", co.max_polyphony) } else { String::new() },
         py_float(co.velocity_gamma)
     );
-    let (before, mut after) = clean_and_write(&tr.notes, out, co)?;
+    let (before, after) = clean_and_write(&tr.notes, out, co)?;
     say!("  {before} -> {after} notes (dropped {})", before - after);
     if mode == Mode::Piano && args.sparse_recovery {
-        after = recover_sparse_piano(args, &stem, &stem_path, out, after, &work)?;
+        recover_sparse_piano(args, &stem, &stem_path, out, after);
     }
-    let _ = after;
 
     say!();
     say!("DONE.");
     say!("  Stem: {}", stem_path.display());
     say!("  MIDI:       {}", out.display());
-    if knobs.keep_stems {
-        say!("  (kept stems: {})", work.display());
-    } else if work.exists() {
-        let _ = std::fs::remove_dir_all(&work);
-    }
+    cleanup_work(&work, knobs.keep_stems);
     eprintln!(
-        "[timing] wall {:.2}s: stems {sep_s:.2}s ({chunks} chunks, {}), transkun {tk_s:.2}s ({})",
+        "[timing] wall {:.2}s: stems {:.2}s ({} chunks, {}), transkun {tk_s:.2}s ({})",
         t_all.elapsed().as_secs_f64(),
-        ep_name(sep_ep),
+        sep.secs,
+        sep.chunks,
+        ep_name(sep.ep),
         ep_name(tr.ep)
     );
     eprintln!("[memcap] {}", crate::memlimit::peaks());
@@ -728,48 +823,269 @@ fn song_to_midi(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()
 }
 
 /// song_to_midi.recover_sparse_piano: when Transkun clearly under-reads the
-/// piano stem, try basic-pitch (stem_to_midi.py, Python) and keep it only if
-/// it finds far more. Without the forge env's Python the Transkun result
-/// stands.
-fn recover_sparse_piano(args: &Args, stem: &Audio, stem_path: &Path, out: &Path, note_count: usize, work: &Path) -> Result<usize> {
+/// piano stem, run stem_to_midi.py's basic-pitch pass on it (in process) and
+/// keep that only if it finds far more. Its lines are printed behind
+/// "  basic-pitch: ", so its own "DONE. MIDI:" line is not this job's DONE.
+fn recover_sparse_piano(args: &Args, stem: &Audio, stem_path: &Path, out: &Path, note_count: usize) -> usize {
     let duration = stem.frames() as f64 / stem.sample_rate as f64;
     let sparse_limit = 24usize.max((duration * 0.8) as usize);
     if note_count >= sparse_limit {
-        return Ok(note_count);
+        return note_count;
     }
     say!("  Transkun result is sparse ({note_count} notes / {duration:.1}s); checking the broad recognizer...");
-    let py = args.python.clone().or_else(|| ortenv::forge_env_dir().map(|f| f.join("python").join("python.exe"))).filter(|p| p.is_file());
-    let script = args.engine_dir.clone().or_else(|| env_file("MIDI_STUDIO_ENGINE_DIR")).map(|d| d.join("stem_to_midi.py")).filter(|p| p.is_file());
-    let (Some(py), Some(script)) = (py, script) else {
-        say!("  [warn] broad-recognizer check needs the Forge Python engine; keeping Transkun output");
-        return Ok(note_count);
-    };
-    let fallback = work.join("fallback_basic_pitch.mid");
+    let fallback = stem_path.with_file_name("fallback_basic_pitch.mid");
     let result = (|| -> Result<usize> {
-        write_stem_wav(stem_path, stem)?;
-        let ok = run_prefixed(std::process::Command::new(&py).arg(&script).arg(stem_path).arg(&fallback), "  basic-pitch: ");
-        if !ok || !fallback.is_file() {
-            say!("  [warn] broad-recognizer check failed; keeping Transkun output");
-            return Ok(note_count);
+        let o = crate::stemmidi::StemOpts::from_env()?;
+        let mut model = crate::basicpitch::Model::load(&bp_model_path(args)?, args.threads)?;
+        let mut tell = |l: String| say!("  basic-pitch: {l}");
+        for l in crate::stemmidi::banner(&o, &file_name(stem_path), &file_name(&fallback)) {
+            tell(l);
         }
-        let candidate = count_midi_notes(&fallback)?;
+        let r = crate::stemmidi::run(&mut model, stem, &o, stem_path, stem_path, &mut tell)?;
+        tell(format!("DONE. MIDI: {}", fallback.display()));
+        let candidate = crate::pmidi::PrettyMidi::from_bytes(&r.bytes)?.note_count();
         let richer = (note_count * 2).max((duration * 1.2) as usize);
         if candidate >= richer {
-            std::fs::copy(&fallback, out)?;
+            std::fs::write(out, &r.bytes).with_context(|| format!("write {}", out.display()))?;
             say!("  Recovery selected: {candidate} notes instead of {note_count}");
             return Ok(candidate);
         }
         say!("  Broad recognizer found {candidate} notes; keeping cleaner Transkun output");
         Ok(note_count)
     })();
-    let _ = std::fs::remove_file(&fallback);
     match result {
-        Ok(n) => Ok(n),
+        Ok(n) => n,
         Err(e) => {
             say!("  [warn] broad-recognizer check failed ({e:#}); keeping Transkun output");
-            Ok(note_count)
+            note_count
         }
     }
+}
+
+fn basic_pitch_model(args: &Args) -> Result<crate::basicpitch::Model> {
+    let p = bp_model_path(args)?;
+    crate::basicpitch::Model::load(&p, args.threads)
+}
+
+/// stem_to_midi.py: the app's Fast mode. basic-pitch runs on the CPU EP
+/// only, so this loads the CPU build of ONNX Runtime.
+fn fast(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()> {
+    let t_all = Instant::now();
+    let o = crate::stemmidi::StemOpts::from_env()?;
+    let rt = start_runtime_with(args, EpChoice::Cpu)?;
+    let mut model = basic_pitch_model(args)?;
+    let a = audio::load(src)?;
+    let (a, label) = apply_window(a, &knobs.start_raw, &knobs.end_raw)?;
+    let process_src = match &label {
+        Some(_) => {
+            let tag = window_tag(&knobs.start_raw, &knobs.end_raw);
+            src.parent().unwrap_or(Path::new(".")).join("stems").join(file_stem(src)).join(format!("{}{tag}.wav", file_stem(src)))
+        }
+        None => src.to_path_buf(),
+    };
+    if let Some(l) = label {
+        say!("{l}");
+    }
+    for l in crate::stemmidi::banner(&o, &file_name(src), &file_name(out)) {
+        say!("{l}");
+    }
+    say_engine(&rt);
+    let r = crate::stemmidi::run(&mut model, &a, &o, src, &process_src, &mut |l| say!("{l}"))?;
+    if let Some(d) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(d)?;
+    }
+    std::fs::write(out, &r.bytes).with_context(|| format!("write {}", out.display()))?;
+    say!();
+    say!("DONE. MIDI: {}", out.display());
+    eprintln!("[timing] wall {:.2}s, basic-pitch {:.2}s", t_all.elapsed().as_secs_f64(), r.predict_s);
+    eprintln!("[memcap] {}", crate::memlimit::peaks());
+    Ok(())
+}
+
+/// audio_window_from_env's clip name tag: `_range_<start>_<stop>` with the
+/// dots as "p".
+fn window_tag(start_raw: &str, end_raw: &str) -> String {
+    let start = start_raw.parse::<f64>().unwrap_or(0.0).max(0.0);
+    let end = end_raw.parse::<f64>().unwrap_or(0.0);
+    let stop = if end > start { format!("{end:.3}") } else { "end".into() };
+    format!("_range_{start:.3}_{stop}").replace('.', "p")
+}
+
+fn planar(a: &Audio) -> Vec<Vec<f32>> {
+    (0..a.channels).map(|c| a.samples.iter().skip(c).step_by(a.channels).copied().collect()).collect()
+}
+
+/// melody_to_midi.py
+fn melody(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()> {
+    let t_all = Instant::now();
+    let env_i = |k: &str, d: i64| env_i64(k, d);
+    let mo = crate::melody::MelodyOpts {
+        min_pitch: env_i("MELODY_MIN_PITCH", 45)?,
+        max_pitch: env_i("MELODY_MAX_PITCH", 100)?,
+        fold: env_flag("MELODY_FOLD", true),
+        density: env_f64("MELODY_DENSITY", 13.0)?,
+        onset: env_f64("MELODY_ONSET_THRESHOLD", 0.42)?,
+        frame: env_f64("MELODY_FRAME_THRESHOLD", 0.28)?,
+        min_note_ms: env_i("MELODY_MIN_NOTE_MS", 30)?,
+        strict_fifths: env_flag("MELODY_STRICT_FIFTHS", true),
+    };
+    let separates = Mode::Melody.separates(args.skip_separation);
+    let rt = start_runtime_with(args, if separates { args.ep } else { EpChoice::Cpu })?;
+    let rofo_path = if separates { Some(roformer_model(args.models.as_deref(), args.rofo_model.as_deref())?) } else { None };
+    let mut model = basic_pitch_model(args)?;
+    let work = work_root(src, "_melody");
+    let a = audio::load(src)?;
+    let (a, label) = apply_window(a, &knobs.start_raw, &knobs.end_raw)?;
+    if let Some(l) = label {
+        say!("{l}");
+    }
+    say!("Input: {}", file_name(src));
+    say_engine(&rt);
+    say!();
+    say!("[1/4] Isolating pitched lead material");
+    let (lead, sr): (Vec<Vec<f32>>, u32) = match &rofo_path {
+        None => {
+            say!("  using isolated input directly");
+            (planar(&a), a.sample_rate)
+        }
+        Some(rp) => {
+            let name = safe_name(&file_stem(src));
+            let sep = run_separation(args, knobs, &rt, rp, &a, &work, &name)?;
+            // sorted(*.wav) minus drums / bass / vocals, summed in that order
+            let mut order: Vec<usize> = (0..INSTRUMENTS.len()).collect();
+            order.sort_by_key(|&i| INSTRUMENTS[i]);
+            let excluded = |l: &str| matches!(l, "drums" | "drum" | "percussion" | "bass" | "vocals" | "vocal");
+            let mut picked: Vec<usize> = order.iter().copied().filter(|&i| !excluded(&crate::melody::stem_label(INSTRUMENTS[i]))).collect();
+            if picked.is_empty() {
+                picked = order.iter().copied().filter(|&i| !matches!(crate::melody::stem_label(INSTRUMENTS[i]).as_str(), "drums" | "drum" | "percussion" | "bass")).collect();
+            }
+            if picked.is_empty() {
+                bail!("Separation produced no pitched lead stems.");
+            }
+            let labels: Vec<String> = picked.iter().map(|&i| crate::melody::stem_label(INSTRUMENTS[i])).collect();
+            say!("  lead stems: {}", labels.join(", "));
+            let mut mix = sep.stems[picked[0]].clone();
+            for &i in &picked[1..] {
+                for (m, p) in mix.iter_mut().zip(&sep.stems[i]) {
+                    for (x, &y) in m.iter_mut().zip(p) {
+                        *x += y;
+                    }
+                }
+            }
+            (mix, SAMPLE_RATE)
+        }
+    };
+    drop(a);
+    let filtered = crate::melody::highpass_and_limit(&lead, sr, mo.min_pitch).map_err(|e| anyhow!(e))?;
+    drop(lead);
+    // melody_mix.wav (PCM_16), then load_normalize_save(-18 dB) -> melody_norm.wav
+    let mix = Audio { sample_rate: sr, channels: filtered.len(), samples: separate::interleave(&filtered), kind: SourceKind::Float };
+    let mix = post::as_pcm16(&mix, &mix.samples);
+    if knobs.keep_stems {
+        write_stem_wav(&work.join("melody_mix.wav"), &mix)?;
+    }
+    let norm = post::loudness_normalize(&mix, &NormalizeOpts { target_rms_db: -18.0, peak_ceiling_db: -1.0 });
+    if knobs.keep_stems {
+        write_stem_wav(&work.join("melody_norm.wav"), &norm)?;
+    }
+    say!();
+    say!("[2/4] Detecting instrument-agnostic pitches");
+    let started = Instant::now();
+    say!("Predicting MIDI for {}...", work.join("melody_norm.wav").display());
+    let y = crate::basicpitch::load_mono(&norm, crate::basicpitch::SAMPLE_RATE)?;
+    drop(norm);
+    let params = crate::basicpitch::Params {
+        onset_threshold: mo.onset,
+        frame_threshold: mo.frame,
+        minimum_note_length: mo.min_note_ms as f64,
+        minimum_frequency: Some(crate::basicpitch::midi_to_hz(mo.min_pitch as f64)),
+        maximum_frequency: Some(crate::basicpitch::midi_to_hz(mo.max_pitch as f64)),
+        melodia_trick: true,
+        midi_tempo: 120.0,
+    };
+    let raw = crate::basicpitch::predict(&mut model, &y, &params)?;
+    let raw_bytes = raw.to_bytes()?;
+    if knobs.keep_stems {
+        std::fs::create_dir_all(&work)?;
+        std::fs::write(work.join("melody_raw.mid"), &raw_bytes)?;
+    }
+    let bp_s = started.elapsed().as_secs_f64();
+    say!("  detected in {bp_s:.1}s");
+    say!();
+    say!("[3/4] Building Clean, Balanced, and Detailed candidates");
+    let raw = crate::pmidi::PrettyMidi::from_bytes(&raw_bytes)?;
+    let (_, cands) = crate::melody::build_candidates(&raw, &mo, &mut |l| say!("{l}")).map_err(|e| anyhow!(e))?;
+    let stem = file_stem(out);
+    let mut paths = std::collections::BTreeMap::new();
+    let mut counts = std::collections::BTreeMap::new();
+    for c in &cands {
+        let p = if c.name == "clean" { out.to_path_buf() } else { out.with_file_name(format!("{stem}_{}.mid", c.name)) };
+        c.midi.write(&p)?;
+        paths.insert(c.name, p.to_string_lossy().into_owned());
+        counts.insert(c.name, c.count);
+    }
+    say!();
+    say!("[4/4] Preparing review project");
+    say!("RESULT|{}", crate::melody::result_json(&out.to_string_lossy(), &paths, &counts, &src.to_string_lossy()));
+    say!("DONE.");
+    cleanup_work(&work, knobs.keep_stems);
+    eprintln!("[timing] wall {:.2}s, basic-pitch {bp_s:.2}s", t_all.elapsed().as_secs_f64());
+    eprintln!("[memcap] {}", crate::memlimit::peaks());
+    Ok(())
+}
+
+/// drums_to_midi.py
+fn drums(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()> {
+    let t_all = Instant::now();
+    let onset_delta = env_f64("ONSET_DELTA", 0.07)?;
+    let min_gap_ms = env_i64("DRUM_MIN_GAP_MS", 50)?;
+    let separates = Mode::Drums.separates(args.skip_separation);
+    let rt = if separates { Some(start_runtime(args)?) } else { None };
+    let rofo_path = if separates { Some(roformer_model(args.models.as_deref(), args.rofo_model.as_deref())?) } else { None };
+    say!("Input: {}", file_name(src));
+    if let Some(rt) = &rt {
+        say_engine(rt);
+    }
+    let a = audio::load(src)?;
+    let (a, label) = apply_window(a, &knobs.start_raw, &knobs.end_raw)?;
+    if let Some(l) = label {
+        say!("{l}");
+    }
+    let work = work_root(src, "_drums");
+    let (drum, drum_path) = match (&rt, &rofo_path) {
+        (Some(rt), Some(rp)) => {
+            let name = safe_name(&file_stem(src));
+            let sep = run_separation(args, knobs, rt, rp, &a, &work, &name)?;
+            let i = INSTRUMENTS.iter().position(|n| *n == "drums").expect("drums stem");
+            say!("  using drum stem -> drums.wav");
+            (stereo_audio(&sep.stems[i], SourceKind::Float), src.parent().unwrap_or(Path::new(".")).join("stems").join(&name).join("stems").join(&name).join("drums.wav"))
+        }
+        _ => {
+            say!();
+            say!("[1/3] Separation skipped (input is already a drum stem)");
+            (a.clone(), src.to_path_buf())
+        }
+    };
+    drop(a);
+    say!();
+    say!("[2/3] Transcribing drums (onset + band classification, delta={})", py_float(onset_delta));
+    let t0 = Instant::now();
+    let y = crate::basicpitch::load_mono(&drum, 22050)?;
+    drop(drum);
+    let hits = crate::drums::classify_hits(&y, onset_delta, min_gap_ms);
+    let dt = t0.elapsed().as_secs_f64();
+    say!("  {} hits in {dt:.1}s, {}", hits.len(), crate::drums::summary(&hits));
+    say!();
+    say!("[3/3] Cleaning MIDI (writing drum track)");
+    crate::drums::hits_to_midi(&hits).write(out)?;
+    say!();
+    say!("DONE.");
+    say!("  Stem: {}", drum_path.display());
+    say!("  MIDI:       {}", out.display());
+    cleanup_work(&work, knobs.keep_stems);
+    eprintln!("[timing] wall {:.2}s, drums {dt:.2}s", t_all.elapsed().as_secs_f64());
+    eprintln!("[memcap] {}", crate::memlimit::peaks());
+    Ok(())
 }
 
 #[cfg(test)]

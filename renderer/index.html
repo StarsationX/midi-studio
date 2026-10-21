@@ -561,8 +561,8 @@
             <p class="set-note" id="s-engine-note" hidden></p>
           </div>
 
-          <!-- Forge engine: shown under Tauri, whose runner can hand piano and
-               general jobs to forge-rs. Electron's runner only knows Python,
+          <!-- Forge engine: shown under Tauri, whose runner can hand every
+               Forge mode to forge-rs. Electron's runner only knows Python,
                so its runtime answer has no forge key and this stays hidden. -->
           <div class="set-sec" id="s-forge-engine-sec" hidden>
             <div class="set-sec-h"><h3>Forge engine</h3><p>Separates stems and turns songs into MIDI.</p></div>
@@ -570,12 +570,12 @@
               <span class="set-key" id="s-forge-engine-label">Engine</span>
               <div class="set-val">
                 <div class="segmented is-wide" id="s-forge-engine" role="radiogroup" aria-labelledby="s-forge-engine-label">
-                  <button role="radio" data-engine="rust"   aria-checked="false">Rust (piano and general)</button>
-                  <button role="radio" data-engine="python" aria-checked="false">Python (all modes)</button>
+                  <button role="radio" data-engine="rust"   aria-checked="false">Rust</button>
+                  <button role="radio" data-engine="python" aria-checked="false">Python</button>
                 </div>
               </div>
             </div>
-            <p class="set-note">Melody, Drums and Fast always use Python.</p>
+            <p class="set-note">Both engines run every mode. Test-time augmentation, extra separation passes and a custom segment size need Python, so a job that uses them runs there.</p>
             <p class="set-note" id="s-forge-engine-note" hidden></p>
           </div>
 

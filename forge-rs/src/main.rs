@@ -16,11 +16,14 @@ USAGE:
                                     BS-Rofo-SW-Fixed 6-stem separation (MSST
                                     inference.py): <store_dir>/<name>/<instr>.wav
   forge-rs pipeline <audio> [<out.mid>] [options]
-                                    song_to_midi.py for piano / general mode
-                                    (--skip-separation: transcribe.py), same
-                                    env knobs, stage / TSEG / SSEG / DONE lines
+                                    every Forge mode: song_to_midi.py (piano /
+                                    general; --skip-separation: transcribe.py),
+                                    melody_to_midi.py, drums_to_midi.py and
+                                    stem_to_midi.py (fast), same env knobs,
+                                    stage / TSEG / SSEG / RESULT / DONE lines
   forge-rs probe [options]          JSON: which runtime, EP and models a
-                                    pipeline run would use (loads nothing)
+                                    pipeline run would use (loads nothing);
+                                    with --mode, `ready` covers that mode only
   forge-rs memcheck                 prove the memory cap refuses 9 GiB
 
 OPTIONS:
@@ -38,16 +41,20 @@ OPTIONS:
   --mem-limit-gb G    job-object memory cap (default 7.5; 0 disables)
 
 PIPELINE OPTIONS:
-  --mode piano|general  default: GENERAL_MODE env (song_to_midi's switch)
-  --skip-separation   transcribe.py: no separation, Transkun on the input
+  --mode piano|general|melody|drums|fast
+                      default: GENERAL_MODE env (song_to_midi's switch)
+  --skip-separation   piano / general: transcribe.py (Transkun on the input);
+                      melody / drums: the input is already a stem (as
+                      SKIP_SEPARATION=1); fast never separates
   --ep auto|cpu|cuda  default auto: CUDA when the NVIDIA driver, onnxruntime-gpu
                       1.22 and the CUDA 12 / cuDNN 9 DLLs are all found, else CPU
+                      (basic-pitch always runs on the CPU EP)
   --transkun-ep same|cpu  Transkun backbone on the separator's EP (default) or CPU
-  --python FILE / --engine-dir DIR  forge env Python + python-engine, for the
-                      sparse-piano basic-pitch check (default: forge env +
-                      MIDI_STUDIO_ENGINE_DIR)
-  --no-sparse-recovery  skip that check
-  Env: FORGE_RS_ORT_GPU_DIR, FORGE_RS_CUDA_DIR, FORGE_RS_AUX,
+  --bp-model FILE     basic-pitch nmp.onnx (default: FORGE_RS_BP_MODEL, the forge
+                      env's basic_pitch package, <exe dir>/assets/basic_pitch)
+  --no-sparse-recovery  skip song_to_midi's sparse-piano basic-pitch check
+  --python FILE / --engine-dir DIR  accepted and ignored (nothing runs Python)
+  Env: FORGE_RS_ORT_GPU_DIR, FORGE_RS_CUDA_DIR, FORGE_RS_AUX, FORGE_RS_BP_MODEL,
   FORGE_RS_ROFO_MODEL, FORGE_RS_CACHE_DIR, FORGE_RS_MODEL_CACHE=0
 
 SEPARATE OPTIONS:
@@ -100,6 +107,7 @@ fn run() -> Result<()> {
     let mut write_stems = true;
     let mut cpu_arena = false;
     let mut cuda_mem_gb = 3.5f64;
+    let mut bp_model: Option<PathBuf> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut val = || it.next().cloned().with_context(|| format!("{a} needs a value"));
@@ -134,6 +142,7 @@ fn run() -> Result<()> {
             "--no-stems" => write_stems = false,
             "--cpu-arena" => cpu_arena = true,
             "--cuda-mem-gb" => cuda_mem_gb = val()?.parse()?,
+            "--bp-model" => bp_model = Some(PathBuf::from(val()?)),
             "-h" | "--help" => {
                 print!("{USAGE}");
                 return Ok(());
@@ -165,6 +174,7 @@ fn run() -> Result<()> {
         a.python = python.clone();
         a.engine_dir = engine_dir.clone();
         a.sparse_recovery = sparse;
+        a.bp_model = bp_model.clone();
         if (opts.segment_hop - forge_rs::config::SEGMENT_HOP_SEC).abs() > 0.0 {
             bail!("pipeline reads SEGMENT_HOP from the environment, as song_to_midi.py does");
         }

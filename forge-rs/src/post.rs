@@ -26,8 +26,10 @@ fn db(x: f64) -> f64 {
     20.0 * x.max(1e-12).log10()
 }
 
-/// numpy's float64 `add.reduce` over a contiguous 1-D array: the first
-/// element, plus the pairwise sum (8 accumulators, blocks of 128) of the rest.
+/// numpy's float64 `add.reduce` over a contiguous 1-D array: the identity
+/// (0.0) plus the pairwise sum (8 accumulators, blocks of 128) of every
+/// element. (Not "first element + pairwise of the rest": measured against
+/// numpy 2.4, which seeds float sums with the ufunc identity.)
 pub fn numpy_sum_f64(a: &[f64]) -> f64 {
     fn pairwise(a: &[f64]) -> f64 {
         let n = a.len();
@@ -59,18 +61,17 @@ pub fn numpy_sum_f64(a: &[f64]) -> f64 {
             pairwise(&a[..n2]) + pairwise(&a[n2..])
         }
     }
-    match a.split_first() {
-        None => 0.0,
-        Some((first, rest)) => *first + pairwise(rest),
-    }
+    0.0 + pairwise(a)
 }
 
 /// The gain stage both normalisers share: `mono = audio.mean(channels)`
 /// (float32), `rms = sqrt(mean(mono.astype(float64) ** 2))`, gain to the
-/// target, then the peak ceiling, both applied in float32 as numpy does with
-/// a Python-float scalar. None when the audio is empty or below 1e-9 RMS
-/// (the Python leaves it untouched).
-pub fn normalize_gain(audio: &Audio, o: &NormalizeOpts) -> Option<Vec<f32>> {
+/// target, then the peak ceiling. `gain` comes out of `np.log10` as a NumPy
+/// float64 scalar, which NumPy 2 promotes strongly: `audio * gain` is a
+/// float64 array, so both steps run in float64 and soundfile then writes
+/// PCM_16 from doubles. None when the audio is empty or below 1e-9 RMS (the
+/// Python leaves it untouched).
+pub fn normalize_gain(audio: &Audio, o: &NormalizeOpts) -> Option<Vec<f64>> {
     if audio.samples.is_empty() {
         return None;
     }
@@ -81,12 +82,11 @@ pub fn normalize_gain(audio: &Audio, o: &NormalizeOpts) -> Option<Vec<f32>> {
         return None;
     }
     let gain = 10f64.powf((o.target_rms_db - db(rms)) / 20.0);
-    let g32 = gain as f32;
-    let mut x: Vec<f32> = audio.samples.iter().map(|&v| v * g32).collect();
-    let peak = x.iter().fold(0f32, |m, v| m.max(v.abs())) as f64;
+    let mut x: Vec<f64> = audio.samples.iter().map(|&v| v as f64 * gain).collect();
+    let peak = x.iter().fold(0f64, |m, v| m.max(v.abs()));
     let ceiling = 10f64.powf(o.peak_ceiling_db / 20.0);
     if peak > ceiling {
-        let s = (ceiling / peak) as f32;
+        let s = ceiling / peak;
         for v in x.iter_mut() {
             *v *= s;
         }
@@ -100,13 +100,20 @@ pub fn as_pcm16(audio: &Audio, samples: &[f32]) -> Audio {
     Audio { sample_rate: audio.sample_rate, channels: audio.channels, samples: x, kind: crate::audio::SourceKind::Int(16) }
 }
 
+/// Float64 samples written as soundfile PCM_16 (libsndfile's double path)
+/// and read back.
+pub fn as_pcm16_f64(audio: &Audio, samples: &[f64]) -> Audio {
+    let x = samples.iter().map(|&v| crate::separate::f64_to_pcm16(v) as f32 / 32768.0).collect();
+    Audio { sample_rate: audio.sample_rate, channels: audio.channels, samples: x, kind: crate::audio::SourceKind::Int(16) }
+}
+
 /// audio_utils.load_normalize_save (transcribe.py): the file is always
 /// rewritten as PCM_16, normalised or not. Returns 16-bit-quantised audio in
 /// readAudio scale (int16 / 2^15), same rate and channel count. `audio` must
 /// be unit scale (as `audio::load`).
 pub fn loudness_normalize(audio: &Audio, o: &NormalizeOpts) -> Audio {
     match normalize_gain(audio, o) {
-        Some(x) => as_pcm16(audio, &x),
+        Some(x) => as_pcm16_f64(audio, &x),
         None => as_pcm16(audio, &audio.samples),
     }
 }
@@ -116,7 +123,7 @@ pub fn loudness_normalize(audio: &Audio, o: &NormalizeOpts) -> Audio {
 /// original file (and so its sample format).
 pub fn normalize_in_place(audio: &Audio, o: &NormalizeOpts) -> Audio {
     match normalize_gain(audio, o) {
-        Some(x) => as_pcm16(audio, &x),
+        Some(x) => as_pcm16_f64(audio, &x),
         None => audio.clone(),
     }
 }
