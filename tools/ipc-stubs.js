@@ -198,6 +198,12 @@ const HANDLERS = {
   // ---- app / shell -------------------------------------------------------
   'app:version': () => require(path.join(ROOT, 'package.json')).version,
   'app:release': () => require(path.join(ROOT, 'package.json')).releaseName || '',
+  'app:runtime': () => ({
+    host: 'electron',
+    versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
+    player: { builtIn: false, chosen: 'python', override: '', rustAvailable: true, running: 'python', dryRun: false, pending: false },
+  }),
+  'app:setPlayerEngine': (engine) => ({ builtIn: false, chosen: engine === 'rust' ? 'rust' : 'python', override: '', rustAvailable: true, running: engine === 'rust' ? 'rust' : 'python', dryRun: false, pending: false }),
   // What's New reads the real CHANGELOG.md, so the harness hands over the real
   // file: this state's whole job is to catch that file's own longest heading and
   // longest bullet overflowing the reading column.

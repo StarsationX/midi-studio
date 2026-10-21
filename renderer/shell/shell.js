@@ -315,8 +315,17 @@
       f.frame.contentWindow.dispatchEvent(new Event('midi-studio:theme'));
     } catch (_) {}
   }
+  // Perch is a separate window, out of reach of skinFrame(). It shares this
+  // origin's localStorage, so the skin is left there: Perch reads it when it
+  // opens and hears every change through the storage event.
+  const SKIN_KEY = 'midi-studio:skin';
+  function publishSkin() {
+    const next = JSON.stringify({ theme: themePreset, vars: accentVars || null });
+    try { if (localStorage.getItem(SKIN_KEY) !== next) localStorage.setItem(SKIN_KEY, next); } catch (_) {}
+  }
   const applySkin = coalesce(() => {
     skinEl(root);
+    publishSkin();
     if (window.Tokens) window.Tokens.refresh();
     window.dispatchEvent(new Event('midi-studio:accent'));
     for (const f of FRAMES) if (f.loaded) skinFrame(f);
@@ -858,6 +867,7 @@
     const e = activity.engine;
     try { localStorage.setItem(ENGINE_CACHE_KEY, JSON.stringify({ ready: e.ready, gpu: e.gpu, missing: e.missing })); } catch (_) {}
   }
+  var forgeUnported = false;   // var: renderEngine can run before this line does. Set when the host answers forgeInfo with "not yet ported"
   function renderEngine() {
     const e = activity.engine, chip = $('as-engine');
     const dot = chip.firstElementChild, txt = chip.lastElementChild;
@@ -883,7 +893,9 @@
     chip.setAttribute('aria-label', 'Forge engine: ' + label);
     // Settings mirror
     const st = $('s-forge-status');
-    if (st) {
+    if (st && forgeUnported) {
+      st.innerHTML = '<span class="pill"><span class="dot"></span>Not in this build yet</span>';
+    } else if (st) {
       st.innerHTML = '';
       const pill = document.createElement('span');
       pill.className = 'pill' + (!e.known ? '' : e.ready ? ' is-ok' : ' is-warn');
@@ -892,7 +904,7 @@
       st.appendChild(pill);
     }
     const miss = $('s-forge-missing');
-    if (miss) miss.textContent = (e.missing && e.missing.length) ? e.missing.join(', ') : '—';
+    if (miss) miss.textContent = (e.missing && e.missing.length) ? e.missing.join(', ') : 'Nothing';
   }
   $('as-engine').addEventListener('click', () => {
     if (!activity.engine.ready) {
@@ -982,11 +994,11 @@
     const state = $('s-updstate');
     if (state) {
       state.textContent = u.state === 'available' ? `v${u.version} is available`
-        : u.state === 'none' ? 'up to date'
-          : u.state === 'error' ? (u.message || 'the last check failed')
-            : u.state === 'checking' ? 'checking…'
-              : u.state === 'downloading' ? `downloading ${Math.round(u.percent || 0)}%`
-                : u.state === 'updated' ? `updated to v${u.version}` : 'not checked yet';
+        : u.state === 'none' ? 'Up to date'
+          : u.state === 'error' ? (u.message || 'The last check failed')
+            : u.state === 'checking' ? 'Checking…'
+              : u.state === 'downloading' ? `Downloading, ${Math.round(u.percent || 0)}%`
+                : u.state === 'updated' ? `Updated to v${u.version}` : 'Not checked yet';
     }
   }
   $('as-upd-x').addEventListener('click', () => { activity.update.dismissed = true; renderUpdate(); });
@@ -1852,6 +1864,17 @@
     });
   }
   const setSwitch = (id, on) => { const el = $(id); if (el) el.setAttribute('aria-checked', on ? 'true' : 'false'); };
+  // ---- disclosures: every .set-more opens the element it aria-controls ------
+  function setDisclosure(btn, open) {
+    if (!btn) return;
+    const body = $(btn.getAttribute('aria-controls'));
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (body) body.hidden = !open;
+  }
+  $('set-panes').addEventListener('click', (e) => {
+    const b = e.target.closest('.set-more[aria-controls]');
+    if (b) setDisclosure(b, b.getAttribute('aria-expanded') !== 'true');
+  });
   function wireRadios(id, onPick) {
     const host = $(id);
     if (!host) return;
@@ -1893,7 +1916,9 @@
   });
   function renderPalSwatch() {
     const hex = accentVars ? accentVars['--accent']
-      : (window.Tokens ? window.Tokens.get('accent', '#b8e62e') : '#b8e62e');
+      : (window.Tokens ? window.Tokens.get('accent', '#9cdbbb') : '#9cdbbb');
+    // A custom colour in use is not an optional extra any more: show it.
+    if (accentVars) setDisclosure($('s-accent-more'), true);
     const input = $('s-accent');
     if (input && /^#[0-9a-f]{6}$/i.test(hex)) input.value = hex.toLowerCase();
     const label = $('s-accent-hex');
@@ -1928,7 +1953,9 @@
     $('s-perf-batch').value = String(p.batch);
     $('s-perf-gaming').value = p.whenGaming || 'limit';
     const fps = Math.max(1, Math.round(1000 / p.drawMs));
-    const custom = p.custom && (p.custom.threads || p.custom.batch) ? ' · set by hand' : '';
+    const handSet = !!(p.custom && (p.custom.threads || p.custom.batch));
+    const custom = handSet ? ' · set by hand' : '';
+    if (handSet) setDisclosure($('s-perf-toggle'), true);
     $('s-perf-explain').textContent =
       `${p.threads} of ${p.cores} CPU cores · GPU batch ${p.batch} · ${fps} fps visuals`
       + (p.lowPriority ? ' · low priority' : '') + custom;
@@ -1943,12 +1970,6 @@
     pc.addEventListener('change', () => savePerf({ percent: Number(pc.value) }));
   }
   $('s-perf-gaming').addEventListener('change', (e) => savePerf({ whenGaming: e.target.value }));
-  $('s-perf-toggle').addEventListener('click', () => {
-    const row = $('s-perf-advanced');
-    row.hidden = !row.hidden;
-    $('s-perf-toggle').setAttribute('aria-expanded', row.hidden ? 'false' : 'true');
-    $('s-perf-toggle').textContent = row.hidden ? 'Set exact numbers…' : 'Hide exact numbers';
-  });
   // "Back to automatic" re-sends the percent, which is what makes main write
   // explicit nulls over the hand-set values.
   $('s-perf-auto').addEventListener('click', () => savePerf({ percent: perf.percent }));
@@ -1964,6 +1985,10 @@
   });
 
   // ---- Forge engine -------------------------------------------------------
+  // .pathchip-dir is direction:rtl so a long directory clips from the left.
+  // The trailing separator is a neutral character, and in an rtl box it hops
+  // to the front ("\C:\Users\..."); a left-to-right mark after it keeps it put.
+  const ltrDir = (s) => (s ? s + '\u200E' : '');
   function setPathChip(id, full, missingWhenEmpty) {
     const chip = $(id);
     if (!chip) return;
@@ -1977,7 +2002,7 @@
     }
     chip.classList.remove('is-missing');
     const base = window.Fmt ? window.Fmt.basename(full) : String(full).split(/[\\/]/).pop();
-    dir.textContent = String(full).slice(0, String(full).length - base.length);
+    dir.textContent = ltrDir(String(full).slice(0, String(full).length - base.length));
     name.textContent = base;
     chip.title = full;
   }
@@ -1993,9 +2018,7 @@
     activity.engine.ready = !!info.forgeReady;
     if (!info.forgeReady) activity.engine.gpu = null;
     applyVersion(info.version);
-    setPathChip('s-forgedir', info.forgeEnvDir, 'not set');
-    $('s-forgedir-mirror').textContent = info.forgeEnvDir || '—';
-    $('s-forgedir-mirror').title = info.forgeEnvDir || '';
+    setPathChip('s-forgedir', info.forgeEnvDir, 'Not set');
     $('s-forgefree').textContent = info.forgeFreeGb != null
       ? `${info.forgeFreeGb} GB free · setup needs about ${info.forgeNeedGb} GB`
       : '';
@@ -2011,7 +2034,13 @@
     renderEngine();
     writeEngineCache();
   }
-  const refreshForgeInfo = () => (studio.forgeInfo ? studio.forgeInfo().then(showForgeInfo).catch(() => {}) : Promise.resolve());
+  // A host that has not ported Forge yet (the Tauri build, for now) says so
+  // instead of leaving Settings on "Checking" for good.
+  const refreshForgeInfo = () => (studio.forgeInfo ? studio.forgeInfo().then(showForgeInfo).catch((e) => {
+    if (!/not yet ported/i.test(String((e && e.message) || e))) return;
+    forgeUnported = true;
+    renderEngine();
+  }) : Promise.resolve());
 
   $('s-forge-recheck').addEventListener('click', async () => {
     const b = $('s-forge-recheck');
@@ -2086,16 +2115,25 @@
     // main returns [outputDir, Documents/MIDI Studio, ...the ones the user
     // added]. The first two are built in: library:removeFolder only filters the
     // user list, so offering a remove button for them would do nothing at all.
-    const dirs = libIndex.dirs || [];
+    // When the output folder IS Documents/MIDI Studio (the default), the two
+    // built-in entries are the same folder; list it once.
     const BUILTIN = 2;
+    const seen = new Set();
+    const dirs = [];
+    (libIndex.dirs || []).forEach((dir, i) => {
+      const k = String(dir).replace(/[\\/]+$/, '').toLowerCase();
+      if (seen.has(k)) return;
+      seen.add(k);
+      dirs.push({ dir, builtIn: i < BUILTIN });
+    });
     host.textContent = '';
     if (!dirs.length) {
       const empty = document.createElement('div');
       empty.className = 'set-note';
-      empty.textContent = 'Only the output folder is scanned.';
+      empty.textContent = 'Only the output folder is searched.';
       host.appendChild(empty);
     }
-    dirs.forEach((dir, i) => {
+    dirs.forEach(({ dir, builtIn }) => {
       const row = document.createElement('div');
       row.className = 'set-list-row';
       const chip = document.createElement('span');
@@ -2103,7 +2141,7 @@
       chip.title = dir;
       const base = window.Fmt ? window.Fmt.basename(dir) : dir.split(/[\\/]/).pop();
       chip.innerHTML = '<span class="pathchip-dir"></span><span class="pathchip-name"></span>';
-      chip.children[0].textContent = dir.slice(0, dir.length - base.length);
+      chip.children[0].textContent = ltrDir(dir.slice(0, dir.length - base.length));
       chip.children[1].textContent = base;
       row.appendChild(chip);
       const open = document.createElement('button');
@@ -2112,10 +2150,10 @@
       open.innerHTML = '<i data-icon="folder" data-icon-size="13"></i>';
       open.addEventListener('click', () => studio.openPath && studio.openPath(dir));
       row.appendChild(open);
-      if (i < BUILTIN) {
+      if (builtIn) {
         const tag = document.createElement('span');
         tag.className = 'tag is-bare';
-        tag.textContent = 'built in';
+        tag.textContent = 'Built in';
         row.appendChild(tag);
       } else {
         const rm = document.createElement('button');
@@ -2152,7 +2190,7 @@
     if (!dir) return;
     if (forgeApi.setSettings) await forgeApi.setSettings({ outputDir: dir });
     outputDir = dir;
-    setPathChip('s-outdir', outputDir, '—');
+    setPathChip('s-outdir', outputDir, 'Not set');
     refreshLibraryIndex();
     toast({ severity: 'ok', title: 'Output folder changed', message: dir });
   });
@@ -2178,7 +2216,12 @@
   $('s-repo').addEventListener('click', () => studio.openExternal && studio.openExternal('https://github.com/StarsationX/midi-studio'));
 
   // ---- Overlay (Perch) ----------------------------------------------------
-  const setOverlay = (patch) => (studio.setOverlay ? studio.setOverlay(patch).then(applyOverlayCfg).catch(() => {}) : Promise.resolve());
+  // "3s", "3.5s": Perch's own menu prints the same value the same way.
+  function fmtSeconds(v) {
+    const n = Math.round(Number(v) * 2) / 2;
+    return (Number.isInteger(n) ? String(n) : n.toFixed(1)) + 's';
+  }
+  const setOverlay =(patch) => (studio.setOverlay ? studio.setOverlay(patch).then(applyOverlayCfg).catch(() => {}) : Promise.resolve());
   function applyOverlayCfg(cfg) {
     if (!cfg) return;
     overlayCfg = Object.assign({}, overlayCfg, cfg);
@@ -2197,16 +2240,18 @@
     if (!op.matches(':active')) op.value = String(opv);
     setRange(op, (opv - 20) / 80);
     $('s-ov-opacity-val').textContent = opv + '%';
-    const ahv = clamp(Math.round(c.lookahead == null ? 3 : c.lookahead), 1, 12);
+    const ahv = clamp(Math.round((c.lookahead == null ? 3 : c.lookahead) * 2) / 2, 1, 12);
     if (!ah.matches(':active')) ah.value = String(ahv);
     setRange(ah, (ahv - 1) / 11);
-    $('s-ov-ahead-val').textContent = ahv + 's';
+    $('s-ov-ahead-val').textContent = fmtSeconds(ahv);
     setSwitch('s-ov-through', !!c.clickThrough);
     setSwitch('s-ov-locked', !!c.locked);
     setSwitch('s-ov-keys', c.showKeys !== false);
     setSwitch('s-ov-buttons', c.showTransport !== false);
     setSwitch('s-ov-autoshow', c.autoShow !== false);
     setSwitch('s-ov-autohide', c.autoHide !== false);
+    // Changed from the default, so not something to hide behind a disclosure.
+    if (c.locked || c.showKeys === false || c.showTransport === false) setDisclosure($('s-ov-more'), true);
   }
   wireSwitch('s-ov-open', () => { if (studio.toggleOverlay) studio.toggleOverlay().then(applyOverlayCfg).catch(() => {}); });
   wireRadios('s-ov-mode', (b) => setOverlay({ mode: b.dataset.mode }));
@@ -2216,7 +2261,7 @@
     op.addEventListener('input', paint);
     op.addEventListener('change', () => setOverlay({ opacity: Number(op.value) / 100 }));
     const ah = $('s-ov-ahead');
-    const paintA = coalesce(() => { const v = Number(ah.value); setRange(ah, (v - 1) / 11); $('s-ov-ahead-val').textContent = v + 's'; });
+    const paintA = coalesce(() => { const v = Number(ah.value); setRange(ah, (v - 1) / 11); $('s-ov-ahead-val').textContent = fmtSeconds(v); });
     ah.addEventListener('input', paintA);
     ah.addEventListener('change', () => setOverlay({ lookahead: Number(ah.value) }));
   }
@@ -2229,7 +2274,7 @@
   $('s-ov-park').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-snap]');
     if (!b) return;
-    if (!overlayCfg.open) { toast({ severity: 'warn', title: 'Perch is closed', message: 'Open it first, then park it.' }); return; }
+    if (!overlayCfg.open) { toast({ severity: 'warn', title: 'Perch is hidden', message: 'Show it first, then park it.' }); return; }
     if (studio.snapOverlay) studio.snapOverlay(b.dataset.snap).then(applyOverlayCfg).catch(() => {});
   });
 
@@ -2237,14 +2282,78 @@
     refreshForgeInfo();
     if (studio.getPerformance) studio.getPerformance().then(showPerf).catch(() => {});
     if (studio.overlayState) studio.overlayState().then(applyOverlayCfg).catch(() => {});
-    if (forgeApi.getOutputDir) forgeApi.getOutputDir().then((d) => { outputDir = d || ''; setPathChip('s-outdir', outputDir, '—'); }).catch(() => {});
+    if (forgeApi.getOutputDir) forgeApi.getOutputDir().then((d) => { outputDir = d || ''; setPathChip('s-outdir', outputDir, 'Not set'); }).catch(() => {});
     refreshLibraryIndex();
     renderPalSwatch();
     renderUpdate();
-    $('s-about-runtime').textContent = navigator.userAgent.match(/Electron\/([\d.]+)/)
-      ? 'Electron ' + navigator.userAgent.match(/Electron\/([\d.]+)/)[1]
-      : '—';
+    refreshRuntime();
   }
+
+  // ---- Engines + About runtime ----------------------------------------------
+  // studio.runtime() is the host's own answer: Electron reports its versions
+  // and the sidecar it is running, Tauri reports itself, WebView2 and the
+  // engine built into it.
+  let runtimeInfo = null;
+  let engineBusy = false;
+  function runtimeLabel(r) {
+    const v = (r && r.versions) || {};
+    if (r && r.host === 'tauri') return 'Tauri ' + (v.tauri || '?') + (v.webview2 ? ' · WebView2 ' + v.webview2 : '');
+    if (r && r.host === 'electron') return 'Electron ' + (v.electron || '?');
+    const m = navigator.userAgent.match(/Electron\/([\d.]+)/);
+    return m ? 'Electron ' + m[1] : 'Unknown';
+  }
+  const ENGINE_NAME = { rust: 'Rust', python: 'Python' };
+  function renderEngines() {
+    const r = runtimeInfo;
+    const p = (r && r.player) || {};
+    const builtIn = !!p.builtIn;
+    $('s-engine-pick-row').hidden = !r || builtIn;
+    $('s-engine-fixed-row').hidden = !builtIn;
+    const forced = p.override || '';
+    const chosen = forced || p.chosen || 'python';
+    for (const b of $('s-engine').querySelectorAll('button[role=radio]')) {
+      const on = b.dataset.engine === chosen;
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+      b.disabled = !!forced || engineBusy;
+    }
+    const running = engineBusy ? 'Switching…'
+      : p.running ? ENGINE_NAME[p.running] + (p.dryRun ? ' (dry run, no keys are sent)' : '')
+        : r ? 'Not running' : 'Checking…';
+    $('s-engine-running').textContent = running;
+    let note = '';
+    if (forced) note = `Set to ${ENGINE_NAME[forced] || forced} by MIDI_PLAYER_ENGINE, so this choice is ignored.`;
+    else if (!builtIn && chosen === 'rust' && p.rustAvailable === false) note = 'This build doesn’t include the Rust engine, so the Python engine runs instead.';
+    else if (p.pending) note = 'The engine switches when the current song stops.';
+    else if (!builtIn && r) note = 'Switching restarts the engine. A song that is playing finishes first.';
+    $('s-engine-note').textContent = note;
+    $('s-engine-note').hidden = !note;
+  }
+  function adoptRuntime(r) {
+    if (!r) return;
+    runtimeInfo = r;
+    $('s-about-runtime').textContent = runtimeLabel(r);
+    renderEngines();
+  }
+  function refreshRuntime() {
+    if (!studio.runtime) { $('s-about-runtime').textContent = runtimeLabel(null); return Promise.resolve(); }
+    return studio.runtime().then(adoptRuntime).catch(() => { $('s-about-runtime').textContent = runtimeLabel(null); });
+  }
+  wireRadios('s-engine', async (b) => {
+    if (!studio.setPlayerEngine || engineBusy) return;
+    engineBusy = true;
+    renderEngines();
+    try {
+      const player = await studio.setPlayerEngine(b.dataset.engine);
+      engineBusy = false;
+      if (player && runtimeInfo) adoptRuntime(Object.assign({}, runtimeInfo, { player }));
+      logPush('Player engine set to ' + (ENGINE_NAME[b.dataset.engine] || b.dataset.engine) + '.', 'info', 'player');
+    } catch (e) {
+      engineBusy = false;
+      toast({ severity: 'err', title: 'Could not switch the Player engine', message: (e && e.message) || String(e) });
+    }
+    refreshRuntime();
+  });
 
   // ==========================================================================
   // 13. WINDOW CONTROLS + DROP VEIL
@@ -2991,6 +3100,7 @@
     autoQueueForged = !!ui.autoQueueForged;
 
     skinEl(root);
+    publishSkin();
     if (window.Tokens) window.Tokens.refresh();
     applyDensity();
     renderPalSwatch();
@@ -3031,7 +3141,7 @@
 
   if (studio.getPerformance) studio.getPerformance().then(showPerf).catch(() => {});
   if (studio.overlayState) studio.overlayState().then(applyOverlayCfg).catch(() => {});
-  if (forgeApi.getOutputDir) forgeApi.getOutputDir().then((d) => { outputDir = d || ''; setPathChip('s-outdir', outputDir, '—'); }).catch(() => {});
+  if (forgeApi.getOutputDir) forgeApi.getOutputDir().then((d) => { outputDir = d || ''; setPathChip('s-outdir', outputDir, 'Not set'); }).catch(() => {});
   refreshForgeInfo();
   refreshLibraryIndex().then(() => bootMark('recent'));
 

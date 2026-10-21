@@ -78,6 +78,13 @@ New workspace introductions use `.studio-workspace`, `.studio-page-head`, `.stud
 - **Listen:** related toolbar labels and controls stay grouped when wrapping. Library section tabs fit the smaller navigation pane.
 - **All workspaces:** preserve drag and drop, menus, settings, themes, keyboard shortcuts, resize behavior, playback ownership, and lazy iframe loading.
 
+### Settings and Perch (October 2026 pass)
+
+- **Settings panes:** Appearance, Playback, Overlay, Performance, Engines, Forge setup (`data-pane="forge"`), Storage, Updates, About. Each pane opens on the choices most people change; rarely used options sit behind a `.set-more` disclosure (`aria-controls` names the body, shell.js wires them all). A disclosure opens on its own when something inside it is set away from the default.
+- **Engines:** `studio.runtime()` (`app:runtime` in both hosts) reports the host, its versions and the Player engine. Electron offers Rust or Python (`settings.player.engine`) and restarts the sidecar on a switch, waiting for a song that is playing to end. Tauri shows the built-in Rust engine as a fact. The Forge backend choice goes in this pane once Forge runs on Rust; until then there is no control for it.
+- **Perch theming:** Perch is a separate window, so the shell leaves the preset and any custom accent in `localStorage['midi-studio:skin']`; Perch reads it on open and follows the `storage` event. Visualizer channel 1 is the theme accent in both Perch and the Player.
+- **Shared wording:** Perch's gear menu and Settings > Overlay use the same label for the same setting. `tools/run-tests.js` checks this, the 12px floor in `overlay.css`, and that the Settings sheet has no em dashes.
+
 Keep virtualized list row heights consistent with `VList` and the shared `--h-row` / `--h-row-lg` tokens. Keep canvas geometry and pointer mapping aligned. Do not change audio, transcription, or keystroke behavior as part of routine styling work.
 
 ## Files changed for this redesign

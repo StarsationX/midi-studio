@@ -16,7 +16,7 @@
     <!-- One row: what is playing, where it is, and the two controls. Drag here. -->
     <header class="head" id="head" data-tauri-drag-region="deep">
       <span class="sig" id="sig" aria-hidden="true"></span>
-      <span class="name" id="song">NO FILE</span>
+      <span class="name" id="song">No file</span>
       <span class="read" id="clock">0:00</span>
       <button class="sq" id="btn-menu" type="button" title="Settings" aria-label="Settings" aria-expanded="false"><i data-icon="gear" data-icon-size="12"></i></button>
       <button class="sq" id="btn-close" type="button" title="Hide (Ctrl+Alt+O)" aria-label="Hide"><i data-icon="close" data-icon-size="12"></i></button>
@@ -27,15 +27,15 @@
       <!-- Playback stopping with no visible reason is the single most confusing
            thing that happens mid-song, because the app is behind the game. -->
       <div class="halt" id="veil" hidden>
-        <strong>NO FOCUS</strong>
-        <span>Click the game window</span>
+        <strong>No focus</strong>
+        <span>Click the game window to carry on</span>
       </div>
       <div class="count" id="count" hidden>3</div>
     </div>
 
     <div class="strip" id="strip">
       <span class="read" id="strip-time">0:00 / 0:00</span>
-      <span class="lab" id="strip-note">&#8212;</span>
+      <span class="lab" id="strip-note">No file</span>
     </div>
 
     <footer class="deck" id="transport">
@@ -47,28 +47,30 @@
       <span class="lab" id="t-count">0/0</span>
     </footer>
 
+    <!-- Every label here is the one Settings > Overlay uses for the same thing,
+         so the two places never read as two different features. -->
     <div class="panel" id="menu" hidden>
       <div class="cell">
-        <span class="lab">SIZE</span>
-        <div class="modeseg" id="m-mode" role="radiogroup" aria-label="Size">
-          <button type="button" data-mode="full" role="radio" aria-checked="true">FULL</button>
-          <button type="button" data-mode="slim" role="radio" aria-checked="false">SLIM</button>
-          <button type="button" data-mode="mini" role="radio" aria-checked="false">MINI</button>
+        <span class="lab" id="m-mode-label">Size</span>
+        <div class="modeseg" id="m-mode" role="radiogroup" aria-labelledby="m-mode-label">
+          <button type="button" data-mode="full" role="radio" aria-checked="true">Full</button>
+          <button type="button" data-mode="slim" role="radio" aria-checked="false">Slim</button>
+          <button type="button" data-mode="mini" role="radio" aria-checked="false">Mini</button>
         </div>
       </div>
       <div class="cell">
-        <span class="lab">FADE</span>
-        <input type="range" id="m-opacity" min="20" max="100" step="5" value="92" aria-label="Opacity" />
+        <label class="lab" for="m-opacity">Opacity</label>
+        <input type="range" id="m-opacity" min="20" max="100" step="1" value="92" />
         <output class="read" id="m-opacity-val">92%</output>
       </div>
       <div class="cell">
-        <span class="lab">AHEAD</span>
-        <input type="range" id="m-lookahead" min="1" max="10" step="0.5" value="3" aria-label="Seconds visible" />
-        <output class="read" id="m-lookahead-val">3.0s</output>
+        <label class="lab" for="m-lookahead">Look ahead</label>
+        <input type="range" id="m-lookahead" min="1" max="12" step="0.5" value="3" />
+        <output class="read" id="m-lookahead-val">3s</output>
       </div>
       <div class="cell">
-        <span class="lab">PARK</span>
-        <div class="pad" id="m-snap" role="group" aria-label="Move to a corner">
+        <span class="lab" id="m-snap-label">Park</span>
+        <div class="pad" id="m-snap" role="group" aria-labelledby="m-snap-label">
           <button type="button" data-snap="top-left" aria-label="Top left"></button>
           <button type="button" data-snap="top-center" aria-label="Top centre"></button>
           <button type="button" data-snap="top-right" aria-label="Top right"></button>
@@ -82,17 +84,16 @@
       </div>
 
       <div class="switches">
-        <label><input type="checkbox" id="m-click" /> Click through <kbd>^&#8997;P</kbd></label>
-        <label><input type="checkbox" id="m-lock" /> Lock</label>
-        <label><input type="checkbox" id="m-keys" checked /> Keyboard</label>
-        <label><input type="checkbox" id="m-transport" checked /> Buttons</label>
-        <label><input type="checkbox" id="m-autoshow" checked /> Open on play</label>
-        <label><input type="checkbox" id="m-autohide" checked /> Hide on finish</label>
+        <label><input type="checkbox" id="m-autoshow" checked /> Open when playback starts</label>
+        <label><input type="checkbox" id="m-autohide" checked /> Hide when playback ends</label>
+        <label><input type="checkbox" id="m-click" /> Click through</label>
+        <label><input type="checkbox" id="m-lock" /> Lock in place</label>
+        <label><input type="checkbox" id="m-keys" checked /> Show keyboard</label>
+        <label><input type="checkbox" id="m-transport" checked /> Show transport buttons</label>
       </div>
-      <p class="note">Click-through hands every click to the game underneath. <kbd>Ctrl+Alt+P</kbd> takes it back.</p>
+      <p class="note">Click through sends clicks to the game. <kbd>Ctrl+Alt+P</kbd> turns it off.</p>
     </div>
 
-    <span class="plate" aria-hidden="true">PERCH</span>
     <span class="grip" id="grip" aria-hidden="true"></span>
   </div>
 

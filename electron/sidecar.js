@@ -44,6 +44,26 @@ class PlayerSidecar {
 
   isAlive() { return !!(this._proc && this._proc.exitCode === null && !this._proc.killed); }
 
+  // Which engine the live process is: 'rust' | 'python' | '' (none running).
+  running() { return this.isAlive() ? (this._tag === 'rs' ? 'rust' : 'python') : ''; }
+
+  // Stop the current process, wait for it to exit, and start again with
+  // whatever the settings say now. For a deliberate engine switch, so the exit
+  // is not reported as a crash (see the exit handler).
+  async restart() {
+    if (this._startPromise) { try { await this._startPromise; } catch (_) {} }
+    const proc = this._proc;
+    if (proc && proc.exitCode === null) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 3000);
+        proc.once('exit', () => { clearTimeout(timer); resolve(); });
+        this.kill();
+      });
+    }
+    this._lastError = '';
+    return this.start();
+  }
+
   async start() {
     if (this.isAlive()) return;
     // In-flight guard: rapid send()-triggered restarts must not spawn N sidecars.
@@ -120,7 +140,7 @@ class PlayerSidecar {
   }
 
   _bind(child, launchCmd, tag = 'py') {
-    this._proc = child; this._buf = ''; this._stderrTail = ''; this._lastError = '';
+    this._proc = child; this._tag = tag; this._buf = ''; this._stderrTail = ''; this._lastError = '';
     // Its executable lives inside the install folder, so a leftover copy makes
     // the next installer refuse with "MIDI Studio cannot be closed".
     try { require('./forge-runner').trackPid(child.pid); } catch (_) {}
@@ -157,9 +177,12 @@ class PlayerSidecar {
       }
       // Without this the renderer never learns playback ended: Play stays
       // disabled and the queue stays locked until the whole app is restarted.
-      this._onEvent({ event: 'playback_done', crashed: true });
+      // A kill we asked for (quit, or an engine switch, which only happens
+      // with nothing playing) is not a crash and must not be shown as one.
+      if (!this._killing) this._onEvent({ event: 'playback_done', crashed: true });
       try { require('./forge-runner').untrackPid(child.pid); } catch (_) {}
-      this._proc = null; this._killing = false;
+      if (this._proc === child) { this._proc = null; this._tag = ''; }
+      this._killing = false;
     });
   }
 

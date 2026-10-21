@@ -27,9 +27,14 @@
   'use strict';
 
   // 16 MIDI channels, one hue each. A single user colour overrides all of them.
+  // Channel 1 is null here: it is the theme accent (--accent), read in
+  // _buildPalette, so it follows the presets and a custom colour. The other
+  // fifteen keep clear of mint (nothing closer than the two neutral greys), and
+  // every one of them, dimmed to its idle body, holds at least 3.5:1 against
+  // --surface and 4:1 against --bg-2.
   var CHANNEL_COLORS = [
-    '#b8e62e', '#ff7a7a', '#7affb8', '#ffc857', '#c87aff', '#ff7adc', '#7adcff', '#ffff82',
-    '#82ffff', '#ff82c8', '#c8ff82', '#c8c8c8', '#ffa500', '#b4b4ff', '#82b482', '#dcdcdc'
+    null,      '#f08a8a', '#f2b26e', '#8fa8f5', '#c29af0', '#ef8cc8', '#74bdf2', '#e8dc7a',
+    '#e46a78', '#d8c3a5', '#d77ae0', '#c3cbc9', '#c89a5a', '#7f93c8', '#b07aa8', '#e2e8e5'
   ];
   var LOOKAHEAD = 3.0;        // seconds of music visible above the keys at 1x
 
@@ -38,10 +43,11 @@
   var IS_BLACK = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0];
   var WHITE_PC = [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1];
 
+  // Only used when Tokens is missing; the same values as tokens.css.
   var FALLBACK = {
-    roll: '#0f1013', grid: '#1f2126', pitch: '#16181d',
-    key: '#e8e9ea', keyInk: '#141519', black: '#16181d', blackInk: '#c2c5cb',
-    line: '#2b2e36', accent: '#b8e62e'
+    roll: '#0d1112', grid: '#2a3235', pitch: '#191e20',
+    key: '#edf2ef', keyInk: '#111516', black: '#191e20', blackInk: '#a6b2b3',
+    line: '#2a3235', accent: '#9cdbbb'
   };
 
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -136,7 +142,7 @@
       accent: tok('accent', FALLBACK.accent)
     };
     for (var ch = 0; ch < 16; ch++) {
-      var base = this.noteColor || CHANNEL_COLORS[ch % CHANNEL_COLORS.length];
+      var base = this.noteColor || CHANNEL_COLORS[ch % CHANNEL_COLORS.length] || this._pal.accent;
       this._body[ch] = dim(base, 0.82);
       this._bodyActive[ch] = base;
       this._cap[ch] = lift(base, 0.28);
@@ -432,7 +438,7 @@
       var g = ctx.createLinearGradient(0, hitY - 12, 0, hitY + 1);
       var a = this._pal.accent;
       var rgba = global.Tokens && global.Tokens.parseColor ? global.Tokens.parseColor(a) : null;
-      var head = rgba ? 'rgba(' + rgba[0] + ',' + rgba[1] + ',' + rgba[2] + ',' : 'rgba(184,230,46,';
+      var head = rgba ? 'rgba(' + rgba[0] + ',' + rgba[1] + ',' + rgba[2] + ',' : 'rgba(156,219,187,';
       g.addColorStop(0, head + '0)');
       g.addColorStop(1, head + '0.3)');
       this._hitGrad = g;

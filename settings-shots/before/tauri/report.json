@@ -1,0 +1,27 @@
+{
+  "host": "tauri",
+  "notes": [
+    "host tauri",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\player.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\player-visualizer.png",
+    "panes appearance,playback,performance,forge,storage,updates,overlay,about",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\settings-appearance.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\settings-playback.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\settings-performance.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\settings-forge.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\settings-storage.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\settings-updates.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\settings-overlay.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\settings-overlay-2.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\settings-about.png",
+    "about runtime row: \"Electron\\n—\"",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\perch.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\perch-menu.png",
+    "perch labels: [\"SIZE 11px\",\"FULL 10px\",\"SLIM 10px\",\"MINI 10px\",\"FADE 11px\",\"AHEAD 11px\",\"PARK 11px\",\"Click through ^⌥P 11px\",\"Lock 11px\",\"Keyboard 11px\",\"Buttons 11px\",\"Open on play 11px\",\"Hide on finish 11px\"]",
+    "perch text sizes: {\"11px\":17,\"12px\":1,\"10px\":6,\"56px\":1,\"15px\":1,\"8px\":1}",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\perch-slim.png",
+    "shot C:\\Users\\stars\\claude\\midi-studio\\.claude\\worktrees\\agent-a1d63efaa0bb5719a\\settings-shots\\before\\tauri\\perch-mini.png",
+    "engine events seen: [\"ready\"]"
+  ],
+  "errors": []
+}

@@ -491,6 +491,37 @@ function windowState() {
 }
 function sendWindowState() { sendToRenderer('window-state', windowState()); }
 
+// ---- Player engine choice (Settings > Engines) --------------------------------
+// settings.player.engine picks the sidecar; MIDI_PLAYER_ENGINE overrides it
+// (sidecar.js _engineChoice). A switch restarts the sidecar, but never under a
+// song that is playing: that would stop it mid-phrase with keys held down.
+let pendingEngineRestart = false;
+function playerEngineInfo() {
+  const env = String(process.env.MIDI_PLAYER_ENGINE || '').trim().toLowerCase();
+  const chosen = String((settings && settings.get('player.engine')) || 'python').toLowerCase() === 'rust' ? 'rust' : 'python';
+  const running = sidecar ? sidecar.running() : '';
+  const dry = /^(?!0$).+/.test(String(process.env.MIDI_PLAYER_DRY_RUN || ''));
+  return {
+    builtIn: false,
+    chosen,
+    override: env ? (env === 'rust' ? 'rust' : 'python') : '',
+    rustAvailable: !!paths.rustPlayerExe(),
+    running,
+    // Only player-rs honours MIDI_PLAYER_DRY_RUN; ipc_main.py has no dry run.
+    dryRun: dry && running === 'rust',
+    pending: pendingEngineRestart,
+  };
+}
+async function restartPlayerEngine() {
+  if (!sidecar) return;
+  if (playbackActive) { pendingEngineRestart = true; return; }
+  pendingEngineRestart = false;
+  lastReady = null;
+  blog('player engine: restarting for ' + playerEngineInfo().chosen);
+  try { await sidecar.restart(); }
+  catch (e) { broadcast('engine-error', `Player engine failed to start: ${(e && e.message) || e}`); }
+}
+
 // ---- services ---------------------------------------------------------------
 function createServices() {
   // Make user mappings persistent (AppData) and tell the player engine where
@@ -516,6 +547,8 @@ function createServices() {
       if (ev === 'playback_started') setPlaybackActive(true);
       if (ev === 'playback_done' || ev === 'error') setPlaybackActive(false);
       broadcast('engine-event', payload);
+      // An engine switch asked for mid-song waits for the song to end.
+      if (ev === 'playback_done' && pendingEngineRestart) setTimeout(restartPlayerEngine, 0);
     },
     onError: (msg) => broadcast('engine-error', msg),
   });
@@ -1121,6 +1154,25 @@ function wireIpc() {
 
   ipcMain.handle('app:openExternal', (_e, url) => (/^https?:\/\//i.test(String(url)) ? shell.openExternal(url) : null));
   ipcMain.handle('app:version', () => app.getVersion());
+  // Settings > About and Settings > Engines: which host this is, and which
+  // Player engine it is running. The Tauri host answers the same channel.
+  ipcMain.handle('app:runtime', () => ({
+    host: 'electron',
+    versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
+    player: playerEngineInfo(),
+  }));
+  ipcMain.handle('app:setPlayerEngine', async (_e, engine) => {
+    const want = String(engine || '').toLowerCase();
+    if (want !== 'rust' && want !== 'python') return playerEngineInfo();
+    settings.merge({ player: { engine: want } });
+    const info = playerEngineInfo();
+    // An override decides on its own; otherwise only restart if the live
+    // process is not already the engine that would be chosen.
+    const effective = info.override || (want === 'rust' && !info.rustAvailable ? 'python' : want);
+    if (!info.override && info.running !== effective) await restartPlayerEngine();
+    else if (!info.override && pendingEngineRestart) pendingEngineRestart = false;
+    return playerEngineInfo();
+  });
   // The release name is package.json's, not Electron's, so it comes from there.
   ipcMain.handle('app:release', () => releaseName());
 

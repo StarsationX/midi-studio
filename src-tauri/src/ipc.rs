@@ -189,6 +189,24 @@ fn whats_new(app: &AppHandle, h: &Host) -> Value {
     })
 }
 
+/// Settings > Engines: the Player engine is player-rs, in-process, always.
+/// The shape is electron/main.js playerEngineInfo()'s.
+fn player_engine(h: &Host) -> Value {
+    json!({
+        "builtIn": true, "chosen": "rust", "override": "", "rustAvailable": true,
+        "running": "rust", "dryRun": h.engine.dry_run(), "pending": false,
+    })
+}
+
+/// Settings > About: this host and the WebView2 runtime under it.
+fn runtime(h: &Host) -> Value {
+    json!({
+        "host": "tauri",
+        "versions": {"tauri": tauri::VERSION, "webview2": tauri::webview_version().unwrap_or_default()},
+        "player": player_engine(h),
+    })
+}
+
 fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Result<Value, String> {
     let h: Arc<Host> = app.state::<Arc<Host>>().inner().clone();
     let a0 = args.first().cloned().unwrap_or(Value::Null);
@@ -301,6 +319,9 @@ fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Result<Value, Str
         // ---- app info ----------------------------------------------------------
         "app:version" => json!(app.package_info().version.to_string()),
         "app:release" => json!(release_name()),
+        "app:runtime" => runtime(&h),
+        // There is nothing to switch to here; answer with the engine there is.
+        "app:setPlayerEngine" => player_engine(&h),
         "app:changelog" => json!({"ok": true, "file": "CHANGELOG.md (embedded)", "text": CHANGELOG}),
         "app:whatsNew" => whats_new(app, &h),
         "app:notesShown" => {

@@ -33,6 +33,38 @@ let cfg = {
 // Painting
 // ---------------------------------------------------------------------------
 
+// "3s", "3.5s": the same reading Settings > Overlay shows for the same value.
+function fmtSeconds(v) {
+  const n = Math.round(Number(v) * 2) / 2;
+  return (Number.isInteger(n) ? String(n) : n.toFixed(1)) + 's';
+}
+
+// ---------------------------------------------------------------------------
+// Theme
+// ---------------------------------------------------------------------------
+// Perch is its own window, so the shell's skinFrame() never reaches it. The
+// shell keeps the current preset and any custom accent in localStorage; both
+// windows share the origin, so the value is here on first paint and the
+// storage event brings every later change (Electron and WebView2 alike).
+const SKIN_KEY = 'midi-studio:skin';
+const ACCENT_KEYS = ['--accent', '--accent-2', '--accent-deep', '--accent-ink', '--accent-soft', '--accent-line', '--ok'];
+function applySkin(raw) {
+  let skin = null;
+  try { skin = raw ? JSON.parse(raw) : null; } catch (_) { skin = null; }
+  const theme = (skin && typeof skin.theme === 'string') ? skin.theme : '';
+  if (theme) root.dataset.theme = theme; else delete root.dataset.theme;
+  const vars = skin && skin.vars && typeof skin.vars === 'object' ? skin.vars : null;
+  for (const k of ACCENT_KEYS) {
+    const v = vars && typeof vars[k] === 'string' ? vars[k] : '';
+    if (v) root.style.setProperty(k, v); else root.style.removeProperty(k);
+  }
+  if (window.Tokens) window.Tokens.refresh();
+}
+// Channel 1 and the hit line are the accent, so the roll repaints with it.
+if (window.Tokens) window.Tokens.onChange(() => viz.retheme());
+try { applySkin(localStorage.getItem(SKIN_KEY)); } catch (_) {}
+window.addEventListener('storage', (e) => { if (e.key === SKIN_KEY) applySkin(e.newValue); });
+
 function fmtClock(sec) {
   if (!Number.isFinite(sec) || sec < 0) sec = 0;
   const m = Math.floor(sec / 60);
@@ -58,12 +90,12 @@ function paintChrome() {
   $('t-play').innerHTML = Icon.svg(go ? 'pause' : 'play', go ? 12 : 13);
   $('t-play').title = go ? 'Pause' : 'Play';
   $('t-play').setAttribute('aria-label', go ? 'Pause' : 'Play');
-  $('song').textContent = songName || 'NO FILE';
+  $('song').textContent = songName || 'No file';
   $('song').title = songName || '';
   $('t-count').textContent = `${playedCount}/${totalNotes}`;
-  // The strip is the whole readout in slim mode, so it cannot sit on an em dash
-  // until the first note lands.
-  $('strip-note').textContent = totalNotes ? `${playedCount}/${totalNotes} notes` : 'no file';
+  // The strip is the whole readout in slim mode, so it cannot sit on an empty
+  // placeholder until the first note lands.
+  $('strip-note').textContent = totalNotes ? `${playedCount}/${totalNotes} notes` : 'No file';
 }
 
 let lastFrameAt = 0;
@@ -112,7 +144,7 @@ function applyConfig(next) {
   $('m-opacity').value = Math.round(cfg.opacity * 100);
   $('m-opacity-val').textContent = Math.round(cfg.opacity * 100) + '%';
   $('m-lookahead').value = cfg.lookahead;
-  $('m-lookahead-val').textContent = Number(cfg.lookahead).toFixed(1) + 's';
+  $('m-lookahead-val').textContent = fmtSeconds(cfg.lookahead);
   $('m-click').checked = !!cfg.clickThrough;
   $('m-lock').checked = !!cfg.locked;
   $('m-keys').checked = cfg.showKeys !== false;

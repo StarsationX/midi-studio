@@ -229,7 +229,7 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     ok(contract.includes('`' + key + '`'), `CONTRACT 9.3 claims ${key}`);
   }
 
-  // The rewritten settings sheet: #set-nav + eight .set-pane sections. The four
+  // The rewritten settings sheet: #set-nav + nine .set-pane sections. The four
   // Forge layouts and their picker (#s-forge-layout) are gone on purpose, and
   // the old #snav is now #set-nav, so neither may come back.
   const shell = fsx.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
@@ -239,8 +239,59 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(!shell.includes('id="s-forge-layout"'), 'the removed Forge layout picker has not come back');
   const panes = (shell.match(/class="set-pane[^"]*" data-pane=/g) || []).length;
   const navs = (shell.match(/data-pane="[a-z]+"/g) || []).length;
-  ok(panes === 8, `settings has 8 panes (found ${panes})`);
+  ok(panes === 9, `settings has 9 panes (found ${panes})`);
   ok(navs === panes * 2, `every settings pane has a nav button (${navs} refs for ${panes} panes)`);
+  ok(/data-pane="engines" role="tabpanel"/.test(shell), 'settings has an Engines pane');
+  // Every disclosure names the element it opens, and that element exists.
+  for (const m of shell.matchAll(/class="set-more"[^>]*aria-controls="([^"]+)"/g)) {
+    ok(shell.includes(`id="${m[1]}"`), `settings disclosure opens #${m[1]}`);
+  }
+  // The user asked for no em dashes in the copy.
+  const setBlock = shell.slice(shell.indexOf('id="set-scrim"'), shell.indexOf('id="wn-scrim"'));
+  ok(!/—|&#8212;|&mdash;/.test(setBlock), 'the settings sheet has no em dashes');
+}
+
+// ---- Perch and Settings > Overlay use the same words ----------------------------
+{
+  const fsx = require('fs');
+  const shell = fsx.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
+  const ov = fsx.readFileSync(path.join(root, 'renderer', 'overlay', 'overlay.html'), 'utf8');
+  const pane = shell.slice(shell.indexOf('data-pane="overlay" role="tabpanel"'), shell.indexOf('data-pane="performance" role="tabpanel"'));
+  const labels = [...ov.matchAll(/<input type="checkbox"[^>]*\/>\s*([^<]+?)\s*<\/label>/g)].map((m) => m[1].trim());
+  ok(labels.length === 6, `Perch has its six switches (${labels.length})`);
+  for (const l of labels) ok(pane.includes(`>${l}<`), `Perch's "${l}" is worded the same in Settings > Overlay`);
+  for (const l of ['Size', 'Opacity', 'Look ahead', 'Park']) {
+    ok(ov.includes(`>${l}</`) && pane.includes(`>${l}</`), `"${l}" is the same label in Perch and in Settings`);
+  }
+  // Nothing below the 12px floor, and no uppercase micro-labels.
+  const css = fsx.readFileSync(path.join(root, 'renderer', 'overlay', 'overlay.css'), 'utf8');
+  const small = [...css.matchAll(/font(?:-size)?:[^;]*?\b([0-9]+(?:\.[0-9]+)?)px/g)].map((m) => Number(m[1])).filter((n) => n < 12);
+  ok(small.length === 0, `Perch has no text under 12px (${small.join(', ')})`);
+  ok(!/text-transform:\s*uppercase/.test(css), 'Perch has no uppercase labels');
+}
+
+// ---- the visualizer's channel 1 is the theme accent ------------------------------
+{
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).concat(1);
+  let accent = '#123456';
+  const saved = globalThis.Tokens;
+  globalThis.Tokens = { get: (n, f) => (n === 'accent' ? accent : f), parseColor: hex, themeKey: () => accent };
+  try {
+    delete require.cache[require.resolve(path.join(root, 'renderer', 'player', 'visualizer.js'))];
+    const Viz = require(path.join(root, 'renderer', 'player', 'visualizer.js'));
+    const v = new Viz();
+    ok(v._bodyActive[0] === '#123456', `channel 1 is the accent (${v._bodyActive[0]})`);
+    accent = '#abcdef';
+    v.retheme();
+    ok(v._bodyActive[0] === '#abcdef', `channel 1 follows a theme change (${v._bodyActive[0]})`);
+    ok(v._bodyActive[1] !== '#abcdef', 'the other channels keep their own colours');
+    v.setStyle({ color: '#ff0000' });
+    ok(v._bodyActive[0] === '#ff0000' && v._bodyActive[5] === '#ff0000', 'a single note colour still overrides every channel');
+    const src = require('fs').readFileSync(path.join(root, 'renderer', 'player', 'visualizer.js'), 'utf8');
+    ok(!/#b8e62e/i.test(src), 'the visualizer has no hard-coded lime left');
+  } finally {
+    if (saved === undefined) delete globalThis.Tokens; else globalThis.Tokens = saved;
+  }
 }
 
 // Slow-machine races. A fast PC always wins these, so they only ever showed up

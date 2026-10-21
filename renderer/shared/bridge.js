@@ -240,6 +240,8 @@
       studio: {
         getVersion: c('app:version'),
         getRelease: c('app:release'),
+        runtime: c('app:runtime'),
+        setPlayerEngine: c('app:setPlayerEngine'),
         checkForUpdates: c('update:check'),
         applyUpdate: c('update:apply'),
         onUpdateStatus: on('update-status'),
