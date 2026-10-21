@@ -279,8 +279,13 @@ mod tests {
         cmd.args(["/c", "ping -n 30 127.0.0.1 >nul"]);
         let (mut child, in_job) = spawn_in_job(&mut cmd, &job, true).unwrap();
         assert!(in_job);
-        std::thread::sleep(std::time::Duration::from_millis(400));
-        let pids = job.pids();
+        // ping.exe starts whenever cmd gets scheduled; a fixed sleep raced it under load.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut pids = job.pids();
+        while pids.len() < 2 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            pids = job.pids();
+        }
         assert!(pids.contains(&child.id()), "{pids:?}");
         // ping.exe is a grandchild and must be in the job too.
         assert!(pids.len() >= 2, "{pids:?}");
