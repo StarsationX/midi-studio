@@ -76,8 +76,8 @@ def segment_frames(model, x, hop):
 
 
 def producer_cuda(model, frames, nSym, out_q):
-    # FORGE_FP32=1 (song_to_midi's strict switch): plain fp32, no TF32.
-    tf32 = os.environ.get("FORGE_FP32", "0") not in ("1", "true", "True", "yes")
+    # Plain fp32 unless FORGE_FP32=0 (song_to_midi's strict switch).
+    tf32 = os.environ.get("FORGE_FP32", "1") not in ("1", "true", "True", "yes")
     torch.backends.cuda.matmul.allow_tf32 = tf32
     torch.backends.cudnn.allow_tf32 = tf32
     gpu = model.cuda()
@@ -159,7 +159,7 @@ def main() -> int:
     frames = segment_frames(model, x, hop)
     nSym = len(model.targetMIDIPitch)
     print(f"Backend: {backend}, {len(frames)} segments"
-          + (f", batch {BATCH}, TF32" if backend == "cuda" else " (DirectML prefetch)"))
+          + (f", batch {BATCH}, {'fp32' if os.environ.get('FORGE_FP32', '1') in ('1', 'true', 'True', 'yes') else 'TF32'}" if backend == "cuda" else " (DirectML prefetch)"))
 
     # ~180 MB per queued segment; small bound keeps RAM flat while still
     # letting the GPU run ahead of the CPU decode.

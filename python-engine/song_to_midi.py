@@ -76,10 +76,10 @@ GENERAL_MODE = os.environ.get("GENERAL_MODE", "0") in ("1", "true", "True", "yes
 EXCLUDE_STEMS = [s.strip().lower() for s in
                  os.environ.get("EXCLUDE_STEMS", "drum,percussion").split(",") if s.strip()]
 EXCLUDE_VOCALS = os.environ.get("EXCLUDE_VOCALS", "0") in ("1", "true", "True", "yes")
-# FORGE_FP32=1: strict fp32 (MSST without fp16 autocast, no TF32 in MSST or
-# Transkun). Slower; the Rust engine always runs this way, so parity checks
-# compare against it.
-STRICT_FP32 = os.environ.get("FORGE_FP32", "0") in ("1", "true", "True", "yes")
+# Strict fp32 by default (MSST without fp16 autocast, no TF32 in MSST or
+# Transkun), same as the Rust engine: accuracy over speed. FORGE_FP32=0 brings
+# back the faster fp16/TF32 path.
+STRICT_FP32 = os.environ.get("FORGE_FP32", "1") in ("1", "true", "True", "yes")
 # Cap simultaneous notes (keep loudest per chord) for cleaner piano-key playback.
 MAX_POLYPHONY = int(os.environ.get("MAX_POLYPHONY", "0"))
 
