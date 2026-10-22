@@ -2,11 +2,11 @@
 
 Usage: transcribe_fast.py <audio> <out_midi>
 Env:   TRANSCRIBE_BACKEND=cuda|onnx_dml (default: cuda if available else onnx_dml)
-       TRANSCRIBE_BATCH=4   segments per CUDA forward (auto-halves on OOM)
+       TRANSCRIBE_BATCH=2   segments per CUDA forward (max 2, auto-halves on OOM)
        SEGMENT_HOP          segment hop seconds (segment size stays at model default)
 
-A producer thread runs the neural backbone ahead of time, on CUDA with TF32
-+ bf16 autocast and several segments per forward, on DirectML via the static
+A producer thread runs the neural backbone ahead of time, on CUDA in fp32
+with up to two segments per forward, on DirectML via the static
 ONNX graph one segment at a time, while the consumer runs transkun's stock
 `model.transcribe()` on CPU with `processFramesBatch` replaced by a queue pop.
 GPU compute and the CPU semi-CRF decode overlap, and the decode consumes
@@ -34,7 +34,11 @@ if str(ROOT) not in sys.path:
 _MODELS_BASE = Path(os.environ.get("MIDI_STUDIO_MODELS_DIR") or (ROOT / "models"))
 ONNX_PATH = _MODELS_BASE / "onnx" / "transkun_v2.onnx"
 SEGMENT_HOP = os.environ.get("SEGMENT_HOP")
-BATCH = max(1, int(os.environ.get("TRANSCRIBE_BATCH", "4")))
+# Capped at 2: the CPU decode is the bottleneck and 2 already keeps the queue
+# full. Batch 8 (the Performance setting's top) ran 3x slower on a 4 min song
+# and went past 7 GB of RAM: a bigger ring below, and a batch that outgrew the
+# free VRAM, which the NVIDIA driver spills into system RAM.
+BATCH = max(1, min(2, int(os.environ.get("TRANSCRIBE_BATCH", "2"))))
 
 _DONE = object()
 
@@ -83,6 +87,12 @@ def producer_cuda(model, frames, nSym, out_q):
     gpu = model.cuda()
     batch = BATCH
     i = 0
+    # Results land in a fixed ring of CPU buffers, reused round robin. A fresh
+    # ~230 MB .cpu() copy per segment, freed on the decode thread, was mostly
+    # kept by torch's allocator instead of going back to Windows: 9 GB of RAM
+    # for a 4 min song. A slot is reused only after the queue (maxsize items),
+    # the decode (1) and the copy in hand (1) have all moved past it.
+    ring, k = [], -1
     with torch.inference_mode():
         while i < len(frames):
             chunk = frames[i:i + batch]
@@ -96,9 +106,15 @@ def producer_cuda(model, frames, nSym, out_q):
                 ctx = ctx.float()
                 for b in range(fb.shape[0]):
                     # score/noise last dim is [nBatch*nSym] with sym fastest
-                    out_q.put((score[..., b * nSym:(b + 1) * nSym].cpu(),
-                               noise[..., b * nSym:(b + 1) * nSym].cpu(),
-                               ctx[b:b + 1].cpu()))
+                    parts = (score[..., b * nSym:(b + 1) * nSym],
+                             noise[..., b * nSym:(b + 1) * nSym],
+                             ctx[b:b + 1])
+                    k = (k + 1) % (out_q.maxsize + 3)
+                    if len(ring) <= k:
+                        ring.append(tuple(torch.empty(t.shape, dtype=t.dtype) for t in parts))
+                    for dst, src in zip(ring[k], parts):
+                        dst.copy_(src)
+                    out_q.put(ring[k])
                 i += fb.shape[0]
             except torch.cuda.OutOfMemoryError:
                 if batch == 1:
