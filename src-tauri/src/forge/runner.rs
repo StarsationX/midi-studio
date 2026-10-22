@@ -882,7 +882,9 @@ impl Runner {
                 if skip {
                     a.push("--skip-separation".into());
                 }
-                a.extend(["--python".into(), py.into_os_string()]);
+                // The host's Job Object owns the cap; forge-rs's own 7.5 GiB
+                // CLI default would otherwise still apply.
+                a.extend(["--python".into(), py.into_os_string(), "--mem-limit-gb".into(), "0".into()]);
                 a
             }
             None => vec![py.into_os_string(), engine_dir().join(script).into_os_string(), input.into(), audio_out.clone().into()],

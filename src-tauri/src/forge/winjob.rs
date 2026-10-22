@@ -5,10 +5,10 @@
 // it spawns can escape the job before it is in it. The job:
 //   * KILL_ON_JOB_CLOSE: when the host goes, however it goes, the whole tree
 //     goes with it. Electron needed taskkill /t and a pid file for that.
-//   * JOB_MEMORY: one cap for the tree together (7.5 GiB unless
-//     MIDI_STUDIO_FORGE_MEM_LIMIT_MB says otherwise; 0 turns it off). An
-//     allocation past it fails in the child (MemoryError) instead of paging
-//     the machine into the ground.
+//   * JOB_MEMORY: only when MIDI_STUDIO_FORGE_MEM_LIMIT_MB sets one (tests
+//     and dev runs; 0 or unset = no cap, like the Electron build). A fixed cap
+//     broke real jobs: CUDA's host-side commit counts against it, so a
+//     7.5 GiB cap turned into CUDA OOM on an 8 GB card.
 // Pause is NtSuspendProcess on every process in the job (forge-runner.js
 // reached the same call through PowerShell and only ever suspended the direct
 // child, so the Transkun grandchild kept the GPU busy), priority is
@@ -45,9 +45,8 @@ pub const DEFAULT_MEM_LIMIT: usize = 7 * (1 << 30) + (1 << 29);
 /// The cap every Forge job gets. None = no cap.
 pub fn mem_limit() -> Option<usize> {
     match std::env::var("MIDI_STUDIO_FORGE_MEM_LIMIT_MB").ok().and_then(|v| v.trim().parse::<usize>().ok()) {
-        Some(0) => None,
+        Some(0) | None => None,
         Some(mb) => Some(mb << 20),
-        None => Some(DEFAULT_MEM_LIMIT),
     }
 }
 
