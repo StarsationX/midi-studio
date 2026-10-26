@@ -123,3 +123,75 @@ def expand_velocities(notes, gamma: float = 0.85, floor: int = 10) -> None:
         d_new = sign * (abs(d) ** gamma)
         v_new = pivot + d_new * span
         n.velocity = max(floor, min(127, int(round(v_new))))
+
+
+# Transkun only knows a piano tuned to A440. An upright 41 cents sharp gave 201
+# notes where the in-tune copy gave 507: notes near halfway between two keys get
+# dropped. FORGE_RETUNE=0 turns the correction off.
+RETUNE_MIN_CENTS = 15.0
+
+
+def tuning_cents(y: np.ndarray, sr: int, fmin: float = 80.0, fmax: float = 1000.0) -> float:
+    """Offset from A440 in cents, in [-50, 50): the magnitude-weighted circular
+    mean of every spectral peak's distance to its nearest equal-tempered pitch."""
+    import scipy.signal as sg
+    # 16384-point frames for ~1.3 Hz bins at 22.05 kHz; a hop of half a frame
+    # keeps a 10 minute song's spectrogram near 100 MB.
+    f, _, z = sg.stft(y, sr, nperseg=16384, noverlap=8192)
+    lo, hi = np.searchsorted(f, fmin), np.searchsorted(f, fmax)
+    mag = np.abs(z[lo:hi])
+    acc = 0j
+    for col in mag.T:
+        top = col.max()
+        if top <= 0:
+            continue
+        for p in sg.find_peaks(col, height=top * 0.1)[0]:
+            if 0 < p < len(col) - 1:
+                a, b, c = np.log(col[p - 1:p + 2] + 1e-12)
+                den = a - 2 * b + c
+                hz = f[lo + p] + (0.5 * (a - c) / den if den else 0.0) * (f[1] - f[0])
+                acc += col[p] * np.exp(2j * np.pi * 12 * np.log2(hz / 440.0))
+    return 100.0 * np.angle(acc) / (2 * np.pi) if acc else 0.0
+
+
+def retune_for_transkun(wav: Path) -> tuple[Path, float]:
+    """An in-tune copy of `wav` next to it when it sits RETUNE_MIN_CENTS or more
+    off A440, plus the factor that maps the copy's note times back onto the
+    original; (wav, 1.0) when it is close enough or FORGE_RETUNE=0. The copy is
+    resampled, not pitch-shifted, so attacks stay intact (it plays a little
+    slower or faster, which the factor undoes)."""
+    if os.environ.get("FORGE_RETUNE", "1") in ("0", "false", "False", "no"):
+        return wav, 1.0
+    import soundfile as sf
+    import soxr
+    audio, sr = sf.read(str(wav), dtype="float32", always_2d=True)
+    cents = tuning_cents(soxr.resample(audio.mean(axis=1), sr, 22050), 22050)
+    if abs(cents) < RETUNE_MIN_CENTS:
+        print(f"  tuning {cents:+.0f} cents from A440, close enough")
+        return wav, 1.0
+    ratio = 2.0 ** (-cents / 1200.0)
+    out = wav.with_name(wav.stem + "_tuned.wav")
+    sf.write(str(out), soxr.resample(audio, sr, sr / ratio), sr)
+    print(f"  tuning {cents:+.0f} cents from A440, retuned for transcription")
+    return out, ratio
+
+
+def scale_midi_times(midi_path: Path, ratio: float) -> None:
+    """Multiply every event time in the file by `ratio` (retune_for_transkun's)."""
+    import pretty_midi
+    pm = pretty_midi.PrettyMIDI(str(midi_path))
+    end = pm.get_end_time()
+    if end > 0:
+        pm.adjust_times([0.0, end], [0.0, end * ratio])
+    pm.write(str(midi_path))
+
+
+if __name__ == "__main__":
+    # self-check: a sine 40 cents sharp of A4 reads as +40, A440 as 0
+    sr = 22050
+    t = np.arange(sr * 3) / sr
+    for want in (0.0, 40.0, -30.0):
+        y = np.sin(2 * np.pi * 440.0 * 2 ** (want / 1200) * t).astype(np.float32)
+        got = tuning_cents(y, sr)
+        assert abs(got - want) < 2, (want, got)
+    print("audio_utils self-check ok")

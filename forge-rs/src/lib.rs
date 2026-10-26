@@ -44,5 +44,6 @@ pub mod separate;
 pub mod stemmidi;
 pub mod stft;
 pub mod transcribe;
+pub mod tuning;
 
 pub use transcribe::{Note, Options, Transcriber};

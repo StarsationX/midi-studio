@@ -32,7 +32,8 @@ if Path(FFMPEG_SHARED_BIN).exists():
 import pretty_midi
 import torch
 
-from audio_utils import audio_window_from_env, expand_velocities, find_python, normalize_wav_in_place
+from audio_utils import (audio_window_from_env, expand_velocities, find_python, normalize_wav_in_place,
+                         retune_for_transkun, scale_midi_times)
 
 # sys.executable in dev = venv\Scripts\python.exe; in portable bundle = python\python.exe.
 PY = find_python()
@@ -280,6 +281,7 @@ def transcribe_to_midi(piano_wav: Path, out_midi: Path) -> None:
     backend = _resolve_transcribe_backend()
     print(f"\n[2/3] Transcribing with Transkun V2 (SOTA piano MIDI), {backend}")
     t0 = time.time()
+    piano_wav, ratio = retune_for_transkun(piano_wav)
     env = os.environ
     if backend in ("cuda", "onnx_dml"):
         # Pipelined backbone (batched TF32 on CUDA / prefetch on DirectML)
@@ -297,8 +299,12 @@ def transcribe_to_midi(piano_wav: Path, out_midi: Path) -> None:
         if SEGMENT_SIZE:
             cmd += ["--segmentSize", SEGMENT_SIZE]
     rc = subprocess.run(cmd, check=False, env=env).returncode
+    if ratio != 1.0:
+        piano_wav.unlink(missing_ok=True)
     if rc != 0:
         raise RuntimeError(f"Transkun failed with exit code {rc}")
+    if ratio != 1.0:
+        scale_midi_times(out_midi, ratio)
     print(f"  done in {time.time() - t0:.1f}s")
 
 

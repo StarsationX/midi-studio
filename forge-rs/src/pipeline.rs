@@ -532,7 +532,24 @@ fn transcribe(paths: &AssetPaths, a: &Audio, args: &Args, knobs: &Knobs, ep: Ep)
         Err(e) => return Err(e),
     };
     tr.progress = Some(Box::new(|done, total| say!("TSEG|{done}|{total}")));
-    let (notes, t) = tr.transcribe_audio(a, &opts, &Dump::none())?;
+    let tuned = match crate::tuning::retune(a)? {
+        None => None,
+        Some((cents, None)) => {
+            say!("  tuning {:+.0} cents from A440, close enough", cents);
+            None
+        }
+        Some((cents, Some(t))) => {
+            say!("  tuning {:+.0} cents from A440, retuned for transcription", cents);
+            Some(t)
+        }
+    };
+    let (mut notes, t) = tr.transcribe_audio(tuned.as_ref().map_or(a, |(x, _)| x), &opts, &Dump::none())?;
+    if let Some((_, ratio)) = tuned {
+        for n in &mut notes {
+            n.start *= ratio;
+            n.end *= ratio;
+        }
+    }
     eprintln!(
         "[timing] transkun {:.2}s = load {:.2} + resample {:.2} + frontend {:.2} + backbone {:.2} + decode/heads {:.2} ({} segments, {})",
         t.total_s + tr.load_s,

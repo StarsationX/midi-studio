@@ -26,7 +26,8 @@ if Path(FFMPEG_SHARED_BIN).exists():
 import pretty_midi
 import torch
 
-from audio_utils import audio_window_from_env, expand_velocities, find_python, load_normalize_save
+from audio_utils import (audio_window_from_env, expand_velocities, find_python, load_normalize_save,
+                         retune_for_transkun, scale_midi_times)
 
 PY = find_python()
 
@@ -137,11 +138,18 @@ def main() -> int:
 
         print(f"Transcribing with Transkun V2: {src.name}")
         t0 = time.time()
-        cmd = transkun_cmd(backend, transcribe_src, out_midi)
-        rc = subprocess.run(cmd, check=False).returncode
+        tuned_src, ratio = retune_for_transkun(transcribe_src)
+        try:
+            cmd = transkun_cmd(backend, tuned_src, out_midi)
+            rc = subprocess.run(cmd, check=False).returncode
+        finally:
+            if ratio != 1.0:
+                tuned_src.unlink(missing_ok=True)
         if rc != 0:
             print(f"Transkun failed with exit code {rc}")
             return rc
+        if ratio != 1.0:
+            scale_midi_times(out_midi, ratio)
         print(f"  done in {time.time() - t0:.1f}s")
 
         before, after = clean_midi(out_midi)
