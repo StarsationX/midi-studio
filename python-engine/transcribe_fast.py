@@ -177,9 +177,9 @@ def main() -> int:
     print(f"Backend: {backend}, {len(frames)} segments"
           + (f", batch {BATCH}, {'fp32' if os.environ.get('FORGE_FP32', '1') in ('1', 'true', 'True', 'yes') else 'TF32'}" if backend == "cuda" else " (DirectML prefetch)"))
 
-    # ~180 MB per queued segment; small bound keeps RAM flat while still
-    # letting the GPU run ahead of the CPU decode.
-    out_q = queue.Queue(maxsize=BATCH + 2)
+    # ~230 MB per queued segment (and per ring slot). The CPU decode is the
+    # slow side, so one segment waiting is enough: 2.45 GB peak vs 3.1 GB at 4.
+    out_q = queue.Queue(maxsize=1)
     # CUDA gets its own weight copy on GPU; the CPU copy keeps serving the
     # decode heads (model.cuda() would otherwise move it in place).
     producer_model = load_model() if backend == "cuda" else model
