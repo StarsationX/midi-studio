@@ -138,6 +138,16 @@ pub fn rust_blocker(pipeline: &str, env: &EnvMap, skip: bool) -> Option<String> 
     None
 }
 
+/// A ready probe that would still put the job on the CPU of a machine with an
+/// NVIDIA card (no onnxruntime-gpu next to forge-rs): Python's CUDA beats Rust
+/// on the CPU by minutes a song. With no NVIDIA driver both are CPU-bound.
+pub fn cpu_blocker(probe: &Value) -> Option<String> {
+    probe["whyCpu"]
+        .as_str()
+        .filter(|w| !w.is_empty() && *w != "no NVIDIA driver")
+        .map(|w| format!("the Rust engine would run on the CPU here ({w})"))
+}
+
 /// `forge-rs probe`: loads nothing, answers in well under a second. Err is a
 /// reason a person can read. With a mode, `ready` covers only the models
 /// that job needs.
@@ -902,7 +912,10 @@ impl Runner {
             None => match fpaths::forge_rs_exe() {
                 None => "this build does not include the Rust engine".into(),
                 Some(exe) => match probe_rust_for(&exe, env, Some((pipeline, skip))) {
-                    Ok(_) => return Some(exe),
+                    Ok(v) => match cpu_blocker(&v) {
+                        Some(why) => why,
+                        None => return Some(exe),
+                    },
                     Err(e) => format!("the Rust engine is not ready ({e})"),
                 },
             },
@@ -1385,6 +1398,14 @@ mod tests {
         assert_eq!(ev[1]["result"]["downloadedPath"], "C:\\Users\\me\\Music\\Song.mp3");
         assert!(p.exit(Some(0), false).is_empty());
         assert_eq!(YtParser::new("y").exit(Some(1), false)[0]["error"], "exit code 1");
+    }
+
+    #[test]
+    fn rust_on_cpu_with_an_nvidia_card_stays_on_python() {
+        assert_eq!(cpu_blocker(&json!({"ep": "cuda", "whyCpu": ""})), None);
+        assert_eq!(cpu_blocker(&json!({"ep": "cpu", "whyCpu": "no NVIDIA driver"})), None);
+        let why = cpu_blocker(&json!({"ep": "cpu", "whyCpu": "onnxruntime-gpu 1.22 not found"})).unwrap();
+        assert!(why.contains("would run on the CPU") && why.contains("onnxruntime-gpu"), "{why}");
     }
 
     #[test]

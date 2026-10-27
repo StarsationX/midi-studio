@@ -125,7 +125,7 @@ def expand_velocities(notes, gamma: float = 0.85, floor: int = 10) -> None:
         n.velocity = max(floor, min(127, int(round(v_new))))
 
 
-# Transkun only knows a piano tuned to A440. An upright 41 cents sharp gave 201
+# Transkun (and basic-pitch) only know A440 tuning. An upright 41 cents sharp gave 201
 # notes where the in-tune copy gave 507: notes near halfway between two keys get
 # dropped. FORGE_RETUNE=0 turns the correction off.
 RETUNE_MIN_CENTS = 15.0
@@ -154,7 +154,7 @@ def tuning_cents(y: np.ndarray, sr: int, fmin: float = 80.0, fmax: float = 1000.
     return 100.0 * np.angle(acc) / (2 * np.pi) if acc else 0.0
 
 
-def retune_for_transkun(wav: Path) -> tuple[Path, float]:
+def retune_to_a440(wav: Path) -> tuple[Path, float]:
     """An in-tune copy of `wav` next to it when it sits RETUNE_MIN_CENTS or more
     off A440, plus the factor that maps the copy's note times back onto the
     original; (wav, 1.0) when it is close enough or FORGE_RETUNE=0. The copy is
@@ -176,13 +176,22 @@ def retune_for_transkun(wav: Path) -> tuple[Path, float]:
     return out, ratio
 
 
+def scale_pm_times(pm, ratio: float) -> None:
+    """Multiply every note, bend and controller time by `ratio`
+    (retune_to_a440's). The tempo map stays as it is, unlike adjust_times,
+    so both engines write the same header."""
+    for inst in pm.instruments:
+        for n in inst.notes:
+            n.start *= ratio
+            n.end *= ratio
+        for e in (*inst.pitch_bends, *inst.control_changes):
+            e.time *= ratio
+
+
 def scale_midi_times(midi_path: Path, ratio: float) -> None:
-    """Multiply every event time in the file by `ratio` (retune_for_transkun's)."""
     import pretty_midi
     pm = pretty_midi.PrettyMIDI(str(midi_path))
-    end = pm.get_end_time()
-    if end > 0:
-        pm.adjust_times([0.0, end], [0.0, end * ratio])
+    scale_pm_times(pm, ratio)
     pm.write(str(midi_path))
 
 

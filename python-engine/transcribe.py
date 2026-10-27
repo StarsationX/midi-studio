@@ -27,7 +27,7 @@ import pretty_midi
 import torch
 
 from audio_utils import (audio_window_from_env, expand_velocities, find_python, load_normalize_save,
-                         retune_for_transkun, scale_midi_times)
+                         retune_to_a440, scale_midi_times)
 
 PY = find_python()
 
@@ -138,7 +138,7 @@ def main() -> int:
 
         print(f"Transcribing with Transkun V2: {src.name}")
         t0 = time.time()
-        tuned_src, ratio = retune_for_transkun(transcribe_src)
+        tuned_src, ratio = retune_to_a440(transcribe_src)
         try:
             cmd = transkun_cmd(backend, tuned_src, out_midi)
             rc = subprocess.run(cmd, check=False).returncode

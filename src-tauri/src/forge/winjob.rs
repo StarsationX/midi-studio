@@ -39,7 +39,8 @@ extern "system" {
     fn NtResumeProcess(process: HANDLE) -> i32;
 }
 
-/// 7.5 GiB, forge-rs memlimit's default.
+/// 7.5 GiB, forge-rs memlimit's default (tests only: real jobs run uncapped).
+#[cfg(test)]
 pub const DEFAULT_MEM_LIMIT: usize = 7 * (1 << 30) + (1 << 29);
 
 /// The cap every Forge job gets. None = no cap.

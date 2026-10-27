@@ -21,7 +21,7 @@ from basic_pitch import ICASSP_2022_MODEL_PATH
 from basic_pitch.inference import predict
 from scipy.signal import butter, sosfiltfilt
 
-from audio_utils import audio_window_from_env, load_normalize_save
+from audio_utils import audio_window_from_env, load_normalize_save, retune_to_a440, scale_pm_times
 import melody_shape as shaper
 import song_to_midi as song
 
@@ -167,13 +167,16 @@ def main() -> int:
     raw_midi = work_dir / "melody_raw.mid"
     print("\n[2/4] Detecting instrument-agnostic pitches")
     started = time.time()
+    bp_wav, ratio = retune_to_a440(norm_wav)
     _, midi_data, _ = predict(
-        str(norm_wav), model_or_model_path=ICASSP_2022_MODEL_PATH,
+        str(bp_wav), model_or_model_path=ICASSP_2022_MODEL_PATH,
         onset_threshold=BP_ONSET, frame_threshold=BP_FRAME,
         minimum_note_length=BP_MIN_NOTE_MS,
         minimum_frequency=pretty_midi.note_number_to_hz(MIN_PITCH),
         maximum_frequency=pretty_midi.note_number_to_hz(MAX_PITCH),
         multiple_pitch_bends=False, melodia_trick=True)
+    if ratio != 1.0:
+        scale_pm_times(midi_data, ratio)
     midi_data.write(str(raw_midi))
     print(f"  detected in {time.time() - started:.1f}s")
 

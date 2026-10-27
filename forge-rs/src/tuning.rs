@@ -81,6 +81,23 @@ pub fn retune(a: &Audio) -> Result<Option<(f64, Option<(Audio, f64)>)>> {
     Ok(Some((cents, Some((Audio { sample_rate: a.sample_rate, channels: a.channels, samples, kind: a.kind }, ratio)))))
 }
 
+/// audio_utils.scale_pm_times: every note, bend and controller time times
+/// `ratio`, tempo map untouched.
+pub fn scale_times(pm: &mut crate::pmidi::PrettyMidi, ratio: f64) {
+    for inst in &mut pm.instruments {
+        for n in &mut inst.notes {
+            n.start *= ratio;
+            n.end *= ratio;
+        }
+        for b in &mut inst.pitch_bends {
+            b.time *= ratio;
+        }
+        for c in &mut inst.control_changes {
+            c.time *= ratio;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

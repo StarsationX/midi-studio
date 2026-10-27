@@ -1009,6 +1009,17 @@ fn melody(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()> {
     say!("[2/4] Detecting instrument-agnostic pitches");
     let started = Instant::now();
     say!("Predicting MIDI for {}...", work.join("melody_norm.wav").display());
+    let (norm, ratio) = match crate::tuning::retune(&norm)? {
+        Some((cents, Some(t))) => {
+            say!("  tuning {:+.0} cents from A440, retuned for transcription", cents);
+            t
+        }
+        Some((cents, None)) => {
+            say!("  tuning {:+.0} cents from A440, close enough", cents);
+            (norm, 1.0)
+        }
+        None => (norm, 1.0),
+    };
     let y = crate::basicpitch::load_mono(&norm, crate::basicpitch::SAMPLE_RATE)?;
     drop(norm);
     let params = crate::basicpitch::Params {
@@ -1020,7 +1031,10 @@ fn melody(args: &Args, knobs: &Knobs, src: &Path, out: &Path) -> Result<()> {
         melodia_trick: true,
         midi_tempo: 120.0,
     };
-    let raw = crate::basicpitch::predict(&mut model, &y, &params)?;
+    let mut raw = crate::basicpitch::predict(&mut model, &y, &params)?;
+    if ratio != 1.0 {
+        crate::tuning::scale_times(&mut raw, ratio);
+    }
     let raw_bytes = raw.to_bytes()?;
     if knobs.keep_stems {
         std::fs::create_dir_all(&work)?;

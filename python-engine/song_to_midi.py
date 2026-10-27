@@ -33,7 +33,7 @@ import pretty_midi
 import torch
 
 from audio_utils import (audio_window_from_env, expand_velocities, find_python, normalize_wav_in_place,
-                         retune_for_transkun, scale_midi_times)
+                         retune_to_a440, scale_midi_times)
 
 # sys.executable in dev = venv\Scripts\python.exe; in portable bundle = python\python.exe.
 PY = find_python()
@@ -281,7 +281,7 @@ def transcribe_to_midi(piano_wav: Path, out_midi: Path) -> None:
     backend = _resolve_transcribe_backend()
     print(f"\n[2/3] Transcribing with Transkun V2 (SOTA piano MIDI), {backend}")
     t0 = time.time()
-    piano_wav, ratio = retune_for_transkun(piano_wav)
+    piano_wav, ratio = retune_to_a440(piano_wav)
     env = os.environ
     if backend in ("cuda", "onnx_dml"):
         # Pipelined backbone (batched TF32 on CUDA / prefetch on DirectML)
