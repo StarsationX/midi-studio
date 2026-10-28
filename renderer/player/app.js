@@ -2642,7 +2642,10 @@
     { id: 'player.clearQueue', label: 'Clear the queue', group: 'Player', run: () => $('queue-clear').click() },
     { id: 'player.songs', label: 'Browse all songs', group: 'Player', keywords: ['library', 'transcribed'], run: openSongs },
     // The bottom transport drives these two by id (section 11.4).
-    { id: 'player.repeat', label: 'Repeat the queue', group: 'Player', run: (arg) => setQueueLoop(arg === 'all' || arg === 'one' || arg === true) },
+    // The bar cycles off > all > one > off. The Player has no repeat-one, so
+    // 'one' is the step that turns it off: counting it as on (and reporting
+    // 'all' back) made the bar send 'one' forever and loop never went off.
+    { id: 'player.repeat', label: 'Repeat the queue', group: 'Player', run: (arg) => setQueueLoop(arg === 'all' || arg === true) },
     { id: 'player.transpose', label: 'Transpose', group: 'Player', run: (arg) => applyTranspose(Number(arg) || 0, false) }
   ]));
 
