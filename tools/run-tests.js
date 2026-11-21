@@ -81,9 +81,8 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   const conf = JSON.parse(rd('src-tauri/tauri.conf.json'));
   const bundle = JSON.parse(rd('src-tauri/tauri.bundle.json'));
   const code = hooks.split('\n').filter((l) => !/^\s*;/.test(l));
-  const kill = code.find((l) => /taskkill/i.test(l)) || '';
-  ok(/MAINBINARYNAME/.test(kill), 'Tauri hooks close the running app by its own image name');
-  ok(!/\/t\b/i.test(kill), 'Tauri hooks app-close does NOT use taskkill /t');
+  ok(!code.some((l) => /\btaskkill\b/i.test(l)) && /StrCpy \$MsSweepDir "\$INSTDIR"\s+Call MidiStudioSweep/.test(hooks),
+    'Tauri closes processes by install directory, not by image name or process tree');
   ok(/ExecutablePath\.StartsWith\(\$\$d,/.test(hooks) && /\+ '\\'/.test(hooks), 'the folder sweep matches the folder plus a backslash');
   ok(/\$\{If\} \$\{Silent\}\s*\n\s*\$\{AndIf\} \$ExistingForgeStorage != ""/.test(hooks), 'a silent Tauri install keeps an existing Forge choice');
   ok(/WriteRegStr HKCU "\$\{MS_FORGE_KEY\}"/.test(hooks) && /WriteRegStr HKLM "\$\{MS_FORGE_KEY\}"/.test(hooks), 'ForgeStorageDir goes to HKCU with the HKLM mirror');
@@ -94,13 +93,14 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   const unin = code.find((l) => /electron-uninstaller\.exe" \/S/.test(l)) || '';
   ok(/\/KEEP_APP_DATA/.test(unin) && /--updated/.test(unin) && !/delete-app-data/.test(hooks), 'the Electron uninstaller keeps app data');
   ok(hooks.indexOf('$appExe') < 0 && !/Exec(Wait)?\s+'?"?\$INSTDIR\\\$\{MAINBINARYNAME\}/.test(hooks), 'the Tauri hooks never launch the app');
-  ok((nsi.match(/; MIDI Studio:/g) || []).length === 5, 'installer.nsi keeps its marked changes');
+  ok(/Function RestorePreviousInstallLocation[\s\S]*?ReadRegStr \$4 SHCTX "\$\{MS_ELECTRON_INSTKEY\}" "InstallLocation"[\s\S]*?FunctionEnd/.test(nsi),
+    'install-mode changes restore the selected scope’s Electron folder');
   const mu = nsi.indexOf('!include MultiUser.nsh'), inc = nsi.indexOf('!include "{{installer_hooks}}"');
   ok(mu > 0 && inc > mu && inc < nsi.indexOf('Page custom PageReinstall'), 'hooks are included after MultiUser.nsh and before the pages');
   const dirPage = nsi.indexOf('!insertmacro MUI_PAGE_DIRECTORY');
   ok(dirPage > 0 && nsi.indexOf('!insertmacro MIDISTUDIO_FORGE_PAGE') > dirPage, 'the Forge page follows the directory page');
-  ok(/MIDISTUDIO_ONINIT_EARLY[\s\S]*SetContext[\s\S]*MULTIUSER_INIT[\s\S]*MIDISTUDIO_ONINIT_LATE/.test(nsi.slice(nsi.indexOf('Function .onInit'))),
-    '.onInit runs the Forge default before SetContext and the Electron follow-up after MULTIUSER_INIT');
+  ok(/MIDISTUDIO_ONINIT_EARLY[\s\S]*SetContext[\s\S]*MIDISTUDIO_READ_FORGE_STORAGE[\s\S]*MULTIUSER_INIT[\s\S]*MIDISTUDIO_ONINIT_LATE/.test(nsi.slice(nsi.indexOf('Function .onInit'))),
+    '.onInit reads Forge storage in the target registry view before following the Electron install scope');
   const nsis = conf.bundle.windows.nsis;
   ok(nsis.template === '../build/nsis/installer.nsi' && nsis.installerHooks === '../build/nsis/hooks.nsh', 'tauri.conf.json uses the custom template and hooks');
   ok(nsis.installMode === 'both', 'install scope is offered like the Electron installer');
@@ -182,8 +182,8 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     'the two legacy defaults are still treated as unset');
   // The cached env verdict is painted before the probe answers: probing imports
   // torch and takes tens of seconds.
-  ok(js.indexOf('localStorage.getItem(ENV_CACHE_KEY)') > 0
-    && js.indexOf('localStorage.getItem(ENV_CACHE_KEY)') < js.indexOf('await F.check()'),
+  ok(js.includes("ENV_CACHE_KEY + '.expressive'") && js.indexOf('localStorage.getItem(cacheKey)') > 0
+    && js.indexOf('localStorage.getItem(cacheKey)') < js.indexOf('await F.check('),
     'the cached engine verdict is read before the probe runs');
   // Seven stages, and the frame handshake that drains queued hand-offs.
   ok((html.match(/class="stg"/g) || []).length === 7, 'the progress checklist has seven stages');
@@ -220,8 +220,8 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/HISTORY_KEEP = \[/.test(js) && !/HISTORY_KEEP = \[[^\]]*onsets/.test(js)
     && !/HISTORY_KEEP = \[[^\]]*freshUntil/.test(js),
     'saveHistory persists an explicit field whitelist without onsets or freshUntil');
-  ok(/function onsetsFor\(it\)/.test(js) && /metaCache\.get\(lower\(it\.path\)\)/.test(js),
-    'the density strip reads onsets back out of metaCache');
+  ok(/function densityFor\(it\)/.test(js) && /metaCache\.get\(lower\(it\.path\)\)/.test(js),
+    'the density strip reads its histogram out of metaCache');
 
   // Invariant 20: the resize-edge zone exists only above 14px. A fixed 8px grab
   // on a narrow range made a click anywhere near it resolve to 'start', and an
@@ -417,6 +417,41 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
       ok(!/showError|errcard/.test(cancel[1]), 'a cancelled job shows no error card');
       ok(!/—/.test(cancel[1]), 'no em dashes in the cancel copy');
     }
+  }
+}
+
+// Forge notifications summarize the failure while Logs retain the complete diagnostic.
+{
+  const fsx = require('fs'), vm = require('vm');
+  const source = fsx.readFileSync(path.join(root, 'renderer', 'shell', 'shell.js'), 'utf8');
+  const notice = /function forgeFailureNotice\(error, download\) \{[\s\S]*?\r?\n  \}/.exec(source);
+  const handler = /function handleForgeStatus\(p\) \{[\s\S]*?\r?\n  \}/.exec(source);
+  ok(!!notice && !!handler, 'Forge notification handlers are findable');
+  if (notice && handler) {
+    const notices = [], logs = [];
+    const context = vm.createContext({ forgeJobs: new Map(), window: {}, Date,
+      syncForgeItem() {}, clearForged() {},
+      toast(value) { notices.push(value); }, logPush(value) { logs.push(value); }
+    });
+    vm.runInContext(notice[0] + '\n' + handler[0], context);
+    const send = context.handleForgeStatus;
+    send({ event: 'forge.job', jobId: 'download-1', kind: 'download', name: 'Score' });
+    const blocked = 'ERROR: [MuseScore] Unable to download webpage: HTTP Error 403: Forbidden\n[ERROR] DownloadError: ERROR: [MuseScore] Unable to download webpage\nHint: Open the score in your browser.';
+    send({ event: 'forge.done', jobId: 'download-1', ok: false, error: blocked });
+    ok(notices[0].title === 'Download failed', 'download kind selects the download failure title');
+    ok(notices[0].message === 'The site refused the download (HTTP 403). See Forge or Logs for details.', 'HTTP403 gets one complete actionable notification');
+    ok(logs[0] === 'Failed Score: ' + blocked, 'Logs keep every original diagnostic and hint');
+    send({ event: 'forge.done', jobId: 'yt-42', ok: false, error: 'ERROR: DownloadError: ERROR: Audio is unavailable' });
+    ok(notices[1].title === 'Download failed' && notices[1].message === 'Audio is unavailable. See Forge or Logs for details.', 'download ID fallback strips duplicate error prefixes');
+    send({ event: 'forge.done', jobId: 'forge-2', ok: false, error: 'No notes found.' });
+    ok(notices[2].title === 'Transcription failed' && notices[2].message === 'No notes found. See Forge or Logs for details.', 'transcription retains its title and complete short reason');
+    const long = 'A very long diagnostic ' + 'path-segment-'.repeat(30);
+    send({ event: 'forge.done', jobId: 'yt-43', ok: false, error: long });
+    ok(notices[3].message === 'See Forge or Logs for the complete error.' && logs[3].endsWith(long), 'long error is not cut mid-word and remains in Logs');
+    send({ event: 'forge.done', jobId: 'yt-44', ok: false, error: '' });
+    ok(notices[4].message === 'See Forge or Logs for the complete error.', 'empty diagnostics have clear fallback copy');
+    send({ event: 'forge.done', jobId: 'yt-45', ok: false, error: 'cancelled' });
+    ok(notices.length === 5 && logs[5] === 'Cancelled the job.', 'cancelled downloads still produce no failure notification');
   }
 }
 
@@ -843,7 +878,7 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   //   loops still running (what the app did)  0.005% renderer / 0.248% GPU
   //   loops parked        (what it does now)  0.000% renderer / 0.009% GPU
   ok(/function windowMinimized\(/.test(drawSrc)
-    && /env\.hidden = !!document\.hidden \|\| windowMinimized\(\)/.test(drawSrc),
+    && /env\.hidden = !!document\.hidden \|\| \(ds\.windowMinimized === undefined \? windowMinimized\(\)/.test(drawSrc),
     'draw.js feeds a minimised window into env.hidden, which visibilitychange never can');
   // Unfocused is NOT minimised: the app is designed to be played into a game
   // with this window behind it, and a focus test here would kill the visualizer
@@ -855,7 +890,7 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   // focus, resize or visibilitychange when the window is minimised, so one that
   // parked on it would have nothing left to un-park it.
   ok(/function windowMinimized\(\)\s*\{\s*\n\s*if \(!isTop\) return false;/.test(drawSrc),
-    'only the top frame parks on a minimised window (a panel could never un-park)');
+    'only the top frame falls back to window position when the host has not reported its state');
   // Event-driven, never polled: a poll is exactly the "wakes with nothing to
   // do" waste this module exists to remove.
   ok(!/setInterval\s*\(/.test(drawSrc), 'draw.js polls nothing on a timer');
@@ -1034,9 +1069,6 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   // 12. The version and its release name. The chip stays bare; the About pane is
   // where the release name is spelt out.
   {
-    const pkg2 = require(path.join(root, 'package.json'));
-    ok(pkg2.version === '3.0.1', 'package version is 3.0.1');
-    ok(pkg2.releaseName === 'Graphite', 'package declares the release name');
     const mainSrc3 = rd('electron/main.js');
     ok(/ipcMain\.handle\('app:release'/.test(mainSrc3), 'main exposes the release name');
     ok(/getRelease/.test(rd('electron/preload.js')), 'preload exposes getRelease');
@@ -1085,23 +1117,19 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     ok(rel.version === pkg.version, `the entry's version is ${pkg.version} (got ${rel.version})`);
     ok(rel.name === pkg.releaseName, `the entry's release name is ${pkg.releaseName} (got ${rel.name})`);
     ok(/^\d{4}-\d{2}-\d{2}$/.test(rel.date), `the entry carries a date (got "${rel.date}")`);
-    ok(rel.intro.length >= 1, 'the entry keeps its intro paragraph');
     const titles = rel.sections.map((s) => s.title);
     ok(titles[0] === 'New', `New is rendered first (got ${titles.join(', ')})`);
     ok(titles.indexOf('Known issues') === titles.length - 1,
       'Known issues is rendered last: it is the caveat, not the news');
     ok(titles.indexOf('Changed') > 0 && titles.indexOf('Fixed') > titles.indexOf('Changed'),
       'Changed then Fixed, between the two');
-    ok(C.count(rel) >= 25, `every bullet survives the parse (got ${C.count(rel)})`);
-    // A wrapped bullet is ONE bullet, joined, not one per source line.
-    const lib = rel.sections[0].items[0];
-    ok(lib.lead === 'Library.', `a leading bold run becomes the bullet's lead (got "${lib.lead}")`);
-    ok(/note count and length/.test(lib.text) && !/\n/.test(lib.text),
-      'a bullet wrapped over four source lines is joined into one');
-    // '**Forge** is one workspace' is mid-sentence emphasis. Pulling it out as a
-    // lead left the bullet reading 'Forge' / 'is one three-column workspace'.
-    const forge = rel.sections[1].items.find((i) => /^Forge is one/.test(i.text));
-    ok(!!forge && forge.lead === '', 'mid-sentence bold is flattened, never promoted to a lead');
+    const sample = C.parse('## 1.2.3 "Sample" — 2026-01-01\n\nAn intro.\n\n### New\n\n- **Local playback.** Open a file\n  and listen.\n- Open **Forge** to convert.');
+    const entry = sample.releases[0];
+    ok(entry && entry.intro.join(' ') === 'An intro.', 'a release intro survives parsing');
+    ok(entry && C.count(entry) === 2, 'a wrapped bullet is not split into two items');
+    const [local, forge] = entry.sections[0].items;
+    ok(local.lead === 'Local playback.' && local.text === 'Open a file and listen.', 'leading emphasis and wrapped text render in one bullet');
+    ok(forge.lead === '' && forge.text === 'Open Forge to convert.', 'mid-sentence emphasis stays in the bullet text');
     ok(!/[*_`]/.test(rel.sections.map((s) => s.items.map((i) => i.lead + i.text).join(' ')).join(' ')),
       'no markdown syntax survives into the rendered text');
   }
@@ -1359,9 +1387,107 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     pump('Downloading: 10%\rDownloading: 20%\r');
     ok(seen.length === 2 && seen[1] === 'Downloading: 20%',
       'the shared pump treats a bare carriage return as a line ending (invariant 6)');
+    pump('Hint: retry');
+    pump.flush(); pump.flush();
+    ok(seen.length === 3 && seen[2] === 'Hint: retry', 'the pump flushes a final unterminated diagnostic exactly once');
   }
   ok(/makePump/.test(provSrc), 'forge-provisioner uses the shared carriage-return pump, not its own newline-only one');
   ok(!/fs\.writeSync\(this\._logFd, c\)/.test(provSrc), 'the provisioner no longer blocks the main thread per stdout chunk');
+
+  // Download failures must carry the website's cause, including late stderr.
+  {
+    const { EventEmitter } = require('events');
+    const vm = require('vm');
+    const makeDownload = () => {
+      const child = new EventEmitter();
+      child.pid = 12345;
+      for (const stream of ['stdout', 'stderr']) {
+        child[stream] = new EventEmitter();
+        child[stream].setEncoding = () => {};
+      }
+      const mod = { exports: {} };
+      const pathsMock = { forgeEnvPython: () => 'python.exe', forgeChildEnv: () => ({}),
+        pythonEngineDir: () => '/engine', forgeJobsFile: () => '/scratch/jobs.json' };
+      vm.runInNewContext(require('fs').readFileSync(path.join(root, 'electron', 'forge-runner.js'), 'utf8'), {
+        module: mod, process, setTimeout,
+        require: (name) => name === 'child_process' ? { spawn: () => child }
+          : name === './paths' ? pathsMock
+            : name === 'fs' ? { readFileSync: () => '[]', writeFileSync: () => {} } : require(name),
+      });
+      const events = [];
+      const runner = new mod.exports.ForgeRunner({ emit: (event) => events.push(event) });
+      runner.ytDownload({ url: 'https://example.com/audio.mp3', outDir: '' });
+      return { child, runner, events, done: () => events.filter((event) => event.event === 'forge.done') };
+    };
+    {
+      const { child, runner, done } = makeDownload();
+      child.stdout.emit('data', 'Downloading page\n');
+      child.stderr.emit('data', 'ERROR: [MuseScore] HTTP Error 404\n');
+      child.emit('exit', 1);
+      ok(done().length === 0, 'downloader waits for streams to close before reporting the failure');
+      child.stderr.emit('data', 'Hint: Update the downloader and retry.');
+      child.emit('close', 1); child.emit('close', 1);
+      ok(done().length === 1 && !runner.isRunning(), 'failed downloader completes once and removes its job');
+      ok(done()[0].error.includes('[MuseScore] HTTP Error 404') && done()[0].error.includes('Hint: Update'),
+        'downloader surfaces the website error and final unterminated hint');
+    }
+    {
+      const { child, done } = makeDownload();
+      for (let i = 0; i < 30; i++) child.stderr.emit('data', `ERROR: attempt ${i} ${'x'.repeat(400)}\n`);
+      child.stderr.emit('data', 'Hint: latest diagnostic\n');
+      child.emit('close', 1);
+      ok(done()[0].error.length <= 914 && done()[0].error.includes('attempt 29') && done()[0].error.includes('latest diagnostic'),
+        'download diagnostics retain recent causes with bounded message size');
+    }
+    {
+      const { child, done } = makeDownload();
+      child.stdout.emit('data', 'DOWNLOADED: C:\\music\\song.mp3');
+      child.emit('exit', 0); child.emit('close', 0);
+      child.stdout.emit('data', '\nDOWNLOADED: duplicate.mp3\n');
+      ok(done().length === 1 && done()[0].ok && done()[0].result.downloadedPath === 'C:\\music\\song.mp3',
+        'a final unterminated download success is delivered once');
+    }
+    {
+      const { child, done } = makeDownload();
+      child.stdout.emit('data', 'DOWNLOADED:   \n');
+      child.emit('close', 0);
+      ok(done().length === 1 && done()[0].error === 'finished without producing output',
+        'exit zero with no usable downloaded path fails instead of hanging');
+    }
+    {
+      const { child, done } = makeDownload();
+      child.__cancelled = true;
+      child.stderr.emit('data', 'ERROR: network request failed\n');
+      child.emit('close', 1);
+      ok(done().length === 1 && done()[0].error === 'cancelled', 'download cancellation wins over error diagnostics');
+    }
+    {
+      const { child, events, done } = makeDownload();
+      child.stdout.emit('data', 'DOWNLOADED: C:\\music\\cancelled.mp3');
+      child.__cancelled = true;
+      child.stderr.emit('data', '[download] 100%\n');
+      child.emit('close', 0);
+      child.stdout.emit('data', '\nDOWNLOADED: late.mp3\n');
+      ok(done().length === 1 && done()[0].error === 'cancelled',
+        'cancellation wins over a buffered download success flushed on close');
+      ok(events.filter((event) => event.event === 'forge.progress').length === 1,
+        'download progress arriving after cancellation is ignored');
+    }
+    {
+      const { child, done } = makeDownload();
+      child.stdout.emit('data', 'DOWNLOADED: C:\\music\\completed.mp3\n');
+      child.__cancelled = true;
+      child.emit('close', 0);
+      ok(done().length === 1 && done()[0].ok,
+        'a completed download stays successful when cancellation arrives afterward');
+    }
+    {
+      const { child, done } = makeDownload();
+      child.emit('error', new Error('ENOENT')); child.emit('close', -1);
+      ok(done().length === 1 && done()[0].error === 'spawn failed: ENOENT',
+        'asynchronous downloader spawn errors finish once without crashing');
+    }
+  }
 
   // ---- forge capability probe: one torch import, not two -------------------
   {
@@ -1442,6 +1568,15 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     }
   }
 }
+
+  try {
+    require('./test-review-timing.js')();
+    ok(true, 'Editor grid, quantization and stretch follow the tempo map');
+    await require('./test-long-session.js')();
+    ok(true, 'long sessions cancel stale drawing and waveforms and release completed audio voices');
+  } catch (error) {
+    ok(false, 'long-session resource checks: ' + error.message);
+  }
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

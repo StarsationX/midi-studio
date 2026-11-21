@@ -520,8 +520,7 @@ LangString choowHowToInstall 0 ""
 {{/each}}
 
 Function .onInit
-  ; MIDI Studio: Temp checks and the recorded Forge folder, while the shell
-  ; context is still the user's own (hooks.nsh).
+  ; Capture the per-user Forge default before SetContext changes shell folders.
   !ifmacrodef MIDISTUDIO_ONINIT_EARLY
     !insertmacro MIDISTUDIO_ONINIT_EARLY
   !endif
@@ -546,6 +545,9 @@ Function .onInit
   !endif
 
   !insertmacro SetContext
+  !ifmacrodef MIDISTUDIO_READ_FORGE_STORAGE
+    !insertmacro MIDISTUDIO_READ_FORGE_STORAGE
+  !endif
 
   ${If} $INSTDIR == "${PLACEHOLDER_INSTALL_DIR}"
     ; Set default install location
@@ -965,6 +967,16 @@ SectionEnd
 
 Function RestorePreviousInstallLocation
   ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
+  !ifdef MS_ELECTRON_GUID
+    ; The install-mode page resets $INSTDIR on Next, even if the scope
+    ; didn't change. Restore the registered folder for the selected scope.
+    ${If} $4 == ""
+      ReadRegStr $4 SHCTX "${MS_ELECTRON_UNINSTKEY}" "UninstallString"
+      ${If} $4 != ""
+        ReadRegStr $4 SHCTX "${MS_ELECTRON_INSTKEY}" "InstallLocation"
+      ${EndIf}
+    ${EndIf}
+  !endif
   StrCmp $4 "" +2 0
     StrCpy $INSTDIR $4
 FunctionEnd

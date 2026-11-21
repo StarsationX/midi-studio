@@ -1,7 +1,7 @@
 {
   "name": "midi-studio",
-  "version": "3.0.1",
-  "releaseName": "Graphite",
+  "version": "3.1.0",
+  "releaseName": "Medley",
   "description": "Turn a song into MIDI, edit it, and play it back on any keyboard.",
   "author": "StarsationX",
   "license": "MIT",
@@ -10,10 +10,10 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "test": "node tools/run-tests.js",
-    "build:engine": "cmd /c \"%CD%\\build-portable.bat\"",
+    "build:engine": "npm run build:forge-rs && cmd /c \"%CD%\\build-portable.bat\"",
     "build:dir": "npm run build:engine && electron-builder --win --x64 -c.win.target=dir -p never",
     "build:nsis": "npm run build:engine && electron-builder --win nsis --x64 -p never",
-    "build:forge-rs": "cargo build --release --manifest-path forge-rs/Cargo.toml --target-dir forge-rs/target --bin forge-rs",
+    "build:forge-rs": "cargo build --release --manifest-path forge-rs/Cargo.toml --target-dir forge-rs/target --bin forge-rs && node tools/stage-native-assets.js",
     "build:tauri": "npm run build:forge-rs && tauri build --config src-tauri/tauri.bundle.json",
     "build:tauri-test": "npm run build:forge-rs && tauri build --config src-tauri/tauri.bundle.json --config src-tauri/tauri.test-variant.json"
   },
@@ -38,6 +38,9 @@
       "CHANGELOG.md"
     ],
     "extraResources": [
+      {"from":"forge-rs/target/release/forge-rs.exe","to":"forge-rs/forge-rs.exe"},
+      {"from":"forge-rs/target/native-resources","to":"forge-rs/assets","filter":["**/*","!ort/**"]},
+      {"from":"forge-rs/target/native-resources/ort","to":"forge-rs/ort-gpu"},
       {
         "from": "python-engine",
         "to": "python-engine",
@@ -47,7 +50,11 @@
           "!**/*.pyc",
           "!**/*.log",
           "!**/*.tmp",
+          "!wheelhouse/pesq-*.whl",
           "!downloads/**",
+          "!expressive_to_midi.py",
+          "!expressive_arrange.py",
+          "!forge_vocals.py",
           "!onnx_out/**"
         ]
       }

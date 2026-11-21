@@ -371,6 +371,10 @@
     envelope.gain.linearRampToValueAtTime(Math.max(0.0002, peak), now + 0.008);
     envelope.gain.exponentialRampToValueAtTime(0.0001, now + length);
     oscillator.connect(envelope).connect(player.master || context.destination);
+    oscillator.addEventListener('ended', () => {
+      oscillator.disconnect();
+      envelope.disconnect();
+    }, { once: true });
     registerVoice(oscillator, now + length + 0.05);
     oscillator.start(now);
     oscillator.stop(now + length + 0.02);
@@ -668,6 +672,7 @@
     player.playing = false;
     stopTimer();
     clearVoices();
+    if (player.context && player.context.state === 'running') player.context.suspend().catch(() => {});
     if (rollHandle) { rollHandle.setLive(false); rollHandle.invalidate(); }
     setClock();
     reportState(true);
@@ -1789,7 +1794,7 @@
         ? 'Try fewer words, or clear the search.'
         : total
           ? 'This view is empty. Add songs to it, or switch back to All MIDI Files.'
-          : 'Forge results land here automatically, or add a folder you keep MIDI in.';
+          : 'Use Add folder to browse a collection, or Open MIDI for a single file.';
     }
   }
   const renderFilesSoon = debounce(renderFiles, 120);
@@ -2292,12 +2297,12 @@
   const sizeWatch = typeof ResizeObserver === 'function' ? new ResizeObserver(onLayoutChange) : null;
   if (sizeWatch) { sizeWatch.observe(rollHost); sizeWatch.observe(artHost); }
 
-  const openPicker = async () => {
+  const openPicker = async (play = prefs.autoplay) => {
     const files = api && api.pickMidi ? await api.pickMidi() : [];
-    if (files && files[0]) await loadAudition(files[0], '', { play: prefs.autoplay });
+    if (files && files[0]) await loadAudition(files[0], '', { play });
   };
-  $('open-midi').addEventListener('click', openPicker);
-  $('state-open').addEventListener('click', openPicker);
+  $('open-midi').addEventListener('click', () => openPicker());
+  $('state-open').addEventListener('click', () => openPicker(true));
 
   $('candidate').addEventListener('change', (event) => setCandidate(event.target.value));
 
@@ -2560,7 +2565,7 @@
   window.Commands.setScope(FRAME);
   const hasFile = () => !!currentDocument();
   const unregister = window.Commands.registerAll([
-    { id: 'selfmidi.open', label: 'Open a MIDI file', keywords: ['listen', 'browse', 'file'], group: 'Listen', run: openPicker },
+    { id: 'selfmidi.open', label: 'Open a MIDI file', keywords: ['listen', 'browse', 'file'], group: 'Listen', run: () => openPicker() },
     { id: 'selfmidi.play', label: 'Play or pause', keys: 'Space', group: 'Listen', enabled: hasFile, run: () => togglePlay() },
     { id: 'selfmidi.stop', label: 'Stop', keys: 'Home', group: 'Listen', enabled: hasFile, run: stop },
     { id: 'selfmidi.back', label: 'Back 5 seconds', keys: 'Left', group: 'Listen', enabled: hasFile, run: () => seek(songTime() - 5) },
@@ -2681,8 +2686,7 @@
   $('info-body').hidden = !prefs.infoOpen;
   setInstrumentStatus(`${instrumentLabel()} · Loads on play`);
   enableActions(false);
-  setState('empty', 'Nothing loaded',
-    'Open a MIDI file, drop one here, or pick a song from your library. Listen plays it inside the app.');
+  republishCommands();
   setNavTab(navTab);
   setRailTab(railTab);
   renderMarks();

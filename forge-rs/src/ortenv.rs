@@ -127,6 +127,7 @@ pub fn nvidia_driver_present() -> bool {
 /// the exe, the forge env's onnxruntime, then a GPU build (its CPU EP works).
 pub fn find_cpu_ort(explicit: Option<&Path>) -> Option<PathBuf> {
     let mut c = crate::backbone::ort_dylib_candidates(explicit);
+    if let Some(d) = exe_dir() { c.push(d.join("ort-gpu/onnxruntime.dll")); }
     if let Some(f) = forge_env_dir() {
         c.push(f.join("python/Lib/site-packages/onnxruntime/capi/onnxruntime.dll"));
     }

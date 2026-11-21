@@ -41,7 +41,7 @@ OPTIONS:
   --mem-limit-gb G    job-object memory cap (default 7.5; 0 disables)
 
 PIPELINE OPTIONS:
-  --mode piano|general|melody|drums|fast
+  --mode piano|expressive|general|melody|drums|fast
                       default: GENERAL_MODE env (song_to_midi's switch)
   --skip-separation   piano / general: transcribe.py (Transkun on the input);
                       melody / drums: the input is already a stem (as

@@ -12,6 +12,11 @@ const paths = require('./paths');
 const NO_WINDOW = process.platform === 'win32';
 const STAGES_3 = [['[1/3]', 'Separate', 15], ['[2/3]', 'Transcribe', 55], ['[3/3]', 'Clean', 90]];
 const STAGES_4 = [['[1/4]', 'Isolate lead', 12], ['[2/4]', 'Detect melody', 48], ['[3/4]', 'Build candidates', 78], ['[4/4]', 'Prepare review', 94]];
+const STAGES_EXPRESSIVE = [
+  ['[1/6]', 'Prepare model', 5], ['[2/6]', 'Separate', 15],
+  ['[3/6]', 'Transcribe accompaniment', 48], ['[4/6]', 'Detect melody', 72],
+  ['[5/6]', 'Arrange', 87], ['[6/6]', 'Prepare review', 96],
+];
 const STAGES_2 = [['[1/2]', 'Transcribe', 40], ['[2/2]', 'Clean', 90]];
 // Keyword fallback: transcribe.py / stem_to_midi.py emit prose ("Normalizing…",
 // "Transcribing…", "MIDI cleanup…") not [N/M] markers, so progress would freeze.
@@ -24,6 +29,7 @@ const STAGE_KEYWORDS = [
 ];
 
 function selectScript(pipeline, skipSeparation) {
+  if (pipeline === 'expressive') return ['forge-rs', STAGES_EXPRESSIVE];
   if (pipeline === 'melody') return ['melody_to_midi.py', STAGES_4];
   if (pipeline === 'drums') return ['drums_to_midi.py', STAGES_3];  // handles its own skip-sep
   // 'fast' is checked BEFORE skipSeparation: both mean "no separation", and
@@ -65,7 +71,7 @@ const CHECK_TTL_MS = 10000;
 // Line pump that treats \r as a line ending too, so progress bars stream.
 function makePump(onLine) {
   let buf = '';
-  return (chunk) => {
+  const pump = (chunk) => {
     buf += chunk;
     let match;
     while ((match = /\r\n|\n|\r/.exec(buf))) {
@@ -75,6 +81,12 @@ function makePump(onLine) {
     }
     if (buf.length > 8192) buf = buf.slice(-1024);
   };
+  pump.flush = () => {
+    const line = buf.trim();
+    buf = '';
+    if (line) onLine(line);
+  };
+  return pump;
 }
 
 // Windows has no SIGSTOP. NtSuspendProcess/NtResumeProcess do the same job and
@@ -194,6 +206,7 @@ class ForgeRunner {
   setBackground(background) {
     this._background = !!background;
     for (const child of this._jobs.values()) {
+      if (!child.pid) continue; // Browser-backed downloads do not own a worker PID.
       try {
         os.setPriority(child.pid, background ? os.constants.priority.PRIORITY_LOW
           : os.constants.priority.PRIORITY_BELOW_NORMAL);
@@ -217,6 +230,19 @@ class ForgeRunner {
   invalidateCheck() { this._checkCache = null; }
 
   check(opts) {
+    if (opts && opts.mode === 'expressive') {
+      const exe = paths.rustForgeExe();
+      if (!exe) return Promise.resolve({forgeReady:false, missing:['forge-rs.exe'], engine:'rust'});
+      return new Promise(resolve => execFile(exe, ['probe','--mode','expressive','--mem-limit-gb','0'], {
+        env: paths.forgeChildEnv(this._settings()), windowsHide: true, timeout: 15000,
+      }, (err, stdout) => {
+        try {
+          const probe = JSON.parse(stdout.trim().split(/\r?\n/).pop());
+          resolve({forgeReady: !!probe.ready, gpu: probe.ep === 'cuda' ? 'CUDA' : null,
+            missing: probe.missing, engine:'rust'});
+        } catch (_) { resolve({forgeReady:false, missing:[err?.message || 'Could not probe Rust Forge'], engine:'rust'}); }
+      }));
+    }
     const fresh = !!(opts && opts.fresh);
     const py = this._forgePython();
     if (fresh) this._checkCache = null;
@@ -268,7 +294,8 @@ class ForgeRunner {
 
   _spawnJob(jobId, args, env, stageTable, audioOut, meta = {}) {
     let child;
-    try { child = spawn(args[0], args.slice(1), { cwd: paths.pythonEngineDir(), env, windowsHide: NO_WINDOW }); }
+    const cwd = args[1] === 'pipeline' ? path.dirname(args[0]) : paths.pythonEngineDir();
+    try { child = spawn(args[0], args.slice(1), { cwd, env, windowsHide: NO_WINDOW }); }
     catch (e) { this._emit({ event: 'forge.done', jobId, ok: false, error: `spawn failed: ${e.message}` }); return; }
     this._jobs.set(jobId, child);
     trackPid(child.pid);
@@ -332,7 +359,7 @@ class ForgeRunner {
       }
       // Only prose lines from the scripts may drive the keyword fallback, the
       // "Input: Clean Bandit - Symphony.mp3" echo used to jump the bar to 90%.
-      if (!/^input:/i.test(line)) {
+      if (stageTable !== STAGES_EXPRESSIVE && !/^input:/i.test(line)) {
         for (const [re, stage, pct] of STAGE_KEYWORDS) {
           if (re.test(line)) { progress(stage, pct, line); return; }
         }
@@ -359,12 +386,12 @@ class ForgeRunner {
     });
   }
 
-  run({ inputPath, pipeline, skipSeparation, advanced, timing, outputName }) {
+  run({ inputPath, pipeline, skipSeparation, advanced, timing, outputName, outputDir }) {
     const jobId = `job-${++this._seq}`;
     const py = this._forgePython();
     // forgeEnvReady, not just "python.exe exists": a cancelled or out-of-disk
     // setup leaves an interpreter with no torch, and the job died on import.
-    if (!py || !paths.forgeEnvReady(this._settings())) {
+    if (pipeline !== 'expressive' && (!py || !paths.forgeEnvReady(this._settings()))) {
       setTimeout(() => this._emit({ event: 'forge.done', jobId, ok: false,
         error: 'Midi Forge isn\'t set up yet. Open the Midi Forge tab and click "Set up Midi Forge".' }), 0);
       return jobId;
@@ -377,7 +404,7 @@ class ForgeRunner {
     const half = (n) => Math.max(1, Math.round(n / 2));
     const batch = this._background ? half(perf.batch || 2) : (perf.batch || 2);
     const threads = this._background ? half(perf.threads || 4) : (perf.threads || 4);
-    env.SEPARATION_BATCH = env.SEPARATION_BATCH || String(batch);
+    env.SEPARATION_BATCH = env.SEPARATION_BATCH || String(pipeline === 'expressive' ? 1 : batch);
     env.TRANSCRIBE_BATCH = env.TRANSCRIBE_BATCH || String(batch);
     env.OMP_NUM_THREADS = env.OMP_NUM_THREADS || String(threads);
     env.MKL_NUM_THREADS = env.MKL_NUM_THREADS || String(threads);
@@ -402,15 +429,46 @@ class ForgeRunner {
     }
     if (pipeline === 'general') env.GENERAL_MODE = '1';  // mix all pitched stems for Transkun
     if ((pipeline === 'drums' || pipeline === 'melody') && skipSeparation) env.SKIP_SEPARATION = '1';
-    const audioOut = outputMidiPath(inputPath, { start, end }, outputName);
+    const expressive = pipeline === 'expressive';
+    const targetInput = expressive && outputDir ? path.join(outputDir, path.basename(inputPath)) : inputPath;
+    const name = outputName || (expressive ? path.basename(inputPath, path.extname(inputPath)) + ' - Medley' : '');
+    const audioOut = outputMidiPath(targetInput, { start, end }, name);
     this._emit({ event: 'forge.progress', jobId, stage: 'Queued', percent: -1, message: `Starting ${script}` });
-    this._spawnJob(jobId, [py, path.join(paths.pythonEngineDir(), script), inputPath, audioOut], env, stageTable, audioOut,
-      { pipeline, timing: { start, end } });
+    const exe = expressive && paths.rustForgeExe();
+    if (expressive && !exe) {
+      setTimeout(() => this._emit({event:'forge.done',jobId,ok:false,error:'The Rust Forge executable is missing.'}), 0);
+      return jobId;
+    }
+    const args = expressive ? [exe, 'pipeline', inputPath, audioOut, '--mode', 'expressive']
+      : [py, path.join(paths.pythonEngineDir(), script), inputPath, audioOut];
+    this._spawnJob(jobId, args, env, stageTable, audioOut,
+      { pipeline, engine: expressive ? 'rust' : 'python', timing: { start, end } });
     return jobId;
   }
 
   ytDownload({ url, outDir }) {
     const jobId = `yt-${++this._seq}`;
+    let museScore = false;
+    try {
+      const parsed = new URL(url), host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+      museScore = /^https?:$/.test(parsed.protocol) && (host === 'musescore.com' || host.endsWith('.musescore.com'));
+    } catch (_) {}
+    if (museScore) {
+      // Public MIDI playback uses the bundled browser, not the audio/ML Python env.
+      const holder = { __browserDownload: true, cancel: null };
+      this._jobs.set(jobId, holder);
+      try {
+        const job = require('./musescore-download').startDownload({ url, outDir, emit: (event) => {
+          if (event.event === 'forge.done') { this._jobs.delete(jobId); if (!this._jobs.size) this._paused = false; }
+          this._emit({ ...event, jobId });
+        } });
+        holder.cancel = job.cancel;
+      } catch (error) {
+        this._jobs.delete(jobId);
+        setTimeout(() => this._emit({ event: 'forge.done', jobId, ok: false, error: String(error.message || error) }), 0);
+      }
+      return jobId;
+    }
     const py = this._forgePython();
     if (!py) { setTimeout(() => this._emit({ event: 'forge.done', jobId, ok: false, error: 'Midi-Forge isn\'t set up yet.' }), 0); return jobId; }
     if (!url) { setTimeout(() => this._emit({ event: 'forge.done', jobId, ok: false, error: 'No URL.' }), 0); return jobId; }
@@ -423,22 +481,45 @@ class ForgeRunner {
     try { child = spawn(args[0], args.slice(1), { cwd: paths.pythonEngineDir(), env, windowsHide: NO_WINDOW }); }
     catch (e) { this._emit({ event: 'forge.done', jobId, ok: false, error: `spawn failed: ${e.message}` }); return jobId; }
     this._jobs.set(jobId, child);
-    trackPid(child.pid);
+    if (child.pid) trackPid(child.pid);
+    const recent = [], causes = [];
     const onLine = (line) => {
-      if (line.startsWith('DOWNLOADED:')) { const p = line.split('DOWNLOADED:', 2)[1].trim(); child.__finalized = true; this._emit({ event: 'forge.progress', jobId, stage: 'Done', percent: 100, message: 'Download complete' }); this._emit({ event: 'forge.done', jobId, ok: true, result: { downloadedPath: p } }); return; }
+      if (child.__finalized || child.__cancelled) return;
+      const text = line.slice(0, 900);
+      recent.push(text); if (recent.length > 4) recent.shift();
+      if (/error|traceback|exception|no such file|not found|out of memory|CUDA|permission|^hint:| -m pip /i.test(line)) {
+        causes.push(text); if (causes.length > 6) causes.shift();
+      }
+      if (line.startsWith('DOWNLOADED:') && line.slice(11).trim()) { const p = line.slice(11).trim(); child.__finalized = true; this._emit({ event: 'forge.progress', jobId, stage: 'Done', percent: 100, message: 'Download complete' }); this._emit({ event: 'forge.done', jobId, ok: true, result: { downloadedPath: p } }); return; }
       const m = line.match(/(\d{1,3}(?:\.\d+)?)%/); if (m) { this._emit({ event: 'forge.progress', jobId, stage: 'Download', percent: Math.max(5, Math.min(99, Math.round(parseFloat(m[1])))), message: line }); return; }
-      this._emit({ event: 'forge.log', jobId, line, level: 'info' });
+      this._emit({ event: 'forge.log', jobId, line, level: /error|traceback/i.test(line) ? 'error' : 'info' });
     };
-    const pump = makePump(onLine);
-    if (child.stdout) { child.stdout.setEncoding('utf-8'); child.stdout.on('data', pump); }
-    if (child.stderr) { child.stderr.setEncoding('utf-8'); child.stderr.on('data', pump); }
-    child.on('exit', (code) => { this._jobs.delete(jobId); untrackPid(child.pid); if (child.__finalized) return; if (child.__cancelled) this._emit({ event: 'forge.done', jobId, ok: false, error: 'cancelled' }); else if (code !== 0) this._emit({ event: 'forge.done', jobId, ok: false, error: `exit code ${code}` }); });
+    const stdout = makePump(onLine), stderr = makePump(onLine);
+    if (child.stdout) { child.stdout.setEncoding('utf-8'); child.stdout.on('data', stdout); }
+    if (child.stderr) { child.stderr.setEncoding('utf-8'); child.stderr.on('data', stderr); }
+    const finish = (code, spawnError) => {
+      this._jobs.delete(jobId);
+      if (child.pid) untrackPid(child.pid);
+      stdout.flush(); stderr.flush();
+      if (child.__finalized) return;
+      child.__finalized = true;
+      const why = (causes.length ? causes : recent).join('\n').slice(-900);
+      const error = child.__cancelled ? 'cancelled'
+        : spawnError ? `spawn failed: ${spawnError.message}`
+          : code !== 0 ? (why ? `${why}\n(exit code ${code})` : `exit code ${code}`)
+            : 'finished without producing output';
+      this._emit({ event: 'forge.done', jobId, ok: false, error });
+    };
+    // close follows both streams' EOF; exit can arrive before their final error line.
+    child.on('close', (code) => finish(code));
+    child.on('error', (error) => finish(null, error));
     return jobId;
   }
 
   cancel(jobId) {
     const child = this._jobs.get(jobId);
     if (!child) return false;
+    if (child.__browserDownload) { if (child.cancel) child.cancel(); return true; }
     child.__cancelled = true;
     try { if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true }); else child.kill('SIGTERM'); } catch {}
     return true;

@@ -44,7 +44,7 @@
       <span class="brand-mark" aria-hidden="true"><img class="brand-img" src="./shared/mark.png" width="64" height="64" alt="" /></span>
       <span class="brand-text">
         <span class="brand-name">MIDI Studio</span>
-        <span class="brand-tag">Your music, in motion.</span>
+        <span class="brand-tag">Audio, MIDI, keys</span>
       </span>
     </div>
 
@@ -76,11 +76,13 @@
       </button>
     </nav>
     <div class="studio-sidebar-note">
-      <span class="studio-note-icon" aria-hidden="true"><i data-icon="note" data-icon-size="20"></i></span>
-      <strong>From sound to possibility.</strong>
-      <span>Turn a recording into notes.<br>Make something your own.</span>
+      <strong>Keyboard shortcuts</strong>
+      <span><span class="studio-shortcut"><kbd>Ctrl 1–6</kbd> Workspaces</span><span class="studio-shortcut"><kbd>Ctrl K</kbd> Commands</span></span>
     </div>
     <div class="studio-sidebar-foot">
+      <button class="studio-settings" id="guide-toggle" aria-label="Getting started" aria-controls="start-guide" aria-expanded="false" data-tip="Getting started">
+        <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="9" cy="9" r="7"/><path d="M6.8 6.9a2.2 2.2 0 1 1 3.4 1.8c-1 .6-1.2 1-1.2 2"/><circle cx="9" cy="13" r=".8" fill="currentColor" stroke="none"/></svg><span>Getting started</span>
+      </button>
       <button class="studio-settings" id="settings-btn" aria-label="Settings" data-tip="Settings (Ctrl+,)"><i data-icon="gear" data-icon-size="17"></i><span>Settings</span><span class="nav-key" aria-hidden="true">,</span></button>
       <div class="studio-version"><span class="studio-version-label">MIDI Studio</span>
       <button class="tb-version mono tip-below tip-end" id="version-chip" data-tip="What&#8217;s new" aria-label="Version, what&#8217;s new">v&#8230;</button>
@@ -159,6 +161,16 @@
        'midi-studio:onscreen' event are stamped by shell.js.
        ===================================================================== -->
   <main class="stage" id="stage">
+    <section class="start-guide" id="start-guide" aria-labelledby="guide-title" hidden>
+      <h2 id="guide-title">What would you like to do?</h2>
+      <p>Starting with a recording? In Forge, choose Medley to make a two-hand piano arrangement.</p>
+      <div class="guide-actions">
+        <button class="btn btn-sm" data-guide-tab="forge"><i data-icon="wave" data-icon-size="15" aria-hidden="true"></i>Turn audio into MIDI</button>
+        <button class="btn btn-sm" data-guide-tab="audition"><i data-icon="note" data-icon-size="15" aria-hidden="true"></i>Listen to a MIDI file</button>
+        <button class="btn btn-sm" data-guide-tab="review"><i data-icon="pencil" data-icon-size="15" aria-hidden="true"></i>Edit MIDI notes</button>
+      </div>
+      <button class="btn btn-icon is-sm is-bare guide-close" id="guide-close" aria-label="Dismiss getting started"><i data-icon="close" data-icon-size="12" aria-hidden="true"></i></button>
+    </section>
     <iframe class="tabframe" id="frame-forge"    data-frame="forge"    data-src="./forge/index.html"    title="Forge"     role="tabpanel" aria-labelledby="nav-forge"></iframe>
     <iframe class="tabframe" id="frame-review"   data-frame="review"   data-src="./review/index.html"   title="Editor"    role="tabpanel" aria-labelledby="nav-review" hidden></iframe>
     <iframe class="tabframe" id="frame-player"   data-frame="player"   data-src="./player/index.html"   title="Player"    role="tabpanel" aria-labelledby="nav-player" hidden></iframe>

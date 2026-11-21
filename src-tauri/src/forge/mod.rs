@@ -14,6 +14,7 @@ mod provision;
 mod runner;
 mod storage;
 mod winjob;
+mod musescore;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -53,6 +54,7 @@ impl Gate {
 
 pub struct Forge {
     runner: Arc<Runner>,
+    musescore: Arc<musescore::MuseScore>,
     provisioner: Arc<provision::Provisioner>,
     settled: Gate,
     reaped: Gate,
@@ -124,18 +126,43 @@ fn on_status(app: &AppHandle, mut payload: Value) {
     Host::push(app, "forge:status", payload);
 }
 
-/// Moves the job's files into `out_dir` (unique names, rename else copy) and
-/// writes the project file for a multi-candidate result. Returns the final
-/// MIDI path; `result` is rewritten to point at the moved files.
+/// Reserve the destination on disk so simultaneous exports cannot clobber
+/// each other. A primary MIDI and its project need the same free basename.
+fn move_export(src: &Path, out_dir: &Path, has_project: bool) -> std::io::Result<PathBuf> {
+    let original = out_dir.join(src.file_name().unwrap_or_default());
+    let stem = original.file_stem().unwrap_or_default().to_string_lossy();
+    let ext = original.extension().map(|x| format!(".{}", x.to_string_lossy())).unwrap_or_default();
+    for index in 1..=10000 {
+        let target = if index == 1 { original.clone() } else { out_dir.join(format!("{stem} ({index}){ext}")) };
+        if has_project && target.with_extension("midstudio.json").exists() { continue; }
+        if storage::same_path(src, &target) { return Ok(src.to_owned()); }
+        let mut file = match std::fs::File::create_new(&target) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        };
+        let copy = std::fs::File::open(src).and_then(|mut input| std::io::copy(&mut input, &mut file));
+        drop(file);
+        if let Err(e) = copy {
+            let _ = std::fs::remove_file(&target);
+            return Err(e);
+        }
+        let _ = std::fs::remove_file(src);
+        return Ok(target);
+    }
+    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "No unused export filename"))
+}
+
+/// Move the completed files, then publish a project that points to their final paths.
 fn finalize_outputs(result: &mut Value, out_dir: &Path) -> String {
     let mut mp = result["midiPath"].as_str().unwrap_or("").to_string();
     let attempt = (|| -> std::io::Result<()> {
         std::fs::create_dir_all(out_dir)?;
-        let out_key = std::path::absolute(out_dir).unwrap_or(out_dir.to_path_buf()).to_string_lossy().to_lowercase();
+        let out = std::path::absolute(out_dir)?;
         let mut moved: Vec<(String, String)> = Vec::new();
-        let mut move_output = |source: &str| -> String {
+        let mut move_output = |source: &str, has_project: bool| -> std::io::Result<String> {
             if source.is_empty() {
-                return String::new();
+                return Ok(String::new());
             }
             let src = std::path::absolute(source).unwrap_or(PathBuf::from(source));
             let key = src.to_string_lossy().to_lowercase();
@@ -143,36 +170,26 @@ fn finalize_outputs(result: &mut Value, out_dir: &Path) -> String {
             // a candidate that IS the main MIDI (melody's primary) kept the
             // path it had just been moved away from.
             if let Some((_, d)) = moved.iter().find(|(k, _)| *k == key) {
-                return d.clone();
+                return Ok(d.clone());
             }
             if !src.exists() {
-                return source.to_string();
+                return Ok(source.to_string());
             }
-            let mut dest = source.to_string();
-            let src_dir = src.parent().map(|d| d.to_string_lossy().to_lowercase()).unwrap_or_default();
-            if src_dir != out_key {
-                let target = storage::unique_path(&out_dir.join(src.file_name().unwrap_or_default()));
-                if std::fs::rename(&src, &target).is_err() && std::fs::copy(&src, &target).is_ok() {
-                    let _ = std::fs::remove_file(&src);
-                }
-                if target.exists() {
-                    dest = target.to_string_lossy().into_owned();
-                }
-            }
+            let dest = move_export(&src, &out, has_project)?.to_string_lossy().into_owned();
             moved.push((key, dest.clone()));
-            dest
+            Ok(dest)
         };
-        mp = move_output(&mp);
+        mp = move_output(&mp, result.get("candidates").is_some_and(Value::is_object))?;
         if let Some(cands) = result.get("candidates").and_then(Value::as_object).cloned() {
             let mut out = Map::new();
             for (name, file) in cands {
-                out.insert(name, json!(move_output(&js_str(Some(&file)))));
+                out.insert(name, json!(move_output(&js_str(Some(&file)), false)?));
             }
             let stem = Path::new(&mp).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             let project_path = out_dir.join(format!("{stem}.midstudio.json"));
             let source = result.get("sourceAudio").cloned().filter(|v| truthy(Some(v))).unwrap_or(json!(""));
             let preview = result.get("previewAudio").cloned().filter(|v| truthy(Some(v))).unwrap_or_else(|| source.clone());
-            let project = json!({
+            let mut project = json!({
                 "format": "midi-studio-project", "version": 1,
                 "name": stem,
                 "sourceAudio": source,
@@ -183,8 +200,11 @@ fn finalize_outputs(result: &mut Value, out_dir: &Path) -> String {
                 "timing": result.get("timing").cloned().filter(|v| truthy(Some(v))).unwrap_or(json!({})),
                 "createdAt": provision::iso_now(),
             });
+            if let Some(names) = result.get("channelNames").filter(|v| v.is_object()) {
+                project["channelNames"] = names.clone();
+            }
             result["candidates"] = Value::Object(out);
-            std::fs::write(&project_path, serde_json::to_string_pretty(&project).unwrap_or_default())?;
+            serde_json::to_writer_pretty(std::fs::File::create_new(&project_path)?, &project)?;
             result["projectPath"] = json!(project_path.to_string_lossy());
         }
         Ok(())
@@ -268,6 +288,7 @@ pub fn init(app: &AppHandle) {
     });
     let f = Arc::new(Forge {
         runner: Runner::new(emit.clone(), log.clone(), ctx, fpaths::forge_jobs_file()),
+        musescore: musescore::MuseScore::new(app, emit.clone()),
         provisioner: provision::Provisioner::new(emit, log),
         settled: Gate::default(),
         reaped: Gate::default(),
@@ -332,6 +353,7 @@ pub fn init(app: &AppHandle) {
 pub fn shutdown(app: &AppHandle) {
     if let Some(f) = forge(app) {
         f.runner.cancel_all();
+        f.musescore.cancel_all();
         f.provisioner.cancel();
     }
 }
@@ -354,7 +376,7 @@ fn forge_info(app: &AppHandle, h: &Host) -> Value {
 }
 
 fn busy(f: &Forge) -> bool {
-    f.runner.is_running() || f.provisioner.is_running()
+    f.runner.is_running() || f.musescore.is_running() || f.provisioner.is_running()
 }
 
 const BUSY: &str = "Wait for the current Forge job or setup to finish.";
@@ -465,15 +487,15 @@ fn open_path(app: &AppHandle, p: &Path) -> Result<(), String> {
 /// Closing mid-transcription throws away the minutes spent, or a multi-GB
 /// setup download, without asking. Some(()) = the user chose to keep it.
 fn close_guard(app: &AppHandle, f: &Forge) -> Option<()> {
-    let (job, setup) = (f.runner.is_running(), f.provisioner.is_running());
-    if !job && !setup {
+    let (job, midi, setup) = (f.runner.is_running(), f.musescore.is_running(), f.provisioner.is_running());
+    if !job && !midi && !setup {
         return None;
     }
     let visible = app.get_webview_window(MAIN).is_some_and(|w| w.is_visible().unwrap_or(false));
     if !visible {
         return None; // nobody to ask
     }
-    let what = if job { "A transcription is still running." } else { "Midi Forge setup is still downloading." };
+    let what = if job { "A transcription is still running." } else if midi { "A MIDI download is still running." } else { "Midi Forge setup is still downloading." };
     let r = ask(
         app,
         "Still working",
@@ -501,7 +523,14 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
         }
         "forge:check" => {
             f.settled.wait();
-            f.runner.check(truthy(a0.get("fresh")))
+            if a0.get("mode").and_then(Value::as_str) == Some("expressive") {
+                let env = fpaths::forge_child_env(&forge_paths(&h));
+                match fpaths::forge_rs_exe().ok_or_else(|| "Missing forge-rs.exe".to_string())
+                    .and_then(|exe| runner::probe_rust_for(&exe, &env, Some(("expressive", false)))) {
+                    Ok(v) => runner::rust_verdict(&v, Value::Null, fpaths::nvidia_gpu_name),
+                    Err(reason) => json!({"forgeReady":false,"engine":"rust","missing":[reason]}),
+                }
+            } else { f.runner.check(truthy(a0.get("fresh"))) }
         }
         "forge:provision" => {
             f.settled.wait();
@@ -542,6 +571,7 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
                 &obj(&o, "advanced"),
                 &obj(&o, "timing"),
                 &js_str(o.get("outputName")),
+                &output_dir(&host(app)),
             ))
         }
         "forge:yt" => {
@@ -552,7 +582,12 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
                 d if d.is_empty() => output_dir(&h).to_string_lossy().into_owned(),
                 d => d,
             };
-            json!(f.runner.yt(&js_str(o.get("url")), &out))
+            let url = js_str(o.get("url"));
+            if musescore::is_musescore(&url) {
+                json!(f.musescore.start(&url, PathBuf::from(out)))
+            } else {
+                json!(f.runner.yt(&url, &out))
+            }
         }
         "app:setForgeEngine" => {
             let want = js_str(Some(&a0)).to_lowercase();
@@ -562,7 +597,10 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
             }
             engine_info(&h)
         }
-        "forge:cancel" => json!(f.runner.cancel(&js_str(Some(&a0)))),
+        "forge:cancel" => {
+            let id = js_str(Some(&a0));
+            json!(f.musescore.cancel(&id) || f.runner.cancel(&id))
+        }
         "forge:pause" => {
             f.auto_paused.store(false, Ordering::SeqCst);
             f.runner.set_paused(truthy(Some(&a0)))
@@ -658,6 +696,26 @@ mod tests {
         assert_eq!(project["previewAudio"], "C:\\a.mp3");
         assert_eq!(project["candidateCounts"]["clean"], 10);
         assert_eq!(r["projectPath"], json!(out.join("lead.midstudio.json").to_string_lossy()));
+        // A user may have moved the old MIDI but kept their edited project.
+        std::fs::write(out.join("chorus.midstudio.json"), b"preserve my edits").unwrap();
+        let workers: Vec<_> = (0..4).map(|worker| {
+            let dir = work.join(worker.to_string());
+            let out = out.clone();
+            std::thread::spawn(move || {
+                std::fs::create_dir_all(&dir).unwrap();
+                let midi = dir.join("chorus.mid");
+                std::fs::write(&midi, [worker as u8]).unwrap();
+                let mut r = json!({"midiPath": midi, "candidates": {"clean": midi}});
+                finalize_outputs(&mut r, &out);
+                let project: Value = serde_json::from_slice(&std::fs::read(r["projectPath"].as_str().unwrap()).unwrap()).unwrap();
+                assert_eq!(r["midiPath"], project["candidates"]["clean"]);
+                assert_eq!(std::fs::read(r["midiPath"].as_str().unwrap()).unwrap(), [worker as u8]);
+                r["midiPath"].as_str().unwrap().to_owned()
+            })
+        }).collect();
+        let unique: std::collections::HashSet<_> = workers.into_iter().map(|w| w.join().unwrap()).collect();
+        assert_eq!(unique.len(), 4);
+        assert_eq!(std::fs::read(out.join("chorus.midstudio.json")).unwrap(), b"preserve my edits");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

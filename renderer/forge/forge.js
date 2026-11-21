@@ -121,9 +121,10 @@
     custom: 'Your own Advanced Options values.',
   };
 
-  const PIPELINES = ['piano', 'melody', 'general', 'drums', 'fast'];
-  const PIPELINE_LABEL = { piano: 'Piano', melody: 'Melody', general: 'Full Song', drums: 'Drums', fast: 'Fast' };
+  const PIPELINES = ['piano', 'expressive', 'melody', 'general', 'drums', 'fast'];
+  const PIPELINE_LABEL = { piano: 'Piano', expressive: 'Medley', melody: 'Melody', general: 'Full Song', drums: 'Drums', fast: 'Fast' };
   const PIPELINE_HINT = {
+    expressive: 'Arrange the vocal and instrumental melody for the right hand, with bass and chords for the left.',
     melody: 'Prototype. Isolates the lead, removes octave doubles and caps notes per second so the result stays playable. Try Piano or Full Song if it disappoints.',
     piano: 'Separate the stems, then Transkun on the piano stem. The highest accuracy on a piano performance.',
     general: 'Separate, mix every pitched stem, then Transkun. Any genre, full mix.',
@@ -139,10 +140,10 @@
   // The pipeline's own vocabulary (forge-runner STAGES_2/3/4 + the keyword
   // fallback), mapped onto the seven-stage checklist.
   const STAGE_OF = {
-    'queued': 'load', 'download': 'load', 'starting': 'load',
+    'queued': 'load', 'download': 'load', 'starting': 'load', 'prepare model': 'load',
     'separate': 'separate', 'separating': 'separate', 'isolate lead': 'separate',
     'transcribe': 'transcribe', 'transcribing': 'transcribe', 'detect melody': 'transcribe',
-    'build candidates': 'midi',
+    'build candidates': 'midi', 'arrange': 'midi',
     'clean': 'optimize', 'cleaning': 'optimize',
     'prepare review': 'finalize',
     'done': 'done',
@@ -154,12 +155,12 @@
   const RESULTS_KEY = 'midi-forge.results.v1';
 
   const BUCKETS = 4096;
-  const PEAK_RATE = 11025;      // decodeAudioData resamples to the context rate
+  const waveReader = window.AudioPeaks.createReader();
 
   // =========================================================================
   // STATE
   // =========================================================================
-  let envReady = false, envGpu = '', envMissing = [];
+  let envReady = false, envState = 'checking', envGpu = '', envMissing = [];
   let busy = false, jobPaused = false, currentJob = null, pendingCancel = false;
   let inputPath = '', pipeline = 'melody', outputDir = '', currentProject = '';
   let activeState = 'ready', skipRequested = false, autoAdvancing = false;
@@ -168,7 +169,7 @@
   let lastStage = '', jobStartedAt = 0, jobPercent = null, jobPctSeenAt = 0, jobName = '';
   let previewPrefs = { audioVolume: 80 };
   let waveToken = 0, waveDuration = 0, wavePeaks = null, waveDeferred = '', waveFailed = false;
-  let sliceTimer = 0;
+  let waveRequest = null;
   let timeEnabled = false;
   let resultTab = 'results';
   let selected = null;
@@ -459,12 +460,15 @@
     for (const g of document.querySelectorAll('.adv-group')) g.hidden = g.dataset.group !== pipeline;
     $('c-model').value = pipeline;
     $('c-model-h').textContent = PIPELINE_HINT[pipeline] || '';
+    syncStems();
   }
 
   function setPipeline(v, persist) {
     if (!PIPELINES.includes(v)) return;
+    const changedEngine = (pipeline === 'expressive') !== (v === 'expressive');
     pipeline = v;
     syncPipelineUI();
+    if (changedEngine) refreshEnv();
     if (persist) persistSettings({ pipeline });
   }
 
@@ -489,11 +493,22 @@
   on($('c-model'), 'change', () => setPipeline($('c-model').value, true));
 
   // ---- Stems card (skipSeparation) ---------------------------------------
-  const skipSeparation = () => $('c-stems').value === 'skip';
+  let stemsChoice = $('c-stems').value;
+  const skipSeparation = () => pipeline !== 'expressive' && stemsChoice === 'skip';
   function syncStems() {
-    $('c-stems-h').textContent = STEMS_HINT[$('c-stems').value] || '';
+    const separates = pipeline === 'expressive';
+    const select = $('c-stems');
+    select.disabled = separates;
+    select.value = separates ? 'separate' : stemsChoice;
+    $('c-stems-h').textContent = separates
+      ? 'Medley separates the vocal and backing before arranging.'
+      : STEMS_HINT[stemsChoice] || '';
   }
-  on($('c-stems'), 'change', () => { syncStems(); persistSettings({ skipSeparation: skipSeparation() }); });
+  on($('c-stems'), 'change', () => {
+    stemsChoice = $('c-stems').value;
+    syncStems();
+    persistSettings({ skipSeparation: stemsChoice === 'skip' });
+  });
 
   // =========================================================================
   // OUTPUT FOLDER + FILENAME
@@ -858,15 +873,34 @@
     const url = $('url').value.trim();
     if (!url || busy || !F.yt) return;
     clearError();
-    logLine('Fetching ' + url);
-    beginJob('Download', 'download', Fmt.basename(url) || url);
+    const score = !!museScoreUrl();
+    logLine((score ? 'Downloading MIDI from ' : 'Fetching ') + url);
+    beginJob(score ? 'MIDI download' : 'Download', 'download', Fmt.basename(url) || url);
     F.yt({ url, outDir: outputDir }).then((id) => {
       currentJob = id;
       if (pendingCancel) F.cancel(id);
       else if (Bus) Bus.send(T.FORGE_STATUS, { event: 'forge.job', jobId: id, name: jobName, kind: 'download' });
     }).catch((err) => failJob(String((err && err.message) || err)));
   }
-  function syncFetch() { $('fetch').hidden = !$('url').value.trim(); }
+  function museScoreUrl() {
+    try {
+      const url = new URL($('url').value.trim());
+      const host = url.hostname.replace(/\.$/, '');
+      return /^(https?:)$/.test(url.protocol)
+        && (host === 'musescore.com' || host.endsWith('.musescore.com')) ? url.href : '';
+    } catch (_) { return ''; }
+  }
+  function syncFetch() {
+    const score = !!museScoreUrl();
+    $('fetch').hidden = !$('url').value.trim();
+    $('fetch').textContent = score ? 'Get MIDI' : 'Fetch';
+    $('score-help').hidden = !score;
+    $('url-label').textContent = score ? 'MuseScore MIDI' : 'Or download audio from a link';
+    $('url-wrap').classList.toggle('is-score', score);
+    $('url-wrap').title = score ? 'Save the MIDI delivered by the public player and open it in Editor.' : 'Downloads the audio, then loads it as the current input.';
+    if ($('score-help').hidden) $('url').removeAttribute('aria-describedby');
+    else $('url').setAttribute('aria-describedby', 'score-help-text');
+  }
   on($('fetch'), 'click', doFetch);
   on($('url'), 'input', syncFetch);
   on($('url'), 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doFetch(); } });
@@ -876,8 +910,8 @@
   // =========================================================================
   function syncSong() {
     if (!inputPath) {
-      $('song-title').textContent = 'Your next idea starts here';
-      $('song-meta').textContent = 'Import audio to preview it and choose a range.';
+      $('song-title').textContent = 'Turn a recording into MIDI';
+      $('song-meta').textContent = 'Choose a song, then pick what to make. For a two-hand piano arrangement, choose Medley.';
       $('song-fmt').hidden = true;
       return;
     }
@@ -1099,37 +1133,7 @@
   }
 
   // ---- peak extraction ---------------------------------------------------
-  function bucketSliced(data, out, token) {
-    return new Promise((resolve, reject) => {
-      const n = data.length, B = out.length / 2;
-      const stride = n / B;
-      let b = 0;
-      const step = () => {
-        sliceTimer = 0;
-        if (token !== waveToken) { reject(new Error('stale')); return; }
-        const t0 = performance.now();
-        while (b < B) {
-          const a = Math.floor(b * stride);
-          const e = Math.min(n, Math.floor((b + 1) * stride));
-          let mn = 1, mx = -1;
-          for (let i = a; i < e; i++) { const v = data[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
-          if (e <= a) { mn = 0; mx = 0; }
-          out[b * 2] = mn;
-          out[b * 2 + 1] = mx;
-          b++;
-          // Budget the slice, not the bucket count: one bucket of a 30-minute
-          // file is already tens of thousands of samples.
-          if ((b & 31) === 0 && performance.now() - t0 > 4) break;
-        }
-        if (b >= B) { resolve(); return; }
-        sliceTimer = setTimeout(step, 0);
-      };
-      step();
-    });
-  }
-  disposers.push(() => { if (sliceTimer) clearTimeout(sliceTimer); });
-
-  // The decode context resamples to PEAK_RATE, so the buffer it hands back can
+  // The waveform reader resamples to a lower rate, so the buffer it hands back can
   // never report the file's real rate or channel count. Both come from the
   // container header instead — bytes we have already fetched, so it costs one
   // pass over the first few hundred of them and no second decode.
@@ -1191,25 +1195,10 @@
     return { rate: 0, channels: 0 };
   }
 
-  async function decodeAt(bytes) {
-    const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    if (OC) {
-      // decodeAudioData resamples to the context rate and runs off the main
-      // thread, so a 30-minute file arrives as ~20M samples instead of ~80M and
-      // no AudioContext is left open afterwards.
-      const oc = new OC(1, 1, PEAK_RATE);
-      return oc.decodeAudioData(bytes);
-    }
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) throw new Error('no audio decoder');
-    const ac = new AC();
-    try { return await ac.decodeAudioData(bytes); }
-    finally { try { ac.close(); } catch (_) {} }
-  }
-
   async function loadWaveform(p, force) {
     const token = ++waveToken;
-    if (sliceTimer) { clearTimeout(sliceTimer); sliceTimer = 0; }
+    if (waveRequest) waveRequest.abort();
+    waveRequest = null;
     wavePeaks = null;
     waveDuration = 0;
     waveFailed = false;
@@ -1230,20 +1219,19 @@
     }
     $('wave-loading').hidden = false;
     $('wave-loading-txt').textContent = 'Reading peaks…';
+    const request = new AbortController();
+    waveRequest = request;
     try {
-      const res = await fetch(F.fileUrl(p));
-      const bytes = await res.arrayBuffer();
-      if (token !== waveToken) return;
-      audioMeta.bytes = bytes.byteLength;
-      const sniffed = sniffAudioMeta(bytes);
-      const buf = await decodeAt(bytes);
+      const buf = await waveReader.read(F.fileUrl(p), request.signal, (bytes) => {
+        audioMeta.bytes = bytes.byteLength;
+        const sniffed = sniffAudioMeta(bytes);
+        audioMeta.rate = sniffed.rate;
+        audioMeta.channels = sniffed.channels;
+      });
+      const samples = buf.getChannelData(0);
+      const out = await window.AudioPeaks.buckets(samples, 0, samples.length, BUCKETS, request.signal);
       if (token !== waveToken) return;
       audioMeta.seconds = buf.duration || 0;
-      audioMeta.rate = sniffed.rate;
-      audioMeta.channels = sniffed.channels;
-      const out = new Float32Array(BUCKETS * 2);
-      await bucketSliced(buf.getChannelData(0), out, token);
-      if (token !== waveToken) return;
       waveDuration = buf.duration || 0;
       wavePeaks = out;
       peaksVersion = p + '#' + token;
@@ -1255,6 +1243,7 @@
       logQuiet('Waveform unavailable for this file; the time fields and the preview still work.');
     } finally {
       if (token === waveToken) {
+        waveRequest = null;
         $('wave-loading').hidden = true;
         waveHandle.invalidate();
         syncTimingControls();
@@ -1709,10 +1698,13 @@
   // START
   // =========================================================================
   function updateStart() {
-    const ok = !!(envReady && inputPath && !busy && validateTiming(false));
-    $('start').disabled = !ok;
-    $('start').title = ok ? '' : !envReady ? 'The Forge engine is not set up yet.'
-      : !inputPath ? 'Load an audio file first.' : busy ? 'A job is already running.' : 'Fix the time range first.';
+    const label = !inputPath ? 'Choose audio…' : envReady ? 'Create MIDI'
+      : envState === 'checking' ? 'Checking engine…' : envState === 'unknown' ? 'Check engine again'
+      : envState === 'repair' ? 'Show missing files' : 'Set up audio conversion…';
+    $('start-label').textContent = label;
+    const invalidRange = !!(envReady && inputPath && !validateTiming(false));
+    $('start').disabled = busy || !!(inputPath && envState === 'checking' && !envReady) || invalidRange;
+    $('start').title = busy ? 'A job is already running.' : invalidRange ? 'Fix the time range first.' : '';
   }
 
   function startJob() {
@@ -1720,7 +1712,7 @@
     if (!validateTiming(true)) return;
     const advanced = collectAdvanced();
     const timingRaw = { enabled: timeEnabled, start: $('time-start').value.trim(), end: $('time-end').value.trim() };
-    if (F.setSettings) F.setSettings({ pipeline, skipSeparation: skipSeparation(), advanced, timing: timingRaw });
+    if (F.setSettings) F.setSettings({ pipeline, skipSeparation: stemsChoice === 'skip', advanced, timing: timingRaw });
     const more = queue.length ? ' (' + queue.length + ' more queued)' : '';
     beginJob('Queued', 'run', Fmt.basename(inputPath));
     logLine('Start ' + Fmt.basename(inputPath) + ' (' + pipeline + (skipSeparation() ? ', skip-sep' : '') + ')' + more);
@@ -1736,18 +1728,29 @@
     $('samename').setAttribute('aria-checked', 'true');
     syncSameName();
   }
-  on($('start'), 'click', () => { runningQueue = queue.length > 0; startJob(); });
+  on($('start'), 'click', () => {
+    if (busy) return;
+    if (!inputPath) { browse('replace'); return; }
+    if (!envReady) {
+      if (envState === 'unknown') refreshEnv();
+      else if (envState !== 'checking') openSetup();
+      return;
+    }
+    runningQueue = queue.length > 0;
+    startJob();
+  });
 
   // =========================================================================
   // RESULTS + HISTORY
   // =========================================================================
   const BADGE = { primary: 'Primary', clean: 'Clean', alternate: 'Alternate', drums: 'Drums' };
-  const KIND = { piano: 'Piano', melody: 'Melody', general: 'Full', drums: 'Drums', fast: 'Fast' };
+  const KIND = { piano: 'Piano', expressive: 'Medley', melody: 'Melody', general: 'Full', drums: 'Drums', fast: 'Fast' };
   const kindOf = (it) => KIND[it && it.pipeline] || 'MIDI';
   // Fmt.count does not group thousands and a note count is exactly where that
   // reads badly ("2841 notes"), so this one string is grouped locally.
   const notesText = (n) => (n == null ? '— notes'
     : Number(n).toLocaleString() + (Number(n) === 1 ? ' note' : ' notes'));
+  const HISTORY_LIMIT = 200;
   let sessionResults = [], history = [], resList = null;
   // A result row is a two-line card with a gap around it, not a flush list row:
   // the gap is inside the pitch so VList still positions from one number.
@@ -1756,7 +1759,7 @@
   function loadHistory() {
     try {
       const raw = JSON.parse(localStorage.getItem(RESULTS_KEY) || '[]');
-      history = Array.isArray(raw) ? raw.filter((r) => r && typeof r.path === 'string') : [];
+      history = Array.isArray(raw) ? raw.filter((r) => r && typeof r.path === 'string').slice(0, HISTORY_LIMIT) : [];
     } catch (_) { history = []; }
   }
   // Only the row's own facts are persisted. `freshUntil` is a 500ms entrance
@@ -1767,7 +1770,7 @@
   const HISTORY_KEEP = ['path', 'project', 'pipeline', 'badge', 'at', 'notes', 'seconds'];
   let historyWriteFailed = false;
   const saveHistory = debounce(() => {
-    const rows = history.slice(0, 200).map((r) => {
+    const rows = history.slice(0, HISTORY_LIMIT).map((r) => {
       const out = {};
       for (const k of HISTORY_KEEP) if (r[k] !== undefined) out[k] = r[k];
       return out;
@@ -1813,8 +1816,9 @@
     if (cands) for (const [k, v] of Object.entries(cands)) push(v, k);
     push(result.midiPath, 'primary');
     if (!rows.length) return null;
-    sessionResults = rows.concat(sessionResults);
-    history = rows.map((r) => Object.assign({}, r)).concat(history.filter((h) => !seen.has(lower(h.path))));
+    sessionResults = rows.concat(sessionResults.filter((r) => !seen.has(lower(r.path))));
+    history = rows.map((r) => Object.assign({}, r)).concat(history.filter((h) => !seen.has(lower(h.path))))
+      .slice(0, HISTORY_LIMIT);
     saveHistory();
     renderResults();
     select(rows[0]);
@@ -1959,47 +1963,67 @@
   const metaCache = new Map();
   const metaPending = new Set();
   const MAX_MIDI_BYTES = 8 * 1024 * 1024;
+  const META_CACHE_LIMIT = 48;
+  const DENSITY_BUCKETS = 1024;
+
+  function cacheMeta(key, meta) {
+    metaCache.delete(key);
+    metaCache.set(key, meta);
+    while (metaCache.size > META_CACHE_LIMIT) metaCache.delete(metaCache.keys().next().value);
+  }
 
   function ensureMeta(it, urgent) {
     if (!it || !F.fileUrl) return;
     const key = lower(it.path);
     const hit = metaCache.get(key);
-    if (hit) { applyMeta(it, hit); return; }
+    if (hit) {
+      if (urgent) cacheMeta(key, hit);
+      applyMeta(it, hit);
+      return;
+    }
     if (metaPending.has(key)) return;
     if (!urgent && metaPending.size >= 3) return;      // a handful per frame, never the whole list
     metaPending.add(key);
     fetch(F.fileUrl(it.path))
-      .then((r) => r.arrayBuffer())
+      .then((r) => {
+        if (!r.ok || Number(r.headers.get('content-length')) > MAX_MIDI_BYTES) throw new Error('unavailable MIDI');
+        return r.arrayBuffer();
+      })
       .then((buf) => {
         if (buf.byteLength > MAX_MIDI_BYTES) throw new Error('too large');
         const m = readMidi(buf);
-        metaCache.set(key, m);
+        cacheMeta(key, m);
         applyMeta(it, m);
+        if (selected && lower(selected.path) === key) {
+          densLayer.invalidate();
+          densHandle.invalidate();
+        }
       })
-      .catch(() => { metaCache.set(key, { notes: null, seconds: null, onsets: [] }); })
-      .then(() => { metaPending.delete(key); });
+      .catch(() => { cacheMeta(key, { notes: null, seconds: null, density: null }); })
+      .finally(() => { metaPending.delete(key); });
   }
-  // The onset array is read back from metaCache, never stored on the row: the
-  // rows ARE the history entries and history is what gets stringified.
-  function onsetsFor(it) {
+
+  // Keep the histogram in memory only. Rows persist just counts and durations.
+  function densityFor(it) {
     if (!it) return null;
     const m = metaCache.get(lower(it.path));
-    return (m && m.onsets && m.onsets.length) ? m.onsets : null;
+    return m ? m.density : null;
   }
   function applyMeta(it, m) {
     let changed = false;
     if (it.notes == null && m.notes != null) { it.notes = m.notes; changed = true; }
     if (it.seconds == null && m.seconds != null) { it.seconds = m.seconds; changed = true; }
+    if (!changed) return;
+    const key = lower(it.path);
     for (const arr of [sessionResults, history]) {
-      for (const r of arr) if (lower(r.path) === lower(it.path)) { r.notes = it.notes; r.seconds = it.seconds; }
+      for (const r of arr) if (lower(r.path) === key) { r.notes = it.notes; r.seconds = it.seconds; }
     }
-    if (changed) {
-      saveHistory();
-      if (resList) resList.refresh();
-      if (selected && lower(selected.path) === lower(it.path)) { paintSelStats(); densLayer.invalidate(); densHandle.invalidate(); }
-    } else if (selected && lower(selected.path) === lower(it.path)) {
-      densLayer.invalidate();
-      densHandle.invalidate();
+    saveHistory();
+    if (resList) resList.refresh();
+    if (selected && lower(selected.path) === key) {
+      selected.notes = it.notes;
+      selected.seconds = it.seconds;
+      paintSelStats();
     }
   }
 
@@ -2008,7 +2032,7 @@
   // preload already exposes.
   function readMidi(buffer) {
     const d = new DataView(buffer);
-    const empty = { notes: null, seconds: null, onsets: [] };
+    const empty = { notes: null, seconds: null, density: null };
     if (d.byteLength < 14) return empty;
     if (d.getUint32(0) !== 0x4d546864) return empty;      // 'MThd'
     const division = d.getInt16(12);
@@ -2072,15 +2096,26 @@
         if (i + 1 < tempos.length) acc += (tempos[i + 1].tick - tempos[i].tick) * (tempos[i].us / 1e6 / tpq);
       }
       return (t) => {
-        let m = marks[0];
-        for (let i = 1; i < marks.length; i++) { if (marks[i].tick <= t) m = marks[i]; else break; }
+        let lo = 0, hi = marks.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >>> 1;
+          if (marks[mid].tick <= t) lo = mid;
+          else hi = mid - 1;
+        }
+        const m = marks[lo];
         return m.sec + (t - m.tick) * m.per;
       };
     })();
 
-    const onsets = new Float32Array(onsetTicks.length);
-    for (let i = 0; i < onsetTicks.length; i++) onsets[i] = toSeconds(onsetTicks[i]);
-    return { notes, seconds: toSeconds(maxTick), onsets };
+    const seconds = toSeconds(maxTick);
+    const density = seconds > 0 && notes ? new Uint32Array(DENSITY_BUCKETS) : null;
+    if (density) {
+      for (const tick of onsetTicks) {
+        const bin = clamp(Math.floor(toSeconds(tick) / seconds * density.length), 0, density.length - 1);
+        density[bin]++;
+      }
+    }
+    return { notes, seconds, density };
   }
 
   // ---- note-density strip ------------------------------------------------
@@ -2095,8 +2130,7 @@
       if (host.clientWidth < 4) return;
       const geo = Draw.fitCanvas($('dens'), host.clientWidth, host.clientHeight);
       if (geo.resized) densLayer.invalidate();
-      const ons = onsetsFor(selected);
-      const key = selected ? lower(selected.path) + '|' + (ons ? ons.length : 0) : 'none';
+      const key = selected ? lower(selected.path) : 'none';
       densLayer.paint(geo.w, geo.h, key + '|' + Tokens.themeKey(), (ctx, g) => paintDensity(ctx, g));
       densLayer.blit(geo.ctx, 0, 0);
     },
@@ -2106,9 +2140,8 @@
   function paintDensity(ctx, g) {
     ctx.fillStyle = Tokens.get('bg-2', '#0f1013');
     ctx.fillRect(0, 0, g.w, g.h);
-    const onsets = onsetsFor(selected);
-    const span = selected && selected.seconds ? selected.seconds : 0;
-    if (!onsets || !onsets.length || !span) {
+    const density = densityFor(selected);
+    if (!density) {
       ctx.fillStyle = Tokens.get('text-3', '#868a92');
       ctx.font = '12px ' + Tokens.get('font-mono', 'monospace');
       ctx.textBaseline = 'middle';
@@ -2117,9 +2150,8 @@
     }
     const cols = Math.max(8, Math.floor(g.w / 3));
     const hist = new Uint32Array(cols);
-    for (let i = 0; i < onsets.length; i++) {
-      const c = clamp(Math.floor((onsets[i] / span) * cols), 0, cols - 1);
-      hist[c]++;
+    for (let i = 0; i < density.length; i++) {
+      hist[Math.floor(i * cols / density.length)] += density[i];
     }
     let peak = 1;
     for (let i = 0; i < cols; i++) if (hist[i] > peak) peak = hist[i];
@@ -2159,29 +2191,42 @@
     setPathChip($('setup-dirchip'), $('setup-dir'), $('setup-dirname'), info.forgeEnvDir, 'not set');
     const free = info.forgeFreeGb;
     $('setup-free').textContent = free == null ? '' : free + ' GB free';
-    $('setup-free').classList.toggle('is-low', free != null && free < 15);
+    const need = info.forgeNeedGb || 15;
+    const low = free != null && free < need;
+    $('setup-free').classList.toggle('is-low', low);
+    $('setup-space').textContent = low ? 'This drive may not have enough room. Choose a drive with about ' + need + ' GB free.'
+      : 'Allow about ' + need + ' GB of free space. You can keep this folder.';
   }
 
+  let latestEnvRequest = 0;
   async function refreshEnv() {
     // Paint what the probe said last time FIRST. Probing imports torch and takes
     // tens of seconds; a blank chip for half a minute reads as broken.
     let cached = null;
-    try { cached = JSON.parse(localStorage.getItem(ENV_CACHE_KEY) || 'null'); } catch (_) {}
+    const request = ++latestEnvRequest;
+    const expressive = pipeline === 'expressive';
+    const cacheKey = expressive ? ENV_CACHE_KEY + '.expressive' : ENV_CACHE_KEY;
+    envState = 'checking';
+    try { cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); } catch (_) {}
     if (cached && cached.forgeReady) {
       envReady = true;
       envGpu = cached.gpu || '';
       setEnv('ok', envGpu ? 'Ready · ' + envGpu : 'Ready · CPU');
       updateStart();
     } else {
+      envReady = false;
       setEnv('warn', 'Checking engine…');
+      updateStart();
     }
     refreshStorage();
     let s = null;
-    try { s = await F.check(); } catch (_) { s = { forgeReady: false }; }
+    try { s = await F.check(expressive ? { mode: 'expressive' } : {}); } catch (_) { /* offer a recheck, not an install */ }
+    if (request !== latestEnvRequest) return;
     envReady = !!(s && s.forgeReady);
     envGpu = (s && s.gpu) || '';
     envMissing = (s && s.missing) || [];
-    try { localStorage.setItem(ENV_CACHE_KEY, JSON.stringify({ forgeReady: envReady, gpu: envGpu })); } catch (_) {}
+    envState = !s ? 'unknown' : envReady ? 'ready' : expressive && s.engine === 'rust' ? 'repair' : 'missing';
+    try { localStorage.setItem(cacheKey, JSON.stringify({ forgeReady: envReady, gpu: envGpu })); } catch (_) {}
     if (envReady) {
       setEnv('ok', envGpu ? 'Ready · ' + envGpu : 'Ready · CPU (slow)');
       if (!envGpu && !cpuNoticeShown) {
@@ -2189,9 +2234,14 @@
         logLine('Forge runs on the processor here. Piano and Full Song take 20 to 40 minutes per song here. Fast finishes in a couple of minutes at lower quality.', { level: 'warn' });
       }
       closeSetup();
+    } else if (envState === 'unknown') {
+      setEnv('warn', 'Check again');
+    } else if (envState === 'repair') {
+      setEnv('err', 'Medley files missing');
     } else {
       setEnv('err', 'Not set up' + (envMissing.length ? ' · missing ' + envMissing.join(', ') : ''));
     }
+    if (!envReady && !$('setup-scrim').hidden) syncSetupAction();
     // The GPU is only ever known here, and the probe is expensive: share it so
     // the shell can cache the verdict for the next cold start.
     if (Bus) Bus.send(T.FORGE_STATUS, { event: 'forge.env', forgeReady: envReady, gpu: envGpu, missing: envMissing });
@@ -2201,15 +2251,30 @@
 
   // ---- modal -------------------------------------------------------------
   let setupReturn = null;
+  function syncSetupAction() {
+    const repair = envState === 'repair';
+    const retry = envState === 'unknown';
+    $('setup-title').textContent = repair ? 'Restore the Medley files' : retry ? 'Couldn’t check the engine'
+      : envReady ? 'Audio conversion is ready' : 'Set up audio conversion';
+    $('setup-description').textContent = repair
+      ? 'Extract the complete MIDI Studio Expressive folder again, keeping its files together. Then choose Check again. ' + envMissing.join('; ')
+      : retry ? 'Check again before installing anything. You can still listen to or edit MIDI files.'
+      : envReady ? 'This mode is ready to use. Close this window to make a MIDI. Install is optional and downloads additional engine tools.'
+      : 'Audio conversion can need a one-time download of several GB. Listening to or editing MIDI needs no download. Choose Install when you’re ready.';
+    $('setup-store').hidden = repair || retry;
+    if (repair || retry) $('setup-prog').hidden = true;
+    if (!$('setup-start').disabled) $('setup-start').textContent = repair || retry ? 'Check again'
+      : envReady ? 'Install optional tools' : 'Install';
+  }
   function openSetup() {
     const scrim = $('setup-scrim');
     if (!scrim.hidden) return;
     setupReturn = document.activeElement;
     scrim.hidden = false;
+    syncSetupAction();
     requestAnimationFrame(() => scrim.classList.add('is-open'));
     refreshStorage();
-    const focusable = $('setup').querySelector('button:not([hidden]):not(:disabled)');
-    if (focusable) focusable.focus();
+    ($('setup-start').disabled || envReady ? $('setup-x') : $('setup-start')).focus();
   }
   function closeSetup() {
     const scrim = $('setup-scrim');
@@ -2294,6 +2359,8 @@
   function noteSetupOutput() { setupHeard = true; clearTimeout(setupSilence); setupSilence = 0; }
 
   on($('setup-start'), 'click', async () => {
+    if (envState === 'repair' || envState === 'unknown') { closeSetup(); refreshEnv(); return; }
+    $('setup-start').disabled = true;
     try {
       if (S.forgeInfo) {
         try {
@@ -2302,11 +2369,13 @@
           if (info && info.forgeFreeGb != null && info.forgeFreeGb < needGb) {
             logLine('Only ' + info.forgeFreeGb + ' GB free on ' + info.forgeEnvDir + ' — setup needs about ' + needGb + ' GB.', { level: 'warn' });
             if (!window.confirm('That drive has ' + info.forgeFreeGb + ' GB free and setup needs about ' + needGb
-              + ' GB. Use "Change folder…" to install the engine on another drive. Start anyway?')) return;
+              + ' GB. Use "Change folder…" to install the engine on another drive. Start anyway?')) {
+              $('setup-start').disabled = false;
+              return;
+            }
           }
         } catch (_) { /* advisory only */ }
       }
-      $('setup-start').disabled = true;
       $('setup-cancel').hidden = false;
       $('setup-prog').hidden = false;
       $('setup-step').textContent = 'Starting…';
@@ -2366,11 +2435,12 @@
         break;
       case 'forge.provision.done':
         stopSetupTimer();
-        $('setup-msg').textContent = 'Done.';
+        $('setup-step').textContent = 'Checking the installation…';
+        $('setup-msg').textContent = 'Your audio selection stays here. When the engine is ready, choose Create MIDI.';
         $('setup-cancel').hidden = true;
         $('setup-cancel').textContent = 'Cancel';
         $('setup-start').disabled = false;
-        $('setup-start').textContent = 'Set up Forge';
+        $('setup-start').textContent = 'Install';
         refreshEnv();
         break;
       case 'forge.provision.error': {
@@ -2380,7 +2450,7 @@
         $('setup-cancel').hidden = true;
         $('setup-cancel').textContent = 'Cancel';
         $('setup-start').disabled = false;
-        $('setup-start').textContent = cancelled ? 'Set up Forge' : 'Retry setup';
+        $('setup-start').textContent = cancelled ? 'Resume setup' : 'Retry setup';
         break;
       }
       case 'forge.progress': {
@@ -2428,7 +2498,9 @@
         setStage('done');
         markDone('done', Date.now());
         setJobPill('ok', 'Downloaded');
-        addInputs([result.downloadedPath], 'replace');
+        if (MIDI_EXT.test(result.downloadedPath)) {
+          if (Bus) Bus.send(T.NAV_OPEN_EDITOR, { midiPath: result.downloadedPath });
+        } else addInputs([result.downloadedPath], 'replace');
         logLine('Downloaded ' + Fmt.basename(result.downloadedPath), { level: 'ok' });
         if (Bus) Bus.send(T.UI_TOAST, { severity: 'ok', title: 'Downloaded', message: Fmt.basename(result.downloadedPath), key: 'forge-dl' });
         $('url').value = '';
@@ -2442,7 +2514,7 @@
         currentProject = result.projectPath || '';
         setJobPill('ok', 'Complete');
         $('prog-foot').textContent = 'Finished in ' + Fmt.duration(Math.max(1, Math.round((Date.now() - jobStartedAt) / 1000))) + '.';
-        addResults(result, pipeline);
+        addResults(result, result.pipeline || pipeline);
         logLine('Done: ' + result.midiPath, { level: 'ok' });
       }
     } else if (/cancel/i.test(s.error || '')) {
@@ -2546,6 +2618,7 @@
     saveHistory.flush();
     savePreviewPrefs.flush();
     waveToken++;
+    if (waveRequest) waveRequest.abort();
     try { audio.pause(); } catch (_) {}
     for (const d of disposers.splice(0)) { try { d(); } catch (_) {} }
   }
@@ -2596,7 +2669,7 @@
     F.getSettings().then((s) => {
       if (!s) return;
       if (s.pipeline) setPipeline(s.pipeline, false);
-      $('c-stems').value = s.skipSeparation ? 'skip' : 'separate';
+      stemsChoice = s.skipSeparation ? 'skip' : 'separate';
       syncStems();
       if (s.timing) {
         timeEnabled = !!s.timing.enabled;

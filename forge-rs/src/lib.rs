@@ -27,6 +27,8 @@ pub mod demix;
 pub mod drums;
 pub mod dsp;
 pub mod dump;
+pub mod expressive_arrange;
+pub mod expressive_vocal;
 pub mod frontend;
 pub mod heads;
 pub mod melody;

@@ -42,6 +42,12 @@ function rustPlayerExe() {
   return exists(p) ? p : null;
 }
 
+function rustForgeExe() {
+  const exe = isPackaged() ? path.join(process.resourcesPath, 'forge-rs', 'forge-rs.exe')
+    : path.join(DEV_ROOT, 'forge-rs', 'target', 'release', 'forge-rs.exe');
+  return exists(exe) ? exe : null;
+}
+
 // ---- forge heavy env --------------------------------------------------------
 
 // Default home for the ~10 GB Forge engine.
@@ -251,7 +257,7 @@ function forgeChildEnv(settings) {
 
 module.exports = {
   isPackaged, exists, localAppData,
-  pythonEngineDir, bundledPlayerPython, rustPlayerExe,
+  pythonEngineDir, bundledPlayerPython, rustPlayerExe, rustForgeExe,
   forgeEnvDir, defaultForgeEnvDir, legacyDefaultForgeEnvDir, legacyForgeEnvDir, forgeEnvPython, forgeEnvReady,
   candidateForgeEnvDirs, findReadyForgeEnv,
   modelsDir, rendererIndexHtml, overlayHtml, changelogFile, preloadScript, forgeChildEnv, appIcon, DEV_ROOT,

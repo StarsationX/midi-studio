@@ -21,7 +21,7 @@
    Byte-for-byte the same document `midi_document.load_midi` returns:
    merged-track playback order, mid-file tempo changes, FIFO note matching, the
    `unterminated` close-at-end-of-file rule, the (start, pitch) sort, stable
-   n1..nN ids, `programs`, `duration`, `bpm` and the onset-derived
+   n1..nN ids, `programs`, `controllers`, `markers`, `duration`, `bpm` and the onset-derived
    `bpmEstimated` guess. tools/run-tests.js asserts that field for field against
    what the python loader actually prints, over every fixture in
    benchmarks/fixtures.
@@ -137,11 +137,11 @@
     // file is ~250k messages, and 250k short-lived objects is a major GC on the
     // open path all by itself.
     //   kind 0 something else  1 note_on(vel>0)  2 note_off  3 set_tempo
-    //        4 program_change
+    //        4 program_change  5 control_change  6 marker
     //   a    = channel (1,2,4) or tempo (3)
     //   b    = (pitch << 8) | velocity for 1/2, program for 4
     //
-    // EVERY message is recorded, not just the four kinds that carry data, and
+    // EVERY message is recorded, not just the kinds that carry editable data, and
     // that is load-bearing rather than lazy. mido converts each merged delta to
     // seconds on its own and midi_document.py sums those, so how a tick interval
     // is PARTITIONED between messages changes the last bit of the running total:
@@ -161,6 +161,7 @@
     var mKind = new Uint8Array(cap);
     var mA = new Int32Array(cap);
     var mB = new Int32Array(cap);
+    var markerText = [];
     function grow() {
       cap *= 2;
       var t = new Float64Array(cap); t.set(mTick); mTick = t;
@@ -175,7 +176,7 @@
     // merge_tracks keeps end_of_track's time (fix_end_of_track folds it into the
     // trailing marker rather than dropping it). A file with trailing silence
     // after its last note therefore has a duration this reader would otherwise
-    // miss, because it only records the four event kinds above.
+    // miss if it only recorded note events.
     var maxTick = 0;
 
     for (var t = 0; t < ntrk; t++) {
@@ -235,9 +236,20 @@
           if (meta !== 0x2f) {                       // 0x2f = end_of_track
             if (len === cap) grow();
             mTick[len] = tick;
-            if (meta === 0x51 && ml === 3) {
+            if (meta === 0x51) {
+              if (ml < 3) fail('incomplete tempo event in track ' + t);
               mKind[len] = 3;
               mA[len] = (b[p] << 16) | (b[p + 1] << 8) | b[p + 2];
+            } else if (meta === 0x06) {
+              mKind[len] = 6;
+              mA[len] = markerText.length;
+              var rawText = b.subarray(p, p + ml), text;
+              try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(rawText); }
+              catch (_) {
+                text = '';
+                for (var ti = 0; ti < rawText.length; ti++) text += String.fromCharCode(rawText[ti]);
+              }
+              markerText.push(text);
             } else { mKind[len] = 0; mA[len] = 0; }
             mB[len] = 0; len++;
           }
@@ -280,8 +292,10 @@
             mKind[len] = 2; mA[len] = ch; mB[len] = (d0 << 8) | d1;
           } else if (type === 0xc0) {
             mKind[len] = 4; mA[len] = ch; mB[len] = d0;
+          } else if (type === 0xb0) {
+            mKind[len] = 5; mA[len] = ch; mB[len] = (d0 << 8) | d1;
           } else {
-            // control_change, pitchwheel, aftertouch: no data this reader wants,
+            // Pitchwheel, aftertouch: no data this reader wants,
             // but its position in the merged stream still splits a tick interval
             // and therefore still shapes the running total. See the note above.
             mKind[len] = 0; mA[len] = 0; mB[len] = 0;
@@ -323,6 +337,7 @@
     var lastTick = 0;
     var notes = [];
     var programs = {};
+    var controllers = [], markers = [], tempoChanges = [];
     // One FIFO per (channel, pitch), flat [start, velocity, start, velocity...].
     var active = new Map();
 
@@ -347,11 +362,19 @@
             velocity: vel, channel: mA[j] });
         }
       } else if (kind === 3) {
-        if (!foundTempo) { firstTempo = mA[j]; foundTempo = true; }
+        var at = r6(timeSec);
+        if (at === 0) firstTempo = mA[j];
+        foundTempo = true;
+        if (tempoChanges.length && tempoChanges[tempoChanges.length - 1].time === at) tempoChanges.pop();
+        tempoChanges.push({ time: at, microsecondsPerBeat: mA[j] });
         tempo = mA[j];
         scale = tempo * 1e-6 / spq;
       } else if (kind === 4) {
         if (programs[mA[j]] === undefined) programs[mA[j]] = mB[j];
+      } else if (kind === 5) {
+        controllers.push({ time: r6(timeSec), channel: mA[j], controller: mB[j] >> 8, value: mB[j] & 0xff });
+      } else if (kind === 6) {
+        markers.push({ time: r6(timeSec), name: markerText[mA[j]] });
       }
     }
     // Everything after the last note/tempo/program event still counts towards the
@@ -396,6 +419,10 @@
       duration: r6(maxEnd),
       programs: programs,
       notes: notes,
+      controllers: controllers,
+      markers: markers,
+      ticksPerBeat: division,
+      tempoChanges: tempoChanges,
     };
   }
 

@@ -238,7 +238,7 @@ function programOutputDir() {
   return path.join(os.homedir(), 'Documents', 'MIDI Studio');
 }
 
-const { uniquePath, candidateTarget } = forgeStorage;
+const { candidateTarget } = forgeStorage;
 
 function runMidiDocument(action, midiPath, document) {
   return new Promise((resolve, reject) => {
@@ -575,21 +575,28 @@ function createServices() {
         const outDir = programOutputDir();
         fs.mkdirSync(outDir, { recursive: true });
         const moved = new Map();
-        const moveOutput = (source) => {
+        const moveOutput = (source, hasProject = false) => {
           source = String(source || '');
-          if (!source || !paths.exists(source)) return source;
+          if (!source) return source;
           const key = path.resolve(source).toLowerCase();
           if (moved.has(key)) return moved.get(key);
-          let dest = source;
-          if (path.resolve(path.dirname(source)).toLowerCase() !== path.resolve(outDir).toLowerCase()) {
-            dest = uniquePath(path.join(outDir, path.basename(source)));
-            try { fs.renameSync(source, dest); }
-            catch { fs.copyFileSync(source, dest); try { fs.unlinkSync(source); } catch {} }
+          if (!paths.exists(source)) return source;
+          const { name, ext } = path.parse(source);
+          for (let index = 1; index <= 10000; index++) {
+            const base = index === 1 ? name : `${name} (${index})`;
+            const dest = path.join(outDir, base + ext);
+            if (hasProject && paths.exists(path.join(outDir, base + '.midstudio.json'))) continue;
+            if (path.resolve(dest).toLowerCase() !== key) {
+              try { fs.copyFileSync(source, dest, fs.constants.COPYFILE_EXCL); }
+              catch (error) { if (error.code === 'EEXIST') continue; throw error; }
+              try { fs.unlinkSync(source); } catch {}
+            }
+            moved.set(key, dest);
+            return dest;
           }
-          moved.set(key, dest);
-          return dest;
+          throw new Error('No unused export filename');
         };
-        mp = moveOutput(mp);
+        mp = moveOutput(mp, isObj(payload.result.candidates));
         if (payload.result.candidates && isObj(payload.result.candidates)) {
           const candidates = {};
           for (const [name, file] of Object.entries(payload.result.candidates)) {
@@ -609,12 +616,15 @@ function createServices() {
             timing: payload.result.timing || {},
             createdAt: new Date().toISOString(),
           };
-          fs.writeFileSync(projectPath, JSON.stringify(project, null, 2), 'utf-8');
+          if (isObj(payload.result.channelNames)) project.channelNames = payload.result.channelNames;
+          fs.writeFileSync(projectPath, JSON.stringify(project, null, 2), { encoding: 'utf-8', flag: 'wx' });
           payload.result.projectPath = projectPath;
         }
       } catch (_) {}
       payload.result.midiPath = mp;
       broadcast('library-changed', path.dirname(mp));
+    } else if (payload && payload.event === 'forge.done' && payload.ok && /\.midi?$/i.test(payload.result && payload.result.downloadedPath || '')) {
+      broadcast('library-changed', path.dirname(payload.result.downloadedPath));
     }
     broadcast('forge:status', payload);
   };
@@ -1351,6 +1361,7 @@ function wireIpc() {
       pipeline: String(opts.pipeline || 'melody'),
       skipSeparation: !!opts.skipSeparation,
       outputName: String(opts.outputName || ''),
+      outputDir: programOutputDir(),
       advanced: isObj(opts.advanced) ? opts.advanced : {},
       timing: isObj(opts.timing) ? opts.timing : {},
     });

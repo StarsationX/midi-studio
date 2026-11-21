@@ -167,10 +167,10 @@ def _patched_msst_config(work_dir: Path, batch: int, strict_fp32: bool = False) 
     return patched
 
 
-def run_separation(src: Path, work_dir: Path) -> Path:
+def run_separation(src: Path, work_dir: Path, *, stage_marker="[1/3]") -> Path:
     """Run MSST BS-Roformer and return the folder of separated stem .wav files."""
     batch = _separation_batch()
-    print(f"\n[1/3] Separating with BS-Rofo-SW-Fixed (SOTA 6-stem, batch {batch})")
+    print(f"\n{stage_marker} Separating with BS-Rofo-SW-Fixed (SOTA 6-stem, batch {batch})")
     t0 = time.time()
     input_dir = work_dir / "input"
     output_dir = work_dir / "stems"
@@ -277,9 +277,9 @@ def _resolve_transcribe_backend() -> str:
     return "cpu"
 
 
-def transcribe_to_midi(piano_wav: Path, out_midi: Path) -> None:
+def transcribe_to_midi(piano_wav: Path, out_midi: Path, *, stage_marker="[2/3]") -> None:
     backend = _resolve_transcribe_backend()
-    print(f"\n[2/3] Transcribing with Transkun V2 (SOTA piano MIDI), {backend}")
+    print(f"\n{stage_marker} Transcribing with Transkun V2 (SOTA piano MIDI), {backend}")
     t0 = time.time()
     piano_wav, ratio = retune_to_a440(piano_wav)
     env = os.environ

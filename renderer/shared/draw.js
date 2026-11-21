@@ -141,8 +141,10 @@
     env.gameActive = localGame || ds.game === '1' || ds.gameActive === '1' || ds.gameRaised === '1';
     env.gamePreRaised = ds.gameRaised === '1';
     env.onscreen = localOnscreen === null ? (ds.onscreen !== '0') : localOnscreen;
-    env.hidden = !!document.hidden || windowMinimized();
-    env.focused = typeof document.hasFocus === 'function' ? document.hasFocus() : true;
+    env.hidden = !!document.hidden || (ds.windowMinimized === undefined ? windowMinimized() : ds.windowMinimized === '1');
+    env.focused = ds.windowFocused === undefined
+      ? (typeof document.hasFocus === 'function' ? document.hasFocus() : true)
+      : ds.windowFocused === '1';
   }
 
   // The whole budget, in one place, with each input applied exactly once.
@@ -198,7 +200,9 @@
     readAttrs();
     reflectPark();
     var next = computeBudget();
-    if (next !== budget || force) {
+    const changed = next !== budget;
+    if (changed) cancelPending();   // Drop a timer computed for the old budget or hidden window.
+    if (changed || force) {
       budget = next;
       for (var i = 0; i < budgetListeners.length; i++) {
         try { budgetListeners[i](budget); } catch (e) { /* keep going */ }
@@ -360,8 +364,13 @@
       // Idle consumers are clamped to idleMs so a canvas nobody is watching
       // still self-heals a few times a second without costing a frame budget.
       setLive: function (on) {
-        c.live = !!on;
-        if (c.live) { c.lastAt = 0; }
+        const live = !!on;
+        if (live === c.live) return handle;
+        c.live = live;
+        if (live) {
+          c.lastAt = 0;
+          if (timerId) { global.clearTimeout(timerId); timerId = 0; }
+        }
         schedule();
         return handle;
       },
@@ -504,7 +513,7 @@
     new global.MutationObserver(function () { refreshEnv(false); })
       .observe(document.documentElement, {
         attributes: true,
-        attributeFilter: ['data-drawms', 'data-onscreen', 'data-game', 'data-game-active', 'data-game-raised']
+        attributeFilter: ['data-drawms', 'data-onscreen', 'data-game', 'data-game-active', 'data-game-raised', 'data-window-minimized', 'data-window-focused']
       });
   }
 

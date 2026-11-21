@@ -213,13 +213,15 @@ pub fn py_resolve(p: &Path) -> String {
 // THE READER (mido.MidiFile, as midi_document.py used it)
 // ===========================================================================
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 enum Kind {
     Other,
     NoteOn { ch: u8, note: u8, vel: u8 },
     NoteOff { ch: u8, note: u8 },
     Tempo(u32),
     Program { ch: u8, program: u8 },
+    Controller { ch: u8, controller: u8, value: u8 },
+    Marker(String),
     EndOfTrack,
 }
 
@@ -289,6 +291,7 @@ fn meta_kind(meta_type: u8, data: &[u8]) -> Result<Kind, String> {
         }
     };
     match meta_type {
+        0x06 => return Ok(Kind::Marker(String::from_utf8(data.to_vec()).unwrap_or_else(|_| data.iter().map(|b| char::from(*b)).collect()))),
         0x00 if data.len() == 1 => need(2)?,
         0x20 => need(1)?,
         0x2f => return Ok(Kind::EndOfTrack),
@@ -353,6 +356,7 @@ fn channel_or_system(c: &mut Cursor, status: u8, peek: Option<u8>) -> Result<Kin
         0x90 => Kind::NoteOn { ch, note: data[0], vel: data[1] },
         0x80 => Kind::NoteOff { ch, note: data[0] },
         0xc0 => Kind::Program { ch, program: data[0] },
+        0xb0 => Kind::Controller { ch, controller: data[0], value: data[1] },
         _ => Kind::Other,
     })
 }
@@ -509,6 +513,9 @@ pub fn load_bytes(bytes: &[u8], given: &str, resolved: &str) -> Result<Value, St
     let mut time_sec = 0.0f64;
     // Insertion-ordered like python's dicts.
     let mut programs: Vec<(u8, u8)> = Vec::new();
+    let mut controllers = Vec::new();
+    let mut markers = Vec::new();
+    let mut tempo_changes: Vec<Value> = Vec::new();
     let mut active_keys: Vec<(u8, u8)> = Vec::new();
     let mut active: std::collections::HashMap<(u8, u8), std::collections::VecDeque<(f64, u8)>> = std::collections::HashMap::new();
     let mut notes: Vec<Note> = Vec::new();
@@ -524,16 +531,27 @@ pub fn load_bytes(bytes: &[u8], given: &str, resolved: &str) -> Result<Value, St
         }
         match *kind {
             Kind::Tempo(t) => {
-                if !found_tempo {
+                let at = float(py_round(time_sec, 6));
+                if at.as_f64() == Some(0.0) {
                     first_tempo = t;
-                    found_tempo = true;
                 }
+                found_tempo = true;
+                if tempo_changes.last().is_some_and(|last| last["time"] == at) {
+                    tempo_changes.pop();
+                }
+                tempo_changes.push(json!({"time": at, "microsecondsPerBeat": t}));
                 tempo = t;
             }
             Kind::Program { ch, program } => {
                 if !programs.iter().any(|(c, _)| *c == ch) {
                     programs.push((ch, program));
                 }
+            }
+            Kind::Controller { ch, controller, value } => {
+                controllers.push(json!({"time": float(py_round(time_sec, 6)), "channel": ch, "controller": controller, "value": value}));
+            }
+            Kind::Marker(ref name) => {
+                markers.push(json!({"time": float(py_round(time_sec, 6)), "name": name}));
             }
             Kind::NoteOn { ch, note, vel } if vel > 0 => {
                 let key = (ch, note);
@@ -627,6 +645,10 @@ pub fn load_bytes(bytes: &[u8], given: &str, resolved: &str) -> Result<Value, St
     doc.insert("duration".into(), float(py_round(duration, 6)));
     doc.insert("programs".into(), Value::Object(prog));
     doc.insert("notes".into(), Value::Array(notes));
+    doc.insert("controllers".into(), Value::Array(controllers));
+    doc.insert("markers".into(), Value::Array(markers));
+    doc.insert("ticksPerBeat".into(), json!(parsed.ticks_per_beat));
+    doc.insert("tempoChanges".into(), Value::Array(tempo_changes));
     Ok(Value::Object(doc))
 }
 
@@ -649,9 +671,9 @@ pub fn encode(document: &Value) -> Result<Vec<u8>, String> {
         None => 120.0,
     };
     let bpm = py_max(20.0, py_min(400.0, bpm_raw));
-    const TICKS: u16 = 480;
+    let ticks = py_int(get(doc, "ticksPerBeat").unwrap_or(&json!(480)))?.clamp(1, 32767) as u16;
     let tempo = py_round_int(60.0 * 1e6 / bpm * 4.0 / 4.0)?;
-    let tempo_u = u32::try_from(tempo).map_err(|_| "tempo out of range".to_string())?;
+    let mut tempo_u = u32::try_from(tempo).map_err(|_| "tempo out of range".to_string())?;
 
     let programs = match get(doc, "programs") {
         Some(v) if py_truthy(v) => match v {
@@ -667,8 +689,9 @@ pub fn encode(document: &Value) -> Result<Vec<u8>, String> {
         Some(Value::Array(a)) => a,
         Some(other) => return Err(format!("'{}' object is not iterable as a note list", type_name(other))),
     };
-    // (seconds, kind, pitch, velocity, channel); kind 1 = on, 0 = off.
-    let mut events: Vec<(f64, u8, u8, u8, u8)> = Vec::with_capacity(notes.len() * 2);
+    // At equal times release notes, apply controllers, place markers, then
+    // start notes. Stable sorting preserves RPN/NRPN controller sequences.
+    let mut events: Vec<(f64, i8, u8, TrackEventKind)> = Vec::with_capacity(notes.len() * 2);
     for note in notes {
         let n = note.as_object().ok_or_else(|| format!("'{}' object has no attribute 'get'", type_name(note)))?;
         let pitch = py_int(get(n, "pitch").unwrap_or(&json!(60)))?.clamp(0, 127) as u8;
@@ -678,8 +701,55 @@ pub fn encode(document: &Value) -> Result<Vec<u8>, String> {
         let start = py_max(0.0, py_float(get(n, "start").unwrap_or(&json!(0)))?);
         let end_default = json!(start + 0.25);
         let end = py_max(start + 0.01, py_float(get(n, "end").unwrap_or(&end_default))?);
-        events.push((start, 1, pitch, velocity, channel));
-        events.push((end, 0, pitch, 0, channel));
+        events.push((start, 3, pitch, TrackEventKind::Midi { channel: u4::new(channel),
+            message: MidiMessage::NoteOn { key: u7::new(pitch), vel: u7::new(velocity) } }));
+        events.push((end, 0, pitch, TrackEventKind::Midi { channel: u4::new(channel),
+            message: MidiMessage::NoteOff { key: u7::new(pitch), vel: u7::new(0) } }));
+    }
+    let event_list = |key| -> Result<&Vec<Value>, String> {
+        match get(doc, key) {
+            None | Some(Value::Null) => Ok(&empty),
+            Some(Value::Array(a)) => Ok(a),
+            Some(_) => Err(format!("{key} must be an array")),
+        }
+    };
+    let changes = event_list("tempoChanges")?;
+    let mut write_initial_tempo = changes.is_empty() || bpm != 120.0;
+    for change in changes {
+        let e = change.as_object().ok_or("tempo change must be an object")?;
+        let at = py_max(0.0, py_float(e.get("time").ok_or("tempo change requires time")?)?);
+        let value = py_int(e.get("microsecondsPerBeat").ok_or("tempo change requires microsecondsPerBeat")?)?;
+        if !(1..=0xff_ffff).contains(&value) {
+            return Err("tempo changes must contain a positive 24-bit tempo".into());
+        }
+        if at == 0.0 {
+            write_initial_tempo = true;
+            if py_round(60e6 / value as f64, 3) == bpm_raw {
+                tempo_u = value as u32;
+            }
+        } else {
+            events.push((at, -1, 0, TrackEventKind::Meta(MetaMessage::Tempo(u24::new(value as u32)))));
+        }
+    }
+    for event in event_list("controllers")? {
+        let e = event.as_object().ok_or("controller must be an object")?;
+        let at = py_max(0.0, py_float(get(e, "time").unwrap_or(&json!(0)))?);
+        let ch = get(e, "channel").filter(|v| py_truthy(v)).cloned().unwrap_or(json!(0));
+        let channel = py_int(&ch)?.clamp(0, 15) as u8;
+        let controller = py_int(get(e, "controller").unwrap_or(&json!(0)))?.clamp(0, 127) as u8;
+        let value = py_int(get(e, "value").unwrap_or(&json!(0)))?.clamp(0, 127) as u8;
+        events.push((at, 1, 0, TrackEventKind::Midi { channel: u4::new(channel),
+            message: MidiMessage::Controller { controller: u7::new(controller), value: u7::new(value) } }));
+    }
+    for marker in event_list("markers")? {
+        let m = marker.as_object().ok_or("marker must be an object")?;
+        let at = py_max(0.0, py_float(get(m, "time").unwrap_or(&json!(0)))?);
+        let name = match get(m, "name") {
+            None => "",
+            Some(Value::String(s)) => s.as_str(),
+            Some(_) => return Err("marker name must be a string".into()),
+        };
+        events.push((at, 2, 0, TrackEventKind::Meta(MetaMessage::Marker(name.as_bytes()))));
     }
     events.sort_by(|a, b| {
         a.0.partial_cmp(&b.0)
@@ -691,7 +761,9 @@ pub fn encode(document: &Value) -> Result<Vec<u8>, String> {
     let mut track: Vec<TrackEvent> = Vec::with_capacity(events.len() + 20);
     let meta = |m: MetaMessage<'static>| TrackEvent { delta: u28::new(0), kind: TrackEventKind::Meta(m) };
     track.push(meta(MetaMessage::TrackName(b"MIDI Studio Review")));
-    track.push(meta(MetaMessage::Tempo(u24::new(tempo_u))));
+    if write_initial_tempo {
+        track.push(meta(MetaMessage::Tempo(u24::new(tempo_u))));
+    }
     let mut programs = programs;
     programs.sort_unstable();
     for (c, p) in programs {
@@ -703,25 +775,28 @@ pub fn encode(document: &Value) -> Result<Vec<u8>, String> {
         }
     }
     // Deltas from absolute ticks, so rounding never accumulates.
-    let scale = f64::from(tempo_u) * 1e-6 / f64::from(TICKS);
     let mut previous: i64 = 0;
-    for (at, kind, pitch, velocity, channel) in events {
-        let tick = py_round_int(at / scale)?;
+    let mut segment_tick = 0i64;
+    let mut segment_sec = 0.0;
+    for (at, _, _, kind) in events {
+        let scale = f64::from(tempo_u) * 1e-6 / f64::from(ticks);
+        let advance = py_round_int((at - segment_sec) / scale)?;
+        let tick = previous.max(segment_tick.checked_add(advance).ok_or("event time out of range")?);
         let delta = (tick - previous).max(0);
         previous = tick;
         if delta > i64::from(u32::from(u28::max_value())) {
             return Err("a note lies further out than a MIDI delta time can reach".into());
         }
-        let message = if kind == 1 {
-            MidiMessage::NoteOn { key: u7::new(pitch), vel: u7::new(velocity) }
-        } else {
-            MidiMessage::NoteOff { key: u7::new(pitch), vel: u7::new(0) }
-        };
-        track.push(TrackEvent { delta: u28::new(delta as u32), kind: TrackEventKind::Midi { channel: u4::new(channel), message } });
+        track.push(TrackEvent { delta: u28::new(delta as u32), kind });
+        if let TrackEventKind::Meta(MetaMessage::Tempo(value)) = kind {
+            segment_sec += (tick - segment_tick) as f64 * scale;
+            segment_tick = tick;
+            tempo_u = value.as_int();
+        }
     }
     track.push(meta(MetaMessage::EndOfTrack));
 
-    let smf = Smf { header: Header::new(Format::Parallel, Timing::Metrical(u15::new(TICKS))), tracks: vec![track] };
+    let smf = Smf { header: Header::new(Format::Parallel, Timing::Metrical(u15::new(ticks))), tracks: vec![track] };
     let mut out = Vec::new();
     smf.write_std(&mut out).map_err(|e| e.to_string())?;
     Ok(out)
@@ -1019,5 +1094,62 @@ mod tests {
         ]
         .concat();
         assert_eq!(bytes, want);
+    }
+
+    #[test]
+    fn controllers_and_markers_survive_tempo_changes_and_export() {
+        let b = smf(1, 480, &[
+            vec![(0, vec![0xff, 0x51, 3, 0x07, 0xa1, 0x20]),
+                 (480, vec![0xff, 0x51, 3, 0x0f, 0x42, 0x40])],
+            vec![(0, vec![0xb2, 64, 127]), (0, vec![0x92, 60, 90]),
+                 (480, vec![0xb2, 11, 80]), (480, vec![0xb2, 64, 0]),
+                 (0, vec![0x82, 60, 0]), (0, vec![0xff, 0x06, 4, b'C', b'a', b'f', 0xe9])],
+        ]);
+        let d = doc(&b);
+        assert_eq!(d["controllers"], json!([
+            {"time": 0.0, "channel": 2, "controller": 64, "value": 127},
+            {"time": 0.5, "channel": 2, "controller": 11, "value": 80},
+            {"time": 1.5, "channel": 2, "controller": 64, "value": 0},
+        ]));
+        assert_eq!(d["markers"], json!([{"time": 1.5, "name": "Café"}]));
+        let again = doc(&encode(&d).unwrap());
+        assert_eq!(again["tempoChanges"], json!([
+            {"time": 0.0, "microsecondsPerBeat": 500000},
+            {"time": 0.5, "microsecondsPerBeat": 1000000}
+        ]));
+        assert_eq!(again["controllers"], d["controllers"]);
+        assert_eq!(again["markers"], d["markers"]);
+        assert_eq!(again["notes"], d["notes"]);
+    }
+
+    #[test]
+    fn controller_only_documents_and_unicode_markers_round_trip() {
+        let d = json!({"bpm": 120, "notes": [], "controllers": [
+            {"time": 0.0, "channel": 1, "controller": 101, "value": 0},
+            {"time": 0.0, "channel": 1, "controller": 100, "value": 0},
+            {"time": 0.0, "channel": 1, "controller": 6, "value": 12},
+            {"time": 3.0, "channel": 1, "controller": 64, "value": 0},
+        ], "markers": [{"time": 2.0, "name": "ท่อน 2 🎹"}]});
+        let again = doc(&encode(&d).unwrap());
+        assert_eq!(again["controllers"], d["controllers"]);
+        assert_eq!(again["markers"], d["markers"]);
+        assert_eq!(again["duration"], json!(3.0));
+    }
+
+    #[test]
+    fn delayed_tempo_change_preserves_default_intro_and_source_resolution() {
+        let b = smf(0, 960, &[vec![
+            (0, vec![0x90, 60, 90]),
+            (960, vec![0xff, 0x51, 3, 0x06, 0x1a, 0x80]),
+            (1201, vec![0x80, 60, 0])
+        ]]);
+        let d = doc(&b);
+        assert_eq!(d["bpm"], json!(120.0));
+        assert_eq!(d["ticksPerBeat"], json!(960));
+        assert_eq!(d["tempoChanges"], json!([{"time":0.5, "microsecondsPerBeat":400000}]));
+        let again = doc(&encode(&d).unwrap());
+        assert_eq!(again["notes"], d["notes"]);
+        assert_eq!(again["ticksPerBeat"], d["ticksPerBeat"]);
+        assert_eq!(again["tempoChanges"], d["tempoChanges"]);
     }
 }

@@ -23,6 +23,7 @@ const cp = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const ENGINE = path.join(ROOT, 'python-engine');
 const DOC_PY = path.join(ENGINE, 'midi_document.py');
+const MidiParse = require(path.join(ROOT, 'renderer', 'shared', 'midi-parse.js'));
 
 const argv = process.argv.slice(2);
 const dirs = [path.join(ROOT, 'benchmarks', 'fixtures'), path.join(ROOT, '_gentest')];
@@ -47,13 +48,15 @@ if (!rsExe) {
   if (b.status !== 0) process.exit(2);
   rsExe = path.join(ROOT, 'src-tauri', 'target', 'debug', 'midi-document.exe');
 }
+rsExe = path.resolve(rsExe);
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'midi-doc-parity-'));
 const env = Object.assign({}, process.env, { PYTHONIOENCODING: 'utf-8' });
 const run = (exe, args, input) => {
   const r = cp.spawnSync(exe, args, { cwd: ENGINE, input, env, maxBuffer: 1 << 30, windowsHide: true });
   // print() on Windows ends the line with \r\n, the Rust CLI with \n.
-  return { ok: r.status === 0, out: r.stdout.toString('utf-8').replace(/\r?\n$/, ''), err: r.stderr.toString('utf-8').trim() };
+  return { ok: r.status === 0, out: (r.stdout || Buffer.alloc(0)).toString('utf-8').replace(/\r?\n$/, ''),
+    err: r.error ? r.error.message : (r.stderr || Buffer.alloc(0)).toString('utf-8').trim() };
 };
 const pyRun = (action, file, input) => run(py, [DOC_PY, action, file], input);
 const rsRun = (action, file, input) => run(rsExe, [action, file], input);
@@ -93,6 +96,12 @@ for (let i = 0; i < 40; i++) { guessed.push([i ? 120 : 0].concat(ON(0, 60 + (i %
 const dense = [];
 for (let i = 0; i < 3000; i++) { dense.push([(i * 7) % 13].concat(ON(i % 3, 40 + (i % 48), 1 + (i % 127)))); dense.push([(i * 5) % 11 + 1].concat(OFF(i % 3, 40 + (i % 48)))); }
 const synthetic = {
+  'controllers-markers-tempo': smf(1, 480, [
+    [[0, 0xff, 0x51, 3, 0x07, 0xa1, 0x20], [480, 0xff, 0x51, 3, 0x0f, 0x42, 0x40]],
+    [[0, 0xb2, 64, 127], [0, 0x92, 60, 90], [480, 0xb2, 11, 80], [480, 0xb2, 64, 0],
+      [0, 0x82, 60, 0], [0, 0xff, 6, 4, 67, 97, 102, 0xe9]],
+  ]),
+  'controllers-same-time-order': smf(0, 480, [[[0, 0xb1, 101, 0], [0, 100, 0], [0, 6, 12], [240, 0xff, 6, 3, 0xe7, 0x95, 0x8c], [240, 0xb1, 64, 0]]]),
   'trailing-silence': smf(0, 480, [[[0].concat(ON(0, 60, 100)), [480].concat(OFF(0, 60)), [960, 0xb0, 7, 100]]]),
   'unterminated': smf(0, 480, [[[0].concat(ON(0, 60, 100)), [240].concat(ON(0, 64, 90)), [480].concat(OFF(0, 64))]]),
   'running-status-meta': smf(0, 480, [[[0, 0x90, 60, 100], [0, 64, 100], [0, 67, 100], [0, 0xff, 0x06, 0x02, 0x68, 0x69], [480, 60, 0], [0, 64, 0], [0, 67, 0]]]),
@@ -161,6 +170,17 @@ for (const f of files) {
   }
   const d = firstDiff(a.out, b.out);
   const doc = JSON.parse(a.out);
+  // The renderer deliberately declines some rare/system formats and falls
+  // back to the host reader. Every file it accepts must preserve the new data.
+  let jsDoc;
+  try { jsDoc = MidiParse.parse(fs.readFileSync(f), f); } catch (_) {}
+  if (jsDoc) {
+    report(JSON.stringify(jsDoc.controllers) === JSON.stringify(doc.controllers) &&
+      JSON.stringify(jsDoc.markers) === JSON.stringify(doc.markers) &&
+      JSON.stringify(jsDoc.tempoChanges) === JSON.stringify(doc.tempoChanges) &&
+      jsDoc.ticksPerBeat === doc.ticksPerBeat,
+      'js-meta ' + label, 'renderer controllers, markers and tempo map match Python');
+  }
   notes += doc.notes.length;
   report(d < 0, 'load  ' + label, d < 0 ? doc.notes.length + ' notes, ' + a.out.length + ' bytes identical'
     : 'first difference at char ' + d + ': py …' + a.out.slice(Math.max(0, d - 40), d + 40) + '… rs …' + b.out.slice(Math.max(0, d - 40), d + 40) + '…');
@@ -191,6 +211,15 @@ for (const f of files) {
 
 // ---- the writer's coercion rules on hand-written documents ------------------
 const docs = {
+  'tempo-map-export': { bpm: 120, ticksPerBeat: 960, tempoChanges: [
+    { time: 0.5, microsecondsPerBeat: 400000 }, { time: 0.9, microsecondsPerBeat: 666667 }
+  ], notes: [{ pitch: 67, start: 0.25, end: 1.566667 }], markers: [{ time: 0.9, name: 'tempo change' }] },
+  'controller-marker-export': { bpm: 174.5, notes: [{ pitch: 60, start: 1, end: 2 }],
+    controllers: [{ time: 1, channel: 2, controller: 64, value: 127 }, { time: 1.5, channel: 2, controller: 10, value: 32 }, { time: 3, channel: 2, controller: 64, value: 0 }],
+    markers: [{ time: 0.5, name: 'Café' }, { time: 1.25, name: 'ท่อน 2 🎹' }] },
+  'controllers-clamp': { controllers: [{ time: -1, channel: 20, controller: 200, value: -3 }, {}], markers: [] },
+  'controllers-null': { controllers: null, markers: null },
+  'marker-invalid-name': { markers: [{ time: 0, name: 2 }] },
   'strings-for-numbers': { bpm: '174.5', programs: { '1': '7' }, notes: [{ pitch: '61', start: '0.25', end: '0.75', velocity: '80', channel: '1' }] },
   'clamps-and-defaults': { notes: [{ pitch: 200, start: -1, velocity: 0, channel: 22 }, { pitch: -5, start: 0.5, end: 0.4, channel: null }, {}] },
   'bpm-out-of-range-low': { bpm: 3, notes: [{ pitch: 60, start: 0, end: 1 }] },

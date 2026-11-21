@@ -36,6 +36,10 @@ pub type Stage = (&'static str, &'static str, i64);
 pub const STAGES_3: &[Stage] = &[("[1/3]", "Separate", 15), ("[2/3]", "Transcribe", 55), ("[3/3]", "Clean", 90)];
 pub const STAGES_4: &[Stage] =
     &[("[1/4]", "Isolate lead", 12), ("[2/4]", "Detect melody", 48), ("[3/4]", "Build candidates", 78), ("[4/4]", "Prepare review", 94)];
+pub const STAGES_EXPRESSIVE: &[Stage] = &[
+    ("[1/6]", "Prepare model", 5), ("[2/6]", "Separate", 15), ("[3/6]", "Transcribe accompaniment", 48),
+    ("[4/6]", "Detect melody", 72), ("[5/6]", "Arrange", 87), ("[6/6]", "Prepare review", 96),
+];
 pub const STAGES_2: &[Stage] = &[("[1/2]", "Transcribe", 40), ("[2/2]", "Clean", 90)];
 
 /// How long a capability verdict may be reused: long enough that two frames
@@ -81,6 +85,7 @@ fn yt_percent(line: &str) -> Option<i64> {
 
 pub fn select_script(pipeline: &str, skip_separation: bool) -> (&'static str, &'static [Stage]) {
     match pipeline {
+        "expressive" => ("forge-rs", STAGES_EXPRESSIVE),
         "melody" => ("melody_to_midi.py", STAGES_4),
         "drums" => ("drums_to_midi.py", STAGES_3),
         // 'fast' before skipSeparation: both mean "no separation", and
@@ -91,9 +96,8 @@ pub fn select_script(pipeline: &str, skip_separation: bool) -> (&'static str, &'
     }
 }
 
-/// The pipelines forge-rs runs end to end (with or without separation):
-/// every mode the Forge panel offers.
-pub const RUST_MODES: [&str; 5] = ["piano", "general", "melody", "drums", "fast"];
+/// The pipelines forge-rs runs end to end (with or without separation).
+pub const RUST_MODES: [&str; 6] = ["piano", "expressive", "general", "melody", "drums", "fast"];
 
 fn env_flag(env: &EnvMap, k: &str) -> bool {
     matches!(env.get(k), Some("1" | "true" | "True" | "yes"))
@@ -105,6 +109,7 @@ fn env_flag(env: &EnvMap, k: &str) -> bool {
 fn job_separates(pipeline: &str, env: &EnvMap, skip: bool) -> bool {
     match pipeline {
         "fast" => false,
+        "expressive" => true,
         "melody" | "drums" => !(skip || env_flag(env, "SKIP_SEPARATION")),
         _ => !skip,
     }
@@ -130,7 +135,7 @@ pub fn rust_blocker(pipeline: &str, env: &EnvMap, skip: bool) -> Option<String> 
             return Some("the DirectML separator only runs on Python".into());
         }
     }
-    if matches!(pipeline, "piano" | "general")
+    if matches!(pipeline, "piano" | "general" | "expressive")
         && env.get("SEGMENT_SIZE").filter(|v| !v.is_empty()).is_some_and(|v| v.trim().parse::<f64>().ok() != Some(16.0))
     {
         return Some("a segment size other than 16 s only runs on Python".into());
@@ -155,6 +160,15 @@ pub fn probe_rust(exe: &Path, env: &EnvMap) -> Result<Value, String> {
     probe_rust_for(exe, env, None)
 }
 
+fn expressive_engine(env: &EnvMap) -> Result<PathBuf, String> {
+    let exe = fpaths::forge_rs_exe().ok_or("The Rust Forge engine is missing from this build.")?;
+    if let Some(reason) = rust_blocker("expressive", env, false) {
+        return Err(format!("Medley uses the native Rust settings. Check Advanced options: {reason}."));
+    }
+    probe_rust_for(&exe, env, Some(("expressive", false)))?;
+    Ok(exe)
+}
+
 pub fn probe_rust_for(exe: &Path, env: &EnvMap, job: Option<(&str, bool)>) -> Result<Value, String> {
     let mut cmd = Command::new(exe);
     cmd.arg("probe").arg("--mem-limit-gb").arg("0");
@@ -164,7 +178,8 @@ pub fn probe_rust_for(exe: &Path, env: &EnvMap, job: Option<(&str, bool)>) -> Re
             cmd.arg("--skip-separation");
         }
     }
-    cmd.current_dir(engine_dir()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    if let Some(dir) = exe.parent() { cmd.current_dir(dir); }
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     env.apply(&mut cmd);
     #[cfg(windows)]
     {
@@ -293,7 +308,7 @@ pub fn job_env(mut env: EnvMap, perf: &Value, background: bool, advanced: &Value
     let half = |n: f64| js_round(n / 2.0).max(1) as f64;
     let (b, t) = (pick("batch", 2.0), pick("threads", 4.0));
     let (batch, threads) = if background { (half(b), half(t)) } else { (b, t) };
-    env.set_default("SEPARATION_BATCH", &js_num(batch));
+    env.set_default("SEPARATION_BATCH", &js_num(if pipeline == "expressive" { 1.0 } else { batch }));
     env.set_default("TRANSCRIBE_BATCH", &js_num(batch));
     env.set_default("OMP_NUM_THREADS", &js_num(threads));
     env.set_default("MKL_NUM_THREADS", &js_num(threads));
@@ -375,6 +390,11 @@ impl Pump {
 pub trait Lines: Send {
     fn line(&mut self, line: &str) -> Vec<Value>;
     fn exit(&mut self, code: Option<i32>, cancelled: bool) -> Vec<Value>;
+}
+
+fn active_line(parser: &mut dyn Lines, line: &str, cancelled: &AtomicBool) -> Vec<Value> {
+    // Buffered stdout can arrive after cancellation, including a success marker.
+    if cancelled.load(Ordering::SeqCst) { vec![] } else { parser.line(line) }
 }
 
 /// One pipeline run's output, line by line, into forge:status payloads.
@@ -500,7 +520,7 @@ impl Lines for JobParser {
         }
         // Only the scripts' prose may drive the keyword fallback: the "Input:
         // <song>" echo once jumped the bar to 90% on a song called "Clean".
-        if !is_input_echo(line) {
+        if !std::ptr::eq(self.table, STAGES_EXPRESSIVE) && !is_input_echo(line) {
             if let Some((stage, pct)) = keyword_stage(line) {
                 return vec![self.progress(stage, pct, line)];
             }
@@ -536,37 +556,63 @@ impl Lines for JobParser {
 pub struct YtParser {
     job_id: String,
     finalized: bool,
+    recent: VecDeque<String>,
+    causes: VecDeque<String>,
 }
 
 impl YtParser {
     pub fn new(job_id: &str) -> YtParser {
-        YtParser { job_id: job_id.into(), finalized: false }
+        YtParser { job_id: job_id.into(), finalized: false, recent: VecDeque::new(), causes: VecDeque::new() }
+    }
+
+    fn remember(&mut self, line: &str) {
+        let text: String = line.chars().take(900).collect();
+        self.recent.push_back(text.clone());
+        if self.recent.len() > 4 {
+            self.recent.pop_front();
+        }
+        if is_cause(line) || line.to_ascii_lowercase().starts_with("hint:") || line.contains(" -m pip ") {
+            self.causes.push_back(text);
+            if self.causes.len() > 6 {
+                self.causes.pop_front();
+            }
+        }
     }
 }
 
 impl Lines for YtParser {
     fn line(&mut self, line: &str) -> Vec<Value> {
-        if let Some((_, p)) = line.split_once("DOWNLOADED:").filter(|_| line.starts_with("DOWNLOADED:")) {
+        if self.finalized {
+            return vec![];
+        }
+        self.remember(line);
+        if let Some(p) = line.strip_prefix("DOWNLOADED:").map(str::trim).filter(|p| !p.is_empty()) {
             self.finalized = true;
             return vec![
                 json!({"event": "forge.progress", "jobId": self.job_id, "stage": "Done", "percent": 100, "message": "Download complete"}),
-                json!({"event": "forge.done", "jobId": self.job_id, "ok": true, "result": {"downloadedPath": p.trim()}}),
+                json!({"event": "forge.done", "jobId": self.job_id, "ok": true, "result": {"downloadedPath": p}}),
             ];
         }
         if let Some(pct) = yt_percent(line) {
             return vec![json!({"event": "forge.progress", "jobId": self.job_id, "stage": "Download", "percent": pct, "message": line})];
         }
-        vec![json!({"event": "forge.log", "jobId": self.job_id, "line": line, "level": "info"})]
+        vec![json!({"event": "forge.log", "jobId": self.job_id, "line": line, "level": if is_error(line) { "error" } else { "info" }})]
     }
 
     fn exit(&mut self, code: Option<i32>, cancelled: bool) -> Vec<Value> {
         if self.finalized {
             return vec![];
         }
+        self.finalized = true;
         let error = if cancelled {
             "cancelled".to_string()
         } else if code != Some(0) {
-            format!("exit code {}", code.map_or("null".to_string(), |c| c.to_string()))
+            let lines = if self.causes.is_empty() { &self.recent } else { &self.causes };
+            let why = lines.iter().map(String::as_str).collect::<Vec<_>>().join("\n");
+            let tail: String = why.chars().rev().take(900).collect();
+            let why: String = tail.chars().rev().collect();
+            let code_s = code.map_or("null".to_string(), |c| c.to_string());
+            if why.is_empty() { format!("exit code {code_s}") } else { format!("{why}\n(exit code {code_s})") }
         } else {
             // Electron said nothing here and the panel waited forever.
             "finished without producing output".to_string()
@@ -754,7 +800,10 @@ impl Runner {
             Err(e) => return fail(e.to_string()),
         };
         let mut cmd = Command::new(&args[0]);
-        cmd.args(&args[1..]).current_dir(engine_dir()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let cwd = if args.get(1).is_some_and(|arg| arg == "pipeline") {
+            Path::new(&args[0]).parent().map(Path::to_path_buf).unwrap_or_default()
+        } else { engine_dir() };
+        cmd.args(&args[1..]).current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
         env.apply(&mut cmd);
         let (mut child, in_job) = match winjob::spawn_in_job(&mut cmd, &job, idle) {
             Ok(c) => c,
@@ -782,12 +831,12 @@ impl Runner {
         .collect();
         let n_readers = readers.len();
         for mut r in readers {
-            let (lines, emit, tx) = (lines.clone(), self.emit.clone(), eof_tx.clone());
+            let (lines, emit, tx, cancelled) = (lines.clone(), self.emit.clone(), eof_tx.clone(), cancelled.clone());
             std::thread::spawn(move || {
                 let mut pump = Pump::default();
                 let mut buf = [0u8; 8192];
                 let mut handle = |line: &str| {
-                    let evs = lock(&lines).line(line);
+                    let evs = active_line(lock(&lines).as_mut(), line, &cancelled);
                     for ev in evs {
                         emit(ev);
                     }
@@ -850,16 +899,12 @@ impl Runner {
         });
     }
 
-    pub fn run(self: &Arc<Self>, input: &str, pipeline: &str, skip: bool, advanced: &Value, timing: &Value, output_name: &str) -> String {
+    #[allow(clippy::too_many_arguments)]
+    pub fn run(self: &Arc<Self>, input: &str, pipeline: &str, skip: bool, advanced: &Value, timing: &Value, output_name: &str, output_dir: &Path) -> String {
         let job_id = self.next_id("job");
         let ctx = (self.ctx)();
         // forgeEnvReady, not "python.exe exists": a cancelled setup leaves an
         // interpreter without torch, and the job died on import.
-        let py = fpaths::forge_env_python(&ctx.paths);
-        let Some(py) = py.filter(|_| fpaths::forge_env_ready(&ctx.paths)) else {
-            self.fail_later(&job_id, "Midi Forge isn't set up yet. Open the Midi Forge tab and click \"Set up Midi Forge\".");
-            return job_id;
-        };
         if input.is_empty() {
             self.fail_later(&job_id, "No input file.");
             return job_id;
@@ -874,8 +919,22 @@ impl Runner {
             }
         }
         let env = job_env(fpaths::forge_child_env(&ctx.paths), &ctx.perf, self.background.load(Ordering::SeqCst), advanced, start, end, pipeline, skip);
-        let audio_out = output_midi_path(input, start, end, output_name);
-        let rust = if ctx.forge_engine == "rust" { self.rust_engine_for(&job_id, pipeline, &env, skip) } else { None };
+        let audio_out = if pipeline == "expressive" {
+            // Expressive exports go straight to the chosen output folder, including on read-only input media.
+            let source = Path::new(input);
+            let target = output_dir.join(source.file_name().unwrap_or_default());
+            let default_name = format!("{} - Medley", source.file_stem().unwrap_or_default().to_string_lossy());
+            let name = if output_name.trim().is_empty() { &default_name } else { output_name };
+            output_midi_path(&target.to_string_lossy(), start, end, name)
+        } else {
+            output_midi_path(input, start, end, output_name)
+        };
+        let rust = if pipeline == "expressive" {
+            match expressive_engine(&env) {
+                Ok(exe) => Some(exe),
+                Err(why) => { self.fail_later(&job_id, &why); return job_id; }
+            }
+        } else if ctx.forge_engine == "rust" { self.rust_engine_for(&job_id, pipeline, &env, skip) } else { None };
         let label = if rust.is_some() { "forge-rs pipeline (Rust engine)".to_string() } else { script.to_string() };
         (self.emit)(json!({"event": "forge.progress", "jobId": job_id, "stage": "Queued", "percent": -1, "message": format!("Starting {label}")}));
         let meta = json!({
@@ -894,10 +953,16 @@ impl Runner {
                 }
                 // The host's Job Object owns the cap; forge-rs's own 7.5 GiB
                 // CLI default would otherwise still apply.
-                a.extend(["--python".into(), py.into_os_string(), "--mem-limit-gb".into(), "0".into()]);
+                a.extend(["--mem-limit-gb".into(), "0".into()]);
                 a
             }
-            None => vec![py.into_os_string(), engine_dir().join(script).into_os_string(), input.into(), audio_out.clone().into()],
+            None => {
+                let Some(py) = fpaths::forge_env_python(&ctx.paths).filter(|_| fpaths::forge_env_ready(&ctx.paths)) else {
+                    self.fail_later(&job_id, "Open Forge and choose Set up Forge to install the selected engine.");
+                    return job_id;
+                };
+                vec![py.into_os_string(), engine_dir().join(script).into_os_string(), input.into(), audio_out.clone().into()]
+            }
         };
         self.launch(&job_id, args, env, Box::new(JobParser::new(&job_id, table, &audio_out, meta)));
         job_id
@@ -1397,7 +1462,82 @@ mod tests {
         let ev = p.line("DOWNLOADED: C:\\Users\\me\\Music\\Song.mp3");
         assert_eq!(ev[1]["result"]["downloadedPath"], "C:\\Users\\me\\Music\\Song.mp3");
         assert!(p.exit(Some(0), false).is_empty());
+        assert!(p.line("DOWNLOADED: duplicate.mp3").is_empty());
         assert_eq!(YtParser::new("y").exit(Some(1), false)[0]["error"], "exit code 1");
+    }
+
+    #[test]
+    fn yt_failure_keeps_site_error_and_hint() {
+        let mut p = YtParser::new("yt-1");
+        let ev = p.line("ERROR: [MuseScore] Unable to download metadata: HTTP Error 404");
+        assert_eq!(ev[0]["level"], "error");
+        p.line("[ERROR] DownloadError: HTTP Error 404");
+        p.line("Hint: Update the downloader in Forge setup and retry.");
+        p.line("Output folder: C:\\music");
+        let ev = p.exit(Some(1), false);
+        let error = ev[0]["error"].as_str().unwrap();
+        assert!(error.contains("[MuseScore]") && error.contains("HTTP Error 404") && error.contains("Hint:"));
+        assert!(!error.contains("Output folder"));
+        assert!(error.ends_with("(exit code 1)"));
+        assert!(p.exit(Some(1), false).is_empty());
+    }
+
+    #[test]
+    fn yt_failure_keeps_bounded_recent_diagnostics() {
+        let mut p = YtParser::new("y");
+        for n in 0..30 {
+            p.line(&format!("ERROR: attempt {n} {}", "声".repeat(400)));
+        }
+        p.line("Hint: The latest actionable hint.");
+        assert_eq!(p.causes.len(), 6);
+        assert_eq!(p.recent.len(), 4);
+        let error = p.exit(Some(1), false)[0]["error"].as_str().unwrap().to_string();
+        assert!(error.chars().count() <= 914);
+        assert!(error.contains("attempt 29") && error.contains("latest actionable hint"));
+        let mut p = YtParser::new("y");
+        for n in 0..10 { p.line(&format!("diagnostic {n}")); }
+        let error = p.exit(Some(2), false)[0]["error"].as_str().unwrap().to_string();
+        assert!(error.contains("diagnostic 9") && !error.contains("diagnostic 0"));
+    }
+
+    #[test]
+    fn yt_cancel_and_missing_output_finish_once() {
+        let mut p = YtParser::new("y");
+        p.line("ERROR: failed network request");
+        assert_eq!(p.exit(Some(1), true)[0]["error"], "cancelled");
+        assert!(p.exit(Some(1), true).is_empty());
+        let mut p = YtParser::new("y");
+        p.line("DOWNLOADED:   ");
+        assert_eq!(p.exit(Some(0), false)[0]["error"], "finished without producing output");
+        assert!(p.line("DOWNLOADED: late.mp3").is_empty());
+    }
+
+    #[test]
+    fn yt_cancel_discards_buffered_success_and_late_progress() {
+        let mut parser = YtParser::new("y");
+        let cancelled = AtomicBool::new(false);
+        let mut pump = Pump::default();
+        let mut events = Vec::new();
+        pump.feed(b"DOWNLOADED: song.mp3", |line| events.extend(active_line(&mut parser, line, &cancelled)));
+        assert!(events.is_empty());
+        cancelled.store(true, Ordering::SeqCst);
+        pump.finish(|line| events.extend(active_line(&mut parser, line, &cancelled)));
+        assert!(active_line(&mut parser, "[download] 100%", &cancelled).is_empty());
+        assert!(active_line(&mut parser, "DOWNLOADED: late.mp3", &cancelled).is_empty());
+        assert!(events.is_empty());
+        let done = parser.exit(Some(0), true);
+        assert_eq!(done[0]["error"], "cancelled");
+        assert!(parser.exit(Some(0), true).is_empty());
+    }
+
+    #[test]
+    fn yt_success_before_cancel_stays_finalized() {
+        let mut parser = YtParser::new("y");
+        let cancelled = AtomicBool::new(false);
+        let events = active_line(&mut parser, "DOWNLOADED: song.mp3", &cancelled);
+        assert_eq!(events[1]["ok"], true);
+        cancelled.store(true, Ordering::SeqCst);
+        assert!(parser.exit(Some(0), true).is_empty());
     }
 
     #[test]
@@ -1410,6 +1550,7 @@ mod tests {
 
     #[test]
     fn scripts_and_output_paths() {
+        assert_eq!(select_script("expressive", true).0, "forge-rs");
         assert_eq!(select_script("melody", true).0, "melody_to_midi.py");
         assert_eq!(select_script("fast", true).0, "stem_to_midi.py");
         assert_eq!(select_script("piano", true).0, "transcribe.py");

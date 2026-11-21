@@ -30,6 +30,8 @@
   !define MS_ELECTRON_UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${MS_ELECTRON_GUID}"
   !define MS_ELECTRON_INSTKEY "Software\${MS_ELECTRON_GUID}"
   !define MS_ELECTRON_UNINSTALLER "Uninstall MIDI Studio.exe"
+  ; From the published MIDI-Studio-3.0.1-Setup.exe (SHA-256 d78af42b31dc5edda6f3c7495beefda520a371b16988555868a8c256fcf02654).
+  !define MS_ELECTRON_UNINSTALLER_SHA256 "ba57a8cab4ae8f25db45950065af3da63a23982b4d80bfac474089193171bcf8"
 !endif
 
 Var ForgeStorageDir
@@ -63,6 +65,11 @@ Var MsSweepDir
   FileWrite $4 "ok"
   FileClose $4
   Delete "$TEMP\.midi-studio-temp-test"
+  StrCpy $ForgeStorageDir "$LOCALAPPDATA\midi-studio\forge-env"
+!macroend
+
+; SetContext has now selected the same registry view as the x64 Electron installer.
+!macro MIDISTUDIO_READ_FORGE_STORAGE
 
   ; $ExistingForgeStorage stays empty unless a choice is recorded; the
   ; post-install step uses it to never replace a real choice with a default.
@@ -71,11 +78,8 @@ Var MsSweepDir
   ${If} $ExistingForgeStorage == ""
     ReadRegStr $ExistingForgeStorage HKLM "${MS_FORGE_KEY}" "${MS_FORGE_VALUE}"
   ${EndIf}
-  StrCpy $ForgeStorageDir $ExistingForgeStorage
-  ${If} $ForgeStorageDir == ""
-    ; Still the user's shell context here, so this is their own LocalAppData
-    ; and not C:\ProgramData.
-    StrCpy $ForgeStorageDir "$LOCALAPPDATA\midi-studio\forge-env"
+  ${If} $ExistingForgeStorage != ""
+    StrCpy $ForgeStorageDir $ExistingForgeStorage
   ${EndIf}
 !macroend
 
@@ -90,7 +94,6 @@ Var MsSweepDir
     ${If} "$0$1" == ""
       ReadRegStr $2 HKLM "${MS_ELECTRON_UNINSTKEY}" "UninstallString"
       ${If} $2 != ""
-        ReadRegStr $MsElectronDir HKLM "${MS_ELECTRON_INSTKEY}" "InstallLocation"
         !if "${INSTALLMODE}" == "both"
           ${If} $MultiUser.Privileges == "Admin"
           ${OrIf} $MultiUser.Privileges == "Power"
@@ -100,14 +103,10 @@ Var MsSweepDir
       ${Else}
         ReadRegStr $2 HKCU "${MS_ELECTRON_UNINSTKEY}" "UninstallString"
         ${If} $2 != ""
-          ReadRegStr $MsElectronDir HKCU "${MS_ELECTRON_INSTKEY}" "InstallLocation"
           !if "${INSTALLMODE}" == "both"
             Call MultiUser.InstallMode.CurrentUser
           !endif
         ${EndIf}
-      ${EndIf}
-      ${If} $MsElectronDir != ""
-        StrCpy $INSTDIR $MsElectronDir
       ${EndIf}
     ${EndIf}
   !endif
@@ -212,23 +211,32 @@ Function MidiStudioSweep
     Return
   ${EndIf}
   System::Call 'kernel32::GetCurrentProcessId() i .r1'
-  nsExec::Exec `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$d = '$MsSweepDir' + '\'; Get-CimInstance Win32_Process | Where-Object { $$_.ExecutablePath -and $$_.ProcessId -ne $1 -and $$_.ExecutablePath.StartsWith($$d, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }"`
+  ; Pass paths as data: apostrophes in a user's install directory are valid.
+  System::Call 'kernel32::SetEnvironmentVariableW(w "MIDI_STUDIO_SWEEP_DIR", w "$MsSweepDir") i'
+  nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "$$d = $$env:MIDI_STUDIO_SWEEP_DIR + '\'; Get-CimInstance Win32_Process | Where-Object { $$_.ExecutablePath -and $$_.ProcessId -ne $1 -and $$_.ExecutablePath.StartsWith($$d, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }"`
   Pop $0
 FunctionEnd
 
 ; ---- Install section --------------------------------------------------------
 
 !macro NSIS_HOOK_PREINSTALL
-  ; No "MIDI Studio is running" dialog: close it and carry on.
-  ;
-  ; NO /t. The in-app updater starts this installer, and /t kills the whole
-  ; tree of the named process, which once included the installer itself:
-  ; "check for updates" closed the app and then did nothing. The updater now
-  ; starts it through Start-Process, outside the app's tree, and this still
-  ; names only the image. Anything else of ours is swept by folder below.
+  !ifdef MS_ELECTRON_GUID
+    !if "${INSTALLMODE}" == "both"
+      ${If} $MultiUser.InstallMode == "AllUsers"
+        ReadRegStr $0 HKCU "${MS_ELECTRON_INSTKEY}" "InstallLocation"
+      ${Else}
+        ReadRegStr $0 HKLM "${MS_ELECTRON_INSTKEY}" "InstallLocation"
+      ${EndIf}
+      ${If} $0 != ""
+      ${AndIf} $0 == $INSTDIR
+        MessageBox MB_ICONSTOP|MB_OK "This folder belongs to MIDI Studio installed for a different scope. Select its original install scope or choose another folder." /SD IDOK
+        Abort
+      ${EndIf}
+    !endif
+  !endif
+  ; Close only processes from the install folder, never the updater's tree
+  ; or another user's installation with the same executable name.
   DetailPrint "Closing ${PRODUCTNAME} if it is running..."
-  nsExec::Exec 'taskkill /f /im "${MAINBINARYNAME}.exe"'
-  Pop $0
   StrCpy $MsSweepDir "$INSTDIR"
   Call MidiStudioSweep
 
@@ -240,11 +248,29 @@ FunctionEnd
     ReadRegStr $2 SHCTX "${MS_ELECTRON_UNINSTKEY}" "UninstallString"
     ReadRegStr $MsElectronDir SHCTX "${MS_ELECTRON_INSTKEY}" "InstallLocation"
     ${If} $2 != ""
-    ${AndIf} $MsElectronDir != ""
-    ${AndIf} ${FileExists} "$MsElectronDir\${MS_ELECTRON_UNINSTALLER}"
+      ${If} $MsElectronDir == ""
+      ${OrIfNot} ${FileExists} "$MsElectronDir\${MS_ELECTRON_UNINSTALLER}"
+        MessageBox MB_ICONSTOP|MB_OK "The previous MIDI Studio installation is incomplete. Repair or remove it before installing this update." /SD IDOK
+        Abort
+      ${EndIf}
+      ; Electron removes its entire tree, including a custom Forge store
+      ; under it. Changing the wizard field alone does not move those files.
+      ${If} $ExistingForgeStorage != ""
+        GetFullPathName $0 "$ExistingForgeStorage"
+        GetFullPathName $1 "$MsElectronDir"
+        StrCpy $1 "$1\"
+        StrLen $4 $1
+        StrCpy $0 "$0\" $4
+        ${If} $0 == $1
+          MessageBox MB_ICONSTOP|MB_OK "Forge storage is inside the old install folder. Move it using MIDI Studio's storage settings before running this update." /SD IDOK
+          Abort
+        ${EndIf}
+      ${EndIf}
       DetailPrint "Removing the previous MIDI Studio (Electron) from $MsElectronDir..."
-      StrCpy $MsSweepDir "$MsElectronDir"
-      Call MidiStudioSweep
+      ${If} $MsElectronDir != $INSTDIR
+        StrCpy $MsSweepDir "$MsElectronDir"
+        Call MidiStudioSweep
+      ${EndIf}
       Sleep 700
       StrCpy $3 "/currentuser"
       !if "${INSTALLMODE}" == "both"
@@ -254,15 +280,44 @@ FunctionEnd
       !else if "${INSTALLMODE}" == "perMachine"
         StrCpy $3 "/allusers"
       !endif
+      ${If} $MsElectronDir == $INSTDIR
+        ; Same exe name, path and AppUserModelID: keep existing pins and links.
+        StrCpy $3 "$3 --keep-shortcuts"
+      ${EndIf}
+      ClearErrors
+      SetOutPath "$PLUGINSDIR"
       CopyFiles /SILENT "$MsElectronDir\${MS_ELECTRON_UNINSTALLER}" "$PLUGINSDIR\electron-uninstaller.exe"
+      ${If} ${Errors}
+        MessageBox MB_ICONSTOP|MB_OK "Could not copy the previous uninstaller. Remove the old version from Settings > Apps first." /SD IDOK
+        Abort
+      ${EndIf}
+      ; A per-user installation is writable. Never elevate a binary just
+      ; because it lives there. Lock our copy against replacement from the
+      ; hash check through ExecWait, and use the system PowerShell by path.
+      System::Call 'kernel32::CreateFileW(w "$PLUGINSDIR\electron-uninstaller.exe", i 0x80000000, i 1, p 0, i 3, i 0, p 0) p .r5'
+      ${If} $5 = -1
+        MessageBox MB_ICONSTOP|MB_OK "Could not verify the previous uninstaller. Remove the old version from Settings > Apps first." /SD IDOK
+        Abort
+      ${EndIf}
+      nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "if ((Get-FileHash -LiteralPath '.\electron-uninstaller.exe' -Algorithm SHA256).Hash -ne '${MS_ELECTRON_UNINSTALLER_SHA256}') { exit 1 }"`
+      Pop $0
+      ${If} $0 != 0
+        System::Call 'kernel32::CloseHandle(p r5)'
+        MessageBox MB_ICONSTOP|MB_OK "This is not the published MIDI Studio 3.0.1 uninstaller. To keep your data, remove the old version from Settings > Apps without deleting app data, then run this setup again." /SD IDOK
+        Abort
+      ${EndIf}
       ClearErrors
       ExecWait '"$PLUGINSDIR\electron-uninstaller.exe" /S /KEEP_APP_DATA --updated $3 _?=$MsElectronDir' $0
+      System::Call 'kernel32::CloseHandle(p r5)'
       ${If} ${Errors}
-        DetailPrint "The previous MIDI Studio's uninstaller could not be started; its files stay in $MsElectronDir."
-      ${ElseIf} $0 != 0
-        DetailPrint "The previous MIDI Studio's uninstaller exited with $0; continuing."
-      ${Else}
-        DetailPrint "Previous MIDI Studio removed. Settings and Forge files are kept."
+      ${OrIf} $0 != 0
+        MessageBox MB_ICONSTOP|MB_OK "Could not remove the previous MIDI Studio. Close it and retry, or uninstall it from Settings > Apps before installing this update." /SD IDOK
+        Abort
+      ${EndIf}
+      ReadRegStr $2 SHCTX "${MS_ELECTRON_UNINSTKEY}" "UninstallString"
+      ${If} $2 != ""
+        MessageBox MB_ICONSTOP|MB_OK "The previous MIDI Studio is still registered. Remove it from Settings > Apps before installing this update." /SD IDOK
+        Abort
       ${EndIf}
       Delete "$PLUGINSDIR\electron-uninstaller.exe"
       ; It may have removed this very folder; the files below need it back.

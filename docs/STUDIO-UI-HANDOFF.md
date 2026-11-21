@@ -1,5 +1,37 @@
 # MIDI Studio — approved UI handoff
 
+## November 2026 refinement
+
+The user approved refining the existing mint/graphite direction with Anti Slop
+and Unslop. [DESIGN.md](../DESIGN.md) records the direction and guide credits.
+This section supersedes older visual metrics and feature limitations below.
+
+- Shared interface copy is at least 12px. Workspace titles use 28px, or 24px in
+  short windows. Headings and labels use sentence case without wide tracking.
+- Spacing follows the 4px scale. Control radii are 6px and 8px; panels remain
+  12px. The sidebar stays 208px, with 40px navigation rows and useful shortcuts.
+- Forge keeps one model picker. Its quality, stem, and range controls are
+  grouped by spacing and rules rather than boxed cards. Optional settings stay
+  behind disclosures. The import URL now has a persistent visible label.
+- Indigo primary-button text and custom-accent text use contrasting ink.
+  Custom accents choose black or white from relative sRGB luminance.
+- Editor modulation (CC1), volume (CC7), pan (CC10), expression (CC11), and
+  sustain (CC64) are editable. Users can draw or drag points, use numeric
+  controls, adjust with arrow keys, and delete points. Escape or pointer
+  cancellation restores a cancelled gesture.
+- Named markers can be added, renamed, moved, and deleted. Both event types
+  participate in per-take undo/redo, save, export, and whole-take time stretch.
+- Document codecs now preserve all imported control-change events and MIDI
+  marker meta-events. Event times follow the source file's tempo map on import.
+  Other MIDI metadata retains the previous document behavior.
+- The local Editor audition still previews notes; the controller lane states
+  that controller changes are saved to MIDI rather than synthesized locally.
+
+Behavior coverage lives in `tools/editor-events-smoke.js`, the Rust MIDI
+document unit tests, and `tools/midi-doc-parity.js`. Run the Editor smoke script
+with Electron and a scratch directory. It uses an isolated profile and IPC
+fixtures, and accepts an optional screenshot directory as the next argument.
+
 ## Start here
 
 The user reviewed the redesign and explicitly approved it: “oh yeah i love this.”

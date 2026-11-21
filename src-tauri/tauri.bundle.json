@@ -2,6 +2,11 @@
   "bundle": {
     "resources": {
       "../python-engine/song_to_midi.py": "python-engine/song_to_midi.py",
+      "../forge-rs/target/native-resources/bs_rofo_sw/*.onnx": "assets/bs_rofo_sw/",
+      "../forge-rs/target/native-resources/game/GAME-1.0.3-medium-onnx/*.onnx": "assets/game/GAME-1.0.3-medium-onnx/",
+      "../forge-rs/target/native-resources/onnx/*": "assets/onnx/",
+      "../forge-rs/target/native-resources/basic_pitch/*.onnx": "assets/basic_pitch/",
+      "../forge-rs/target/native-resources/ort/*.dll": "ort-gpu/",
       "../python-engine/transcribe.py": "python-engine/transcribe.py",
       "../python-engine/transcribe_fast.py": "python-engine/transcribe_fast.py",
       "../python-engine/transcribe_onnx_dml.py": "python-engine/transcribe_onnx_dml.py",
@@ -21,7 +26,7 @@
       "../python-engine/export_transkun_onnx.py": "python-engine/export_transkun_onnx.py",
       "../python-engine/export_roformer_onnx.py": "python-engine/export_roformer_onnx.py",
       "../python-engine/requirements.txt": "python-engine/requirements.txt",
-      "../python-engine/wheelhouse/*.whl": "python-engine/wheelhouse/",
+      "../python-engine/wheelhouse/ncls-*.whl": "python-engine/wheelhouse/",
       "../python-engine/mappings/*.json": "python-engine/mappings/",
       "../forge-rs/target/release/forge-rs.exe": "forge-rs.exe"
     }

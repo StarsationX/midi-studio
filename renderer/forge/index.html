@@ -12,8 +12,7 @@
 </head>
 <body class="studio-workspace">
 <header class="studio-page-head">
-  <div><div class="studio-eyebrow">Create something new</div><h1 class="studio-page-title">Audio to MIDI</h1><p class="studio-page-description">Start with a song. Leave with something you can play.</p></div>
-  <div class="studio-workflow" aria-label="Conversion workflow"><span><b>1</b> Import audio</span><i aria-hidden="true">&rarr;</i><span><b>2</b> Convert</span><i aria-hidden="true">&rarr;</i><span><b>3</b> Make it yours</span></div>
+  <div><div class="studio-eyebrow">Transcription</div><h1 class="studio-page-title">Audio to MIDI</h1><p class="studio-page-description">Choose a recording and extract the part you want to play</p></div>
 </header>
 
 <div class="fg split" id="fg" data-split="forge" style="--rail: 288px; --insp: 264px">
@@ -46,12 +45,16 @@
         <span class="dz-types">MP3 &middot; WAV &middot; FLAC &middot; M4A &middot; OGG</span>
       </button>
 
-      <span class="input-wrap fg-url" title="Downloads the audio, then loads it as the current input.">
+      <label class="field-label" id="url-label" for="url">Or download audio from a link</label>
+      <span class="input-wrap fg-url" id="url-wrap" title="Downloads the audio, then loads it as the current input.">
         <input class="input is-body" id="url" type="text" spellcheck="false"
-               aria-label="Paste a link to download"
-               placeholder="Or paste a YouTube / SoundCloud link" />
+               placeholder="Audio or score URL" />
         <button class="input-affix fg-affix-btn" id="fetch" type="button" hidden>Fetch</button>
       </span>
+
+      <div class="fg-score-help" id="score-help" hidden>
+        <p id="score-help-text">Saves the MIDI used by the public player and opens it in Editor. No audio transcription.</p>
+      </div>
 
       <div class="insp-sec fg-sec">
         <button class="insp-sec-head" id="pipe-toggle" type="button" aria-expanded="true" aria-controls="pipe-body">What do you want to extract?</button>
@@ -62,15 +65,19 @@
               <span class="tile-title">Piano</span>
               <span class="tile-sub">Best for piano recordings</span>
             </button>
+            <button class="tile" role="radio" type="button" data-v="expressive" aria-checked="false" tabindex="-1">
+              <span class="pmark" data-mark="expressive" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+              <span class="tile-title">Medley</span>
+              <span class="tile-sub">Two-hand arrangement from a song</span>
+            </button>
             <button class="tile" role="radio" type="button" data-v="melody" aria-checked="true" tabindex="0">
               <span class="pmark" data-mark="melody" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
               <span class="tile-title">Melody</span>
-              <span class="tile-sub">Extract the main melody</span>
-              <span class="tile-badge">Prototype</span>
+              <span class="tile-sub">Main melody (prototype)</span>
             </button>
             <button class="tile" role="radio" type="button" data-v="general" aria-checked="false" tabindex="-1">
               <span class="pmark" data-mark="general" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
-              <span class="tile-title">Full Song</span>
+              <span class="tile-title">Full song</span>
               <span class="tile-sub">Keep all instruments</span>
             </button>
             <button class="tile" role="radio" type="button" data-v="drums" aria-checked="false" tabindex="-1">
@@ -125,7 +132,7 @@
         <div class="insp-sec-body" id="adv" hidden>
 
           <div class="fg-advtop">
-            <span class="field-hint">These are the raw transcription variables. The four cards in the middle write to the same fields.</span>
+            <span class="field-hint">Fine-tune the conversion settings below</span>
             <button class="link" id="adv-reset" type="button">Reset tuning</button>
           </div>
 
@@ -294,7 +301,7 @@
 
     <footer class="panel-foot fg-run">
       <button class="btn btn-primary big fg-go" id="start" type="button" disabled>
-        <i data-icon="play" data-icon-size="13"></i>Forge MIDI</button>
+        <i data-icon="play" data-icon-size="13"></i><span id="start-label">Choose audio…</span></button>
       <div class="fg-envrow">
         <button class="pill fg-env" id="env-chip" type="button"
                 aria-label="Forge engine status. Opens first-time setup.">
@@ -315,8 +322,8 @@
 
     <header class="fg-song">
       <div class="fg-song-main">
-        <h2 class="fg-song-title u-truncate" id="song-title">Your next idea starts here</h2>
-        <p class="fg-song-meta" id="song-meta">Import audio to preview it and choose a range.</p>
+        <h2 class="fg-song-title u-truncate" id="song-title">Turn a recording into MIDI</h2>
+        <p class="fg-song-meta" id="song-meta">Choose a song, then pick what to make. For a two-hand piano arrangement, choose Medley.</p>
       </div>
       <div class="fg-song-tools">
         <span class="tag is-mono" id="song-fmt" hidden></span>
@@ -372,16 +379,17 @@
 
     <section class="panel fg-cards" aria-label="Transcription settings">
       <div class="fg-cards-head">
-        <h2 class="fg-cards-h">Make it sound right</h2>
-        <p class="fg-cards-sub">A few choices before the notes take shape.</p>
+        <h2 class="fg-cards-h">Conversion settings</h2>
+        <p class="fg-cards-sub">Choose the analysis quality and part of the recording</p>
       </div>
       <div class="fg-cards-grid">
         <div class="fg-card" hidden>
           <label class="fg-card-t" for="c-model">Model</label>
           <span class="selectwrap"><select class="select is-sm" id="c-model">
             <option value="piano">Piano</option>
+            <option value="expressive">Medley</option>
             <option value="melody">Melody</option>
-            <option value="general">Full Song</option>
+            <option value="general">Full song</option>
             <option value="drums">Drums</option>
             <option value="fast">Fast</option>
           </select></span>
@@ -405,7 +413,7 @@
           <span class="fg-card-h" id="c-stems-h"></span>
         </div>
         <div class="fg-card">
-          <label class="fg-card-t" for="c-range">Time Range</label>
+          <label class="fg-card-t" for="c-range">Time range</label>
           <span class="selectwrap"><select class="select is-sm" id="c-range">
             <option value="all">Whole song</option>
             <option value="custom">Custom range</option>
@@ -453,7 +461,7 @@
           <span class="u-fill" id="err-msg"></span>
           <button class="link" id="err-dismiss" type="button">Dismiss</button>
         </div>
-        <p class="field-hint" id="prog-foot">Ready when you are. Import audio, then choose Forge MIDI.</p>
+        <p class="field-hint" id="prog-foot">Import audio, then choose Forge MIDI</p>
       </div>
 
       <div class="tabpanel fg-tp is-flush" id="tp-log" role="tabpanel" aria-labelledby="tab-log" hidden>
@@ -538,14 +546,14 @@
   <div class="dlg is-wide" id="setup" role="dialog" aria-modal="true" aria-labelledby="setup-title">
     <header class="dlg-head">
       <div class="fg-dlgh">
-        <h2 class="dlg-title" id="setup-title">First-time setup</h2>
-        <p class="dlg-sub">One-time download of the model and dependencies, about 3 GB. GPU-accelerated on NVIDIA (CUDA) and AMD/Intel (DirectML). Every other tab works without it.</p>
+        <h2 class="dlg-title" id="setup-title">Set up audio conversion</h2>
+        <p class="dlg-sub" id="setup-description"></p>
       </div>
       <span class="tag mono" id="setup-version"></span>
       <button class="dlg-x" id="setup-x" type="button" aria-label="Close setup"><i data-icon="close" data-icon-size="12"></i></button>
     </header>
     <div class="dlg-body">
-      <div class="fg-setup-store">
+      <div class="fg-setup-store" id="setup-store">
         <div class="fg-group-head"><span class="fg-group-title">Installs to</span></div>
         <div class="fg-setup-row">
           <span class="pathchip" id="setup-dirchip">
@@ -555,7 +563,7 @@
           <span class="u-spacer"></span>
           <button class="btn btn-sm" id="setup-change" type="button">Change folder…</button>
         </div>
-        <p class="field-hint">Pick a drive with room to spare. This is the one decision setup cannot recover from.</p>
+        <p class="field-hint" id="setup-space">You can use the folder shown above, or choose another drive.</p>
       </div>
 
       <div class="fg-setup-prog" id="setup-prog" hidden>
@@ -568,7 +576,7 @@
         <div class="bar" id="setup-barwrap" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Setup progress">
           <div class="bar-fill" id="setup-bar"></div>
         </div>
-        <p class="field-hint" id="setup-msg"></p>
+        <p class="field-hint" id="setup-msg" role="status"></p>
       </div>
     </div>
     <footer class="dlg-foot">
@@ -576,7 +584,7 @@
       <button class="btn btn-ghost" id="setup-copy" type="button">Copy log</button>
       <span class="u-spacer"></span>
       <button class="btn btn-ghost" id="setup-cancel" type="button" hidden>Cancel</button>
-      <button class="btn btn-primary" id="setup-start" type="button">Set up Forge</button>
+      <button class="btn btn-primary" id="setup-start" type="button">Install</button>
     </footer>
   </div>
 </div>
@@ -594,6 +602,7 @@
 <script src="../shared/tokens.js"></script>
 <script src="../shared/fmt.js"></script>
 <script src="../shared/draw.js"></script>
+<script src="../shared/audio-peaks.js"></script>
 <script src="../shared/bus.js"></script>
 <script src="../shared/icons.js"></script>
 <script src="../shared/vlist.js"></script>

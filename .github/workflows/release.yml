@@ -1,93 +1,74 @@
-name: Release
+name: Publish verified Windows installer
 
-# Build the Windows NSIS installer and publish it to a GitHub Release whenever a
-# v* tag is pushed.
+# A pushed tag alone must never publish: an ordinary checkout lacks the
+# third-party Forge weights and does not establish redistribution rights.
+# From the tagged source, prepare, test and review the Tauri NSIS locally.
+# Once all rights and required notices are in hand, upload ONLY that installer:
+#   gh release create "$tag" "$installer" --verify-tag --draft --generate-notes
+#   gh workflow run release.yml --ref "$tag" -f installer_sha256="$sha256" -f cleared=true
+# The local filename must be MIDI-Studio-<version>-Setup.exe.
 on:
-  push:
-    tags: ['v*']
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      installer_sha256:
+        description: SHA-256 of the reviewed local Rust NSIS installer
+        required: true
+        type: string
+      cleared:
+        description: I tested this tagged build and cleared redistribution and notices for all bundled files
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+concurrency: release-${{ github.ref }}
+
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      EXPECTED_SHA256: ${{ inputs.installer_sha256 }}
+      CLEARED: ${{ inputs.cleared }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Install JS deps
-        run: npm ci
-
-      - name: Run unit tests
-        run: npm test
-
-      - name: Build installer
-        run: npm run build:nsis
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: midi-studio-windows
-          path: |
-            dist/*.exe
-
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.exe
-          generate_release_notes: true
-
-  # The Tauri build (src-tauri + forge-rs), built and kept as a workflow
-  # artifact only. It is not attached to the release yet: both updaters take
-  # the first "*setup*.exe" asset, so the release carries exactly one installer
-  # until the switch-over moves the publish step here.
-  build-windows-tauri:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri
-            forge-rs
-
-      - name: Install JS deps
-        run: npm ci
-
-      - name: Rust tests
-        # winjob's grandchild check is timing-sensitive under parallel tests.
-        run: cargo test --manifest-path src-tauri/Cargo.toml -- --test-threads=1
-
-      - name: Build installer (forge-rs + Tauri NSIS)
-        run: npm run build:tauri
-
-      - name: Name it like the Electron installer
-        shell: pwsh
+      - name: Check release ref and review inputs
+        shell: bash
         run: |
-          $v = (Get-Content package.json | ConvertFrom-Json).version
-          New-Item -ItemType Directory -Force dist-tauri | Out-Null
-          Copy-Item "src-tauri/target/release/bundle/nsis/*-setup.exe" "dist-tauri/MIDI-Studio-$v-Setup.exe"
+          set -euo pipefail
+          [[ "$CLEARED" == true ]] || { echo "Redistribution review is required."; exit 1; }
+          [[ "$GITHUB_REF" =~ ^refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "Run this workflow on the release tag."; exit 1; }
+          [[ "$EXPECTED_SHA256" =~ ^[[:xdigit:]]{64}$ ]] || { echo "Expected a 64-digit SHA-256."; exit 1; }
+          version=$(gh api "repos/$GH_REPO/contents/package.json?ref=$GITHUB_SHA" --jq .content | base64 -d | jq -er .version)
+          [[ "$GITHUB_REF_NAME" == "v$version" ]]
+          echo "INSTALLER_NAME=MIDI-Studio-$version-Setup.exe" >> "$GITHUB_ENV"
+          id=$(gh release view "$GITHUB_REF_NAME" --json databaseId,isDraft --jq 'select(.isDraft) | .databaseId')
+          [[ "$id" =~ ^[0-9]+$ ]] || { echo "A draft release is required."; exit 1; }
+          echo "RELEASE_ID=$id" >> "$GITHUB_ENV"
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: midi-studio-windows-tauri
-          path: dist-tauri/*.exe
+      - name: Inspect the installer without executing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" --pattern "$INSTALLER_NAME"
+          echo "$EXPECTED_SHA256  $INSTALLER_NAME" | sha256sum --check --strict
+          7z l -tNsis -slt "$INSTALLER_NAME" > installer-files.txt
+          grep -Ei '^Path = (.*[/\\])?MIDI Studio\.exe$' installer-files.txt
+          grep -Ei '^Path = (.*[/\\])?forge-rs\.exe$' installer-files.txt
+          if grep -Ei '^Path = (.*[/\\])?(app\.asar|app-(32|64|arm64)\.7z)$' installer-files.txt; then
+            echo "Refusing an Electron payload."; exit 1
+          fi
+
+      - name: Publish only the inspected asset as the latest stable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release="repos/$GH_REPO/releases/$RELEASE_ID"
+          gh api "$release" |
+            jq -e --arg tag "$GITHUB_REF_NAME" --arg name "$INSTALLER_NAME" --arg digest "sha256:${EXPECTED_SHA256,,}" '
+              .draft and (.prerelease | not) and .tag_name == $tag and
+              (.assets | length) == 1 and .assets[0].state == "uploaded" and
+              .assets[0].name == $name and .assets[0].digest == $digest'
+          gh api --method PATCH "$release" -F draft=false -f make_latest=true --jq .html_url

@@ -71,10 +71,10 @@
 
 /* toggle: aria-pressed is the real signal, .is-active is the fallback for a
    button inside a radiogroup or tablist that already carries its own ARIA. */
-.btn[aria-pressed="true"], .btn.is-active {
+.btn[aria-pressed="true"], .btn[role="switch"][aria-checked="true"], .btn.is-active {
   background: var(--accent-soft); border-color: var(--accent-line); color: var(--text);
 }
-.btn[aria-pressed="true"]:hover, .btn.is-active:hover { background: #2d331f; }
+.btn[aria-pressed="true"]:hover, .btn[role="switch"][aria-checked="true"]:hover, .btn.is-active:hover { background: #2d331f; }
 
 .btn.is-busy { color: transparent; position: relative; pointer-events: none; }
 .btn.is-busy::after {

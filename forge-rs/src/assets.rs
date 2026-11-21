@@ -8,6 +8,7 @@ use safetensors::{Dtype, SafeTensors};
 use std::path::{Path, PathBuf};
 
 pub const ONNX_NAME: &str = "transkun_v2.onnx";
+const WEIGHTS_NAME: &str = "transkun_v2.onnx.data";
 pub const AUX_NAME: &str = "transkun_v2_aux.safetensors";
 
 /// Linear(768 -> 512) - GELU - Linear(512 -> out).
@@ -92,8 +93,14 @@ impl AssetPaths {
         };
         let onnx_dir = if base.join(ONNX_NAME).exists() { base.clone() } else { base.join("onnx") };
         let onnx = onnx_dir.join(ONNX_NAME);
-        if !onnx.exists() {
+        if !onnx.is_file() {
             bail!("{} not found (looked in {} and {}/onnx)", ONNX_NAME, base.display(), base.display());
+        }
+        // The release graph refers to this sibling for its model weights.
+        // Reject incomplete installs before a caller spends time separating audio.
+        let weights = onnx_dir.join(WEIGHTS_NAME);
+        if !std::fs::metadata(&weights).is_ok_and(|m| m.is_file() && m.len() > 0) {
+            bail!("Transkun model weights are missing or empty: {}", weights.display());
         }
         let aux = match aux {
             Some(a) => a.to_path_buf(),
@@ -101,14 +108,34 @@ impl AssetPaths {
                 let cands = [onnx_dir.join(AUX_NAME), base.join(AUX_NAME)];
                 cands
                     .iter()
-                    .find(|p| p.exists())
+                    .find(|p| p.is_file())
                     .cloned()
                     .ok_or_else(|| anyhow!("{AUX_NAME} not found next to {}; run python-engine/export_transkun_aux.py or pass --aux", onnx.display()))?
             }
         };
-        if !aux.exists() {
+        if !aux.is_file() {
             bail!("{} not found", aux.display());
         }
         Ok(AssetPaths { onnx, aux })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn incomplete_transkun_weights_are_rejected_by_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let model_dir = dir.path().join("onnx");
+        std::fs::create_dir(&model_dir).unwrap();
+        std::fs::write(model_dir.join(ONNX_NAME), b"graph").unwrap();
+        std::fs::write(model_dir.join(AUX_NAME), b"aux").unwrap();
+        let resolve = || AssetPaths::resolve(Some(dir.path()), None);
+        assert!(resolve().unwrap_err().to_string().contains(WEIGHTS_NAME));
+        std::fs::write(model_dir.join(WEIGHTS_NAME), b"").unwrap();
+        assert!(resolve().unwrap_err().to_string().contains(WEIGHTS_NAME));
+        std::fs::write(model_dir.join(WEIGHTS_NAME), b"weights").unwrap();
+        assert_eq!(resolve().unwrap().onnx, model_dir.join(ONNX_NAME));
     }
 }

@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="../shared/studio.css" />
 </head>
 <body class="studio-workspace">
-<header class="studio-page-head"><div><div class="studio-eyebrow">Find your arrangement</div><h1 class="studio-page-title">MIDI editor</h1><p class="studio-page-description">Shape the timing, fine-tune the notes, and make the take your own.</p></div></header>
+<header class="studio-page-head"><div><div class="studio-eyebrow">Note editing</div><h1 class="studio-page-title">MIDI editor</h1><p class="studio-page-description">Edit notes, controllers, and markers against the original audio.</p></div></header>
 <div class="ed" id="ed" data-split="editor">
 
   <!-- ================================================== contextual actions -->
@@ -91,13 +91,23 @@
         </div>
       </div>
       <div class="tabpanel ed-pane" id="p-markers" role="tabpanel" aria-labelledby="tab-markers" hidden>
+        <form class="marker-editor" id="marker-form">
+          <label for="marker-name">Marker name</label>
+          <input class="input is-sm is-body" id="marker-name" maxlength="120" placeholder="Verse, chorus, bridge" required disabled />
+          <label for="marker-time">Time in seconds</label>
+          <input class="input is-sm" id="marker-time" type="number" min="0" step="0.001" value="0" required disabled />
+          <div class="ed-btnrow">
+            <button class="btn btn-sm" id="marker-add" type="button" disabled>Add at playhead</button>
+            <button class="btn btn-sm" id="marker-update" type="submit" disabled>Update</button>
+            <button class="btn btn-sm" id="marker-delete" type="button" disabled>Delete</button>
+          </div>
+        </form>
         <div class="list" id="markers" role="list"></div>
         <div class="insp-sec">
           <div class="insp-sec-body">
             <p class="inline-note" id="markers-note">
-              Markers have no store yet. These four are derived live from the loop range and
-              the take's own extent, so nothing is invented on disk. Listen has no bookmark
-              list to read from either — when it grows one, this panel reads it.
+              Select a marker to seek, rename it, or change its time. Markers stay with this
+              take when you save or export MIDI.
             </p>
           </div>
         </div>
@@ -112,9 +122,14 @@
       <!-- overview strip -->
       <section class="ed-over">
         <header class="toolbar is-sub">
-          <button class="switch" role="switch" id="t-audio" aria-checked="false" disabled
-                  aria-label="Play the original audio alongside the MIDI"></button>
-          <span class="ed-mini">Audio</span>
+          <div class="btn-group" role="group" aria-label="Playback sources">
+            <button class="btn btn-sm" id="t-audio" role="switch" aria-checked="false" disabled
+                    data-tip="Include the original recording in playback">Original</button>
+            <button class="btn btn-sm" id="t-midi" aria-pressed="true" disabled
+                    data-tip="Include the MIDI notes in playback">MIDI</button>
+          </div>
+          <button class="btn btn-sm" id="compare-sources" disabled
+                  data-tip="Alternate between the original and MIDI at the current playhead">A/B</button>
           <span class="toolbar-spacer"></span>
           <span class="ed-clock" id="range-readout">--:-- / --:--</span>
           <button class="btn btn-icon is-sm is-bare" id="ov-reset" aria-label="Reset the overview zoom"
@@ -165,7 +180,6 @@
         </div>
         <span class="toolbar-spacer"></span>
         <div class="toolbar-group">
-          <button class="btn btn-sm" id="t-midi" aria-pressed="true" disabled data-tip="Sound the notes while playing">MIDI</button>
           <button class="btn btn-sm" id="t-loop" aria-pressed="false" disabled data-tip="Loop the range on the overview">Loop</button>
           <button class="btn btn-sm" id="t-follow" aria-pressed="true" data-tip="Scroll to keep the playhead on screen">Follow</button>
         </div>
@@ -185,8 +199,7 @@
         <div class="state" id="empty">
           <span class="state-icon" aria-hidden="true"><i data-icon="folder" data-icon-size="22"></i></span>
           <span class="state-title">Nothing open</span>
-          <span class="state-msg">Open a Forge project (<span class="mono">.midstudio.json</span>) or a plain
-            <span class="mono">.mid</span>. You can also drop one anywhere on this panel.</span>
+          <span class="state-msg">Open a MIDI file or Forge project, or drop one here.</span>
           <span class="state-actions">
             <button class="btn btn-primary" id="empty-open">Open file</button>
           </span>
@@ -201,16 +214,24 @@
         <!-- The lane picker reads down the left of the lane, beside the values it
              switches, rather than as a strip of chrome above it. Same radiogroup,
              same roving tabindex, same handler. -->
-        <div class="lane-pick" role="radiogroup" id="lane-pick" aria-label="Automation lane"
-             title="Transcription captures velocity only. Modulation, expression, sustain and pan are neither written nor dropped — whatever the document already carries round-trips untouched.">
+        <div class="lane-pick" role="radiogroup" id="lane-pick" aria-label="Automation lane">
           <button role="radio" aria-checked="true" data-lane="velocity">Velocity</button>
-          <button role="radio" aria-checked="false" data-lane="mod" tabindex="-1" disabled>Modulation</button>
-          <button role="radio" aria-checked="false" data-lane="expr" tabindex="-1" disabled>Expression</button>
-          <button role="radio" aria-checked="false" data-lane="sustain" tabindex="-1" disabled>Sustain</button>
-          <button role="radio" aria-checked="false" data-lane="pan" tabindex="-1" disabled>Pan</button>
+          <button role="radio" aria-checked="false" data-lane="mod" tabindex="-1">Modulation</button>
+          <button role="radio" aria-checked="false" data-lane="volume" tabindex="-1">Volume</button>
+          <button role="radio" aria-checked="false" data-lane="expr" tabindex="-1">Expression</button>
+          <button role="radio" aria-checked="false" data-lane="sustain" tabindex="-1">Sustain</button>
+          <button role="radio" aria-checked="false" data-lane="pan" tabindex="-1">Pan</button>
         </div>
+        <form class="lane-controls" id="cc-form" hidden>
+          <label>Ch <select class="select is-sm" id="cc-channel" aria-label="Controller channel"></select></label>
+          <label>Time <input class="input is-sm" id="cc-time" type="number" min="0" step="0.001" value="0" aria-label="Controller time in seconds" required /></label>
+          <label>Value <input class="input is-sm" id="cc-value" type="number" min="0" max="127" step="1" value="64" required /></label>
+          <button class="btn btn-sm" id="cc-set" type="submit">Set</button>
+          <button class="btn btn-sm" id="cc-new" type="button">New</button>
+          <button class="btn btn-sm" id="cc-delete" type="button" disabled>Delete</button>
+        </form>
         <div class="canvas-host" id="auto-host">
-          <canvas id="auto" aria-label="Velocity lane. Drag over a note to set its velocity."></canvas>
+          <canvas id="auto" tabindex="0" aria-label="Velocity lane. Drag over a note to set its velocity."></canvas>
           <!-- pointer-transparent: the whole lane surface is a velocity drag -->
           <span class="lane-note" id="lane-note"></span>
         </div>
@@ -246,10 +267,10 @@
           <button class="insp-sec-head" aria-expanded="true" aria-controls="s-time">Quantize &amp; Timing</button>
           <div class="insp-sec-body" id="s-time">
             <div class="insp-row">
-              <span class="insp-label">Tempo</span>
+              <span class="insp-label">Initial tempo</span>
               <span class="input-wrap">
                 <input class="input is-sm" id="bpm" type="number" min="20" max="400" step="0.01"
-                       aria-label="Tempo in beats per minute" disabled />
+                       aria-label="Initial tempo in beats per minute" title="Starting BPM. The grid follows later tempo changes in the MIDI." disabled />
                 <span class="input-affix">BPM</span>
               </span>
             </div>
@@ -481,6 +502,7 @@
 <script src="../shared/tokens.js"></script>
 <script src="../shared/fmt.js"></script>
 <script src="../shared/draw.js"></script>
+<script src="../shared/audio-peaks.js"></script>
 <script src="../shared/bus.js"></script>
 <script src="../shared/icons.js"></script>
 <!-- optional: the ones this tab actually uses -->
@@ -489,6 +511,7 @@
 <script src="../shared/resize.js"></script>
 <script src="../shared/timeline-zoom.js"></script>
 <script src="../shared/midi-parse.js"></script>
+<script src="../shared/tempo-map.js"></script>
 <!-- the bundled sample player behind the preview (shared/audio.js does not exist yet) -->
 <script src="../soundfonts/player.js"></script>
 <script src="./review.js"></script>

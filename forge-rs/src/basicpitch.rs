@@ -99,6 +99,10 @@ impl Model {
 
     /// inference.run_inference on 22.05 kHz mono audio.
     pub fn run(&mut self, audio: &[f32]) -> Result<Output> {
+        self.run_frames(audio, true)
+    }
+
+    fn run_frames(&mut self, audio: &[f32], with_contour: bool) -> Result<Output> {
         if let Some(d) = dump_dir() {
             let _ = std::fs::create_dir_all(&d);
             let _ = crate::dump::write_npy_f32(&d.join("audio.npy"), &[audio.len()], audio);
@@ -122,6 +126,7 @@ impl Model {
                 ("StatefulPartitionedCall:2", N_NOTES, &mut onset),
                 ("StatefulPartitionedCall:0", N_CONTOUR, &mut contour),
             ] {
+                if width == N_CONTOUR && !with_contour { continue; }
                 let (shape, data) = out[name].try_extract_tensor::<f32>()?;
                 let dims: Vec<usize> = shape.iter().map(|&d| d as usize).collect();
                 if dims != [1, ANNOT_N_FRAMES, width] {
@@ -139,6 +144,79 @@ impl Model {
         contour.truncate(frames * N_CONTOUR);
         Ok(Output { frames, note, onset, contour })
     }
+
+    /// Source-timed instrumental attacks, without pitch bends. Decode bounded
+    /// blocks so a long song does not require a song-sized polyphonic decoder heap.
+    pub(crate) fn instrumental_notes(&mut self, mono: &[f32]) -> Result<Vec<Note>> {
+        const BLOCK: usize = 20 * HOP_SIZE;
+        const KEPT: usize = ANNOT_N_FRAMES - N_OVERLAPPING_FRAMES;
+        let rate = f64::from(SAMPLE_RATE);
+        let mut notes = Vec::new();
+        for begin in (0..mono.len()).step_by(BLOCK) {
+            let end = (begin + BLOCK).min(mono.len());
+            // A complete model window on each side; only the central block owns attacks.
+            let left = begin.saturating_sub(HOP_SIZE * 2);
+            let right = (end + HOP_SIZE * 2).min(mono.len());
+            let Output { frames, mut note, mut onset, .. } = self.run_frames(&mono[left..right], false)?;
+            let mut events = output_to_notes_polyphonic(&mut note, &mut onset, frames,
+                0.42, 0.28, 3, Some(midi_to_hz(97.)), Some(midi_to_hz(53.)), true);
+            clean_instrumental_attacks(&mut events, &note, &onset);
+            // Each KEPT group advances one input hop. Use this common frame
+            // clock for ownership as well as timing on both sides of a seam.
+            let first_frame = left / HOP_SIZE * KEPT;
+            let owned_from = begin / HOP_SIZE * KEPT;
+            let owned_to = (begin + BLOCK) / HOP_SIZE * KEPT;
+            let seconds = |f: usize| (f / KEPT * HOP_SIZE + f % KEPT * FFT_HOP) as f64 / rate;
+            for (s, e, pitch, amp) in events {
+                let f = first_frame + s;
+                if !(owned_from..owned_to).contains(&f) { continue; }
+                let start = seconds(f);
+                let end = seconds(first_frame + e).min(mono.len() as f64 / rate);
+                if end <= start { continue; }
+                notes.push(Note { pitch, start, end,
+                    velocity: (amp * 127.).round_ties_even() as u8 });
+            }
+        }
+        Ok(notes)
+    }
+}
+
+/// Basic Pitch can emit adjacent fragments while a key is already sounding.
+/// Resolve them in the block's context before assigning events to a block.
+fn clean_instrumental_attacks(events: &mut Vec<(usize, usize, u8, f32)>, note: &[f32], onset: &[f32]) {
+    // Only playable candidates participate: a discarded whisper cannot steal an onset.
+    events.retain(|&(_, _, _, amp)| (amp * 127.).round_ties_even() >= 45.);
+    events.sort_unstable_by_key(|&(s, _, p, _)| (p, s));
+    let mut written = 0;
+    let mut last_segment = 0;
+    for i in 0..events.len() {
+        let (s, e, p, amp) = events[i];
+        let k = usize::from(p) - MIDI_OFFSET;
+        if written > 0 {
+            let (start, end, pitch, level) = events[written - 1];
+            // One frame is ~12 ms. Require touching fragments and a recent attack.
+            if p == pitch && s.abs_diff(end) <= 1 && s - last_segment <= 14 && s >= 3 {
+                let confidence = onset[s * N_NOTES + k];
+                let previous = onset[start * N_NOTES + k];
+                let floor = (s - 3..s).map(|t| note[t * N_NOTES + k]).fold(1., f32::min);
+                let peak = (s..e.min(s + 4)).map(|t| note[t * N_NOTES + k]).fold(0., f32::max);
+                if floor > 0.28 && peak - floor < 0.07 && confidence < 0.8 && confidence <= previous {
+                    events[written - 1].1 = end.max(e);
+                    last_segment = s;
+                    continue;
+                }
+                // A quiet inferred pickup directly before a much clearer attack
+                // of the same pitch: keep the measured later attack, not both.
+                if s - start <= 8 && previous < 0.42 && confidence > 0.70 && amp - level >= 0.12 {
+                    written -= 1;
+                }
+            }
+        }
+        events[written] = events[i];
+        written += 1;
+        last_segment = s;
+    }
+    events.truncate(written);
 }
 
 /// What `predict(...)` is called with.
@@ -580,6 +658,23 @@ pub fn output_to_midi(out: Output, p: &Params) -> PrettyMidi {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn holds_level_pitch_but_keeps_a_stronger_or_newly_articulated_onset() {
+        let mut note = vec![0.55; 60 * N_NOTES];
+        let mut onset = vec![0.; note.len()];
+        let p = 72;
+        let k = p as usize - MIDI_OFFSET;
+        let mut events = vec![(5, 12, p, 0.6), (12, 19, p, 0.56), (19, 28, p, 0.6),
+                              (28, 36, p, 0.61), (40, 46, p, 0.4), (46, 57, p, 0.7)];
+        for (t, c) in [(5, 0.74), (12, 0.6), (19, 0.77), (28, 0.6), (40, 0.3), (46, 0.91)] {
+            onset[t * N_NOTES + k] = c;
+        }
+        note[26 * N_NOTES + k] = 0.21;
+        clean_instrumental_attacks(&mut events, &note, &onset);
+        assert_eq!(events.iter().map(|&(s,e,_,_)| (s,e)).collect::<Vec<_>>(),
+            [(5,19),(19,28),(28,36),(46,57)]);
+    }
 
     #[test]
     fn constants_match_basic_pitch() {

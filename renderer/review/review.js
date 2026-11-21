@@ -89,9 +89,11 @@
   // used to divide by different spans, so a value set by dragging never landed
   // where the bar was drawn.
   const LANE_PAD = 6;
+  const CC_LANES = { mod: 1, volume: 7, pan: 10, expr: 11, sustain: 64 };
   // A note this long is treated as a special case by the visibility scan below.
   const LONG_SEC = 2;
   const PEAK_BUCKETS = 4096;
+  const peakReader = window.AudioPeaks.createReader();
   const LOOKAHEAD = 0.14;     // seconds of notes scheduled ahead of the audio clock
   const CLOCK_MS = 25;
 
@@ -168,6 +170,7 @@
   let dirty = false;
   let tool = 'select';
   let lane = 'velocity';
+  let ccChannel = 0, selectedController = null, selectedMarker = null;
   let snapOn = true, linkOn = true, followOn = true, midiOn = true, audioOn = false;
   let muted = new Set(), soloed = new Set();
   let tracks = [];
@@ -175,11 +178,14 @@
   let sounding = new Set();          // pitches currently sounding, for the roll
 
   let playing = false, rate = 1, volume = 0.85;
-  let clockTimer = 0, cursor = 0, schedTo = -1, reportTick = 0;
+  let clockTimer = 0, cursor = 0, schedTo = -1, reportTick = 0, playRequest = 0;
+  let chaseAt = null;
+  let mediaRequest = 0;
   let audioOffset = 0;
   let ctxAudio = null, master = null;
   let sampledReady = false, samplePrepare = null;
-  let peaks = null, peaksVersion = 0, peaksSpan = 0;
+  let peaks = null, peaksVersion = 0, peaksSpan = 0, peaksRequest = null;
+  let openRequest = 0;
   let spaceTransport = true;
   let ownTransport = null, caps = null;
 
@@ -404,7 +410,7 @@
   function beginTx(label, key) {
     if (tx && key && tx.key === key) { tx.label = label; return tx; }
     if (tx) commitTx();
-    tx = { label, key: key || '', changed: new Map(), added: [], removed: [], meta: null, cand: candidate };
+    tx = { label, key: key || '', changed: new Map(), added: [], removed: [], meta: null, events: {}, cand: candidate };
     return tx;
   }
   function snap(n) {                     // record the prior fields once per note
@@ -415,6 +421,16 @@
   function txAdd(n) { if (tx) tx.added.push(n); }
   function txRemove(n) { if (tx) tx.removed.push(n); }
   function txMeta(before, after) { if (tx) tx.meta = { before, after }; }
+  function snapEvents(field) {
+    if (tx && !tx.events[field]) tx.events[field] = { before: (doc()[field] || []).map((e) => ({ ...e })) };
+  }
+  function applyEvents(events, side) {
+    const d = doc();
+    if (!d || !events) return;
+    for (const [field, values] of Object.entries(events)) d[field] = values[side].map((e) => ({ ...e }));
+    selectedController = null;
+    selectedMarker = null;
+  }
 
   function commitTx() {
     const t = tx;
@@ -427,8 +443,12 @@
       const b = grab(n);
       if (!same(a, b)) changed.push({ id, a, b });
     });
-    if (!changed.length && !t.added.length && !t.removed.length && !t.meta) return false;
-    const entry = { label: t.label, at: Date.now(), changed, added: t.added, removed: t.removed, meta: t.meta };
+    for (const [field, values] of Object.entries(t.events)) {
+      values.after = (documents[t.cand][field] || []).map((e) => ({ ...e }));
+      if (JSON.stringify(values.before) === JSON.stringify(values.after)) delete t.events[field];
+    }
+    if (!changed.length && !t.added.length && !t.removed.length && !t.meta && !Object.keys(t.events).length) return false;
+    const entry = { label: t.label, at: Date.now(), changed, added: t.added, removed: t.removed, meta: t.meta, events: t.events };
     const stack = hist[t.cand] || (hist[t.cand] = []);
     stack.push(entry);
     if (stack.length > HIST_CAP) stack.shift();
@@ -448,6 +468,7 @@
       setNotes(notes.filter((n) => !drop.has(n.id)));
     }
     if (t.removed.length) setNotes(notes.concat(t.removed));
+    applyEvents(t.events, 'before');
     bumpNotes();
   }
 
@@ -471,6 +492,7 @@
       for (const c of entry.changed) { const n = byId.get(c.id); if (n) assign(n, c.b); }
       if (entry.meta) applyMeta(entry.meta.after);
     }
+    applyEvents(entry.events, dir < 0 ? 'before' : 'after');
     sortDirty = true;
     extentDirty = true;
     // Only an add or a remove can strand a selected id. A field-only entry (a
@@ -545,18 +567,23 @@
   // ==========================================================================
   // 6. geometry
   // ==========================================================================
-  const bpm = () => {
+  let cachedGrid = null, cachedChanges = null, cachedBpm = NaN;
+  function tempoGrid() {
     const d = doc();
-    const v = d ? Number(d.bpm) : 0;
-    return Number.isFinite(v) && v >= 20 && v <= 400 ? v : 120;
-  };
+    const value = d ? Number(d.bpm) : 120;
+    const changes = d && d.tempoChanges;
+    if (!cachedGrid || cachedChanges !== changes || cachedBpm !== value) {
+      cachedGrid = new window.MidiTempoMap(value, changes);
+      cachedChanges = changes;
+      cachedBpm = value;
+    }
+    return cachedGrid;
+  }
   const gridDiv = () => Number($('grid').value) || 16;
-  const gridStep = () => (60 / bpm()) * (4 / gridDiv());
-  const qStep = () => (60 / bpm()) * (4 / (Number($('q-grid').value) || 16));
+  const qDiv = () => Number($('q-grid').value) || 16;
+  const gridStep = (time, division = gridDiv()) => tempoGrid().advance(time, 4 / division) - time;
   function snapT(t) {
-    if (!snapOn) return t;
-    const step = gridStep();
-    return step > 0 ? Math.round(t / step) * step : t;
+    return snapOn ? tempoGrid().snap(t, gridDiv()) : t;
   }
   const xForTime = (t) => KEY_W + t * zoom;
   const timeForX = (x) => clamp((x - KEY_W) / zoom, 0, duration);
@@ -580,7 +607,9 @@
   function widenDuration() {
     ensureExtent();
     const d = doc();
-    const own = Math.max(Number(d && d.duration) || 0, maxEnd, 0.1);
+    let eventEnd = 0;
+    if (d) for (const field of ['controllers', 'markers', 'tempoChanges']) for (const e of d[field] || []) eventEnd = Math.max(eventEnd, e.time);
+    const own = Math.max(Number(d && d.duration) || 0, maxEnd, eventEnd, 0.1);
     if (d) d.duration = own;
     // Widened, never shrunk within a session: the source audio may run past the
     // last note, and deleting the last note should not resize the timeline.
@@ -706,24 +735,13 @@
     ctx.clip();
 
     // grid: subdivisions, beats, bars. Bounds hoisted out of the loop.
-    const beat = 60 / bpm();
-    const sub = beat * (4 / gridDiv());
-    if (sub * zoom >= 3) {
-      const stop = Math.min(duration + sub, toTime + sub);
-      const startIndex = Math.max(0, Math.floor(fromTime / sub));
-      let subIndex = startIndex;
-      const perBeat = Math.max(1, Math.round(beat / sub));
-      const perBar = perBeat * 4;
-      for (let t = startIndex * sub; t <= stop; t += sub, subIndex++) {
-        const x = Math.round(xForTime(t) - ox) + 0.5;
-        if (x < KEY_W) continue;
-        if (x > w) break;
-        const isBar = subIndex % perBar === 0;
-        const isBeat = subIndex % perBeat === 0;
-        ctx.fillStyle = isBar ? C.gridBar : isBeat ? C.gridBeat : C.gridSub;
-        ctx.fillRect(x, TOP_H, 1, h - TOP_H);
-      }
-    }
+    const perBeat = gridDiv() / 4;
+    tempoGrid().forEachGrid(fromTime, Math.min(duration, toTime), 1 / perBeat, 3 / zoom, (t, index) => {
+      const x = Math.round(xForTime(t) - ox) + 0.5;
+      if (x < KEY_W || x > w) return;
+      ctx.fillStyle = index % (perBeat * 4) === 0 ? C.gridBar : index % perBeat === 0 ? C.gridBeat : C.gridSub;
+      ctx.fillRect(x, TOP_H, 1, h - TOP_H);
+    });
 
     // notes: only the ones that overlap the window (see forOverlapping)
     const y0 = TOP_H, y1 = h;
@@ -804,31 +822,27 @@
     ctx.fillRect(KEY_W, 0, w - KEY_W, TOP_H);
     ctx.fillStyle = C.line;
     ctx.fillRect(KEY_W, TOP_H - 1, w - KEY_W, 1);
-    const beat = 60 / bpm();
-    const barSec = beat * 4;
-    if (barSec * zoom < 8) return;
-    const first = Math.max(0, Math.floor((ox / zoom) / barSec));
     ctx.font = '600 11px ' + C.mono;
     ctx.textBaseline = 'middle';
-    for (let bar = first; ; bar++) {
-      const t = bar * barSec;
+    tempoGrid().forEachGrid(ox / zoom, (ox + w - KEY_W) / zoom, 1, 2 / zoom, (t, beat, quarter) => {
       const x = Math.round(xForTime(t) - ox) + 0.5;
-      if (x > w) break;
-      if (x >= KEY_W) {
+      if (x < KEY_W || x > w) return;
+      if (beat % 4 === 0) {
         ctx.fillStyle = C.line2;
         ctx.fillRect(x, 6, 1, TOP_H - 7);
         ctx.fillStyle = C.rulerText;
-        ctx.fillText(String(bar + 1), x + 4, TOP_H / 2);
+        ctx.fillText(String(beat / 4 + 1), x + 4, TOP_H / 2);
+      } else if (quarter * 4 * zoom >= 46) {
+        ctx.fillStyle = C.rowLine;
+        ctx.fillRect(x, TOP_H - 6, 1, 5);
       }
-      if (barSec * zoom >= 46) {
-        for (let b = 1; b < 4; b++) {
-          const bx = Math.round(xForTime(t + b * beat) - ox) + 0.5;
-          if (bx >= KEY_W && bx <= w) {
-            ctx.fillStyle = C.rowLine;
-            ctx.fillRect(bx, TOP_H - 6, 1, 5);
-          }
-        }
-      }
+    });
+    for (const marker of (doc() && doc().markers) || []) {
+      const x = Math.round(xForTime(marker.time) - ox);
+      if (x < KEY_W || x > w) continue;
+      ctx.fillStyle = marker === selectedMarker ? C.text : C.accent;
+      ctx.fillRect(x, TOP_H - 10, 1, 9);
+      ctx.fillRect(x, TOP_H - 10, 5, 4);
     }
     // playhead head, so the position reads on the ruler too
     const px = Math.round(xForTime(playhead) - ox);
@@ -1036,11 +1050,8 @@
       ctx.lineWidth = 1;
     };
 
-    if (lane !== 'velocity' || !loaded()) {
+    if (!loaded()) {
       drawScale();
-      ctx.fillStyle = C.text3;
-      ctx.font = '500 12px ' + C.body;
-      ctx.fillText(loaded() ? 'No data in this lane' : '', 34, h / 2);
       return;
     }
 
@@ -1049,6 +1060,30 @@
     const ox = sx + shift;
     const fromTime = Math.max(0, (ox - KEY_W) / zoom);
     const toTime = (ox + w - KEY_W) / zoom;
+    if (lane !== 'velocity') {
+      const points = laneControllers();
+      ctx.strokeStyle = C.accent;
+      ctx.lineWidth = 1.5;
+      for (let p = 0; p < points.length; p++) {
+        const event = points[p], next = points[p + 1];
+        if (next && next.time < fromTime) continue;
+        if (event.time > toTime) break;
+        const x = xForTime(event.time) - ox;
+        const end = next ? xForTime(next.time) - ox : w;
+        const y = Math.max(2, Math.min(h - 2, h - (event.value / 127) * span));
+        ctx.beginPath();
+        ctx.moveTo(Math.max(0, x), y);
+        ctx.lineTo(Math.min(w, end), y);
+        if (next && end <= w) ctx.lineTo(end, Math.max(2, h - (next.value / 127) * span));
+        ctx.stroke();
+        if (x >= 0 && x <= w) {
+          ctx.fillStyle = event === selectedController ? C.text : C.accent;
+          ctx.fillRect(x - 3, y - 3, 6, 6);
+        }
+      }
+      drawScale();
+      return;
+    }
     const onlySel = linkOn && selected.size > 0;
     // The lane plots ONSETS, so the plain lower bound is exact here.
     let i = lowerBound(fromTime);
@@ -1141,34 +1176,46 @@
     const set = new Set();
     for (let i = 0; i < notes.length; i++) set.add(notes[i].pitch);
     const pitches = set.size ? [...set] : [60];
-    samplePrepare = soundfonts.prepare(ctx(), INSTRUMENT, pitches)
-      .then(() => { sampledReady = true; return true; })
+    const preparing = soundfonts.prepare(ctx(), INSTRUMENT, pitches)
+      .then(() => { if (doc() === d) sampledReady = true; return true; })
       .catch(() => false)
-      .finally(() => { samplePrepare = null; });
+      .finally(() => { if (samplePrepare === preparing) samplePrepare = null; });
+    samplePrepare = preparing;
     return samplePrepare;
   }
   // `at` is an AudioContext timestamp; 0 means "right now".
-  function playNote(n, at, force) {
+  function playNote(n, at, force, elapsed = 0) {
     if (!force && !midiOn) return;
     if (!audible(n.channel)) return;
     const c = ctx();
     const when = at || c.currentTime;
-    const len = clamp((n.end - n.start) / rate, 0.05, 4);
+    const fullLength = clamp((n.end - n.start) / rate, 0.05, 4);
+    const len = fullLength - elapsed;
+    if (len <= 0) return;
     if (sampledReady && soundfonts) {
-      const src = soundfonts.play(c, INSTRUMENT, n.pitch, when, len, n.velocity, master);
-      if (src) { markSounding(n.pitch, len, (when - c.currentTime) * 1000); return; }
+      const src = soundfonts.play(c, INSTRUMENT, n.pitch, when, len, n.velocity, master, elapsed);
+      if (src) {
+        trackVoice(src);
+        markSounding(n.pitch, len, (when - c.currentTime) * 1000);
+        return;
+      }
+      if (elapsed && soundfonts.has(INSTRUMENT, n.pitch)) return; // The sample's recorded tail has ended.
     } else ensureSamples();
     const osc = c.createOscillator();
     const g = c.createGain();
     osc.type = 'triangle';
     osc.frequency.value = 440 * Math.pow(2, (n.pitch - 69) / 12);
     g.gain.setValueAtTime(0, when);
-    g.gain.linearRampToValueAtTime((n.velocity / 127) * 0.12, when + 0.008);
-    g.gain.exponentialRampToValueAtTime(0.001, when + Math.max(0.05, len));
+    const peak = Math.max(.001, (n.velocity / 127) * .12);
+    const decay = Math.max(0, elapsed - .008) / (fullLength - .008);
+    const level = peak * Math.pow(.001 / peak, decay);
+    g.gain.linearRampToValueAtTime(level, when + Math.min(len, elapsed ? .004 : .008));
+    g.gain.exponentialRampToValueAtTime(0.001, when + len);
     osc.connect(g).connect(master || c.destination);
     osc.start(when);
     osc.stop(when + len + 0.02);
-    osc.onended = () => { try { g.disconnect(); } catch (_) { /* already gone */ } };
+    osc.onended = () => { osc.disconnect(); g.disconnect(); };
+    trackVoice(osc);
     markSounding(n.pitch, len, (when - c.currentTime) * 1000);
   }
   // The lookahead scheduler hands notes to Web Audio up to LOOKAHEAD ahead, so
@@ -1191,7 +1238,16 @@
     };
     if (delayMs > 8) later(on, delayMs); else on();
   }
+  const voices = new Set();
+  function trackVoice(source) {
+    voices.add(source);
+    source.addEventListener('ended', () => voices.delete(source), { once: true });
+  }
   function clearSounding() {
+    for (const source of voices) {
+      try { source.stop(); } catch (_) { /* already ended */ }
+    }
+    voices.clear();
     timers.forEach((t) => clearTimeout(t));
     timers.clear();
     offAt.clear();
@@ -1200,18 +1256,40 @@
   disposers.push(clearSounding);
 
   // ==========================================================================
-  // 10. peaks (decode + min/max buckets; shared/peaks.js does not exist yet)
+  // 10. Source waveform
   // ==========================================================================
+  function sourceSpanFor(seconds) {
+    const rawEnd = project && project.timing && project.timing.end;
+    const timingEnd = rawEnd == null || rawEnd === '' ? NaN : Number(rawEnd);
+    const available = Math.max(0, seconds - audioOffset);
+    return Number.isFinite(timingEnd) ? clamp(timingEnd - audioOffset, 0, available) : available;
+  }
+  function extendToSource(sourceSpan) {
+    projectDuration = Math.max(duration, sourceSpan);
+    if (!loopOn && loopA === 0 && loopB === duration) loopB = projectDuration;
+  }
+  onEl(audio, 'loadedmetadata', () => {
+    if (!project || !Number.isFinite(audio.duration)) return;
+    extendToSource(sourceSpanFor(audio.duration));
+    relayout();
+  });
   async function loadPeaks() {
+    if (peaksRequest) peaksRequest.abort();
+    const request = new AbortController();
+    peaksRequest = request;
     peaks = null;
     peaksSpan = 0;
     peaksVersion++;
     const source = project && (project.sourceAudio || project.previewAudio);
     $('t-audio').disabled = !source;
+    $('compare-sources').disabled = !source;
     if (!source) {
       audio.removeAttribute('src');
+      audio.load();
+      if (audioOn && !midiOn) midiOn = true;
       audioOn = false;
       $('t-audio').setAttribute('aria-checked', 'false');
+      $('t-midi').setAttribute('aria-pressed', midiOn ? 'true' : 'false');
       bumpNotes();
       paintAll();
       return;
@@ -1220,40 +1298,23 @@
     audioOn = true;
     $('t-audio').setAttribute('aria-checked', 'true');
     try {
-      const res = await fetch(audio.src);
-      const buf = await ctx().decodeAudioData(await res.arrayBuffer());
-      const timingEnd = Number(project.timing && project.timing.end);
-      const available = Math.max(0, buf.duration - audioOffset);
-      projectDuration = Number.isFinite(timingEnd)
-        ? Math.max(duration, timingEnd - audioOffset)
-        : Math.max(duration, available);
-      const ch = buf.getChannelData(0);
-      const startSample = Math.floor(audioOffset * buf.sampleRate);
-      const endSample = Math.min(ch.length, Math.ceil((audioOffset + projectDuration) * buf.sampleRate));
-      const span = Math.max(1, endSample - startSample);
-      const stride = Math.max(1, Math.floor(span / PEAK_BUCKETS));
-      const out = new Float32Array(PEAK_BUCKETS * 2);
-      let bucket = 0;
-      for (let i = startSample; i < endSample && bucket < PEAK_BUCKETS; i += stride, bucket++) {
-        let lo = 1, hi = -1;
-        const stop = Math.min(endSample, i + stride);
-        for (let s = i; s < stop; s++) {
-          const v = ch[s];
-          if (v < lo) lo = v;
-          if (v > hi) hi = v;
-        }
-        out[bucket * 2] = lo > hi ? 0 : lo;
-        out[bucket * 2 + 1] = hi < lo ? 0 : hi;
-      }
-      peaks = out.subarray(0, bucket * 2);
-      peaksSpan = projectDuration > 0 ? projectDuration : 1;
+      const buf = await peakReader.read(audio.src, request.signal);
+      if (request.signal.aborted) return;
+      const sourceSpan = sourceSpanFor(buf.duration);
+      const span = Math.max(duration, sourceSpan);
+      const samples = buf.getChannelData(0);
+      const start = Math.min(samples.length, Math.floor(audioOffset * buf.sampleRate));
+      const end = Math.min(samples.length, Math.ceil((audioOffset + span) * buf.sampleRate));
+      const result = await window.AudioPeaks.buckets(samples, start, end, PEAK_BUCKETS, request.signal);
+      if (request.signal.aborted) return;
+      extendToSource(sourceSpan);
+      peaks = result;
+      peaksSpan = span > 0 ? span : 1;
       peaksVersion++;
       relayout();
     } catch (_) {
-      say('Original audio is unavailable; the MIDI preview still works.', 'warn');
-      $('t-audio').disabled = true;
-      audioOn = false;
-      $('t-audio').setAttribute('aria-checked', 'false');
+      if (request.signal.aborted) return;
+      say('The original audio waveform could not be drawn.', 'warn');
       paintAll();
     }
   }
@@ -1264,19 +1325,37 @@
   const usingAudio = () => audioOn && !!audio.src && !$('t-audio').disabled;
   let clockBase = 0, songBase = 0;
 
+  async function playOriginal() {
+    const attempt = ++mediaRequest;
+    try {
+      await audio.play();
+    } catch (_) {
+      if (attempt !== mediaRequest || !playing || !usingAudio()) return;
+      setPlaybackSources(false, true);
+      say('Original audio could not play. Switched to MIDI.', 'warn');
+    }
+  }
+
   function songTime() {
-    if (!playing) return playhead;
+    if (!playing || !clockTimer) return playhead;
     if (usingAudio() && !audio.paused) return Math.max(0, audio.currentTime - audioOffset);
     return songBase + (ctx().currentTime - clockBase) * rate;
   }
   function boundary() { return loopOn && loopB > loopA ? loopB : duration; }
 
+  function resetSchedule(t) {
+    ensureSorted();
+    cursor = lowerBound(t);
+    schedTo = t;
+    chaseAt = t;
+  }
+
   function seek(t, fromTransport) {
+    clearSounding();
     playhead = clamp(t, 0, Math.max(0, duration));
     songBase = playhead;
     if (ctxAudio) clockBase = ctxAudio.currentTime;
-    cursor = lowerBound(playhead);
-    schedTo = playhead;
+    resetSchedule(playhead);
     if (usingAudio()) { try { audio.currentTime = audioOffset + playhead; } catch (_) { /* not seekable yet */ } }
     followPlayhead(!fromTransport);
     updateClock();
@@ -1285,16 +1364,27 @@
   }
 
   function scheduleAhead() {
+    if (!midiOn) return;
     const now = songTime();
-    const upto = Math.min(boundary(), now + LOOKAHEAD);
+    const end = boundary();
+    const upto = Math.min(end, now + LOOKAHEAD);
     if (upto <= schedTo) return;
     ensureSorted();
     const c = ctx();
     const cNow = c.currentTime;
+    if (chaseAt !== null) {
+      // At entry, resume notes already held. Notes starting exactly at entry
+      // belong to the regular cursor, including on the first beat of a loop.
+      const entry = chaseAt;
+      chaseAt = null;
+      const position = Math.max(entry, now);
+      if (position < end) forOverlapping(entry, entry, n => {
+        if (n.start < entry && n.end > position) playNote(n, cNow, false, (position - n.start) / rate);
+      });
+    }
     if (cursor > notes.length) cursor = notes.length;
-    while (cursor < notes.length && notes[cursor].start <= upto) {
+    while (cursor < notes.length && notes[cursor].start <= upto && notes[cursor].start < end) {
       const n = notes[cursor++];
-      if (n.start <= schedTo) continue;
       const at = cNow + Math.max(0, (n.start - now) / rate);
       playNote(n, at, false);
     }
@@ -1308,7 +1398,8 @@
     if (now >= b - 0.001) {
       if (loopOn && loopB > loopA) {
         seek(loopA, true);
-        if (usingAudio()) audio.play().catch(() => {});
+        if (usingAudio()) playOriginal();
+        scheduleAhead();
       } else { stopPlayback(); return; }
     } else {
       playhead = now;
@@ -1324,33 +1415,39 @@
     claimTransport();
     if (playhead >= duration - 0.01) seek(loopOn ? loopA : 0, true);
     playing = true;
-    ensureSamples();
+    const request = ++playRequest;
     const c = ctx();
-    try { await c.resume(); } catch (_) { /* already running */ }
+    await Promise.all([c.resume().catch(() => {}), midiOn ? ensureSamples() : Promise.resolve()]);
+    if (!playing || request !== playRequest) return;
     clockBase = c.currentTime;
     songBase = playhead;
-    cursor = lowerBound(playhead);
-    schedTo = playhead;
+    resetSchedule(playhead);
     if (usingAudio()) {
       audio.playbackRate = rate;
       try { audio.currentTime = audioOffset + playhead; } catch (_) { /* not ready */ }
-      audio.play().catch(() => {});
+      await playOriginal();
+      if (!playing || request !== playRequest) return;
+      clockBase = c.currentTime;
+      songBase = playhead;
     }
     clearInterval(clockTimer);
     clockTimer = setInterval(clockTick, CLOCK_MS);
+    scheduleAhead();
     liveOn();                          // released by pausePlayback()
     reportTransport(true);
     syncUi();
   }
   function pausePlayback() {
     if (!playing) return;
+    ++playRequest;
+    ++mediaRequest;
     playhead = songTime();
     playing = false;
+    if (clockTimer) liveOff();
     clearInterval(clockTimer);
     clockTimer = 0;
     audio.pause();
     clearSounding();
-    liveOff();                         // taken by startPlayback()
     reportTransport(true);
     paintAll();
     syncUi();
@@ -1417,14 +1514,21 @@
     });
     if (force) { /* an edge, sent out of cadence */ }
   }
-  function setRate(r) {
+  function setRate(r, notify = true) {
+    const current = playing ? songTime() : playhead;
+    const previous = rate;
     rate = clamp(r, 0.25, 4);
     if (playing) {
-      songBase = songTime();
+      songBase = current;
       if (ctxAudio) clockBase = ctxAudio.currentTime;
       if (usingAudio()) audio.playbackRate = rate;
+      if (rate !== previous && midiOn && clockTimer) {
+        clearSounding();
+        resetSchedule(current);
+        scheduleAhead();
+      }
     }
-    reportTransport(true);
+    if (notify) reportTransport(true);
   }
   function setVolume(v) {
     volume = clamp(Number(v) || 0, 0, 1);
@@ -1443,7 +1547,8 @@
     const s = STATUS[key] || STATUS.ready;
     $('status-txt').textContent = s[0];
     const pill = $('status-pill');
-    pill.className = 'pill' + (s[1] ? ' is-' + s[1] : '');
+    pill.className = 'pill ed-state' + (s[1] ? ' is-' + s[1] : '');
+    $('dirty-pill').hidden = !dirty || key === 'unsaved';
     $('status-dot').className = 'dot' + (s[1] === 'ok' ? ' ok' : s[1] === 'warn' ? ' warn' : s[1] === 'err' ? ' err' : '');
   }
   function say(text, kind) {
@@ -1504,6 +1609,14 @@
     duration = 0;
     projectDuration = 0;
     audioOffset = 0;
+    ++openRequest;
+    if (peaksRequest) peaksRequest.abort();
+    peaks = null;
+    peaksSpan = 0;
+    audio.removeAttribute('src');
+    audio.load();
+    audioOn = false;
+    $('t-audio').disabled = true;
     loopA = 0;
     loopB = 0;
     loopOn = false;
@@ -1604,10 +1717,12 @@
 
   async function openPath(filePath) {
     if (!filePath) return;
-    if (dirty && !window.confirm('Discard unsaved note edits and open another file?')) return;
+    if (dirty && !window.confirm('Discard unsaved edits and open another file?')) return;
     setStatus('loading');
     say('Opening ' + Fmt.basename(filePath) + '…');
+    const request = ++openRequest;
     const result = await readDocument(filePath);
+    if (request !== openRequest) return;
     if (!result || !result.ok) {
       setStatus('failed');
       say((result && result.error) || 'Could not open that file.', 'err');
@@ -1623,6 +1738,9 @@
     for (const d of Object.values(documents)) {
       const arr = d.notes || (d.notes = []);
       for (let i = 0; i < arr.length; i++) if (!arr[i].id) arr[i].id = 'n' + (i + 1);
+      if (!Array.isArray(d.controllers)) d.controllers = [];
+      if (!Array.isArray(d.markers)) d.markers = [];
+      if (!Array.isArray(d.tempoChanges)) d.tempoChanges = [];
     }
     if (!Object.keys(documents).length) {
       // The state above is already committed, so this branch cannot just return:
@@ -1643,6 +1761,8 @@
     muted = new Set();
     soloed = new Set();
     playhead = 0;
+    selectedController = null;
+    selectedMarker = null;
     duration = 0;
     projectDuration = 0;
     audioOffset = Math.max(0, Number(project.timing && project.timing.start) || 0);
@@ -1659,6 +1779,7 @@
     $('empty').hidden = true;
     syncBpm();
     sampledReady = false;
+    samplePrepare = null;
     buildTracks();
     renderSources();
     renderMarkers();
@@ -1806,12 +1927,13 @@
   function nudge(dir, fine) {
     const list = selected.size ? selectedNotes() : [];
     if (!list.length) return;
-    const step = (fine ? 0.001 : (snapOn ? gridStep() : 0.01)) * dir;
+    const grid = tempoGrid(), beats = 4 / gridDiv();
     beginTx('Nudge ' + plural(list.length, 'note'), 'nudge');
     for (const n of list) {
       snap(n);
       const len = n.end - n.start;
-      n.start = clamp(n.start + step, 0, Math.max(0, duration - MIN_LEN));
+      const target = !fine && snapOn ? grid.advance(n.start, dir * beats) : n.start + dir * (fine ? 0.001 : 0.01);
+      n.start = clamp(target, 0, Math.max(0, duration - MIN_LEN));
       n.end = n.start + len;
       noteMoved(n);
     }
@@ -1831,15 +1953,14 @@
 
   function applyQuantize() {
     const strength = Number($('q-strength').value) / 100;
-    const step = qStep();
-    if (!(step > 0)) return;
+    const grid = tempoGrid(), division = qDiv();
     const list = targets();
     if (!list.length) return;
     edit('Quantize ' + plural(list.length, 'note'), () => {
       for (const n of list) {
         snap(n);
         const len = Math.max(MIN_LEN, n.end - n.start);
-        const snapped = Math.round(n.start / step) * step;
+        const snapped = grid.snap(n.start, division);
         n.start = Math.max(0, n.start + (snapped - n.start) * strength);
         n.end = n.start + len;
         noteMoved(n);
@@ -1896,14 +2017,14 @@
   }
 
   function fixTiming() {
-    const step = qStep();
+    const grid = tempoGrid(), division = qDiv();
     const list = targets();
-    if (!list.length || !(step > 0)) return;
+    if (!list.length) return;
     edit('Fix timing', () => {
       for (const n of list) {
         snap(n);
         const len = Math.max(0.02, n.end - n.start);
-        n.start = Math.max(0, Math.round(n.start / step) * step);
+        n.start = Math.max(0, grid.snap(n.start, division));
         n.end = n.start + Math.max(0.02, len);
         noteMoved(n);
       }
@@ -1950,11 +2071,18 @@
     const pct = Number($('stretch').value) || 100;
     const k = clamp(pct / 100, 0.1, 4);
     const list = targets();
-    if (!list.length || Math.abs(k - 1) < 0.0005) return;
+    if (!loaded() || (!list.length && !doc().controllers.length && !doc().markers.length && !doc().tempoChanges.length) || Math.abs(k - 1) < 0.0005) return;
     let anchor = Infinity;
     for (const n of list) if (n.start < anchor) anchor = n.start;
-    if (!Number.isFinite(anchor)) anchor = 0;
+    if (!selected.size || !Number.isFinite(anchor)) anchor = 0;
     edit('Time stretch ' + pct + '%', () => {
+      if (!selected.size) {
+        for (const field of ['controllers', 'markers', 'tempoChanges']) {
+          snapEvents(field);
+          for (const event of doc()[field]) event.time = Math.max(0, anchor + (event.time - anchor) * k);
+        }
+        cachedGrid = null;
+      }
       for (const n of list) {
         snap(n);
         const len = (n.end - n.start) * k;
@@ -2108,7 +2236,7 @@
       return;
     }
     if (tool === 'draw' && !hit) {
-      const len = snapOn ? gridStep() : Math.max(0.1, 8 / zoom);
+      const len = snapOn ? gridStep(snapT(timeForX(p.x))) : Math.max(0.1, 8 / zoom);
       beginTx('Add note', '');
       const note = addNoteAt(timeForX(p.x), pitchForY(p.y), len);
       selected = new Set([note.id]);
@@ -2272,7 +2400,7 @@
     rollRect = Draw.measure(rollCanvas);   // outside the gesture that fills it
     const p = contentPt(ev);
     if (p.x < KEY_W || p.y < TOP_H) return;
-    const len = snapOn ? gridStep() : (60 / bpm()) / 4;
+    const len = gridStep(snapT(timeForX(p.x)), snapOn ? gridDiv() : 16);
     edit('Add note', () => {
       const note = addNoteAt(timeForX(p.x), pitchForY(p.y), len);
       selected = new Set([note.id]);
@@ -2440,9 +2568,49 @@
   // ==========================================================================
   // 18. automation lane gestures
   // ==========================================================================
-  let autoDrag = false, autoRect = null;
+  function laneControllers() {
+    return loaded() ? doc().controllers.filter((e) => e.channel === ccChannel && e.controller === CC_LANES[lane]).sort((a, b) => a.time - b.time) : [];
+  }
+  function selectController(event) {
+    selectedController = event;
+    if (event) {
+      $('cc-time').value = String(Math.round(event.time * 1000) / 1000);
+      $('cc-value').value = String(event.value);
+    }
+    $('cc-delete').disabled = !event;
+    autoH.invalidate();
+  }
+  function putController(time, value, replace) {
+    if (!loaded() || CC_LANES[lane] === undefined || !Number.isFinite(time) || !Number.isFinite(value)) return;
+    time = Math.max(0, time);
+    value = clamp(Math.round(value), 0, 127);
+    snapEvents('controllers');
+    const arr = doc().controllers;
+    const atTime = arr.find((e) => e.channel === ccChannel && e.controller === CC_LANES[lane] && Math.abs(e.time - time) < 0.000001);
+    let event = replace && arr.includes(replace) ? replace : atTime;
+    if (!event) {
+      event = { time, channel: ccChannel, controller: CC_LANES[lane], value };
+      arr.push(event);
+    } else {
+      if (atTime && atTime !== event) arr.splice(arr.indexOf(atTime), 1);
+      Object.assign(event, { time, value });
+    }
+    arr.sort((a, b) => a.time - b.time);
+    selectController(event);
+  }
+  function deleteController() {
+    if (!loaded() || !selectedController || !doc().controllers.includes(selectedController)) return;
+    edit('Delete controller point', () => {
+      snapEvents('controllers');
+      doc().controllers.splice(doc().controllers.indexOf(selectedController), 1);
+    });
+    selectController(null);
+    relayout();
+    renderHistory();
+  }
+  let autoDrag = false, autoRect = null, autoStart = null;
   function laneApply(ev) {
-    if (lane !== 'velocity' || !loaded()) return;
+    if (!loaded()) return;
     // The CANVAS, not the host: .ed-auto .canvas-host carries a 1px top border, so
     // the host's border box is one pixel taller than the surface drawAuto plots on
     // and its origin is one pixel above it.
@@ -2456,6 +2624,24 @@
     const span = Math.max(1, h - LANE_PAD);
     const vel = clamp(Math.round(((h - y) / span) * 127), 1, 127);
     const t = timeForX(x);
+    if (lane !== 'velocity') {
+      const value = clamp(Math.round(((h - y) / span) * 127), 0, 127);
+      if (!tx) beginTx('Edit ' + lane + ' controller', 'lane');
+      if (tool === 'erase') {
+        const event = laneControllers().find((e) => Math.abs(e.time - t) * zoom <= 6);
+        if (event) {
+          snapEvents('controllers');
+          doc().controllers.splice(doc().controllers.indexOf(event), 1);
+          selectController(null);
+        }
+      } else {
+        putController(clamp(snapT(t), 0, duration), value,
+          autoStart && tool !== 'draw' ? autoStart.point : null);
+        if (autoStart && tool !== 'draw') autoStart.point = selectedController;
+      }
+      autoH.invalidate();
+      return;
+    }
     const onlySel = linkOn && selected.size > 0;
     const window = Math.max(0.01, 4 / zoom);
     ensureSorted();
@@ -2479,21 +2665,57 @@
     if (ev.button !== 0 || !loaded()) return;
     autoDrag = true;
     autoRect = Draw.measure(autoCanvas);
+    autoStart = { x: ev.clientX, y: ev.clientY, selected: false };
+    autoCanvas.focus();
     capture(autoHost, ev.pointerId);
     liveOn();                           // released by pointerup / pointercancel
+    if (lane !== 'velocity' && tool !== 'erase') {
+      const t = timeForX(ev.clientX - autoRect.left + sx + laneOx());
+      const event = laneControllers().find((e) => Math.abs(e.time - t) * zoom <= 6);
+      if (event) { selectController(event); autoStart.selected = true; autoStart.point = event; return; }
+    }
     laneApply(ev);
   });
-  onEl(autoHost, 'pointermove', (ev) => { if (autoDrag) laneApply(ev); });
+  onEl(autoHost, 'pointermove', (ev) => {
+    if (!autoDrag) return;
+    if (autoStart && autoStart.selected && Math.hypot(ev.clientX - autoStart.x, ev.clientY - autoStart.y) < 2) return;
+    laneApply(ev);
+  });
   onEl(autoHost, 'pointerup', () => {
     if (!autoDrag) return;
     liveOff();
     autoDrag = false;
     autoRect = null;
+    autoStart = null;
     commitTx();
     renderHistory();
     syncUi();
   });
-  onEl(autoHost, 'pointercancel', () => { if (autoDrag) liveOff(); autoDrag = false; autoRect = null; abortTx(); });
+  function cancelLaneGesture() {
+    if (autoDrag) liveOff();
+    autoDrag = false;
+    autoRect = null;
+    autoStart = null;
+    abortTx();
+    paintAll();
+    syncUi();
+  }
+  onEl(autoHost, 'pointercancel', cancelLaneGesture);
+  onEl(autoCanvas, 'keydown', (ev) => {
+    if (ev.key === 'Escape' && autoDrag) { ev.preventDefault(); ev.stopPropagation(); cancelLaneGesture(); return; }
+    if (lane === 'velocity' || !loaded()) return;
+    if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); ev.stopPropagation(); deleteController(); return; }
+    if (!selectedController || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(ev.key)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const event = selectedController;
+    const direction = ev.key === 'ArrowLeft' ? -1 : ev.key === 'ArrowRight' ? 1 : 0;
+    const time = tempoGrid().advance(event.time, direction * 4 / gridDiv());
+    const value = event.value + (ev.key === 'ArrowUp' ? 1 : ev.key === 'ArrowDown' ? -1 : 0) * (ev.shiftKey ? 10 : 1);
+    edit('Adjust controller point', () => putController(time, value, event));
+    relayout();
+    renderHistory();
+  });
 
   // ==========================================================================
   // 19. left panel: tracks + markers
@@ -2507,7 +2729,9 @@
     const programs = (doc() && doc().programs) || {};
     tracks = [...counts.keys()].sort((a, b) => a - b).map((ch) => {
       const prog = Number(programs[ch] !== undefined ? programs[ch] : programs[String(ch)]);
-      const name = ch === 9 ? 'Drums' : (Number.isFinite(prog) ? GM[clamp(prog, 0, 127)] : 'Channel ' + (ch + 1));
+      const label = project && project.channelNames && project.channelNames[ch];
+      const name = (typeof label === 'string' && label.trim()) ||
+        (ch === 9 ? 'Drums' : (Number.isFinite(prog) ? GM[clamp(prog, 0, 127)] : 'Channel ' + (ch + 1)));
       return { channel: ch, count: counts.get(ch), name, program: Number.isFinite(prog) ? prog : null };
     });
     chanShades.clear();
@@ -2580,7 +2804,38 @@
   function renderMarkers() {
     const host = $('markers');
     host.textContent = '';
-    if (!loaded()) return;
+    const present = loaded();
+    for (const id of ['marker-name', 'marker-time', 'marker-add']) $(id).disabled = !present;
+    const hasSelection = present && doc().markers.includes(selectedMarker);
+    $('marker-update').disabled = !hasSelection;
+    $('marker-delete').disabled = !hasSelection;
+    if (!present) return;
+    for (const marker of doc().markers) {
+      const item = document.createElement('div');
+      item.setAttribute('role', 'listitem');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'lrow marker-row';
+      button.setAttribute('aria-current', marker === selectedMarker ? 'true' : 'false');
+      button.innerHTML = '<span class="lrow-main"><span class="lrow-name"></span></span><span class="lrow-meta"></span>';
+      button.querySelector('.lrow-name').textContent = marker.name;
+      button.querySelector('.lrow-meta').textContent = Fmt.clock(marker.time, { ms: true });
+      button.title = marker.name + ' at ' + Fmt.clock(marker.time, { ms: true });
+      button.addEventListener('click', () => {
+        selectedMarker = marker;
+        $('marker-name').value = marker.name;
+        $('marker-time').value = String(Math.round(marker.time * 1000) / 1000);
+        seek(marker.time);
+        renderMarkers();
+        const current = host.querySelector('[aria-current="true"]');
+        if (current) current.focus();
+      });
+      item.appendChild(button);
+      host.appendChild(item);
+    }
+    $('markers-note').textContent = doc().markers.length
+      ? 'Select a marker to seek, rename it, or change its time. Markers are saved in this take and exported MIDI.'
+      : 'No saved markers. Add one at the playhead to mark a verse, chorus, or practice point.';
     const rows = [
       { name: 'Take start', t: 0 },
       { name: 'Loop start', t: loopA },
@@ -2588,6 +2843,8 @@
       { name: 'Take end', t: duration }
     ];
     for (const r of rows) {
+      const item = document.createElement('div');
+      item.setAttribute('role', 'listitem');
       const el = document.createElement('button');
       el.className = 'lrow';
       el.type = 'button';
@@ -2596,9 +2853,52 @@
       el.querySelector('.lrow-meta').textContent = Fmt.clock(r.t, { ms: true });
       el.setAttribute('aria-label', r.name + ' at ' + Fmt.clock(r.t, { ms: true }));
       el.addEventListener('click', () => seek(r.t));
-      host.appendChild(el);
+      item.appendChild(el);
+      host.appendChild(item);
     }
   }
+  function finishMarkerEdit() {
+    relayout();
+    renderMarkers();
+    renderHistory();
+  }
+  function addMarker() {
+    if (!loaded()) return;
+    const name = $('marker-name').value.trim() || 'Marker ' + (doc().markers.length + 1);
+    edit('Add marker', () => {
+      snapEvents('markers');
+      selectedMarker = { name, time: playhead };
+      doc().markers.push(selectedMarker);
+      doc().markers.sort((a, b) => a.time - b.time);
+    });
+    $('marker-name').value = name;
+    $('marker-time').value = String(Math.round(playhead * 1000) / 1000);
+    finishMarkerEdit();
+  }
+  onEl($('marker-add'), 'click', addMarker);
+  onEl($('marker-form'), 'submit', (ev) => {
+    ev.preventDefault();
+    if (!loaded() || !doc().markers.includes(selectedMarker)) return;
+    const name = $('marker-name').value.trim();
+    const time = Number($('marker-time').value);
+    if (!name || !Number.isFinite(time) || time < 0) return;
+    edit('Update marker', () => {
+      snapEvents('markers');
+      Object.assign(selectedMarker, { name, time });
+      doc().markers.sort((a, b) => a.time - b.time);
+    });
+    finishMarkerEdit();
+  });
+  onEl($('marker-delete'), 'click', () => {
+    if (!loaded() || !doc().markers.includes(selectedMarker)) return;
+    edit('Delete marker', () => {
+      snapEvents('markers');
+      doc().markers.splice(doc().markers.indexOf(selectedMarker), 1);
+    });
+    selectedMarker = null;
+    $('marker-name').value = '';
+    finishMarkerEdit();
+  });
 
   // ==========================================================================
   // 20. right panel: sources, selection, history
@@ -2661,6 +2961,8 @@
     if (tx) commitTx();
     pausePlayback();
     candidate = name;
+    selectedController = null;
+    selectedMarker = null;
     project.selectedCandidate = name;
     selected = new Set();
     playhead = 0;
@@ -2863,7 +3165,11 @@
     const set = (id, dis) => { const el = $(id); if (el) el.disabled = !!dis; };
     ['a-save', 'a-saveplay', 'a-listen', 'zoom', 'grid', 'q-grid', 'q-strength', 'q-human',
       'q-apply', 'stretch', 'scale', 'root', 'x-stretch', 'x-scale', 'bpm', 't-midi', 't-loop',
-      'c-human', 'c-overlap', 'c-timing', 'c-normvel', 's-all', 's-invert'].forEach((id) => set(id, !on));
+      'c-human', 'c-overlap', 'c-timing', 'c-normvel', 's-all', 's-invert',
+      'cc-channel', 'cc-time', 'cc-value', 'cc-set', 'cc-new', 'marker-name', 'marker-time', 'marker-add'].forEach((id) => set(id, !on));
+    set('cc-delete', !on || !doc().controllers.includes(selectedController));
+    set('marker-update', !on || !doc().markers.includes(selectedMarker));
+    set('marker-delete', !on || !doc().markers.includes(selectedMarker));
     set('a-forge', !on);
     ['tr-dec', 'tr-val', 'tr-inc', 'tr-oct-down', 'tr-oct-up', 'x-dup', 'c-delete',
       's-copy', 's-cut', 's-none', 'nudge-back', 'nudge-fwd'].forEach((id) => set(id, !has));
@@ -2888,25 +3194,12 @@
 
   function laneNote() {
     if (!loaded()) return '';
-    // Short, because it now sits over the lane itself. The long form is the
-    // picker's title, on the four buttons the sentence is actually about.
     if (lane === 'velocity') {
-      const ccs = countCcs();
+      const ccs = doc().controllers.length;
       return notes.length.toLocaleString() + ' notes' +
-        (ccs ? ' · ' + ccs + ' control changes preserved on save' : '');
+        (ccs ? ' · ' + ccs + ' controller points' : '');
     }
-    return 'Not captured by transcription yet';
-  }
-  // Nothing is silently dropped on save: whatever the document carries beyond
-  // notes (a future `controls` array included) round-trips untouched, because we
-  // mutate notes in place and hand the whole document object back to main.
-  function countCcs() {
-    let n = 0;
-    for (const d of Object.values(documents)) {
-      if (Array.isArray(d.controls)) n += d.controls.length;
-      else if (Array.isArray(d.cc)) n += d.cc.length;
-    }
-    return n;
+    return laneControllers().length ? 'Saved with MIDI · note-only preview' : 'Click to add points · note-only preview';
   }
 
   function updateClock() {
@@ -2978,6 +3271,7 @@
         else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') d = -1;
         if (!d) return;
         ev.preventDefault();
+        ev.stopPropagation();
         let j = i;
         for (let k = 0; k < buttons.length; k++) {
           j = (j + d + buttons.length) % buttons.length;
@@ -2991,7 +3285,35 @@
   }
 
   radioGroup($('tool-pick'), (b) => { tool = b.dataset.tool; $('roll-region').dataset.tool = tool; });
-  radioGroup($('lane-pick'), (b) => { lane = b.dataset.lane; syncUi(); autoH.invalidate(); });
+  radioGroup($('lane-pick'), (b) => {
+    flushGesture();
+    lane = b.dataset.lane;
+    selectController(null);
+    $('cc-form').hidden = lane === 'velocity';
+    autoCanvas.setAttribute('aria-label', lane === 'velocity'
+      ? 'Velocity lane. Drag over a note to set its velocity.'
+      : b.textContent + ' controller lane. Click to add or select a point. Arrow keys adjust a selected point; Delete removes it.');
+    syncUi();
+    relayout();
+  });
+  for (let ch = 0; ch < 16; ch++) {
+    const option = document.createElement('option');
+    option.value = String(ch);
+    option.textContent = String(ch + 1);
+    $('cc-channel').appendChild(option);
+  }
+  onEl($('cc-channel'), 'change', () => { ccChannel = Number($('cc-channel').value); selectController(null); syncUi(); });
+  onEl($('cc-new'), 'click', () => { selectController(null); $('cc-time').value = String(Math.round(playhead * 1000) / 1000); $('cc-time').focus(); });
+  onEl($('cc-form'), 'submit', (ev) => {
+    ev.preventDefault();
+    if (!loaded() || lane === 'velocity') return;
+    const time = Number($('cc-time').value), value = Number($('cc-value').value);
+    if (!Number.isFinite(time) || !Number.isFinite(value) || time < 0) return;
+    edit('Set controller point', () => putController(time, value, selectedController));
+    relayout();
+    renderHistory();
+  });
+  onEl($('cc-delete'), 'click', deleteController);
 
   // section disclosure
   document.querySelectorAll('.insp-sec-head').forEach((head) => {
@@ -3054,7 +3376,7 @@
   onEl($('q-snap'), 'click', () => { snapOn = !snapOn; syncUi(); });
   onEl($('t-link'), 'click', () => { linkOn = !linkOn; syncUi(); autoH.invalidate(); });
   onEl($('t-follow'), 'click', () => { followOn = !followOn; syncUi(); if (followOn) followPlayhead(true); });
-  onEl($('t-midi'), 'click', () => { midiOn = !midiOn; syncUi(); });
+  onEl($('t-midi'), 'click', () => setPlaybackSources(audioOn, !midiOn));
   onEl($('t-loop'), 'click', () => {
     loopOn = !loopOn;
     if (loopOn && loopB <= loopA) { loopA = 0; loopB = duration; }
@@ -3062,22 +3384,37 @@
     paintAll();
     reportTransport(true);
   });
-  onEl($('t-audio'), 'click', () => {
-    if ($('t-audio').disabled) return;
-    audioOn = !audioOn;
-    $('t-audio').setAttribute('aria-checked', audioOn ? 'true' : 'false');
-    if (playing) {
-      if (audioOn) {
-        try { audio.currentTime = audioOffset + playhead; } catch (_) { /* not ready */ }
+  function setPlaybackSources(original, midi) {
+    const current = songTime();
+    const wasAudio = audioOn, wasMidi = midiOn;
+    audioOn = original && !$('t-audio').disabled;
+    midiOn = midi;
+    if (wasMidi && !midiOn) clearSounding();
+    if (playing && wasAudio !== audioOn) {
+      songBase = current;
+      clockBase = ctx().currentTime;
+      if (usingAudio()) {
+        try { audio.currentTime = audioOffset + current; } catch (_) { /* not ready */ }
         audio.playbackRate = rate;
-        audio.play().catch(() => {});
+        playOriginal();
       } else {
+        ++mediaRequest;
         audio.pause();
-        songBase = playhead;
-        if (ctxAudio) clockBase = ctxAudio.currentTime;
+      }
+    }
+    if (playing && midiOn && !wasMidi) {
+      ensureSamples();
+      if (clockTimer) {
+        resetSchedule(current);
+        scheduleAhead();
       }
     }
     syncUi();
+  }
+  onEl($('t-audio'), 'click', () => setPlaybackSources(!audioOn, midiOn));
+  onEl($('compare-sources'), 'click', () => {
+    const hearOriginal = midiOn || !audioOn;
+    setPlaybackSources(hearOriginal, !hearOriginal);
   });
 
   onEl($('bpm'), 'change', () => {
@@ -3094,7 +3431,7 @@
     relayout();
     renderSources();
     renderHistory();
-    say('Tempo set to ' + Fmt.bpm(v) + ' BPM — the grid and Quantize now use it.');
+    say('Initial tempo set to ' + Fmt.bpm(v) + ' BPM.');
   });
 
   onEl($('q-apply'), 'click', () => { applyQuantize(); renderHistory(); });
@@ -3306,7 +3643,14 @@
     ev.returnValue = '';
   });
   onEl(window, 'pagehide', () => {
+    ++openRequest;
+    ++playRequest;
+    ++mediaRequest;
+    playing = false;
+    audio.pause();
+    if (peaksRequest) peaksRequest.abort();
     clearInterval(clockTimer);
+    clockTimer = 0;
     for (const fn of disposers) { try { fn(); } catch (_) { /* going away anyway */ } }
     if (ctxAudio) { try { ctxAudio.close(); } catch (_) { /* already closed */ } }
   });
@@ -3400,7 +3744,7 @@
   }));
   disposers.push(Transport.onChange((snap) => {
     if (snap.owner !== 'editor' && playing) pausePlayback();
-    if (snap.owner === 'editor' && Number.isFinite(snap.rate) && snap.rate !== rate) rate = snap.rate;
+    if (snap.owner === 'editor' && Number.isFinite(snap.rate) && snap.rate !== rate) setRate(snap.rate, false);
   }));
 
   function readSpacePref() {
@@ -3422,7 +3766,8 @@
   Seam.snapshot = () => {
     const d = doc();
     return d ? { name: d.name, path: d.path, bpm: d.bpm, bpmEstimated: d.bpmEstimated,
-      duration: d.duration, programs: d.programs, notes: d.notes, via: Seam.loadedVia } : null;
+      duration: d.duration, programs: d.programs, notes: d.notes,
+      controllers: d.controllers, markers: d.markers, via: Seam.loadedVia } : null;
   };
   window.__review = Seam;
 

@@ -90,6 +90,31 @@ impl PrettyMidi {
         PrettyMidi::new(220, 120.0)
     }
 
+    /// Build a conductor track from measured (source seconds, BPM) pairs.
+    /// Each transition lands on the nearest tick of the preceding tempo.
+    pub fn with_tempo_map(resolution: u16, changes: &[(f64, f64)]) -> PrettyMidi {
+        let mut midi = PrettyMidi::new(resolution, 120.0);
+        let mut time = 0.0;
+        for &(seconds, bpm) in changes {
+            if !seconds.is_finite() || seconds < time || !bpm.is_finite() || !(4.0..=1000.0).contains(&bpm) {
+                continue;
+            }
+            let (previous_tick, previous_scale) = *midi.tick_scales.last().unwrap();
+            let tick = previous_tick + ((seconds - time) / previous_scale).round() as u32;
+            time += f64::from(tick - previous_tick) * previous_scale;
+            let scale = (60_000_000.0 / bpm).round() / (1_000_000.0 * f64::from(resolution));
+            if tick == previous_tick {
+                midi.tick_scales.last_mut().unwrap().1 = scale;
+            } else if scale != previous_scale {
+                midi.tick_scales.push((tick, scale));
+            } else {
+                time -= f64::from(tick - previous_tick) * previous_scale;
+            }
+        }
+        midi.update_tick_to_time(0);
+        midi
+    }
+
     /// `_update_tick_to_time(max_tick)`.
     fn update_tick_to_time(&mut self, max_tick: u32) {
         let max_scale_tick = self.tick_scales.iter().map(|t| t.0).max().unwrap_or(0);
@@ -312,7 +337,11 @@ impl PrettyMidi {
             let mut current = [0u8; 16];
             for (tick, kind) in track {
                 if let TrackEventKind::Meta(MetaMessage::TrackName(name)) = kind {
-                    track_names.insert(track_idx, name.iter().map(|&b| b as char).collect());
+                    let name = match std::str::from_utf8(name) {
+                        Ok(text) => text.to_owned(),
+                        Err(_) => name.iter().copied().map(char::from).collect(),
+                    };
+                    track_names.insert(track_idx, name);
                 }
                 let TrackEventKind::Midi { channel, message } = kind else { continue };
                 let ch = channel.as_int();
@@ -397,7 +426,7 @@ mod tests {
     #[test]
     fn round_trip_keeps_ticks_and_bends() {
         let mut pm = PrettyMidi::default_new();
-        let mut inst = Instrument::new(4, false, "");
+        let mut inst = Instrument::new(4, false, "夢のこたえ");
         inst.notes.push(Note { velocity: 80, pitch: 60, start: 0.1, end: 0.5 });
         inst.notes.push(Note { velocity: 90, pitch: 64, start: 0.1, end: 0.3 });
         inst.pitch_bends.push(PitchBend { pitch: -1365, time: 0.1 });
@@ -406,8 +435,16 @@ mod tests {
         let bytes = pm.to_bytes().unwrap();
         let back = PrettyMidi::from_bytes(&bytes).unwrap();
         assert_eq!(back.instruments.len(), 1);
+        assert_eq!(back.instruments[0].name, "夢のこたえ");
         assert_eq!(back.instruments[0].notes.len(), 2);
         assert_eq!(back.instruments[0].pitch_bends.len(), 2);
         assert_eq!(back.to_bytes().unwrap(), bytes, "a reloaded file writes back identically");
+    }
+
+    #[test]
+    fn reads_legacy_latin1_track_name() {
+        let bytes = b"MThd\0\0\0\x06\0\0\0\x01\0\x60MTrk\0\0\0\x14\0\xff\x03\x04Caf\xe9\0\x90\x3c\x40\x60\x80\x3c\0\0\xff\x2f\0";
+        let midi = PrettyMidi::from_bytes(bytes).unwrap();
+        assert_eq!(midi.instruments[0].name, "Café");
     }
 }

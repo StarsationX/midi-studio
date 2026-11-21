@@ -38,21 +38,29 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+#[path = "expressive_stems.rs"]
+pub mod expressive_stems;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Piano,
+    Expressive,
     General,
     Melody,
     Drums,
     Fast,
 }
 
-pub const MODES: [&str; 5] = ["piano", "general", "melody", "drums", "fast"];
+#[path = "expressive.rs"]
+mod expressive;
+
+pub const MODES: [&str; 6] = ["piano", "expressive", "general", "melody", "drums", "fast"];
 
 impl Mode {
     pub fn parse(s: &str) -> Result<Self> {
         match s.to_ascii_lowercase().as_str() {
             "piano" => Ok(Mode::Piano),
+            "expressive" => Ok(Mode::Expressive),
             "general" => Ok(Mode::General),
             "melody" => Ok(Mode::Melody),
             "drums" => Ok(Mode::Drums),
@@ -64,6 +72,7 @@ impl Mode {
     pub fn name(self) -> &'static str {
         match self {
             Mode::Piano => "piano",
+            Mode::Expressive => "expressive",
             Mode::General => "general",
             Mode::Melody => "melody",
             Mode::Drums => "drums",
@@ -76,17 +85,18 @@ impl Mode {
     pub fn separates(self, skip_flag: bool) -> bool {
         match self {
             Mode::Fast => false,
+            Mode::Expressive => true,
             Mode::Melody | Mode::Drums => !(skip_flag || env_flag("SKIP_SEPARATION", false)),
             Mode::Piano | Mode::General => !skip_flag,
         }
     }
 
     fn uses_transkun(self) -> bool {
-        matches!(self, Mode::Piano | Mode::General)
+        matches!(self, Mode::Piano | Mode::General | Mode::Expressive)
     }
 
     fn uses_basic_pitch(self) -> bool {
-        matches!(self, Mode::Melody | Mode::Fast)
+        matches!(self, Mode::Melody | Mode::Fast | Mode::Expressive)
     }
 }
 
@@ -300,18 +310,41 @@ fn env_file(k: &str) -> Option<PathBuf> {
     std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
+fn expressive_model(models: Option<&Path>) -> Result<PathBuf> {
+    const DIR: &str = "game/GAME-1.0.3-medium-onnx";
+    const GRAPHS: [(&str, u64); 5] = [
+        ("encoder.onnx", 40809108), ("segmenter.onnx", 80703699),
+        ("estimator.onnx", 74457404), ("bd2dur.onnx", 4569), ("dur2bd.onnx", 2632),
+    ];
+    let base = models.map(Path::to_path_buf).or_else(crate::assets::default_models_dir);
+    let candidates = base.into_iter().map(|p| p.join(DIR)).chain(exe_assets(DIR));
+    candidates.into_iter().find(|p| GRAPHS.iter().all(|(name, size)| {
+        std::fs::metadata(p.join(name)).is_ok_and(|m| m.is_file() && m.len() == *size)
+    })).context("Medley needs the five GAME 1.0.3 medium ONNX files in assets/game/GAME-1.0.3-medium-onnx or the Forge models folder")
+}
+
 /// Transkun ONNX + aux: --models / MIDI_STUDIO_MODELS_DIR for the ONNX;
 /// --aux, FORGE_RS_AUX, next to the ONNX, then the forge-rs assets folder.
 pub fn transkun_assets(models: Option<&Path>, aux: Option<&Path>) -> Result<AssetPaths> {
     let explicit = aux.map(Path::to_path_buf).or_else(|| env_file("FORGE_RS_AUX"));
-    match AssetPaths::resolve(models, explicit.as_deref()) {
+    let configured = match AssetPaths::resolve(models, explicit.as_deref()) {
         Ok(p) => Ok(p),
         Err(e) if explicit.is_none() => match exe_assets(AUX_NAME).into_iter().find(|p| p.is_file()) {
             Some(a) => AssetPaths::resolve(models, Some(&a)),
             None => Err(e),
         },
         Err(e) => Err(e),
-    }
+    };
+    configured.or_else(|error| {
+        if models.is_none() && explicit.is_none() {
+            for dir in exe_assets("onnx") {
+                if let Ok(paths) = AssetPaths::resolve(Some(&dir), None) {
+                    return Ok(paths);
+                }
+            }
+        }
+        Err(error)
+    })
 }
 
 /// bsrofo_sw_body.onnx: --model, FORGE_RS_ROFO_MODEL, the models dir, then
@@ -334,6 +367,7 @@ pub fn probe(args: &Args) -> serde_json::Value {
     let tk = transkun_assets(args.models.as_deref(), args.aux.as_deref());
     let rofo = roformer_model(args.models.as_deref(), args.rofo_model.as_deref());
     let bp = bp_model_path(args);
+    let game = expressive_model(args.models.as_deref());
     let p = |r: &Result<PathBuf>| r.as_ref().map_or(serde_json::Value::Null, |p| json!(p.to_string_lossy()));
     let needs = |m: Mode| -> Vec<&'static str> {
         let mut v = Vec::new();
@@ -346,6 +380,9 @@ pub fn probe(args: &Args) -> serde_json::Value {
         if m.uses_basic_pitch() {
             v.push("basic-pitch");
         }
+        if m == Mode::Expressive {
+            v.push("vocal model");
+        }
         if !v.is_empty() {
             v.push("onnxruntime");
         }
@@ -356,6 +393,7 @@ pub fn probe(args: &Args) -> serde_json::Value {
             "transkun" => tk.as_ref().err().map(|e| format!("transkun: {e:#}")),
             "roformer" => rofo.as_ref().err().map(|e| format!("roformer: {e:#}")),
             "basic-pitch" => bp.as_ref().err().map(|e| format!("basic-pitch: {e:#}")),
+            "vocal model" => game.as_ref().err().map(|e| e.to_string()),
             _ => plan.as_ref().err().map(|e| format!("onnxruntime: {e:#}")),
         }
     };
@@ -378,6 +416,7 @@ pub fn probe(args: &Args) -> serde_json::Value {
         "transkun": p(&tk.as_ref().map(|a| a.onnx.clone()).map_err(|e| anyhow!("{e:#}"))),
         "aux": p(&tk.as_ref().map(|a| a.aux.clone()).map_err(|e| anyhow!("{e:#}"))),
         "roformer": p(&rofo),
+        "vocalModel": p(&game),
         "missing": missing,
     })
 }
@@ -595,9 +634,11 @@ pub fn run(args: &Args) -> Result<()> {
             let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             src.with_file_name(format!("{stem}_melody.mid"))
         }
+        None if mode == Mode::Expressive => src.with_file_name(format!("{} - Medley.mid", file_stem(&src))),
         None => src.with_extension("mid"),
     };
     match mode {
+        Mode::Expressive => expressive::run(args, &knobs, &src, &out),
         Mode::Fast => fast(args, &knobs, &src, &out),
         Mode::Melody => melody(args, &knobs, &src, &out),
         Mode::Drums => drums(args, &knobs, &src, &out),
@@ -697,7 +738,11 @@ fn run_separation(args: &Args, knobs: &Knobs, rt: &Runtime, rofo_path: &Path, a:
         _ => 1,
     });
     say!();
-    say!("[1/3] Separating with BS-Rofo-SW-Fixed (SOTA 6-stem, batch {batch})");
+    if args.mode == Some(Mode::Expressive) {
+        say!("[2/6] Separate vocals and backing with BS-Rofo-SW-Fixed (6 stems, batch {batch})");
+    } else {
+        say!("[1/3] Separating with BS-Rofo-SW-Fixed (SOTA 6-stem, batch {batch})");
+    }
     let t_sep = Instant::now();
     // FORGE_RS_STEMS_DIR=<dir holding <instr>.wav>: parity diagnostics only,
     // take MSST's own stems instead of separating.

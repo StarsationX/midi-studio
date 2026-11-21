@@ -37,13 +37,33 @@ def load_midi(path: Path) -> dict:
     active: dict[tuple[int, int], list[tuple[float, int]]] = {}
     programs: dict[int, int] = {}
     notes = []
+    controllers = []
+    markers = []
+    tempo_changes = []
     for msg in midi:
         time_sec += float(msg.time)
-        if msg.type == "set_tempo" and not found_tempo:
-            tempo = msg.tempo
+        if msg.type == "set_tempo":
+            at = round(time_sec, 6)
+            if at == 0:
+                tempo = msg.tempo
+            if tempo_changes and tempo_changes[-1]["time"] == at:
+                tempo_changes.pop()
+            tempo_changes.append({"time": at, "microsecondsPerBeat": int(msg.tempo)})
             found_tempo = True
         elif msg.type == "program_change":
             programs.setdefault(int(msg.channel), int(msg.program))
+        elif msg.type == "control_change":
+            controllers.append({"time": round(time_sec, 6), "channel": int(msg.channel),
+                                "controller": int(msg.control), "value": int(msg.value)})
+        elif msg.type == "marker":
+            # MIDI text is traditionally Latin-1; accept UTF-8 markers too so
+            # names entered in the editor work in every language.
+            name = msg.text
+            try:
+                name = name.encode("latin1").decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+            markers.append({"time": round(time_sec, 6), "name": name})
         elif msg.type == "note_on" and msg.velocity > 0:
             active.setdefault((msg.channel, msg.note), []).append((time_sec, msg.velocity))
         elif msg.type in ("note_off", "note_on"):
@@ -104,30 +124,63 @@ def load_midi(path: Path) -> dict:
         "duration": round(duration, 6),
         "programs": programs,
         "notes": notes,
+        "controllers": controllers,
+        "markers": markers,
+        "ticksPerBeat": midi.ticks_per_beat,
+        "tempoChanges": tempo_changes,
     }
 
 
 def save_midi(path: Path, document: dict) -> None:
     bpm = max(20.0, min(400.0, float(document.get("bpm", 120))))
-    ticks = 480
+    ticks = max(1, min(32767, int(document.get("ticksPerBeat", 480))))
     tempo = mido.bpm2tempo(bpm)
     programs = document.get("programs") or {}
     events = []
+    changes = document.get("tempoChanges", []) or []
+    write_initial_tempo = not changes or bpm != 120.
+    for change in changes:
+        at = max(0., float(change["time"]))
+        value = int(change["microsecondsPerBeat"])
+        if not 1 <= value <= 0xffffff:
+            raise ValueError("tempo changes must contain a positive 24-bit tempo")
+        if at == 0.:
+            write_initial_tempo = True
+            # Keep the exact imported period unless the user edited the BPM.
+            if round(mido.tempo2bpm(value), 3) == float(document.get("bpm", 120)):
+                tempo = value
+        else:
+            events.append((at, -1, 0, mido.MetaMessage("set_tempo", tempo=value)))
     for note in document.get("notes", []):
         pitch = max(0, min(127, int(note.get("pitch", 60))))
         velocity = max(1, min(127, int(note.get("velocity", 96))))
         channel = max(0, min(15, int(note.get("channel", 0) or 0)))
         start = max(0.0, float(note.get("start", 0)))
         end = max(start + 0.01, float(note.get("end", start + 0.25)))
-        events.append((start, 1, pitch, velocity, channel))
-        events.append((end, 0, pitch, 0, channel))
+        events.append((start, 3, pitch, mido.Message("note_on", note=pitch, velocity=velocity, channel=channel)))
+        events.append((end, 0, pitch, mido.Message("note_off", note=pitch, velocity=0, channel=channel)))
+    for event in document.get("controllers", []) or []:
+        at = max(0.0, float(event.get("time", 0)))
+        channel = max(0, min(15, int(event.get("channel", 0) or 0)))
+        controller = max(0, min(127, int(event.get("controller", 0))))
+        value = max(0, min(127, int(event.get("value", 0))))
+        # Keep simultaneous CC events in their original order (bank select,
+        # RPN and NRPN sequences depend on it), before any note-on at that time.
+        events.append((at, 1, 0, mido.Message("control_change", channel=channel, control=controller, value=value)))
+    for marker in document.get("markers", []) or []:
+        at = max(0.0, float(marker.get("time", 0)))
+        name = marker.get("name", "")
+        if not isinstance(name, str):
+            raise ValueError("marker name must be a string")
+        events.append((at, 2, 0, mido.MetaMessage("marker", text=name)))
     events.sort(key=lambda event: (event[0], event[1], event[2]))
 
-    midi = mido.MidiFile(ticks_per_beat=ticks)
+    midi = mido.MidiFile(ticks_per_beat=ticks, charset="utf-8")
     track = mido.MidiTrack()
     midi.tracks.append(track)
     track.append(mido.MetaMessage("track_name", name="MIDI Studio Review", time=0))
-    track.append(mido.MetaMessage("set_tempo", tempo=tempo, time=0))
+    if write_initial_tempo:
+        track.append(mido.MetaMessage("set_tempo", tempo=tempo, time=0))
     # Keep each channel on the instrument it was loaded with, so a drum or
     # multi-instrument file still sounds like itself after a round trip.
     for channel, program in sorted((int(c), int(p)) for c, p in programs.items()):
@@ -137,12 +190,18 @@ def save_midi(path: Path, document: dict) -> None:
     # against an absolute cursor let the error accumulate and dragged long files
     # progressively out of time.
     previous_tick = 0
-    for at, kind, pitch, velocity, channel in events:
-        tick = int(round(mido.second2tick(at, ticks, tempo)))
-        message = "note_on" if kind else "note_off"
-        track.append(mido.Message(message, note=pitch, velocity=velocity, channel=channel,
-                                  time=max(0, tick - previous_tick)))
+    segment_tick = 0
+    segment_sec = 0.
+    for at, _kind, _pitch, message in events:
+        scale = tempo * 1e-6 / ticks
+        tick = max(previous_tick, segment_tick + round((at - segment_sec) / scale))
+        message.time = max(0, tick - previous_tick)
+        track.append(message)
         previous_tick = tick
+        if message.type == "set_tempo":
+            segment_sec += (tick - segment_tick) * scale
+            segment_tick = tick
+            tempo = message.tempo
     track.append(mido.MetaMessage("end_of_track", time=0))
     path.parent.mkdir(parents=True, exist_ok=True)
     # Write beside the target and swap in, so a crash mid-write can't leave the

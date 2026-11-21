@@ -136,6 +136,15 @@ body {
 }
 .fg-affix-btn:hover { background: var(--surface-3); }
 .fg-affix-btn:disabled { opacity: .45; cursor: not-allowed; }
+.fg-url.is-score .input { padding-right: 86px; }
+
+.fg-score-help {
+  padding: 12px; background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  color: var(--text-2); font-size: 12px; line-height: 1.5;
+}
+.fg-score-help[hidden] { display: none; }
+.fg-score-help p { margin: 0; }
 
 /* ---- the rail's disclosure groups (Output / Pipeline / Advanced) --------
    .insp-sec-head already draws the reference's caret and rotates it off
@@ -184,6 +193,10 @@ body {
 .pmark[data-mark="piano"]   > span:nth-child(2) { height: 15px; }
 .pmark[data-mark="piano"]   > span:nth-child(3) { height: 10px; }
 .pmark[data-mark="piano"]   > span:nth-child(4) { height: 15px; }
+.pmark[data-mark="expressive"] > span:nth-child(1) { height: 5px; }
+.pmark[data-mark="expressive"] > span:nth-child(2) { height: 11px; }
+.pmark[data-mark="expressive"] > span:nth-child(3) { height: 8px; }
+.pmark[data-mark="expressive"] > span:nth-child(4) { height: 15px; }
 .pmark[data-mark="melody"]  > span:nth-child(1) { height: 4px; }
 .pmark[data-mark="melody"]  > span:nth-child(2) { height: 9px; }
 .pmark[data-mark="melody"]  > span:nth-child(3) { height: 15px; }
@@ -394,6 +407,7 @@ body {
 .stg[data-state="fail"] .stg-mark { border-color: var(--err); background: var(--err); }
 .stg[data-state="fail"] .stg-meta { color: var(--err); }
 .fg-err { margin-top: var(--s3); }
+#err-msg { white-space: pre-line; overflow-wrap: anywhere; }
 #prog-foot { margin-top: var(--s3); }
 
 .fg-log { flex: 1 1 auto; background: var(--bg-2); box-shadow: var(--well); }

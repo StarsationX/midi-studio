@@ -132,23 +132,6 @@ pub fn move_managed(source: &Path, target: &Path, default_dir: &Path) -> io::Res
     Ok(target)
 }
 
-/// "song.mid" -> "song (2).mid" when the name is taken.
-pub fn unique_path(target: &Path) -> PathBuf {
-    if !target.exists() {
-        return target.to_path_buf();
-    }
-    let dir = target.parent().unwrap_or(Path::new(""));
-    let ext = target.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
-    let base = target.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    for n in 2..999 {
-        let c = dir.join(format!("{base} ({n}){ext}"));
-        if !c.exists() {
-            return c;
-        }
-    }
-    target.to_path_buf()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,15 +181,4 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    #[test]
-    fn unique_names() {
-        let root = scratch("unique");
-        let f = root.join("song.mid");
-        assert_eq!(unique_path(&f), f);
-        std::fs::write(&f, b"").unwrap();
-        assert_eq!(unique_path(&f), root.join("song (2).mid"));
-        std::fs::write(root.join("song (2).mid"), b"").unwrap();
-        assert_eq!(unique_path(&f), root.join("song (3).mid"));
-        let _ = std::fs::remove_dir_all(&root);
-    }
 }

@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="../shared/studio.css" />
 </head>
 <body class="studio-workspace">
-<header class="studio-page-head"><div><div class="studio-eyebrow">Press play. Stay a while.</div><h1 class="studio-page-title">Listening room</h1><p class="studio-page-description">Explore your MIDI collection with real instruments, right here.</p></div></header>
+<header class="studio-page-head"><div><div class="studio-eyebrow">Instrument playback</div><h1 class="studio-page-title">Listening room</h1><p class="studio-page-description">Audition MIDI with the built-in instruments</p></div></header>
 <div class="split sm-split" data-split="audition">
 
   <!-- ==================================================================== -->
@@ -74,7 +74,7 @@
       <div class="vlist sm-files" id="nav-files"></div>
       <div class="state is-compact sm-files-empty" id="nav-empty" hidden>
         <span class="state-title" id="nav-empty-title">No MIDI files yet</span>
-        <span class="state-msg" id="nav-empty-msg">Forge results land here automatically, or add a folder you keep MIDI in.</span>
+        <span class="state-msg" id="nav-empty-msg"></span>
       </div>
 
       <div class="sm-nav-foot">
@@ -136,10 +136,10 @@
       <!-- empty / loading / error: one block, three states -->
       <div class="state sm-state" id="sm-state">
         <span class="state-icon" id="sm-state-icon"><i data-icon="drop" data-icon-size="28"></i></span>
-        <span class="state-title" id="sm-state-title">Nothing loaded</span>
-        <span class="state-msg" id="sm-state-msg">Open a MIDI file, drop one here, or pick a song from your library. Listen plays it inside the app.</span>
+        <span class="state-title" id="sm-state-title">Listen to your first MIDI</span>
+        <span class="state-msg" id="sm-state-msg">Choose a .mid or .midi file from your computer to hear it here. No Forge download needed.</span>
         <span class="state-actions">
-          <button class="btn btn-primary" type="button" id="state-open">Choose MIDI</button>
+          <button class="btn btn-primary" type="button" id="state-open">Open MIDI and play</button>
         </span>
       </div>
 

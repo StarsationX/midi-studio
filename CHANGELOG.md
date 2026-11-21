@@ -6,6 +6,46 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.0 "Medley" — 2026-11-21
+
+### New
+
+- Getting started offers three first-launch paths: turn a recording into MIDI, listen
+  to a MIDI file, or edit notes. Reopen it from the sidebar. Forge’s main button now
+  offers the next step, and Listen can open and play a local MIDI without installing Forge.
+- Editor controller editing for modulation, volume, pan, expression, and sustain,
+  with channel selection, numeric input, drawing, deletion, and undo/redo.
+- Persistent named MIDI markers with add, rename, move, delete, and undo/redo.
+- Direct MuseScore MIDI imports: save the unchanged MIDI delivered by the public player
+  and open it in Editor, without audio transcription or Forge model setup.
+
+### Changed
+
+- Expressive Piano is now **Medley** in Midi Forge. Existing projects and settings
+  keep working. Medley builds a two-hand piano arrangement with the Rust engine.
+- Medley follows short instrumental runs and checks repeated notes against pitch
+  and onset evidence. A sustained note or octave echo is less likely to become a
+  second keystroke, while a clearly articulated repeat stays in the right hand.
+- Refined the mint/graphite UI with readable labels, sentence-case headings,
+  consistent spacing, quieter option groups, and clearer workspace descriptions.
+- Replaced the sidebar slogan with useful keyboard shortcuts.
+- MuseScore links use Get MIDI and Enter to start a direct MIDI download.
+
+### Fixed
+
+- MIDI document import and export preserve controller events and named markers
+  across JavaScript, Python, and Rust, including events in files with tempo changes.
+- Forge displays downloader errors and recovery hints instead of only an exit code.
+- YouTube client retries apply only to YouTube, and failed downloads cannot select
+  an unrelated MP3 from the output folder. Downloads that produce no file finish with an error.
+
+### Known issues
+
+- The Editor's local audition previews notes. Controller edits are saved to MIDI
+  but are not interpreted by the preview synthesizer.
+- MuseScore imports require the public player to deliver a MIDI response. Site verification
+  or unavailable playback can prevent a download.
+
 ## 3.0.1 "Graphite" — 2026-09-08
 
 A full rewrite of the interface. Every workflow now lives in one application

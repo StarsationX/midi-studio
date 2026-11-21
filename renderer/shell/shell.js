@@ -122,6 +122,7 @@
   };
 
   let activeKey = 'forge';
+  let windowMinimized = false;
   let covered = false;    // an overlay (palette/settings/drop) is up
 
   function ensureFrame(key) {
@@ -220,7 +221,7 @@
 
   function markVisibility() {
     for (const f of FRAMES) {
-      const on = (f.key === activeKey && !covered);
+      const on = (f.key === activeKey && !covered && !windowMinimized);
       f.onscreen = on;
       const el = frameRoot(f);
       const v = on ? '1' : '0';
@@ -239,6 +240,7 @@
     const el = frameRoot(f);
     if (!el) return;
     el.dataset.embedded = '1';
+    stampWindowFocus(el);
     const ms = String(perf.drawMs || 33);
     if (el.dataset.drawms !== ms) el.dataset.drawms = ms;
     const g = gameRaises() ? '1' : '';
@@ -289,12 +291,16 @@
     const n = parseInt(m[1], 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
     const h2 = (v) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0');
     const blend = (tr, tg, tb, p) => '#' + h2(r + (tr - r) * p) + h2(g + (tg - g) * p) + h2(b + (tb - b) * p);
-    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    const linear = [r, g, b].map((v) => {
+      const c = v / 255;
+      return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    const lum = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
     return {
       '--accent': '#' + m[1].toLowerCase(),
       '--accent-2': blend(255, 255, 255, 0.18),
       '--accent-deep': blend(0, 0, 0, 0.28),
-      '--accent-ink': lum > 0.6 ? '#0c0d10' : '#f4f6ff',
+      '--accent-ink': lum > 0.179 ? '#000000' : '#ffffff',
       '--accent-soft': blend(20, 21, 25, 0.86),
       '--accent-line': blend(20, 21, 25, 0.62),
       '--ok': '#' + m[1].toLowerCase()
@@ -1041,9 +1047,33 @@
   });
   window.addEventListener('resize', moveIndicator);
 
+  const startGuide = $('start-guide');
+  const guideToggle = $('guide-toggle');
+  let workspaceChosen = false;
+  function showGuide(open) {
+    startGuide.hidden = !open;
+    guideToggle.setAttribute('aria-expanded', String(open));
+  }
+  guideToggle.addEventListener('click', () => {
+    showGuide(startGuide.hidden);
+    if (!startGuide.hidden) startGuide.querySelector('[data-guide-tab]').focus();
+  });
+  $('guide-close').addEventListener('click', () => {
+    showGuide(false);
+    guideToggle.focus();
+  });
+  startGuide.addEventListener('click', (e) => {
+    const action = e.target.closest('[data-guide-tab]');
+    if (action) activate(action.dataset.guideTab);
+  });
+
   function activate(key, opts) {
     key = normaliseTab(key);
     const o = opts || {};
+    if (o.persist !== false) {
+      workspaceChosen = true;
+      if (!startGuide.hidden) showGuide(false);
+    }
     const previous = activeKey;
     ensureFrame(key);
 
@@ -2411,8 +2441,31 @@
     if (document.body.dataset.maximized === '1') { if (wnd.unmaximize) wnd.unmaximize(); }
     else if (wnd.maximize) wnd.maximize();
   });
+  function stampWindowFocus(el) {
+    const focused = root.dataset.windowFocused;
+    if (focused !== undefined && el.dataset.windowFocused !== focused) el.dataset.windowFocused = focused;
+  }
+
   function applyWindowState(s) {
     if (!s) return;
+    if (typeof s.focused === 'boolean') {
+      const focused = s.focused ? '1' : '0';
+      if (root.dataset.windowFocused !== focused) {
+        root.dataset.windowFocused = focused;
+        for (const frame of FRAMES) {
+          const el = frameRoot(frame);
+          if (el) stampWindowFocus(el);
+        }
+      }
+    }
+    if (typeof s.minimized === 'boolean') {
+      const minimized = s.minimized ? '1' : '0';
+      if (root.dataset.windowMinimized !== minimized) root.dataset.windowMinimized = minimized;
+      if (windowMinimized !== s.minimized) {
+        windowMinimized = s.minimized;
+        markVisibility();
+      }
+    }
     const max = s.maximized ? '1' : '0';
     if (document.body.dataset.maximized !== max) document.body.dataset.maximized = max;
     const b = $('win-max');
@@ -2829,6 +2882,21 @@
 
   // ---- Forge job tracking -------------------------------------------------
   const forgeJobs = new Map();
+  function forgeFailureNotice(error, download) {
+    const raw = String(error || '');
+    const title = download ? 'Download failed' : 'Transcription failed';
+    if (download && /\b403\b|forbidden/i.test(raw)) {
+      return { severity: 'err', title, message: 'The site refused the download (HTTP 403). See Forge or Logs for details.' };
+    }
+    const first = raw.split(/\r?\n/).find((line) => line.trim() && !/^\s*Hint:/i.test(line)) || '';
+    const reason = first.trim().replace(/^(?:(?:\[ERROR\]\s*:?\s*)|(?:(?:DownloadError|Error)\s*:\s*))+/i, '').trim();
+    // Keep complete short reasons. Long diagnostics belong in Forge and Logs,
+    // rather than ending a notification in the middle of an error or filename.
+    const message = reason && reason.length <= 140
+      ? reason + (/[.!?]$/.test(reason) ? ' ' : '. ') + 'See Forge or Logs for details.'
+      : 'See Forge or Logs for the complete error.';
+    return { severity: 'err', title, message };
+  }
   function handleForgeStatus(p) {
     const ev = p.event || '';
     if (ev === 'forge.log') {
@@ -2885,7 +2953,8 @@
         logPush(`Cancelled ${name}.`, 'warn', 'forge');
       } else {
         logPush(`Failed ${name}: ${p.error || 'unknown error'}`, 'error', 'forge');
-        toast({ severity: 'err', title: 'Transcription failed', message: String(p.error || '').slice(0, 160) });
+        const download = (job && job.kind === 'download') || /^yt-/.test(String(p.jobId || ''));
+        toast(forgeFailureNotice(p.error, download));
       }
       return;
     }
@@ -3129,6 +3198,10 @@
   }).catch(() => {});
 
   // Restore the session, then bring the first panel up.
+  function restoreWorkspace(tab) {
+    // A user action or an OS file-open routed before settings arrived wins.
+    if (!workspaceChosen) activate(normaliseTab(tab), { persist: false, focus: false });
+  }
   const restore = (studio.getUi ? studio.getUi() : Promise.resolve(null)).then((ui) => {
     ui = ui || {};
     themePreset = ui.theme || '';
@@ -3141,6 +3214,11 @@
     autoQueueForged = !!ui.autoQueueForged;
 
     skinEl(root);
+    // The shell publishes its skin on every launch, including older releases.
+    // Its absence identifies a new profile without interrupting existing ones.
+    try {
+      if (!workspaceChosen && normaliseTab(ui.lastTab) === 'forge' && !localStorage.getItem(SKIN_KEY)) showGuide(true);
+    } catch (_) { /* Storage unavailable: Getting started remains accessible. */ }
     publishSkin();
     if (window.Tokens) window.Tokens.refresh();
     applyDensity();
@@ -3157,9 +3235,9 @@
       b.tabIndex = on ? 0 : -1;
     }
     renderTransport();
-    activate(normaliseTab(ui.lastTab), { persist: false, focus: false });
+    restoreWorkspace(ui.lastTab);
     bootMark('session');
-  }).catch(() => { activate('forge', { persist: false, focus: false }); bootMark('session'); });
+  }).catch(() => { restoreWorkspace('forge'); bootMark('session'); });
 
   // The splash waits for the first panel to actually be up, so the hand-over
   // never reveals an empty stage.

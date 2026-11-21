@@ -82,8 +82,13 @@ class _STFT:
 
 
 def _load_stereo(path):
-    wav, sr = sf.read(str(path), dtype="float32", always_2d=True)   # (n, ch)
-    wav = wav.T
+    try:
+        wav, sr = sf.read(str(path), dtype="float32", always_2d=True)
+        wav = wav.T
+    except sf.SoundFileError:
+        import librosa
+        wav, sr = librosa.load(str(path), sr=None, mono=False)
+        wav = np.atleast_2d(wav)
     if wav.shape[0] == 1:
         wav = np.concatenate([wav, wav], 0)
     elif wav.shape[0] > 2:
@@ -149,6 +154,15 @@ def separate_general(in_path: Path, out_dir: Path,
     out = out_dir / f"{in_path.stem}_general.wav"
     sf.write(str(out), general.astype(np.float32).T, SR)
     return out
+
+
+def separate_vocals_backing(in_path, vocals_path, backing_path, inst_model, drums_model):
+    """Recover vocals as the mix residual and remove the drums from the backing."""
+    mix = _load_stereo(in_path)
+    inst = _run_model(mix, INST, inst_model)
+    sf.write(str(vocals_path), (mix - inst).T, SR, subtype="FLOAT")
+    inst -= _run_model(mix, DRUMS, drums_model)
+    sf.write(str(backing_path), inst.T, SR, subtype="FLOAT")
 
 
 def _selfcheck():

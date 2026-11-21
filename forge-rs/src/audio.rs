@@ -167,8 +167,11 @@ pub fn load(path: &Path) -> Result<Audio> {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
     }
+    // Honour the encoder delay and end padding written in MP3 gapless tags.
+    // The Editor's original-audio player uses the decoded recording clock.
+    let format_options = FormatOptions { enable_gapless: true, ..Default::default() };
     let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(&hint, mss, &format_options, &MetadataOptions::default())
         .with_context(|| format!("unsupported or corrupt audio: {}", path.display()))?;
     let mut format = probed.format;
     let track = format

@@ -41,10 +41,11 @@
   }
 
   function nameToMidi(name) {
-    const match = /^([A-G])(#?)(-?\d+)$/.exec(name);
+    const match = /^([A-G])([#b]?)(-?\d+)$/.exec(name);
     if (!match) return null;
     const semitones = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-    return (Number(match[3]) + 1) * 12 + semitones[match[1]] + (match[2] ? 1 : 0);
+    const accidental = { '#': 1, b: -1, '': 0 }[match[2]];
+    return (Number(match[3]) + 1) * 12 + semitones[match[1]] + accidental;
   }
 
   function loadScript(presetKey) {
@@ -58,12 +59,21 @@
       window.MIDI.Soundfont = window.MIDI.Soundfont || {};
       const script = document.createElement('script');
       script.src = `${ROOT}${preset.file}-mp3.js`;
+      const releaseScript = () => {
+        script.onload = null;
+        script.onerror = null;
+        script.remove();
+      };
       script.onload = () => {
         const bank = window.MIDI.Soundfont[preset.file];
+        releaseScript();
         if (bank) resolve(bank);
         else reject(new Error(`${preset.label} samples did not load.`));
       };
-      script.onerror = () => reject(new Error(`${preset.label} samples were not found.`));
+      script.onerror = () => {
+        releaseScript();
+        reject(new Error(`${preset.label} samples were not found.`));
+      };
       document.head.appendChild(script);
     });
     // A failed load must not be cached as the answer forever: a retry after a
@@ -168,7 +178,7 @@
     return { key, label: preset.label, samples: total };
   }
 
-  function play(context, presetKey, pitch, startTime, duration, velocity, destination) {
+  function play(context, presetKey, pitch, startTime, duration, velocity, destination, elapsed = 0) {
     const key = PRESETS[presetKey] ? presetKey : 'grand_piano';
     const preset = PRESETS[key];
     const bank = window.MIDI && window.MIDI.Soundfont && window.MIDI.Soundfont[preset.file];
@@ -178,20 +188,27 @@
     const sample = tableFor(preset.file, bank)[clampPitch(pitch)];
     const buffer = sample && cache.get(sample.name);
     if (!buffer) return null;
+    const playbackRate = Math.pow(2, (Number(pitch) - sample.pitch) / 12);
+    const offset = Math.max(0, elapsed) * playbackRate;
+    if (offset >= buffer.duration) return null;
 
     const source = context.createBufferSource();
     const envelope = context.createGain();
     const peak = preset.gain * Math.pow(Math.max(1, Math.min(127, Number(velocity) || 80)) / 127, 1.25);
-    const hold = Math.max(0.06, Number(duration) || 0.2);
+    const hold = Math.max(elapsed > 0 ? 0.001 : 0.06, Number(duration) || 0.2);
     const releaseAt = startTime + hold;
     source.buffer = buffer;
-    source.playbackRate.value = Math.pow(2, (Number(pitch) - sample.pitch) / 12);
+    source.playbackRate.value = playbackRate;
     envelope.gain.setValueAtTime(0.0001, startTime);
-    envelope.gain.linearRampToValueAtTime(Math.max(0.0002, peak), startTime + preset.attack);
+    envelope.gain.linearRampToValueAtTime(Math.max(0.0002, peak), startTime + Math.min(hold, elapsed > 0 ? 0.004 : preset.attack));
     envelope.gain.setValueAtTime(Math.max(0.0002, peak), releaseAt);
     envelope.gain.exponentialRampToValueAtTime(0.0001, releaseAt + preset.release);
     source.connect(envelope).connect(destination || context.destination);
-    source.start(startTime);
+    source.addEventListener('ended', () => {
+      source.disconnect();
+      envelope.disconnect();
+    }, { once: true });
+    source.start(startTime, offset);
     source.stop(releaseAt + preset.release + 0.05);
     return source;
   }

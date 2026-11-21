@@ -307,17 +307,32 @@ mod tests {
 
     #[test]
     fn closing_the_job_kills_the_tree() {
+        use std::time::{Duration, Instant};
+        use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+        use windows_sys::Win32::System::Threading::{WaitForMultipleObjects, PROCESS_SYNCHRONIZE};
+
         let job = Job::new(None).unwrap();
         assert_eq!(job.memory_limit(), None);
         let mut cmd = Command::new("cmd.exe");
-        cmd.args(["/c", "ping -n 30 127.0.0.1 >nul"]);
-        let (mut child, _) = spawn_in_job(&mut cmd, &job, false).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        let t = std::time::Instant::now();
-        drop(job);
-        child.wait().unwrap();
-        // ping -n 30 runs ~29 s; ended at once means the job took it.
-        assert!(t.elapsed() < std::time::Duration::from_secs(5), "{:?}", t.elapsed());
+        cmd.args(["/c", "ping -n 90 127.0.0.1 >nul"]);
+        let (child, assigned) = spawn_in_job(&mut cmd, &job, false).unwrap();
+        assert!(assigned);
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let grandchild = loop {
+            if let Some(pid) = job.pids().into_iter().find(|&pid| pid != child.id()) {
+                break pid;
+            }
+            assert!(Instant::now() < deadline, "ping did not start in the job");
+            std::thread::sleep(Duration::from_millis(25));
+        };
+        // The kernel can finish cleanup while this test thread is descheduled.
+        // Wait on both original handles so a reused PID cannot disguise a leak.
+        let result = with_process(grandchild, PROCESS_SYNCHRONIZE, |ping| {
+            let handles = [child.as_raw_handle() as HANDLE, ping];
+            drop(job);
+            unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 1, 15_000) }
+        });
+        assert_eq!(result, Some(WAIT_OBJECT_0), "cmd and ping must both exit when the job closes");
     }
 
     #[test]

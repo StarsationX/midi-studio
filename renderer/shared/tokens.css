@@ -56,7 +56,7 @@
   --err:  #e65a5a;  --err-soft:  #2a1a1a;
 
   /* ---- radius (tight) ---- */
-  --r-sm: 7px;  --r: 9px;  --r-lg: 12px;  --r-pill: 999px;
+  --r-sm: 6px;  --r: 8px;  --r-lg: 12px;  --r-pill: 999px;
 
   /* ---- spacing (4-based) ---- */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
@@ -126,7 +126,7 @@
   --accent-soft: #102a2d; --accent-line: #2a5258; --ok: #2bd4e6; --ok-soft: #102a2d;
 }
 [data-theme="indigo"] {
-  --accent: #6c8cff; --accent-2: #8aa3ff; --accent-deep: #475fd6; --accent-ink: #f4f6ff;
+  --accent: #6c8cff; --accent-2: #8aa3ff; --accent-deep: #475fd6; --accent-ink: #0c0d10;
   --accent-soft: #1a2140; --accent-line: #354478; --ok: #6c8cff; --ok-soft: #1a2140;
 }
 [data-theme="magenta"] {
@@ -268,8 +268,8 @@ input::placeholder { color: var(--text-3); }
 /* ---- status dot ---- */
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: 0 0 auto; }
 .dot.ok   { background: var(--ok); }
-.dot.warn { background: var(--warn); box-shadow: 0 0 6px #e6c84a66; }
-.dot.err  { background: var(--err);  box-shadow: 0 0 6px #e65a5a66; }
+.dot.warn { background: var(--warn); }
+.dot.err  { background: var(--err); }
 
 /* ---- checkbox row ---- */
 .check { display: inline-flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: 13px; cursor: pointer; }
