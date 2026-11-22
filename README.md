@@ -38,6 +38,7 @@ Once Medley is ready, choose a recording and select **Create MIDI**. From **Resu
 ## Other things you can do
 
 - **Import a MuseScore score without transcribing audio.** Paste the score link into Forge and choose **Get MIDI**. If the public player delivers a MIDI, Studio opens that file unchanged in Editor. Other supported links, such as YouTube and SoundCloud, import **audio** for transcription instead.
+- **If a YouTube audio download stalls:** Forge automatically tries an alternate media server when YouTube lists one and the first one times out. If the download still fails, retry later or on another network.
 - **Edit expression as well as pitch.** Editor supports modulation, volume, pan, expression, sustain, and named MIDI markers. Controller edits are saved to the MIDI file; the in-app note preview doesn’t perform them.
 - **Find a song or diagnose a job.** Use **Library** to search, tag, or favorite a file. If a conversion fails, open **Logs** to copy its diagnostics.
 

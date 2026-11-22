@@ -16,13 +16,60 @@ class DownloadError(Exception):
     pass
 
 
+class Request:
+    def __init__(self, url, headers=None):
+        self.url = url
+        self.headers = headers or {}
+        self.method = "GET"
+
+    def copy(self):
+        return copy.deepcopy(self)
+
+
+class TransportError(Exception):
+    pass
+
+
+class BaseYDL:
+    urlopen = None
+    to_screen = print
+
+
 fake_yt_dlp = types.ModuleType("yt_dlp")
+fake_yt_dlp.YoutubeDL = BaseYDL
 fake_yt_dlp.utils = types.SimpleNamespace(DownloadError=DownloadError)
 script = Path(__file__).resolve().parents[1] / "python-engine" / "yt_download.py"
 spec = importlib.util.spec_from_file_location("studio_yt_download", script)
 downloader = importlib.util.module_from_spec(spec)
-with mock.patch.dict(sys.modules, {"yt_dlp": fake_yt_dlp}):
+with mock.patch.dict(sys.modules, {
+    "yt_dlp": fake_yt_dlp,
+    "yt_dlp.networking": types.SimpleNamespace(Request=Request),
+    "yt_dlp.networking.exceptions": types.SimpleNamespace(TransportError=TransportError),
+}):
     spec.loader.exec_module(downloader)
+
+
+class MediaRouteTests(unittest.TestCase):
+    url = "https://rr3---sn-primary.googlevideo.com/videoplayback?sig=a%2Fb&mn=sn-primary%2Csn-other"
+
+    def test_timeout_recovers_the_same_signed_byte_range(self):
+        original = Request(self.url, {"Range": "bytes=50-99", "Cookie": "private", "Authorization": "private"})
+        with mock.patch.object(BaseYDL, "urlopen", side_effect=[TransportError("connect timed out"), b"audio"]) as send:
+            self.assertEqual(downloader._YouTubeDL().urlopen(original), b"audio")
+        retried = send.call_args.args[0]
+        self.assertEqual(retried.url, self.url.replace("---sn-primary.", "---sn-other."))
+        self.assertEqual(retried.headers, {"Range": "bytes=50-99"})
+        self.assertEqual(original.url, self.url)
+
+    def test_no_route_is_invented_or_used_for_other_failures(self):
+        for url, error in [(self.url.replace("googlevideo.com/", "googlevideo.com.example/"), "timed out"),
+                           (self.url.replace("%2Csn-other", ""), "timed out"),
+                           (self.url.replace("sn-other", "sn-other.invalid"), "timed out"),
+                           (self.url, "certificate verification failed")]:
+            with self.subTest(url=url, error=error), mock.patch.object(BaseYDL, "urlopen", side_effect=TransportError(error)) as send:
+                with self.assertRaises(TransportError):
+                    downloader._YouTubeDL().urlopen(Request(url))
+                send.assert_called_once()
 
 
 class DownloaderTests(unittest.TestCase):
@@ -36,6 +83,7 @@ class DownloaderTests(unittest.TestCase):
         mock.patch.dict(os.environ, {"YT_COOKIES_BROWSER": ""}).start()
         mock.patch.object(downloader, "FFMPEG_BIN", self.out / "missing-ffmpeg").start()
         mock.patch.object(fake_yt_dlp, "YoutubeDL", self.make_ydl, create=True).start()
+        mock.patch.object(downloader, "_YouTubeDL", self.make_ydl).start()
 
     def make_ydl(self, options):
         self.calls.append(copy.deepcopy(options))

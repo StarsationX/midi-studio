@@ -4,9 +4,10 @@ Usage: yt_download.py <url> [output_dir]
 Prints "DOWNLOADED: <path>" on success so callers (GUI) can pick up the file.
 """
 import os
+import re
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parent
 
@@ -24,6 +25,8 @@ if FFMPEG_BIN.exists():
     os.environ["PATH"] = str(FFMPEG_BIN) + os.pathsep + os.environ.get("PATH", "")
 
 import yt_dlp
+from yt_dlp.networking import Request
+from yt_dlp.networking.exceptions import TransportError
 
 def _default_out() -> Path:
     override = os.environ.get("YT_OUTPUT_DIR", "").strip()
@@ -47,6 +50,31 @@ def _host_is(url: str, domain: str) -> bool:
 
 def _is_youtube(url: str) -> bool:
     return _host_is(url, "youtube.com") or _host_is(url, "youtu.be")
+
+
+class _YouTubeDL(yt_dlp.YoutubeDL):
+    def urlopen(self, req):
+        try:
+            return super().urlopen(req)
+        except TransportError as exc:
+            if not isinstance(req, Request) or req.method != "GET" or "timed out" not in str(exc).lower():
+                raise
+            url = urlsplit(req.url)
+            match = re.fullmatch(r"(rr?\d+)---(sn-[a-z0-9-]+)\.googlevideo\.com", url.netloc)
+            if url.scheme != "https" or url.path != "/videoplayback" or not match:
+                raise
+            # YouTube's mn parameter lists the serving networks for this signed
+            # stream. Keep the exact query and byte range; don't guess a server.
+            networks = parse_qs(url.query).get("mn", [""])[0].split(",")
+            other = next((n for n in networks if n != match[2] and re.fullmatch(r"sn-[a-z0-9-]+", n)), None)
+            if match[2] not in networks or not other:
+                raise
+            alternate = req.copy()
+            alternate.url = url._replace(netloc=f"{match[1]}---{other}.googlevideo.com").geturl()
+            for header in ("Host", "Cookie", "Authorization"):
+                alternate.headers.pop(header, None)
+            self.to_screen("YouTube media server timed out; trying its advertised alternate...")
+            return super().urlopen(alternate)
 
 
 def download(url: str, out_dir: Path) -> Path:
@@ -95,7 +123,7 @@ def download(url: str, out_dir: Path) -> Path:
         opts["cookiesfrombrowser"] = (browser,)
 
     def extract():
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        with (_YouTubeDL if is_youtube else yt_dlp.YoutubeDL)(opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if not isinstance(info, dict):
                 raise RuntimeError("The site did not return an audio download.")
@@ -151,6 +179,9 @@ def main() -> int:
             print("Hint: MuseScore refused the downloader request (HTTP 403).")
             print("Hint: Open the score in your browser to check that it is available.")
             print("Hint: If MuseScore offers an audio download, save it there and import the audio file into Forge.")
+        elif _is_youtube(url) and "googlevideo.com" in low and "timed out" in low:
+            print("Hint: YouTube found the video, but its media server timed out.")
+            print("Hint: Retry later or try a different network.")
         elif "login" in low or "cookies" in low or "empty media response" in low or "sign in" in low:
             print("Hint: This source may require a signed-in session.")
             print("Hint: To use your browser session, explicitly set YT_COOKIES_BROWSER=firefox (or chrome/edge/brave) and retry.")
