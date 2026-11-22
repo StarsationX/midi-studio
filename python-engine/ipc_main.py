@@ -16,6 +16,7 @@ Protocol (newline-delimited JSON in both directions):
     {"cmd": "resume"}
     {"cmd": "toggle_pause"}
     {"cmd": "seek", "time": 12.34}
+    {"cmd": "set_tempo", "tempo": 1.5}
     {"cmd": "set_hotkeys", "play": "<f6>", "stop": "<f7>", "pause": "<f8>",
                            "tempo_up": "", "tempo_down": "", "tempo_set": ""}
     {"cmd": "shutdown"}
@@ -29,9 +30,9 @@ Protocol (newline-delimited JSON in both directions):
                               "min_note": 21, "max_note": 108,
                               "unmapped": [22, 25]}
     {"event": "countdown", "i": 3}
-    {"event": "playback_started", "client_perf_now": <python perf_counter at start>}
-    {"event": "progress", "elapsed": 1.234, "played": 42,
-                          "total_notes": 856, "focus_lost": false,
+    {"event": "playback_started", "tempo": 1.0, "start_elapsed": 0.0, "duration": 198.4}
+    {"event": "progress", "tempo": 1.0, "elapsed": 1.234, "played": 42,
+                          "focus_lost": false,
                           "user_paused": false, "frozen_elapsed": null}
     {"event": "playback_done", "stats": {...}}
     {"event": "hotkey", "name": "play"|"stop"|"pause"|"tempo_up"|"tempo_down"|"tempo_set"}
@@ -46,6 +47,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import json
+import math
 import queue
 import statistics
 import threading
@@ -243,13 +245,24 @@ class Bridge:
 
     def cmd_play(self, msg):
         if self.session_thread and self.session_thread.is_alive():
-            # A stop immediately followed by play (e.g. live tempo change)
+            # A stop immediately followed by play (e.g. changing tracks)
             # can arrive while the old session thread is still winding down.
             # Give it a moment instead of dropping the play.
             self.session_thread.join(timeout=1.0)
             if self.session_thread.is_alive():
                 log("warn", "Play requested but a session is already running.")
                 return
+        try:
+            tempo = float(msg.get("tempo", 1.0))
+            if not math.isfinite(tempo) or tempo <= 0:
+                raise ValueError()
+        except (TypeError, ValueError):
+            emit({"event": "error", "message": "Invalid playback tempo."})
+            return
+        # Publish before the worker starts: rate changes during parsing and
+        # count-in belong to this session too.
+        self.session_state = engine.State(0, 0, 0)
+        self.session_state.set_tempo(tempo)
         self.last_play_args = msg
         self._stop_requested = False
         self.session_thread = threading.Thread(
@@ -315,12 +328,22 @@ class Bridge:
         else:
             self.cmd_pause(_)
 
+    def cmd_set_tempo(self, msg):
+        s = self.session_state
+        if s is not None:
+            try:
+                tempo = float(msg["tempo"])
+            except (KeyError, TypeError, ValueError):
+                return
+            if math.isfinite(tempo) and tempo > 0:
+                s.set_tempo(tempo)
+
     def cmd_seek(self, msg):
         s = self.session_state
         if s is None:
             return
         try:
-            t = float(msg.get("time", 0.0))
+            t = float(msg.get("time", 0.0)) * s.clock[1]
         except (TypeError, ValueError):
             return
         # Clamp to track duration; bounded by playback_loop too.
@@ -492,14 +515,14 @@ class Bridge:
             sustain = bool(msg.get("sustain", False))
             midi_path = msg["midi_path"]
             try:
-                start_at = float(msg.get("start_at", 0.0))
+                start_at = float(msg.get("start_at", 0.0)) * tempo
                 if start_at < 0:
                     start_at = 0.0
             except (TypeError, ValueError):
                 start_at = 0.0
             try:
                 raw_end = msg.get("end_at")
-                end_at = float(raw_end) if raw_end is not None else None
+                end_at = float(raw_end) * tempo if raw_end is not None else None
             except (TypeError, ValueError):
                 end_at = None
 
@@ -512,8 +535,8 @@ class Bridge:
 
             mapping_data, note_to_key = engine.load_mapping(
                 _resolve_mapping(mapping_arg), SCRIPT_DIR)
-            events, unmapped, total_dur, bpm, _bpm_guess = engine.parse_midi(
-                midi_path, note_to_key, tempo, int(msg.get("transpose", 0) or 0),
+            events, unmapped, total_dur, bpm, bpm_guess = engine.parse_midi(
+                midi_path, note_to_key, 1.0, int(msg.get("transpose", 0) or 0),
                 **_play_opts(msg))
             if not events:
                 emit({"event": "error", "message": "MIDI has no playable events."})
@@ -577,17 +600,21 @@ class Bridge:
                     emit({"event": "countdown", "i": i})
                     time.sleep(1)
 
-            self.session_state = engine.State(len(events), total_dur, bpm)
+            state = self.session_state
+            state.total_notes, state.total_duration, state.bpm = len(events), total_dur, bpm
             # If the user pre-seeked via the scrubber before pressing Play,
             # apply that as the initial position, playback_loop honours
             # seek_request at the top of its first iteration.
-            if start_at > 0 and total_dur > 0:
-                self.session_state.seek_request = min(start_at, total_dur)
+            if state.seek_request is None:
+                state.seek_request = min(start_at, total_dur)
+            rate = state.clock[1]
             emit({"event": "playback_started",
                   "total_notes": len(events),
-                  "duration": round(total_dur, 3),
-                  "bpm": round(bpm, 2),
-                  "start_elapsed": round(start_at, 4)})
+                  "duration": round(total_dur / rate, 3),
+                  "bpm": round(bpm * rate, 2),
+                  "bpm_estimate": round(bpm_guess * rate, 2),
+                  "tempo": rate,
+                  "start_elapsed": round(state.seek_request / rate, 4)})
 
             # Focus monitor pushes focus state into state; we mirror to UI.
             threading.Thread(
@@ -635,20 +662,19 @@ class Bridge:
 
     def _progress_loop(self, state):
         while not state.stop_event.is_set():
-            elapsed = (state.frozen_elapsed
-                       if state.frozen_elapsed is not None
-                       else (time.perf_counter() - state.base_time
-                             if state.base_time > 0 else 0.0))
+            base, rate, frozen = state.clock
+            elapsed = (frozen / rate if frozen is not None
+                       else time.perf_counter() - base if base
+                       else (state.seek_request or 0.0) / rate)
             emit({
                 "event": "progress",
+                "tempo": rate,
                 "elapsed": round(elapsed, 4),
                 "played": state.played_count,
                 "focus_lost": bool(state.focus_lost),
                 "user_paused": bool(state.user_paused),
-                "frozen_elapsed": (round(state.frozen_elapsed, 4)
-                                   if state.frozen_elapsed is not None
-                                   else None),
-                "base_time_perf": round(state.base_time, 6),
+                "frozen_elapsed": round(frozen / rate, 4) if frozen is not None else None,
+                "base_time_perf": round(base, 6),
             })
             time.sleep(0.05)
 
@@ -672,6 +698,7 @@ DISPATCH = {
     "resume":        "cmd_resume",
     "toggle_pause":  "cmd_toggle_pause",
     "seek":          "cmd_seek",
+    "set_tempo":     "cmd_set_tempo",
     "refocus":       "cmd_refocus",
     "set_hotkeys":   "cmd_set_hotkeys",
     "export_sheet":  "cmd_export_sheet",

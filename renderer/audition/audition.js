@@ -336,14 +336,13 @@
   // Voices are pruned on the scheduler tick instead of carrying an 'ended'
   // listener each: at a few hundred notes a second that was a listener
   // allocation per note.
-  function registerVoice(node, endsAt) { player.voices.add({ node, endsAt }); }
   function pruneVoices() {
     if (!player.context) return;
     const now = player.context.currentTime;
     for (const voice of player.voices) if (voice.endsAt <= now) player.voices.delete(voice);
   }
   function clearVoices() {
-    for (const voice of player.voices) { try { voice.node.stop(); } catch (_) {} }
+    for (const voice of player.voices) { try { voice.source.stop(); } catch (_) {} }
     player.voices.clear();
   }
 
@@ -367,20 +366,12 @@
       oscillator.type = 'triangle';
       oscillator.frequency.value = 440 * Math.pow(2, (pitch - 69) / 12);
     }
-    envelope.gain.setValueAtTime(0.0001, now);
-    envelope.gain.linearRampToValueAtTime(Math.max(0.0002, peak), now + 0.008);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, now + length);
-    oscillator.connect(envelope).connect(player.master || context.destination);
-    oscillator.addEventListener('ended', () => {
-      oscillator.disconnect();
-      envelope.disconnect();
-    }, { once: true });
-    registerVoice(oscillator, now + length + 0.05);
-    oscillator.start(now);
-    oscillator.stop(now + length + 0.02);
+    return new window.MidiStudioNoteVoice(oscillator, envelope, player.master || context.destination, now, length, {
+      attack: 0.008, initial: 0.0001, peak: Math.max(0.0002, peak), floor: 0.0001, fixed: drum,
+    });
   }
 
-  function playNote(note, when) {
+  function playNote(note, when, index) {
     if (!player.context || ctl.volume <= 0) return;          // volume 0 schedules nothing
     const speed = ctl.speed;
     let duration = clamp((Number(note.end) - Number(note.start)) / speed, 0.04, 2.5);
@@ -388,11 +379,11 @@
     const drum = Number(note.channel) === 9 || ctl.instrument === 'synth_drum';
     if (ctl.sustain && !drum) duration = clamp(duration + 1.25 / speed, 0.2, 5);
     const at = Math.max(when, player.context.currentTime);
-    if (player.instrumentReady === ctl.instrument) {
-      const source = soundfonts.play(player.context, ctl.instrument, pitch, at, duration, note.velocity, player.master);
-      if (source) { registerVoice(source, at + duration + 1.2); return; }
-    }
-    playFallback(note, pitch, duration, at);
+    const sampled = player.instrumentReady === ctl.instrument &&
+      soundfonts.play(player.context, ctl.instrument, pitch, at, duration, note.velocity, player.master);
+    const voice = sampled || playFallback(note, pitch, duration, at);
+    voice.index = index;
+    player.voices.add(voice);
   }
 
   function invalidateInstrument() {
@@ -509,7 +500,7 @@
       while (player.cursor < notes.length && Number(notes[player.cursor].start) <= limit) {
         const note = notes[player.cursor];
         player.cursor += 1;
-        playNote(note, player.audioStart + Number(note.start) / speed);
+        playNote(note, player.audioStart + Number(note.start) / speed, player.cursor - 1);
       }
       if (r.on) {
         // Roll the timeline forward instead of seeking, so the loop has no gap.
@@ -698,13 +689,22 @@
   function setSpeed(value) {
     const next = clamp(Math.round((Number(value) || 1) * 100) / 100, 0.25, 2);
     if (next === ctl.speed) { syncSpeedUI(); return; }
+    if (player.playing) {
+      const now = player.context.currentTime;
+      // Anchor at the live position under the OLD slope, not the last 10 Hz tick.
+      const position = (now - player.audioStart) * ctl.speed;
+      player.audioStart = now - position / next;
+      player.cursor = window.MidiStudioNoteVoice.retimeScheduled(player.voices, now, ctl.speed / next, player.cursor);
+    }
     ctl.speed = next;
     prefs.speed = next;
     savePrefs();
-    // Re-base audioStart against the audio clock; the instrument is untouched.
-    // songTime() is the live position — player.position is only refreshed at
-    // 10Hz by tick(), so re-basing from it jumps the song up to 100ms back.
-    seek(songTime());
+    if (player.playing) {
+      scheduleAhead();
+      player.position = songTime();
+      setClock();
+      if (rollHandle) rollHandle.invalidate();
+    }
     syncSpeedUI();
     reportState(true);
   }

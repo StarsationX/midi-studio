@@ -183,7 +183,7 @@
   let isCounting = false;
   let isFocusLost = false;
   let playedNotes = 0;
-  let pendingRestartAt = null;      // seconds, set by a live tempo change
+  let pendingRestartAt = null;      // source seconds, only for note/mapping edits
   let pendingSeekAfterLoad = null;  // seconds, pre-seek after the next load
   let pendingAutoTranspose = false;
   let autoPlayNext = false;
@@ -449,7 +449,7 @@
       cmd: 'load_midi',
       path: lastMidiPath,
       mapping: resolveMapping(),
-      tempo,
+      tempo: 1,                      // the roll, seeks and range use original song seconds
       transpose: transposeVal,
       auto_transpose: !!pendingAutoTranspose,
       ...playOpts()
@@ -469,8 +469,8 @@
     let at = Number(startAt) || 0;
     if (range.enabled && (at < range.start || at >= range.end)) at = range.start;
     // Cleared HERE, not in doPlay(), because this is the one place playback
-    // actually begins: the queue's autoPlayNext, a practice pass and the
-    // tempo-restart all come through here without going near doPlay. A Stop
+    // actually begins: the queue's autoPlayNext, a practice pass and an
+    // options rebuild all come through here without going near doPlay. A Stop
     // pressed while idle emits no playback_done (the engine has no session to
     // report), so a flag left set here suppressed the queue advance, the
     // sent/dropped summary and the reset-to-zero of the NEXT song.
@@ -486,8 +486,8 @@
       countdown: Number(countdown) || 0,
       stats: statsVal,
       sustain: sustainVal,
-      start_at: at,
-      end_at: range.enabled ? range.end : null,
+      start_at: at / tempo,
+      end_at: range.enabled ? range.end / tempo : null,
       ...playOpts()
     });
     return true;
@@ -507,7 +507,6 @@
     if (range.enabled && range.valid !== false && (preSeek < range.start || preSeek >= range.end)) preSeek = range.start;
     if (startPracticeIfAsked()) {
       say(`Practice: ${practice.pct}% to 100%, +${rampStepVal}% per pass.`);
-      loadMidi();                     // rescale the roll to the ramped tempo
       preSeek = range.start;
     }
     sendPlay(preSeek > 0.25 ? preSeek : 0, countdownVal);
@@ -533,7 +532,7 @@
   }
 
   // A user stop ALWAYS sends {cmd:'stop'}, even when the UI thinks nothing is
-  // playing, so a tempo-restart session that was just dispatched dies instead
+  // playing, so a session that was just dispatched dies instead
   // of carrying on. userStopped then suppresses the queue advance, the
   // sent/dropped summary and the practice loop.
   function doStop() {
@@ -560,7 +559,7 @@
     if (pendingSeek === null) return;
     const t = pendingSeek; pendingSeek = null;
     lastSeekAt = performance.now();
-    send({ cmd: 'seek', time: t });
+    send({ cmd: 'seek', time: t / tempo });
   }
   function requestSeek(t) {
     pendingSeek = t;
@@ -1427,50 +1426,31 @@
     showBpm();
   }
 
-  // A live tempo change stops and restarts at the equivalent musical position.
-  // Event times are baked at parse time, so reloading the visualizer while the
-  // engine keeps the old timeline puts the roll and the keys out of step.
-  function setTempo(t) {
+  // Only the scheduler's clock rate changes. Never stop, seek, parse the file
+  // again, or claim the target window just to change speed.
+  function setTempo(t, announce = true) {
     const next = Math.round(clamp(Number(t) || 1, TEMPO_MIN, TEMPO_MAX) * 100) / 100;
-    const prev = tempo;
-    if (next === prev) return;
+    if (next === tempo) return;
     tempo = next;
     settings.tempo = next;
+    send({ cmd: 'set_tempo', tempo: next });
     saveSettings();
     paintTempo();
     paintPractice();
-    say(`Tempo ${next.toFixed(2)}×.`);
+    if (announce) say(`Tempo ${next.toFixed(2)}×.`);
     reportState();
-    if (isPlaying && !isPaused) {
-      pendingRestartAt = viz.elapsed() * prev / next;
-      send({ cmd: 'stop' });
-    } else if (isPlaying && isPaused) {
-      // Paused: never auto-resume. End the session and pre-seek instead. This is
-      // OUR stop, not a natural end and not a user stop, so it is flagged: see
-      // `restarting`.
-      pendingSeekAfterLoad = viz.elapsed() * prev / next;
-      restarting = true;
-      send({ cmd: 'stop' });
-      loadMidi();
-    } else if (lastMidiPath) {
-      loadMidi();
-    }
   }
   function nudgeTempo(delta) { setTempo(tempo + delta); }
 
-  // Paint on input (rAF-coalesced), commit on change.
-  const paintTempoLive = coalesce(() => {
-    $('tr-tempo').textContent = tempo.toFixed(2) + '×';
-    showBpm();
-  });
   on(tempoRange, 'input', () => {
-    tempo = clamp(parseFloat(tempoRange.value) || 1, TEMPO_MIN, TEMPO_MAX);
-    paintTempoLive();
+    // A blank or partial decimal isn't a request to reset to normal speed.
+    const value = tempoRange.valueAsNumber;
+    if (value >= TEMPO_MIN && value <= TEMPO_MAX) setTempo(value, false);
   });
   on(tempoRange, 'change', () => {
-    const wanted = clamp(parseFloat(tempoRange.value) || 1, TEMPO_MIN, TEMPO_MAX);
-    tempo = settings.tempo;                 // let setTempo see the real delta
-    setTempo(wanted);
+    if (Number.isFinite(tempoRange.valueAsNumber)) setTempo(tempoRange.valueAsNumber, false);
+    tempoRange.value = tempo.toFixed(2);
+    say(`Tempo ${tempo.toFixed(2)}×.`);
     // A focused range input answers arrow keys for as long as it holds focus,
     // and those keys were meant for the game.
     tempoRange.blur();
@@ -1513,8 +1493,7 @@
   on($('transpose-fit'), 'click', () => applyTranspose(0, true));
   on($('transpose-reset'), 'click', () => applyTranspose(0, false));
 
-  // Changing which notes exist while playing has to go through the same
-  // stop-and-restart as a tempo change, or the engine keeps the old timeline.
+  // Unlike speed, a note/mapping edit requires a new event sequence.
   function restartForOpts() {
     if (!isPlaying) { if (lastMidiPath) loadMidi(); return; }
     if (isPaused) {
@@ -1908,7 +1887,6 @@
       practice.pct = Math.min(100, practice.pct + rampStepVal);
       applyRampTempo();
       say(`Practice pass at ${practice.pct}% (${tempo.toFixed(2)}×).`);
-      loadMidi();                        // rescale the roll for the new tempo
     }
     sendPlay(range.start, 0);
   }
@@ -1921,7 +1899,6 @@
     saveSettings();
     paintTempo();
     paintPractice();
-    if (lastMidiPath) loadMidi();
   }
 
   // ---- map pointer ---------------------------------------------------------
@@ -2180,9 +2157,7 @@
     // Disabled during the count-in too: isPlaying is still false there, so this
     // button would send a second play into a session that is already starting.
     btn.disabled = !lastMidiPath || isCounting;
-    // Stop is NEVER disabled. A user stop always has to reach the engine, even
-    // when this UI believes nothing is playing, so a tempo-restart session that
-    // was dispatched a moment ago dies instead of carrying on.
+    // Stop also cancels a session dispatched before playback_started arrives.
     $('tr-stop').disabled = false;
     $('tr-countdown').textContent = countdownVal + 's';
 
@@ -2308,8 +2283,8 @@
       countdown: 0,
       stats: false,
       sustain: sustainVal,
-      start_at: from,
-      end_at: Math.min(totalDuration, from + 2),
+      start_at: from / tempo,
+      end_at: Math.min(totalDuration / tempo, from / tempo + 2),
       ...playOpts()
     });
     say('Test: sending two seconds to the target.');
@@ -2455,12 +2430,10 @@
         isPlaying = true;
         isPaused = false;
         isCounting = false;
-        totalDuration = evt.duration || totalDuration;
+        totalDuration = (evt.duration || 0) * (evt.tempo || 1) || totalDuration;
         totalNotes = evt.total_notes || totalNotes;
-        bpm = evt.bpm || bpm;
-        bpmEstimate = evt.bpm_estimate || 0;
         playedNotes = 0;
-        viz.startClock(totalDuration, evt.start_elapsed || 0);
+        viz.startClock(totalDuration, evt.start_elapsed, evt.tempo);
         vizHandle.setLive(true);
         vizHandle.invalidate();
         $('time-total').textContent = clock(totalDuration);
@@ -2470,7 +2443,7 @@
         break;
 
       case 'progress':
-        viz.clockSet({ elapsed: evt.elapsed, frozen_elapsed: evt.frozen_elapsed });
+        viz.clockSet(evt);
         if (typeof evt.user_paused === 'boolean' && evt.user_paused !== isPaused) {
           isPaused = evt.user_paused;
           paintTransport();
@@ -2493,8 +2466,8 @@
 
       case 'playback_done': {
         const wasTest = testMode;
-        // A session WE ended to rebuild it: a tempo restart (pendingRestartAt)
-        // or a paused rebuild (restarting). Neither is the end of the song, so
+        // A session WE ended to rebuild its note/mapping options, playing or
+        // paused. Neither is the end of the song, so
         // neither may reset the clock, log a summary, advance the queue or start
         // a practice pass. playback_done carries no flag of its own, so this is
         // the only thing that can tell them apart.
@@ -2528,8 +2501,8 @@
         if (pendingRestartAt !== null) {
           const at = pendingRestartAt;
           pendingRestartAt = null;
-          loadMidi();                 // reload the timeline at the new tempo
-          sendPlay(at, 0);            // no countdown on a tempo restart
+          loadMidi();
+          sendPlay(at, 0);
         } else if (selfRestart) {
           // A paused rebuild: the pre-seek is applied by the midi_loaded that is
           // already in flight and the panel stays stopped. Nothing to start.
@@ -2576,7 +2549,11 @@
   if (api.onOverlayWantsState) keep(api.onOverlayWantsState(() => {
     if (lastMidiLoaded && api.replayToOverlay) api.replayToOverlay(lastMidiLoaded);
     if (isPlaying && api.replayToOverlay) {
-      api.replayToOverlay({ event: 'playback_started', start_elapsed: viz.elapsed() });
+      api.replayToOverlay({ event: 'playback_started', tempo: viz.clockRate, start_elapsed: viz.elapsed() / viz.clockRate });
+      if (viz.isFrozen()) {
+        const at = viz.elapsed() / viz.clockRate;
+        api.replayToOverlay({ event: 'progress', elapsed: at, frozen_elapsed: at, tempo: viz.clockRate, user_paused: isPaused, focus_lost: isFocusLost, played: playedNotes });
+      }
     }
   }));
 

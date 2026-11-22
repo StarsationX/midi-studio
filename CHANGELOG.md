@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.3 "Medley" — 2026-11-22
+
+### Fixed
+
+- Change playback speed in Player, Listen, or Editor without restarting the
+  song or replaying held notes. Changing speed while paused keeps your place.
+
 ## 3.1.2 "Medley" — 2026-11-22
 
 ### New

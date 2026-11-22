@@ -685,8 +685,8 @@ class State:
         "played_count", "elapsed",
         "pause_event", "stop_event", "focus_lost", "user_paused",
         "timing_errors",
-        "base_time",       # perf_counter() reference; visualizer reads this
-        "frozen_elapsed",  # float when paused, None when running
+        "clock",           # (wall time at position zero, rate vs parsed timeline, frozen position)
+        "clock_lock",
         "seek_request",    # float seconds when user requested a seek, else None
     )
 
@@ -702,9 +702,44 @@ class State:
         self.focus_lost = False
         self.user_paused = False
         self.timing_errors = []
-        self.base_time = 0.0
-        self.frozen_elapsed = None
+        self.clock = (0.0, 1.0, None)
+        self.clock_lock = threading.Lock()
         self.seek_request = None
+
+    @property
+    def base_time(self):
+        return self.clock[0]
+
+    @base_time.setter
+    def base_time(self, value):
+        _, rate, frozen = self.clock
+        self.clock = (value, rate, frozen)
+
+    @property
+    def frozen_elapsed(self):
+        return self.clock[2]
+
+    def set_tempo(self, tempo):
+        with self.clock_lock:
+            base, rate, frozen = self.clock
+            if rate == tempo:
+                return
+            if base:
+                now = time.perf_counter()
+                position = frozen if frozen is not None else (now - base) * rate
+                base = now - position / tempo
+            self.clock = (base, tempo, frozen)
+
+    def anchor(self, position):
+        with self.clock_lock:
+            rate = self.clock[1]
+            self.clock = (time.perf_counter() - position / rate, rate, None)
+
+    def freeze(self):
+        with self.clock_lock:
+            base, rate, frozen = self.clock
+            if frozen is None:
+                self.clock = (base, rate, (time.perf_counter() - base) * rate)
 
     # The pause gate is paused when EITHER focus is lost OR the user paused.
     # Helpers below keep the two sources coherent, flipping one shouldn't
@@ -863,13 +898,11 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
 
     try:
       with hi_res_timer():
-        base = perf()
-        state.base_time = base
-        state.frozen_elapsed = None
+        state.anchor(state.seek_request or 0.0)
         total = len(events)
 
         i = 0
-        while i < total:
+        while i < total or rel_heap:
             if stop_event.is_set():
                 return
 
@@ -884,19 +917,20 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
                 while j < total and events[j][0] < target_t:
                     j += 1
                 i = j
-                base = perf() - target_t
-                state.base_time = base
+                state.anchor(target_t)
                 state.elapsed = target_t
                 state.played_count = i
-                if not pause_event.is_set():
-                    state.frozen_elapsed = target_t
-                else:
-                    state.frozen_elapsed = None
                 if i >= total:
                     break
 
-            t_sec, key, duration, note, channel = events[i]
-            aim_shift = shifts[i]
+            # Keep the final sustain on the same seek/pause/rate-aware clock.
+            ring_out = i == total
+            if ring_out:
+                t_sec = rel_heap[0][0]
+                aim_shift = 0.0
+            else:
+                t_sec, key, duration, note, channel = events[i]
+                aim_shift = latency_offset + shifts[i]
             range_finished = end_at is not None and t_sec >= end_at
             if range_finished:
                 t_sec = end_at
@@ -909,16 +943,17 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
                 if not pause_event.is_set():
                     if held:
                         release_all()          # no stuck keys while paused
-                    ps = perf()
-                    state.frozen_elapsed = ps - base   # freeze visualizer
-                    pause_event.wait()
+                    state.freeze()
+                    while not pause_event.wait(poll) and state.seek_request is None:
+                        if stop_event.is_set():
+                            return
                     if stop_event.is_set():
                         return
-                    base += perf() - ps                # shift timeline forward
-                    state.base_time = base
-                    state.frozen_elapsed = None
+                    state.anchor(state.frozen_elapsed)
 
-                target = base + t_sec - latency_offset - aim_shift
+                clock = state.clock
+                base, rate, _ = clock
+                target = base + t_sec / rate - aim_shift
 
                 # Pause/seek-aware sleep. Short slices so a flip during a
                 # long inter-note gap is honoured promptly.
@@ -926,11 +961,11 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
                 while True:
                     if stop_event.is_set():
                         return
-                    if state.seek_request is not None:
+                    if state.clock is not clock or state.seek_request is not None:
                         interrupted = True
                         break
                     if rel_heap:
-                        release_due(perf() - base)
+                        release_due((perf() - base) * rate)
                     remaining = target - perf()
                     if remaining <= 0:
                         break
@@ -973,7 +1008,7 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
 
             # If a seek was requested mid-sleep, restart the outer loop
             # without firing this event.
-            if state.seek_request is not None:
+            if state.clock is not clock or state.seek_request is not None:
                 continue
 
             if range_finished:
@@ -981,12 +1016,15 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
                 release_all()
                 stop_event.set()
                 return
+            if ring_out:
+                release_due((perf() - base) * rate)
+                continue
 
             actual = perf()
             if sustain:
                 bk = press_keys_hold(kb, key, held)
                 # Floor tiny durations so the keydown registers before keyup.
-                rt = t_sec + (duration if duration > 0.03 else 0.03)
+                rt = t_sec + max(duration, 0.03 * rate)
                 held[bk] = rt
                 heappush(rel_heap, (rt, bk))
             else:
@@ -999,22 +1037,16 @@ def playback_loop(events, state, kb, latency_offset, q, collect_stats,
                     pass
 
             state.played_count = i + 1
-            state.elapsed = actual - base
+            state.elapsed = (actual - base) * rate
             if collect_stats:
                 # Against where the note BELONGS musically, not against the
                 # aim. The aim is deliberately early -- by latency_offset, and
                 # by the chord shift on top of that -- so measuring against it
                 # would report a centred 8-note chord as 8 ms early on its
                 # first note when the note is in fact landing on the beat.
-                state.timing_errors.append(actual - (base + t_sec))
+                state.timing_errors.append(actual - (base + t_sec / rate))
 
             i += 1
-
-        # Let the last held notes ring out to their full length.
-        while rel_heap and not stop_event.is_set():
-            release_due(perf() - base)
-            if rel_heap:
-                time.sleep(poll)
 
         stop_event.set()
     finally:

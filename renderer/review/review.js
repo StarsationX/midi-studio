@@ -1184,7 +1184,7 @@
     return samplePrepare;
   }
   // `at` is an AudioContext timestamp; 0 means "right now".
-  function playNote(n, at, force, elapsed = 0) {
+  function playNote(n, at, force, elapsed = 0, index = null) {
     if (!force && !midiOn) return;
     if (!audible(n.channel)) return;
     const c = ctx();
@@ -1193,10 +1193,9 @@
     const len = fullLength - elapsed;
     if (len <= 0) return;
     if (sampledReady && soundfonts) {
-      const src = soundfonts.play(c, INSTRUMENT, n.pitch, when, len, n.velocity, master, elapsed);
-      if (src) {
-        trackVoice(src);
-        markSounding(n.pitch, len, (when - c.currentTime) * 1000);
+      const voice = soundfonts.play(c, INSTRUMENT, n.pitch, when, len, n.velocity, master, elapsed);
+      if (voice) {
+        trackVoice(voice, n.pitch, index);
         return;
       }
       if (elapsed && soundfonts.has(INSTRUMENT, n.pitch)) return; // The sample's recorded tail has ended.
@@ -1205,18 +1204,13 @@
     const g = c.createGain();
     osc.type = 'triangle';
     osc.frequency.value = 440 * Math.pow(2, (n.pitch - 69) / 12);
-    g.gain.setValueAtTime(0, when);
     const peak = Math.max(.001, (n.velocity / 127) * .12);
     const decay = Math.max(0, elapsed - .008) / (fullLength - .008);
     const level = peak * Math.pow(.001 / peak, decay);
-    g.gain.linearRampToValueAtTime(level, when + Math.min(len, elapsed ? .004 : .008));
-    g.gain.exponentialRampToValueAtTime(0.001, when + len);
-    osc.connect(g).connect(master || c.destination);
-    osc.start(when);
-    osc.stop(when + len + 0.02);
-    osc.onended = () => { osc.disconnect(); g.disconnect(); };
-    trackVoice(osc);
-    markSounding(n.pitch, len, (when - c.currentTime) * 1000);
+    const voice = new window.MidiStudioNoteVoice(osc, g, master || c.destination, when, len, {
+      attack: elapsed ? .004 : .008, initial: 0, peak: level, floor: 0.001,
+    });
+    trackVoice(voice, n.pitch, index);
   }
   // The lookahead scheduler hands notes to Web Audio up to LOOKAHEAD ahead, so
   // the highlight has to be timed too or the roll lights up before you hear it.
@@ -1227,31 +1221,41 @@
     timers.add(t);
     return t;
   }
-  function markSounding(pitch, len, delayMs) {
+  function markSounding(voice, now) {
+    const pitch = voice.pitch;
+    const until = voice.at + clamp(voice.releaseAt - voice.at, 0.09, 1.2);
+    if (until <= now) return;
     const on = () => {
       sounding.add(pitch);
       const prev = offAt.get(pitch);
       if (prev) { clearTimeout(prev); timers.delete(prev); }
       offAt.set(pitch, later(() => { sounding.delete(pitch); offAt.delete(pitch); paint(); },
-        Math.min(1200, Math.max(90, len * 1000))));
+        (until - Math.max(voice.at, now)) * 1000));
       paint();
     };
+    const delayMs = (voice.at - now) * 1000;
     if (delayMs > 8) later(on, delayMs); else on();
   }
   const voices = new Set();
-  function trackVoice(source) {
-    voices.add(source);
-    source.addEventListener('ended', () => voices.delete(source), { once: true });
+  function trackVoice(voice, pitch, index) {
+    voice.pitch = pitch;
+    voice.index = index;
+    voices.add(voice);
+    voice.source.addEventListener('ended', () => voices.delete(voice), { once: true });
+    markSounding(voice, ctxAudio.currentTime);
   }
-  function clearSounding() {
-    for (const source of voices) {
-      try { source.stop(); } catch (_) { /* already ended */ }
-    }
-    voices.clear();
+  function clearHighlights() {
     timers.forEach((t) => clearTimeout(t));
     timers.clear();
     offAt.clear();
     sounding.clear();
+  }
+  function clearSounding() {
+    for (const voice of voices) {
+      try { voice.source.stop(); } catch (_) { /* already ended */ }
+    }
+    voices.clear();
+    clearHighlights();
   }
   disposers.push(clearSounding);
 
@@ -1336,10 +1340,10 @@
     }
   }
 
-  function songTime() {
+  function songTime(audioNow) {
     if (!playing || !clockTimer) return playhead;
     if (usingAudio() && !audio.paused) return Math.max(0, audio.currentTime - audioOffset);
-    return songBase + (ctx().currentTime - clockBase) * rate;
+    return songBase + ((audioNow ?? ctx().currentTime) - clockBase) * rate;
   }
   function boundary() { return loopOn && loopB > loopA ? loopB : duration; }
 
@@ -1379,14 +1383,14 @@
       chaseAt = null;
       const position = Math.max(entry, now);
       if (position < end) forOverlapping(entry, entry, n => {
-        if (n.start < entry && n.end > position) playNote(n, cNow, false, (position - n.start) / rate);
+        if (n.start < entry && n.end > position) playNote(n, cNow, false, (position - n.start) / rate, -1);
       });
     }
     if (cursor > notes.length) cursor = notes.length;
     while (cursor < notes.length && notes[cursor].start <= upto && notes[cursor].start < end) {
       const n = notes[cursor++];
       const at = cNow + Math.max(0, (n.start - now) / rate);
-      playNote(n, at, false);
+      playNote(n, at, false, 0, cursor - 1);
     }
     schedTo = upto;
   }
@@ -1515,19 +1519,22 @@
     if (force) { /* an edge, sent out of cadence */ }
   }
   function setRate(r, notify = true) {
-    const current = playing ? songTime() : playhead;
-    const previous = rate;
-    rate = clamp(r, 0.25, 4);
-    if (playing) {
-      songBase = current;
-      if (ctxAudio) clockBase = ctxAudio.currentTime;
+    const next = clamp(r, 0.25, 4);
+    if (next !== rate && playing) {
+      const now = ctx().currentTime;
+      songBase = songTime(now);
+      clockBase = now;
+      const ratio = rate / next;
+      rate = next;
       if (usingAudio()) audio.playbackRate = rate;
-      if (rate !== previous && midiOn && clockTimer) {
-        clearSounding();
-        resetSchedule(current);
+      if (midiOn && clockTimer) {
+        cursor = window.MidiStudioNoteVoice.retimeScheduled(voices, now, ratio, cursor);
+        clearHighlights();
+        for (const voice of voices) markSounding(voice, now);
+        schedTo = songBase;
         scheduleAhead();
       }
-    }
+    } else rate = next;
     if (notify) reportTransport(true);
   }
   function setVolume(v) {

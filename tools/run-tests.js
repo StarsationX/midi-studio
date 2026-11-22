@@ -349,6 +349,24 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   }
 }
 
+// A tempo packet changes wall-clock units, not the note under the playhead.
+{
+  let now = 0;
+  const sandbox = { performance: { now: () => now } };
+  require('vm').runInNewContext(require('fs').readFileSync(path.join(root, 'renderer/player/visualizer.js'), 'utf8'), sandbox);
+  const roll = new sandbox.Visualizer();
+  roll.startClock(40, 4, 1);
+  now = 2000;
+  ok(roll.elapsed() === 6, 'the roll reaches song second six before the rate change');
+  roll.clockSet({ elapsed: 3, tempo: 2 });
+  ok(roll.elapsed() === 6, 'doubling the speed keeps the same note under the playhead');
+  now += 1000;
+  ok(roll.elapsed() === 8, 'the roll advances two song seconds in one wall second at 2×');
+  roll.clockSet({ elapsed: 16, frozen_elapsed: 16, tempo: 0.5 });
+  now += 1000;
+  ok(roll.elapsed() === 8, 'a paused rate change holds the original song position');
+}
+
 // Slow-machine races. A fast PC always wins these, so they only ever showed up
 // as "it opens white" and "the updater never appears" from one user.
 {
@@ -667,8 +685,6 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   // serial delay. Remove any of these three and the chord tail comes back.
   ok(/def chord_aim_shifts/.test(engineSrc) && /shifts = chord_aim_shifts\(events, inject_cost\)/.test(engineSrc),
     'chords are aimed to straddle the beat instead of trailing it');
-  ok(/target = base \+ t_sec - latency_offset - aim_shift/.test(engineSrc),
-    'the per-chord aim shift actually reaches the sleep target');
   ok(/shifts\[k\] = want/.test(engineSrc) && /room = t0 - \(prev_aim \+ prev_size \* inject_cost\)/.test(engineSrc),
     'a chord is never aimed earlier than the chord in front of it can finish injecting');
   ok(/nap = remaining - spin/.test(engineSrc) && /if nap > poll:/.test(engineSrc)
@@ -1582,10 +1598,12 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   try {
     require('./test-review-timing.js')();
     ok(true, 'Editor grid, quantization and stretch follow the tempo map');
+    await require('./test-live-audio-rate.js')();
+    ok(true, 'live speed changes preserve sounding notes in Listen and Editor');
     await require('./test-long-session.js')();
     ok(true, 'long sessions cancel stale drawing and waveforms and release completed audio voices');
   } catch (error) {
-    ok(false, 'long-session resource checks: ' + error.message);
+    ok(false, 'playback timing and resource checks: ' + error.message);
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

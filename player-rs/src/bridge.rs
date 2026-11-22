@@ -1,6 +1,6 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -14,7 +14,7 @@ use crate::mapping::{load_mapping, resolve_mapping, Mapping};
 use crate::midi::{best_transpose, chord_report, events_to_sheet, parse_midi, py_round, ParseOpts, Parsed};
 use crate::player::{calibrate_injection, playback_loop, PlayOpts, State};
 use crate::py;
-use crate::win::{focus_window, focused_hwnd, list_windows, perf, window_alive, LogSink, SendInputSink, Window};
+use crate::win::{focus_window, focused_hwnd, list_windows, window_alive, LogSink, SendInputSink, Window};
 
 pub type Emit = Arc<dyn Fn(Value) + Send + Sync>;
 
@@ -70,7 +70,6 @@ struct Inner {
     state: Mutex<Option<Arc<State>>>,
     target: Mutex<Option<Window>>,
     thread: Mutex<Option<JoinHandle<()>>>,
-    stop_requested: AtomicBool,
     last_play: Mutex<Option<Value>>,
     inject: Mutex<Option<(f64, f64, f64)>>,
     hotkeys: Mutex<Hotkeys>,
@@ -168,7 +167,6 @@ impl Bridge {
                 state: Mutex::new(None),
                 target: Mutex::new(None),
                 thread: Mutex::new(None),
-                stop_requested: AtomicBool::new(false),
                 last_play: Mutex::new(None),
                 inject: Mutex::new(None),
                 hotkeys: Mutex::new(Hotkeys { combos, listener: None }),
@@ -223,6 +221,7 @@ impl Bridge {
             "resume" => run(&|b, _| b.cmd_resume()),
             "toggle_pause" => run(&|b, _| b.cmd_toggle_pause()),
             "seek" => run(&Bridge::cmd_seek),
+            "set_tempo" => run(&Bridge::cmd_set_tempo),
             "refocus" => run(&|b, _| b.cmd_refocus()),
             "set_hotkeys" => run(&Bridge::cmd_set_hotkeys),
             "export_sheet" => run(&Bridge::cmd_export_sheet),
@@ -334,13 +333,26 @@ impl Bridge {
                 return;
             }
         }
+        let tempo = match py::float_or(msg, "tempo", 1.0) {
+            Ok(v) if v.is_finite() && v > 0.0 => v,
+            _ => {
+                inner.error("Play tempo must be positive and finite.");
+                return;
+            }
+        };
+        // Install controls before the worker parses/focuses/counts in: an
+        // immediate follow-up command belongs to this play, not the next one.
+        let state = Arc::new(State::new(tempo));
+        *lock(&inner.state) = Some(state.clone());
         *lock(&inner.last_play) = Some(msg.clone());
-        inner.stop_requested.store(false, Ordering::SeqCst);
         let b = self.clone();
         let msg = msg.clone();
-        match std::thread::Builder::new().name("session".into()).spawn(move || b.run_session(&msg)) {
+        match std::thread::Builder::new().name("session".into()).spawn(move || b.run_session(&msg, &state, tempo)) {
             Ok(h) => *slot = Some(h),
-            Err(e) => inner.error(e.to_string()),
+            Err(e) => {
+                lock(&inner.state).take();
+                inner.error(e.to_string());
+            }
         }
     }
 
@@ -348,7 +360,6 @@ impl Bridge {
         if let Some(s) = lock(&self.inner.state).as_ref() {
             s.halt();
         }
-        self.inner.stop_requested.store(true, Ordering::SeqCst);
         self.inner.log("info", "Stop requested.");
     }
 
@@ -383,8 +394,13 @@ impl Bridge {
     fn cmd_seek(&self, msg: &Value) {
         let Some(s) = self.session_state() else { return };
         let Ok(t) = py::float_or(msg, "time", 0.0) else { return };
-        let t = if s.total_duration > 0.0 { t.min(s.total_duration).max(0.0) } else { t.max(0.0) };
-        s.seek_request.set(t);
+        s.seek(t);
+    }
+
+    fn cmd_set_tempo(&self, msg: &Value) {
+        if let (Some(s), Some(tempo)) = (self.session_state(), msg.get("tempo").and_then(Value::as_f64)) {
+            s.set_tempo(tempo);
+        }
     }
 
     fn cmd_refocus(&self) {
@@ -512,8 +528,8 @@ impl Bridge {
         cost
     }
 
-    fn run_session(&self, msg: &Value) {
-        let result = catch_unwind(AssertUnwindSafe(|| self.session(msg)));
+    fn run_session(&self, msg: &Value, state: &Arc<State>, initial_tempo: f64) {
+        let result = catch_unwind(AssertUnwindSafe(|| self.session(msg, state, initial_tempo)));
         match result {
             Ok(Ok(())) => {}
             Ok(Err(e)) => self.inner.error(e),
@@ -525,20 +541,19 @@ impl Bridge {
         lock(&self.inner.target).take();
     }
 
-    fn session(&self, msg: &Value) -> Result<(), String> {
+    fn session(&self, msg: &Value, state: &Arc<State>, initial_tempo: f64) -> Result<(), String> {
         let inner = &self.inner;
         let target_hwnd = py::int(py::req(msg, "target_hwnd")?)?;
         let mapping_arg = py::req_str(msg, "mapping")?;
-        let tempo = py::float_or(msg, "tempo", 1.0)?;
         let countdown = py::int_or(msg, "countdown", 3)?;
         let collect_stats = msg.get("stats").is_some_and(py::truthy);
         let sustain = msg.get("sustain").is_some_and(py::truthy);
         let midi_path = py::req_str(msg, "midi_path")?;
         let start_at = py::float_or(msg, "start_at", 0.0).unwrap_or(0.0);
-        let start_at = if start_at < 0.0 { 0.0 } else { start_at };
+        let start_at = start_at.max(0.0) * initial_tempo;
         let mut end_at = match msg.get("end_at") {
             None | Some(Value::Null) => None,
-            Some(v) => py::float(v).ok(),
+            Some(v) => py::float(v).ok().map(|e| e * initial_tempo),
         };
 
         let Some(target) = resolve_window(target_hwnd) else {
@@ -548,7 +563,7 @@ impl Bridge {
 
         let mapping = inner.mapping(mapping_arg)?;
         let transpose = py::int_or_falsy(msg, "transpose", 0)?;
-        let p = parse_midi(midi_path, &mapping.note_to_key, tempo, &play_opts(msg, transpose))?;
+        let p = parse_midi(midi_path, &mapping.note_to_key, 1.0, &play_opts(msg, transpose))?;
         if p.events.is_empty() {
             return Err("MIDI has no playable events.".into());
         }
@@ -559,10 +574,11 @@ impl Bridge {
             }
             end_at = Some(e);
         }
+        state.prepare(p.total, start_at);
 
         let name = mapping.get("name").map(py::text).unwrap_or_else(|| mapping_arg.to_string());
         inner.log("info", format!("Mapping {name} ({} notes)", mapping.note_to_key.len()));
-        inner.log("info", format!("{} events, {:.1}s, ~{:.1} BPM", p.events.len(), p.total, p.bpm));
+        inner.log("info", format!("{} events, {:.1}s, ~{:.1} BPM", p.events.len(), p.total / initial_tempo, p.bpm * initial_tempo));
         if !p.unmapped.is_empty() {
             let list: Vec<String> = p.unmapped.iter().map(|n| n.to_string()).collect();
             inner.log("warn", format!("Skipped {} unmapped notes: [{}]", p.unmapped.len(), list.join(", ")));
@@ -587,30 +603,27 @@ impl Bridge {
         std::thread::sleep(Duration::from_millis(150));
 
         for i in (1..=countdown.max(0)).rev() {
-            if inner.stop_requested.load(Ordering::SeqCst) {
+            if state.stopped() {
                 inner.log("info", "Cancelled before playback.");
                 return Ok(());
             }
             inner.emit(json!({"event": "countdown", "i": i}));
             std::thread::sleep(Duration::from_secs(1));
         }
-        if inner.stop_requested.load(Ordering::SeqCst) {
+        if state.stopped() {
             inner.log("info", "Cancelled before playback.");
             return Ok(());
         }
 
         let total = p.events.len();
-        let state = Arc::new(State::new(total, p.total, p.bpm));
-        if start_at > 0.0 && p.total > 0.0 {
-            state.seek_request.set(start_at.min(p.total));
-        }
-        *lock(&inner.state) = Some(state.clone());
+        let timing = state.progress();
         inner.emit(json!({
             "event": "playback_started",
             "total_notes": total,
-            "duration": py_round(p.total, 3),
-            "bpm": py_round(p.bpm, 2),
-            "start_elapsed": py_round(start_at, 4),
+            "tempo": timing.tempo,
+            "duration": py_round(p.total / timing.tempo, 3),
+            "bpm": py_round(p.bpm * timing.tempo, 2),
+            "start_elapsed": py_round(timing.elapsed, 4),
         }));
 
         let monitor = {
@@ -628,7 +641,7 @@ impl Bridge {
 
         let opts = PlayOpts { latency: aim, collect_stats, sustain, end_at, inject_cost: Some(inject_cost), batch: true };
         let mut sink = inner.sink();
-        let errors = playback_loop(&p.events, &state, sink.as_mut(), &opts)?;
+        let errors = playback_loop(&p.events, state, sink.as_mut(), &opts)?;
 
         let stats = if collect_stats { stats_payload(&errors) } else { Value::Null };
         inner.emit(json!({
@@ -641,18 +654,18 @@ impl Bridge {
     }
 
     fn progress_loop(&self, state: &State) {
-        while !state.stop.is_set() {
-            let frozen = state.frozen_elapsed.opt();
-            let base = state.base_time.get();
-            let elapsed = frozen.unwrap_or(if base > 0.0 { perf() - base } else { 0.0 });
+        while !state.stopped() {
+            let p = state.progress();
+            let elapsed = py_round(p.elapsed, 4);
             self.inner.emit(json!({
                 "event": "progress",
-                "elapsed": py_round(elapsed, 4),
+                "tempo": p.tempo,
+                "elapsed": elapsed,
                 "played": state.played_count.load(Ordering::Acquire),
-                "focus_lost": state.focus_lost(),
-                "user_paused": state.user_paused(),
-                "frozen_elapsed": frozen.map(|f| py_round(f, 4)),
-                "base_time_perf": py_round(base, 6),
+                "focus_lost": p.focus_lost,
+                "user_paused": p.user_paused,
+                "frozen_elapsed": (p.user_paused || p.focus_lost).then_some(elapsed),
+                "base_time_perf": py_round(p.base_time, 6),
             }));
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -660,7 +673,7 @@ impl Bridge {
 
     fn focus_monitor(&self, state: &State, target: isize) {
         let inner = &self.inner;
-        while !state.stop.is_set() {
+        while !state.stopped() {
             if !window_alive(target) {
                 inner.log("info", "[!] Target window closed, stopping playback.");
                 state.halt();

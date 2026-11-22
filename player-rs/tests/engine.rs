@@ -1,7 +1,7 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use midi_player::keys::{Key, KeyAction, KeySink, Modifier};
 use midi_player::mapping::load_mapping;
@@ -45,8 +45,7 @@ fn ev(t: f64, key: &str, dur: f64, note: i64) -> NoteEvent {
 }
 
 fn run(events: &[NoteEvent], opts: &PlayOpts) -> (Vec<(&'static str, String)>, FakeKb) {
-    let total = events.iter().map(|e| e.t + e.dur).fold(0.0, f64::max);
-    let state = State::new(events.len(), total, 120.0);
+    let state = State::new(1.0);
     let mut kb = FakeKb::default();
     playback_loop(events, &state, &mut kb, opts).unwrap();
     (kb.log(), kb)
@@ -96,13 +95,13 @@ fn same_timestamp_onsets_share_one_batch() {
 #[test]
 fn stats_measure_against_the_beat() {
     let events = [ev(0.0, "a", 0.1, 60), ev(0.05, "s", 0.1, 62), ev(0.1, "d", 0.1, 64)];
-    let state = State::new(3, 0.2, 120.0);
+    let state = State::new(1.0);
     let mut kb = FakeKb::default();
     let errs = playback_loop(&events, &state, &mut kb, &PlayOpts { collect_stats: true, ..Default::default() }).unwrap();
     assert_eq!(errs.len(), 3);
     assert!(errs.iter().all(|e| e.abs() < 0.005), "{errs:?}");
     assert_eq!(state.played_count.load(std::sync::atomic::Ordering::Acquire), 3);
-    assert!(state.stop.is_set());
+    assert!(state.stopped());
 }
 
 #[test]
@@ -113,7 +112,7 @@ fn end_at_stops_the_range() {
 }
 
 fn spawn_play(events: Vec<NoteEvent>, opts: PlayOpts) -> (Arc<State>, FakeKb, std::thread::JoinHandle<()>) {
-    let state = Arc::new(State::new(events.len(), 10.0, 120.0));
+    let state = Arc::new(State::new(1.0));
     let kb = FakeKb::default();
     let (s, mut k) = (state.clone(), kb.clone());
     let h = std::thread::spawn(move || {
@@ -133,7 +132,7 @@ fn user_pause_is_not_undone_by_focus_regain() {
     state.set_focus_lost(true);
     state.set_focus_lost(false);
     std::thread::sleep(Duration::from_millis(400));
-    assert!(!state.pause.is_set(), "focus coming back must not resume a user pause");
+    assert!(state.user_paused(), "focus coming back must not resume a user pause");
     assert_eq!(kb.log().len(), 2, "nothing played while paused");
     state.set_user_paused(false);
     h.join().unwrap();
@@ -155,7 +154,7 @@ fn seek_skips_ahead_and_releases() {
     let events = vec![ev(0.0, "a", 5.0, 60), ev(1.0, "s", 0.1, 62), ev(5.0, "d", 0.1, 64), ev(5.05, "f", 0.05, 65)];
     let (state, kb, h) = spawn_play(events, PlayOpts { sustain: true, ..Default::default() });
     std::thread::sleep(Duration::from_millis(60));
-    state.seek_request.set(4.98);
+    state.seek(4.98);
     h.join().unwrap();
     let log = kb.log();
     assert_eq!(&log[..2], &[d("a"), u("a")], "{log:?}");
@@ -164,9 +163,47 @@ fn seek_skips_ahead_and_releases() {
 }
 
 #[test]
+fn live_tempo_retimes_held_keys_and_future_onsets_without_replay() {
+    struct Sink<'a> {
+        state: &'a State,
+        actions: Vec<(KeyAction, Instant)>,
+    }
+    impl KeySink for Sink<'_> {
+        fn send(&mut self, actions: &[KeyAction]) {
+            let now = Instant::now();
+            self.actions.extend(actions.iter().map(|a| (*a, now)));
+            // Change tempo on the second onset, while q is still down.
+            if actions.contains(&KeyAction::Down(Key::Char('w'))) {
+                self.state.set_tempo(4.0);
+            }
+        }
+    }
+
+    let events = [
+        ev(0.0, "q", 1.3, 60), ev(0.1, "w", 0.2, 62), ev(1.0, "e", 0.1, 64),
+        ev(1.8, "r", 0.1, 65),
+    ];
+    let state = State::new(1.0);
+    let mut sink = Sink { state: &state, actions: Vec::new() };
+    playback_loop(&events, &state, &mut sink, &PlayOpts {
+        sustain: true, end_at: Some(1.6), ..Default::default()
+    }).unwrap();
+    use Key::Char;
+    use KeyAction::{Down, Up};
+    let keys: Vec<_> = sink.actions.iter().map(|(a, _)| *a).collect();
+    assert_eq!(keys, [Down(Char('q')), Down(Char('w')), Up(Char('w')), Down(Char('e')), Up(Char('e')), Up(Char('q'))]);
+    let since_change = |index: usize| sink.actions[index].1.duration_since(sink.actions[1].1).as_secs_f64();
+    // Wall offsets at 4× are 0.225s and 0.300s. Allow scheduling noise but
+    // reject firing immediately, or waiting out the original 0.9s / 1.2s.
+    assert!((0.10..0.70).contains(&since_change(3)), "{:?}", sink.actions);
+    assert!((0.18..0.90).contains(&since_change(5)), "{:?}", sink.actions);
+    assert_eq!(state.played_count.load(std::sync::atomic::Ordering::Acquire), 3);
+}
+
+#[test]
 fn panic_mid_song_still_releases() {
     let events = vec![ev(0.0, "a", 1.0, 60), ev(0.02, "s", 1.0, 62)];
-    let state = State::new(2, 1.1, 120.0);
+    let state = State::new(1.0);
     let mut kb = FakeKb::default();
     *kb.panic_on_send.lock().unwrap() = Some(1);
     let r = catch_unwind(AssertUnwindSafe(|| playback_loop(&events, &state, &mut kb, &PlayOpts { sustain: true, ..Default::default() })));
@@ -177,7 +214,7 @@ fn panic_mid_song_still_releases() {
 
 #[test]
 fn invalid_mapping_value_errors_before_any_key() {
-    let state = State::new(1, 1.0, 120.0);
+    let state = State::new(1.0);
     let mut kb = FakeKb::default();
     assert!(playback_loop(&[ev(0.0, "ab", 0.1, 60)], &state, &mut kb, &PlayOpts::default()).is_err());
     assert!(kb.log().is_empty());

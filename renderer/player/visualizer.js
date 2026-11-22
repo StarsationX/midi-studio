@@ -5,8 +5,8 @@
 // from playback state that the engine owns. Presentation never drives timing:
 // if this file stops drawing, not one keystroke changes.
 //
-// The clock is local and extrapolating: elapsed = serverSync + wall delta.
-// Without it notes teleport between the engine's 20Hz progress packets.
+// The clock interpolates in original song seconds at the engine's current
+// rate, so the playhead stays on the same note across speed changes.
 //
 // Allocation discipline (the reason this file was rewritten): the old version
 // allocated a createLinearGradient, two colour-string concatenations, a
@@ -96,6 +96,7 @@
     // clock
     this.syncServerElapsed = 0;
     this.syncClientNowMs = 0;
+    this.clockRate = 1;
     this.frozenElapsed = null;   // non-null while paused
     this.playing = false;
     this.totalDuration = 0;
@@ -239,8 +240,9 @@
 
   // --- clock ---------------------------------------------------------------
 
-  Visualizer.prototype.startClock = function (totalDuration, startElapsed) {
-    this.syncServerElapsed = startElapsed || 0;
+  Visualizer.prototype.startClock = function (totalDuration, startElapsed, tempo) {
+    this.clockRate = tempo || 1;
+    this.syncServerElapsed = (startElapsed || 0) * this.clockRate;
     this.syncClientNowMs = performance.now();
     this.frozenElapsed = null;
     this.playing = true;
@@ -265,12 +267,13 @@
     if (this.dragLock) return;         // mid-scrub: the user's position wins
     var prev = this.elapsed();
     var frozen = p.frozen_elapsed;
-    this.frozenElapsed = (frozen === null || frozen === undefined) ? null : frozen;
-    this.syncServerElapsed = p.elapsed;
+    this.clockRate = p.tempo || 1;
+    this.frozenElapsed = frozen == null ? null : frozen * this.clockRate;
+    this.syncServerElapsed = p.elapsed * this.clockRate;
     this.syncClientNowMs = performance.now();
     // A backwards jump means a seek: the cull cursor is ahead of the playhead
     // and every note behind it would never reappear.
-    if (p.elapsed + 0.2 < prev) this.cursor = this._cursorAt(p.elapsed - 0.3);
+    if (this.syncServerElapsed + 0.2 < prev) this.cursor = this._cursorAt(this.syncServerElapsed - 0.3);
   };
 
   // Optimistic local seek so the roll tracks a drag without the engine
@@ -286,7 +289,7 @@
   Visualizer.prototype.elapsed = function () {
     if (this.frozenElapsed !== null) return this.frozenElapsed;
     if (!this.playing) return this.syncServerElapsed;   // preview while stopped
-    return this.syncServerElapsed + (performance.now() - this.syncClientNowMs) / 1000;
+    return this.syncServerElapsed + (performance.now() - this.syncClientNowMs) * this.clockRate / 1000;
   };
 
   // First index that can still be visible at viewStart. Binary search, so a

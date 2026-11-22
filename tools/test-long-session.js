@@ -125,8 +125,9 @@ async function audioGraph() {
     stop() {}
   }
   const browser = { MIDI: { Soundfont: { acoustic_grand_piano: { C4: 'data:audio/mp3;base64,AAAA' } } } };
-  const file = path.join(__dirname, '..', 'renderer', 'soundfonts', 'player.js');
-  vm.runInNewContext(fs.readFileSync(file, 'utf8'), { window: browser, fetch });
+  browser.fetch = fetch;
+  load(browser, 'shared', 'note-voice.js');
+  load(browser, 'soundfonts', 'player.js');
   const context = {
     createBufferSource: () => new Node(),
     createGain: () => new Node(),
@@ -136,9 +137,9 @@ async function audioGraph() {
   const synth = browser.MidiStudioSoundfonts;
   await synth.prepare(context, 'grand_piano', [60]);
   for (let i = 0; i < 5000; i++) {
-    const source = synth.play(context, 'grand_piano', 60, i / 10, .07, 85);
-    assert.ok(source);
-    source.dispatchEvent(new Event('ended'));
+    const voice = synth.play(context, 'grand_piano', 60, i / 10, .07, 85);
+    assert.ok(voice);
+    voice.source.dispatchEvent(new Event('ended'));
   }
   assert.equal(connections.size, 0, 'finished notes retain no live Web Audio connections');
 }

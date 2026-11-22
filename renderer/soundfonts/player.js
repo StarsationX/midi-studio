@@ -196,21 +196,12 @@
     const envelope = context.createGain();
     const peak = preset.gain * Math.pow(Math.max(1, Math.min(127, Number(velocity) || 80)) / 127, 1.25);
     const hold = Math.max(elapsed > 0 ? 0.001 : 0.06, Number(duration) || 0.2);
-    const releaseAt = startTime + hold;
     source.buffer = buffer;
     source.playbackRate.value = playbackRate;
-    envelope.gain.setValueAtTime(0.0001, startTime);
-    envelope.gain.linearRampToValueAtTime(Math.max(0.0002, peak), startTime + Math.min(hold, elapsed > 0 ? 0.004 : preset.attack));
-    envelope.gain.setValueAtTime(Math.max(0.0002, peak), releaseAt);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, releaseAt + preset.release);
-    source.connect(envelope).connect(destination || context.destination);
-    source.addEventListener('ended', () => {
-      source.disconnect();
-      envelope.disconnect();
-    }, { once: true });
-    source.start(startTime, offset);
-    source.stop(releaseAt + preset.release + 0.05);
-    return source;
+    return new window.MidiStudioNoteVoice(source, envelope, destination || context.destination, startTime, hold, {
+      attack: elapsed > 0 ? 0.004 : preset.attack, initial: 0.0001, peak: Math.max(0.0002, peak),
+      floor: 0.0001, release: preset.release, padding: 0.05, offset,
+    });
   }
 
   // True when this pitch can be played from a decoded sample right now, so the

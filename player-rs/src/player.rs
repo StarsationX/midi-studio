@@ -1,147 +1,183 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Condvar, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Condvar, Mutex, MutexGuard};
+use std::time::Duration;
 
 use crate::keys::{Key, KeyAction, KeySink, Stroke};
 use crate::midi::NoteEvent;
 use crate::win::{perf, spin_until, HiResTimer, Sleeper, ThreadPriority};
 
-const PAUSE_POLL_SLICE: f64 = 0.025;
+const PRECISE_WAIT_WINDOW: f64 = 0.004;
 const CHORD_WINDOW: f64 = 0.003;
 const NULL_VK: u16 = 0xFF;
 
-/// threading.Event: set == open. `is_set` is a lock-free read for the hot loop.
-pub struct Gate {
-    flag: AtomicBool,
-    lock: Mutex<bool>,
-    cv: Condvar,
+// Notes, range bounds, seeks and held-key deadlines stay in 1× score seconds.
+// Only the conversion between score and wall time changes with the tempo.
+struct Transport {
+    score: f64,
+    wall: f64,
+    tempo: f64,
+    duration: f64,
+    pending_seek: Option<f64>,
+    started: bool,
+    stopped: bool,
+    user_paused: bool,
+    focus_lost: bool,
 }
 
-impl Gate {
-    pub fn new(set: bool) -> Self {
-        Gate { flag: AtomicBool::new(set), lock: Mutex::new(set), cv: Condvar::new() }
+impl Transport {
+    fn running(&self) -> bool {
+        self.started && !self.user_paused && !self.focus_lost
     }
 
-    pub fn is_set(&self) -> bool {
-        self.flag.load(Ordering::Acquire)
+    fn position(&self, now: f64) -> f64 {
+        if self.running() { self.score + (now - self.wall) * self.tempo } else { self.score }
     }
 
-    pub fn set(&self) {
-        let mut g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
-        *g = true;
-        self.flag.store(true, Ordering::Release);
-        self.cv.notify_all();
+    fn deadline(&self, score: f64) -> f64 {
+        self.wall + (score - self.score) / self.tempo
     }
 
-    pub fn clear(&self) {
-        let mut g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
-        *g = false;
-        self.flag.store(false, Ordering::Release);
+    fn anchor(&mut self, now: f64) {
+        self.score = self.position(now);
+        self.wall = now;
     }
 
-    pub fn wait(&self) {
-        let mut g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
-        while !*g {
-            g = self.cv.wait(g).unwrap_or_else(|e| e.into_inner());
-        }
+    fn set_tempo(&mut self, tempo: f64, now: f64) {
+        self.anchor(now);
+        self.tempo = tempo;
+    }
+
+    fn seek_to(&mut self, score: f64, now: f64) {
+        self.score = score.clamp(0.0, self.duration);
+        self.wall = now;
+        self.pending_seek = Some(self.score);
     }
 }
 
-/// An f64 slot; NaN stands for Python's None where the field is optional.
-pub struct AtomicF64(AtomicU64);
-
-impl AtomicF64 {
-    pub fn new(v: f64) -> Self {
-        AtomicF64(AtomicU64::new(v.to_bits()))
-    }
-    pub fn get(&self) -> f64 {
-        f64::from_bits(self.0.load(Ordering::Acquire))
-    }
-    pub fn set(&self, v: f64) {
-        self.0.store(v.to_bits(), Ordering::Release)
-    }
-    pub fn take(&self) -> f64 {
-        f64::from_bits(self.0.swap(f64::NAN.to_bits(), Ordering::AcqRel))
-    }
-    pub fn opt(&self) -> Option<f64> {
-        let v = self.get();
-        (!v.is_nan()).then_some(v)
-    }
+pub(crate) struct Progress {
+    pub tempo: f64,
+    pub elapsed: f64,
+    pub base_time: f64,
+    pub user_paused: bool,
+    pub focus_lost: bool,
 }
 
 pub struct State {
-    pub total_notes: usize,
-    pub total_duration: f64,
-    pub bpm: f64,
     pub played_count: AtomicUsize,
-    pub elapsed: AtomicF64,
-    pub pause: Gate,
-    pub stop: Gate,
-    paused_by: Mutex<(bool, bool)>,
-    user_paused: AtomicBool,
-    focus_lost: AtomicBool,
-    pub base_time: AtomicF64,
-    pub frozen_elapsed: AtomicF64,
-    pub seek_request: AtomicF64,
+    transport: Mutex<Transport>,
+    changed: Condvar,
 }
 
 impl State {
-    pub fn new(total_notes: usize, total_duration: f64, bpm: f64) -> Self {
+    pub fn new(tempo: f64) -> Self {
         State {
-            total_notes,
-            total_duration,
-            bpm,
             played_count: AtomicUsize::new(0),
-            elapsed: AtomicF64::new(0.0),
-            pause: Gate::new(true),
-            stop: Gate::new(false),
-            paused_by: Mutex::new((false, false)),
-            user_paused: AtomicBool::new(false),
-            focus_lost: AtomicBool::new(false),
-            base_time: AtomicF64::new(0.0),
-            frozen_elapsed: AtomicF64::new(f64::NAN),
-            seek_request: AtomicF64::new(f64::NAN),
+            transport: Mutex::new(Transport {
+                score: 0.0, wall: 0.0, tempo, duration: f64::INFINITY, pending_seek: None,
+                started: false, stopped: false, user_paused: false, focus_lost: false,
+            }),
+            changed: Condvar::new(),
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Transport> {
+        self.transport.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(crate) fn prepare(&self, duration: f64, start_score: f64) {
+        let mut t = self.lock();
+        t.duration = duration;
+        let start = t.pending_seek.unwrap_or(start_score);
+        t.seek_to(start, perf());
+    }
+
+    pub fn set_tempo(&self, tempo: f64) {
+        if !tempo.is_finite() || tempo <= 0.0 {
+            return;
+        }
+        let mut t = self.lock();
+        if t.tempo != tempo {
+            t.set_tempo(tempo, perf());
+            self.changed.notify_one();
+        }
+    }
+
+    pub fn seek(&self, elapsed: f64) {
+        if elapsed.is_finite() {
+            let mut t = self.lock();
+            let score = elapsed * t.tempo;
+            t.seek_to(score, perf());
+            self.changed.notify_one();
+        }
+    }
+
+    pub(crate) fn progress(&self) -> Progress {
+        let t = self.lock();
+        let elapsed = t.position(perf()) / t.tempo;
+        Progress {
+            tempo: t.tempo, elapsed, base_time: t.wall - t.score / t.tempo,
+            user_paused: t.user_paused, focus_lost: t.focus_lost,
         }
     }
 
     pub fn user_paused(&self) -> bool {
-        self.user_paused.load(Ordering::Acquire)
+        self.lock().user_paused
     }
 
     pub fn focus_lost(&self) -> bool {
-        self.focus_lost.load(Ordering::Acquire)
+        self.lock().focus_lost
     }
 
     pub fn set_user_paused(&self, paused: bool) {
-        let mut g = self.paused_by.lock().unwrap_or_else(|e| e.into_inner());
-        g.0 = paused;
-        self.user_paused.store(paused, Ordering::Release);
-        self.refresh(*g);
+        let mut t = self.lock();
+        t.anchor(perf());
+        t.user_paused = paused;
+        self.changed.notify_one();
     }
 
     pub fn set_focus_lost(&self, lost: bool) {
-        let mut g = self.paused_by.lock().unwrap_or_else(|e| e.into_inner());
-        g.1 = lost;
-        self.focus_lost.store(lost, Ordering::Release);
-        self.refresh(*g);
+        let mut t = self.lock();
+        t.anchor(perf());
+        t.focus_lost = lost;
+        self.changed.notify_one();
     }
 
-    fn refresh(&self, (user, focus): (bool, bool)) {
-        if user || focus {
-            self.pause.clear();
-        } else {
-            self.pause.set();
-        }
+    pub fn stopped(&self) -> bool {
+        self.lock().stopped
     }
 
     pub fn halt(&self) {
-        self.stop.set();
-        self.pause.set();
+        self.lock().stopped = true;
+        self.changed.notify_one();
     }
+}
 
-    fn seek_pending(&self) -> bool {
-        !self.seek_request.get().is_nan()
+#[cfg(test)]
+mod tests {
+    use super::State;
+
+    #[test]
+    fn live_tempo_preserves_score_and_retimes_only_remaining_distance() {
+        let state = State::new(0.5);
+        state.prepare(20.0, 3.0);
+        let mut t = state.lock();
+        t.wall = 100.0;
+        t.started = true;
+
+        t.set_tempo(2.0, 104.0);
+        assert_eq!(t.position(104.0), 5.0);
+        assert_eq!(t.deadline(7.0), 105.0);
+        t.set_tempo(0.25, 105.0);
+        assert_eq!(t.position(105.0), 7.0);
+        assert_eq!(t.deadline(8.0), 109.0);
+
+        t.anchor(109.0);
+        t.user_paused = true;
+        t.set_tempo(4.0, 200.0);
+        assert_eq!(t.position(500.0), 8.0);
+        assert_eq!(t.position(500.0) / t.tempo, 2.0);
     }
 }
 
@@ -294,9 +330,9 @@ impl Default for PlayOpts {
 /// The hot loop. Returns the per-note timing errors (seconds, against where
 /// each note belongs musically) when `collect_stats` is on.
 ///
-/// Sustain holds keys for each note's duration; releases sit on a min-heap in
-/// timeline seconds, so a pause (which shifts `base`) keeps them consistent.
-/// Pause, seek and stop release everything, and resuming never re-presses.
+/// Sustain releases live on a min-heap in score seconds; a tempo change
+/// changes their wall deadlines, not the keys being held. A pause or seek
+/// releases them, and resuming never re-presses them.
 pub fn playback_loop(events: &[NoteEvent], state: &State, sink: &mut dyn KeySink, opts: &PlayOpts) -> Result<Vec<f64>, String> {
     let strokes = events.iter().map(|e| Stroke::parse(&e.key)).collect::<Result<Vec<_>, _>>()?;
     let shifts = chord_aim_shifts(events, opts.inject_cost, opts.batch);
@@ -309,103 +345,77 @@ pub fn playback_loop(events: &[NoteEvent], state: &State, sink: &mut dyn KeySink
     let mut kb = Keyboard::new(sink);
 
     let total = events.len();
-    let mut base = perf();
-    state.base_time.set(base);
-    state.frozen_elapsed.set(f64::NAN);
-
     let mut i = 0;
-    while i < total {
-        if state.stop.is_set() {
+    {
+        let mut t = state.lock();
+        t.wall = perf();
+        t.started = true;
+    }
+    loop {
+        let mut t = state.lock();
+        if t.stopped {
             return Ok(errors);
         }
-
-        let seek = state.seek_request.take();
-        if !seek.is_nan() {
-            if !kb.held.is_empty() {
-                kb.release_all();
-            }
-            let target_t = seek.max(0.0);
-            i = events.iter().position(|e| e.t >= target_t).unwrap_or(total);
-            base = perf() - target_t;
-            state.base_time.set(base);
-            state.elapsed.set(target_t);
+        if let Some(score) = t.pending_seek.take() {
+            drop(t);
+            kb.release_all();
+            i = events.partition_point(|e| e.t < score);
             state.played_count.store(i, Ordering::Release);
-            state.frozen_elapsed.set(if state.pause.is_set() { f64::NAN } else { target_t });
-            if i >= total {
-                break;
-            }
+            continue;
         }
-
-        let mut t_sec = events[i].t;
-        let mut aim_shift = shifts[i];
-        let range_finished = matches!(opts.end_at, Some(end) if t_sec >= end);
-        if range_finished {
-            t_sec = opts.end_at.unwrap();
-            aim_shift = 0.0;
-        }
-
-        loop {
-            if state.stop.is_set() {
-                return Ok(errors);
+        if !t.running() {
+            if !kb.held.is_empty() {
+                drop(t);
+                kb.release_all();
+            } else {
+                drop(state.changed.wait(t).unwrap_or_else(|e| e.into_inner()));
             }
-            if !state.pause.is_set() {
-                if !kb.held.is_empty() {
-                    kb.release_all();
-                }
-                let ps = perf();
-                state.frozen_elapsed.set(ps - base);
-                state.pause.wait();
-                if state.stop.is_set() {
-                    return Ok(errors);
-                }
-                base += perf() - ps;
-                state.base_time.set(base);
-                state.frozen_elapsed.set(f64::NAN);
-            }
-
-            let target = base + t_sec - opts.latency - aim_shift;
-            let mut interrupted = false;
-            loop {
-                if state.stop.is_set() {
-                    return Ok(errors);
-                }
-                if state.seek_pending() {
-                    interrupted = true;
-                    break;
-                }
-                if !kb.heap.is_empty() {
-                    kb.release_due(perf() - base);
-                }
-                let remaining = target - perf();
-                if remaining <= 0.0 {
-                    break;
-                }
-                if !state.pause.is_set() {
-                    interrupted = true;
-                    break;
-                }
-                if remaining > spin {
-                    sleeper.sleep((remaining - spin).min(PAUSE_POLL_SLICE));
-                } else {
-                    spin_until(target);
-                    break;
-                }
-            }
-            if !interrupted || state.seek_pending() {
-                break;
-            }
-        }
-
-        if state.seek_pending() {
             continue;
         }
 
-        if range_finished {
-            state.elapsed.set(opts.end_at.unwrap());
-            kb.release_all();
-            state.stop.set();
-            return Ok(errors);
+        let now = perf();
+        let score = t.position(now);
+        let release = kb.heap.peek().map(|Reverse(Due(at, _))| *at);
+        if release.is_some_and(|at| at <= score) {
+            drop(t);
+            kb.release_due(score);
+            continue;
         }
+        let next = events.get(i);
+        let range_end = opts.end_at.filter(|end| next.is_none_or(|e| e.t >= *end));
+        let onset = next.filter(|_| range_end.is_none());
+        // Injection compensation is measured in wall seconds, not score seconds.
+        let boundary = range_end.map(|end| t.deadline(end)).or_else(|| {
+            onset.map(|e| t.deadline(e.t) - opts.latency - shifts[i])
+        });
+        let target = match (boundary, release) {
+            (Some(b), Some(r)) => b.min(t.deadline(r)),
+            (Some(b), None) => b,
+            (None, Some(r)) => t.deadline(r),
+            (None, None) => break,
+        };
+        let remaining = target - now;
+        if remaining > PRECISE_WAIT_WINDOW {
+            // A fast tempo change can bring the next note much closer. Wake
+            // immediately on control changes; keep the high-resolution tail.
+            let wait = Duration::from_secs_f64((remaining - PRECISE_WAIT_WINDOW).min(3600.0));
+            drop(state.changed.wait_timeout(t, wait).unwrap_or_else(|e| e.into_inner()));
+            continue;
+        }
+        if remaining > 0.0 {
+            drop(t);
+            if remaining > spin { sleeper.sleep(remaining - spin) } else { spin_until(target) }
+            continue;
+        }
+        if boundary.is_none_or(|b| now < b) {
+            continue; // rounding at a release deadline; resample the clock
+        }
+        if range_end.is_some() {
+            break;
+        }
+        let beat = t.deadline(events[i].t);
+        let min_hold = 0.03 * t.tempo;
+        drop(t);
 
         let mut j = i + 1;
         if opts.batch {
@@ -416,8 +426,7 @@ pub fn playback_loop(events: &[NoteEvent], state: &State, sink: &mut dyn KeySink
         let actual = perf();
         for k in i..j {
             if opts.sustain {
-                let d = events[k].dur;
-                kb.hold(&strokes[k], events[k].t + if d > 0.03 { d } else { 0.03 });
+                kb.hold(&strokes[k], events[k].t + events[k].dur.max(min_hold));
             } else {
                 kb.tap(&strokes[k]);
             }
@@ -425,22 +434,13 @@ pub fn playback_loop(events: &[NoteEvent], state: &State, sink: &mut dyn KeySink
         kb.flush();
 
         state.played_count.store(j, Ordering::Release);
-        state.elapsed.set(actual - base);
         if opts.collect_stats {
-            for e in &events[i..j] {
-                errors.push(actual - (base + e.t));
-            }
+            errors.resize(errors.len() + j - i, actual - beat);
         }
         i = j;
     }
 
-    while !kb.heap.is_empty() && !state.stop.is_set() {
-        kb.release_due(perf() - base);
-        if !kb.heap.is_empty() {
-            sleeper.sleep(PAUSE_POLL_SLICE);
-        }
-    }
-    state.stop.set();
+    state.halt();
     Ok(errors)
 }
 

@@ -57,9 +57,13 @@ impl Harness {
     }
 
     fn wait(&self, at: usize, kind: &str) -> Value {
+        self.wait_for(at, kind, |_| true)
+    }
+
+    fn wait_for(&self, at: usize, kind: &str, accept: impl Fn(&Value) -> bool) -> Value {
         let end = Instant::now() + Duration::from_secs(20);
         while Instant::now() < end {
-            if let Some(e) = self.since(at).into_iter().find(|e| e["event"] == kind) {
+            if let Some(e) = self.since(at).into_iter().find(|e| e["event"] == kind && accept(e)) {
                 return e;
             }
             std::thread::sleep(Duration::from_millis(5));
@@ -96,6 +100,7 @@ fn bridge_speaks_ipc_main() {
     for cmd in ["stop", "pause", "resume", "toggle_pause", "seek"] {
         h.send(json!({"cmd": cmd, "time": 3}));
     }
+    h.send(json!({"cmd": "set_tempo", "tempo": 2.0}));
     assert_eq!(h.since(at), vec![json!({"event": "log", "level": "info", "message": "Stop requested."})]);
 
     let dir = std::env::temp_dir().join(format!("midi-player-proto-{}", std::process::id()));
@@ -135,12 +140,47 @@ fn bridge_speaks_ipc_main() {
                   "countdown": 0, "stats": true, "sustain": true}));
     let started = h.wait(at, "playback_started");
     assert_eq!(started, json!({"event": "playback_started", "total_notes": 6, "duration": 3.2,
-                               "bpm": 150.0, "start_elapsed": 0.0}));
+                               "bpm": 150.0, "start_elapsed": 0.0, "tempo": 1.0}));
     let done = h.wait(at, "playback_done");
     assert_eq!(done["sent"], 6);
     assert_eq!(done["stats"]["notes"], 6);
     let kinds: Vec<String> = h.since(at).iter().map(|e| e["event"].as_str().unwrap().to_string()).collect();
     assert!(kinds.contains(&"progress".to_string()));
+
+    let at = h.mark();
+    h.send(json!({"cmd": "play", "midi_path": midi, "target_hwnd": target, "mapping": "roblox",
+                  "tempo": 0.5, "start_at": 1.4, "end_at": 5.4, "countdown": 1, "stats": true}));
+    h.send(json!({"cmd": "pause"}));
+    h.wait(at, "countdown");
+    h.send(json!({"cmd": "set_tempo", "tempo": 2.0}));
+    let started = h.wait(at, "playback_started");
+    assert_eq!(started["tempo"], 2.0);
+    assert_eq!(started["bpm"], 300.0);
+    assert_eq!(started["duration"], 1.6);
+    assert_eq!(started["start_elapsed"], 0.35, "the range starts at score second 0.7");
+    let paused = h.wait_for(at, "progress", |e| e["played"] == 2);
+    assert_eq!(paused["tempo"], 2.0);
+    assert_eq!(paused["user_paused"], true);
+    assert_eq!(paused["frozen_elapsed"], 0.35);
+
+    h.send(json!({"cmd": "set_tempo", "tempo": 0.5}));
+    let paused = h.wait_for(at, "progress", |e| e["tempo"] == 0.5);
+    assert_eq!(paused["played"], 2);
+    assert_eq!(paused["elapsed"], 1.4);
+    assert_eq!(paused["frozen_elapsed"], 1.4);
+    h.send(json!({"cmd": "seek", "time": 3.8})); // 1.9 score seconds at 0.5×
+    h.send(json!({"cmd": "set_tempo", "tempo": 4.0}));
+    let paused = h.wait_for(at, "progress", |e| e["tempo"] == 4.0 && e["played"] == 4);
+    assert_eq!(paused["frozen_elapsed"], 0.475);
+    assert_eq!(paused["user_paused"], true);
+    h.send(json!({"cmd": "resume"}));
+    let done = h.wait(at, "playback_done");
+    assert_eq!(done["sent"], 5, "the original range end still excludes the onset at 3.0");
+    assert_eq!(done["stats"]["notes"], 1, "only the onset at 2.4 was played");
+    let session = h.since(at);
+    for event in ["countdown", "playback_started", "playback_done"] {
+        assert_eq!(session.iter().filter(|e| e["event"] == event).count(), 1, "{event}");
+    }
 
     let at = h.mark();
     h.send(json!({"cmd": "play", "midi_path": midi, "target_hwnd": target, "mapping": "roblox", "countdown": 2}));

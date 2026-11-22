@@ -190,12 +190,12 @@ function onEngineEvent(evt) {
       $('count').hidden = true;
       playing = true; paused = false; focusLost = false;
       autoShown = false;
-      viz.startClock(totalDuration, evt.start_elapsed || 0);
+      viz.startClock(totalDuration, evt.start_elapsed, evt.tempo);
       paintChrome();
       break;
 
     case 'progress':
-      viz.clockSet({ elapsed: evt.elapsed, frozen_elapsed: evt.frozen_elapsed });
+      viz.clockSet(evt);
       playedCount = evt.played || 0;
       if (evt.total_notes) totalNotes = evt.total_notes;
       if (!!evt.focus_lost !== focusLost || !!evt.user_paused !== paused) {
