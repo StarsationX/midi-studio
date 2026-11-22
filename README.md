@@ -1,147 +1,69 @@
-<div align="center">
+# MIDI Studio
 
-<img src="docs/img/logo.png" alt="MIDI Studio" width="420">
+Turn a recording into MIDI, fix the notes in a piano roll, and hear the result. You can also play a MIDI into a game or virtual piano that accepts keyboard input.
 
-**Turn a song into MIDI, edit it, and play it back on any keyboard.**
+**[Download MIDI Studio for Windows x64](https://github.com/StarsationX/midi-studio/releases/latest)** · [What’s new](CHANGELOG.md)
 
-[![Download](https://img.shields.io/github/v/release/StarsationX/midi-studio?label=download&style=for-the-badge&color=b6f000&labelColor=141414)](https://github.com/StarsationX/midi-studio/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/StarsationX/midi-studio/total?style=for-the-badge&color=141414&labelColor=141414)](https://github.com/StarsationX/midi-studio/releases)
-[![License](https://img.shields.io/badge/license-MIT-141414?style=for-the-badge&labelColor=141414)](./LICENSE)
-[![Windows](https://img.shields.io/badge/windows-x64-141414?style=for-the-badge&labelColor=141414)](https://github.com/StarsationX/midi-studio/releases/latest)
+Under **Assets**, download `MIDI-Studio-<version>-Setup.exe` and run it. This is the **Rust/Tauri** edition. You don’t need to install Python to listen, edit MIDI, or use the keyboard player. The installer is not code-signed, so Windows SmartScreen may show an unknown-publisher warning.
 
-<img src="docs/img/player.png" alt="MIDI Studio playing a transcription" width="900">
+**Already using MIDI Studio?** Install over your existing copy; don’t uninstall it first. Keep your Forge storage folder so setup can preserve your Medley model. The app checks GitHub for updates and verifies the installer’s SHA-256 before launching it. Click the version badge to check manually.
 
-</div>
+![Player showing a falling-note piano roll above the keyboard](docs/img/player.png)
 
----
+## Start with the file you have
 
-## What it does
+| I have… | What to do first |
+|---|---|
+| **A MIDI file I want to hear** | Open **Listen → Open MIDI and play**, then choose your `.mid` file. The built-in instruments play it directly; no game, target window, or model needed. |
+| **An MP3 or WAV I want to turn into notes** | In **Forge**, select **Choose audio…**, pick your recording, choose **Fast**, then **Create MIDI**. Open the finished file from **Results**. Fast works without the Medley model. |
+| **A MIDI file with notes I want to fix** | Open it in **Editor**. Move, add, or delete notes in the piano roll, listen back, then save. When you have the original recording, use its waveform to check the timing. |
+| **A MIDI file I want to play in a game** | Open the game first. In **Player**, open the MIDI, select the game window under **Target**, and choose a keyboard mapping that matches the game. Press **Play**. Playback pauses if the target loses focus. |
 
-Six workspaces, one window. Drop a song in the first, and it comes out the other end as something
-you can actually play.
+If Forge shows **Set up audio conversion** instead of **Create MIDI**, check the free space shown, choose a storage folder, and select **Install**. Some engines download several GB. Your recording stays selected. Skip this step if you only want to listen to or edit MIDI.
 
-|  | | |
-|---|---|---|
-| **Midi Forge** | Song → MIDI | Feed it an audio file or a YouTube/SoundCloud link. AI source separation splits the mix, then transcription turns the part you care about into notes: piano, full mix, a synth lead, or a full drum kit — kick, snare, closed and open hat, three toms, crash and ride. |
-| **Midi Player** | MIDI → keystrokes | Plays a MIDI into any other Windows app by simulating keypresses, for Roblox piano games, [virtualpiano.net](https://virtualpiano.net), or anything else that listens to a keyboard. Live piano roll, global hotkeys, tempo and transpose, and it pauses itself when the target window loses focus. |
-| **Midi Editor** | Fix the transcription | Piano-roll editing against the original waveform. Edit notes, MIDI controllers, and named markers with undo/redo, then save or export. |
-| **Self Midi** | Just listen | Plays a MIDI inside the app with bundled General MIDI instruments, no game or target window needed. |
-| **Library** | Organize MIDI | Search, filter, tag, and favorite your files, then open them in any workspace. |
-| **Logs** | Inspect activity | Review conversion and playback events, filter errors, and copy diagnostics. |
+You can reopen **Getting started** from the sidebar. In **Player**, **Listen**, and **Editor**, you can slow down a tricky passage without restarting the song. Changing speed while paused keeps your place.
 
-In **Midi Forge → Medley** (formerly Expressive Piano), the Rust engine follows
-the vocal and instrumental melody with the right hand and voices bass and chords
-for the left. **Melody** is a separate lead-only mode.
+## Make a two-hand piano arrangement
 
-<table>
-<tr>
-<td width="50%"><img src="docs/img/forge.png" alt="Midi Forge"><br><sub><b>Midi Forge</b> — pick a pipeline, drop a song</sub></td>
-<td width="50%"><img src="docs/img/review.png" alt="Midi Editor"><br><sub><b>Midi Editor</b> — notes against the original audio</sub></td>
-</tr>
-<tr>
-<td width="50%"><img src="docs/img/audition.png" alt="Self Midi"><br><sub><b>Self Midi</b> — your library, played in-app</sub></td>
-<td width="50%"><img src="docs/img/player.png" alt="Midi Player"><br><sub><b>Midi Player</b> — live roll, mapped to a real keyboard</sub></td>
-</tr>
-</table>
+**Medley** (formerly **Expressive Piano**) arranges a recording for two hands: the right hand follows vocal and instrumental melodies, while the left plays bass and chords. Choose **Melody** instead if you want only the lead line.
 
-## Download
+Medley uses the original six-stem separator. The public installer **does not bundle, download, or substitute** that model.
 
-**[⬇ Get the latest installer](https://github.com/StarsationX/midi-studio/releases/latest)** —
-grab `MIDI-Studio-<version>-Setup.exe` and run it. Windows x64.
+- **On an existing installation:** Setup checks for the original model before replacing the app. If it can’t safely preserve it, setup stops. If you used a portable copy, keep it until the new app shows Medley is ready.
+- **On a new PC with your own model:** Open **Forge → Medley → Import existing Medley model → Choose local model…** and select `bsrofo_sw_body.onnx`. Studio verifies the file before using it.
+- **If you only have `BS-Rofo-SW-Fixed.ckpt`:** Keep its matching YAML file. Offline conversion also needs your original local Forge Python and MSST installation. The checkpoint alone isn’t enough.
 
-**No separate Python install is required.** The Player, Editor, and Self Midi tabs work the moment
-setup finishes.
+Once Medley is ready, choose a recording and select **Create MIDI**. From **Results**, open the arrangement in **Editor** to adjust it or **Listen** to hear it.
 
-On first launch, **Getting started** lets you choose what you want to do. Open it again
-from the sidebar at any time.
+## Other things you can do
 
-- **Listen to a MIDI file:** select **Open MIDI and play**. No Forge download needed.
-- **Turn audio into MIDI:** select **Choose audio…**, pick your recording, then choose
-  **Medley** for a two-hand piano arrangement. Select **Create MIDI**. The finished
-  file appears in **Results**, where you can listen to it or open its folder.
-- If the selected engine needs installation, the same button opens **Set up audio
-  conversion**. Check the free space shown, keep the suggested folder or change it,
-  then choose **Install**. This can download several GB. If the engine is ready,
-  skip setup. Your audio stays selected either way.
+- **Import a MuseScore score without transcribing audio.** Paste the score link into Forge and choose **Get MIDI**. If the public player delivers a MIDI, Studio opens that file unchanged in Editor. Other supported links, such as YouTube and SoundCloud, import **audio** for transcription instead.
+- **Edit expression as well as pitch.** Editor supports modulation, volume, pan, expression, sustain, and named MIDI markers. Controller edits are saved to the MIDI file; the in-app note preview doesn’t perform them.
+- **Find a song or diagnose a job.** Use **Library** to search, tag, or favorite a file. If a conversion fails, open **Logs** to copy its diagnostics.
 
-**Medley model:** The public installer does not include or fetch the six-stem
-separator. **Updating? Install over the old app; don't uninstall it first.**
-Setup checks for the original model before removing old files. If it can't
-preserve or verify the model, it stops and leaves the old installation in place.
-Keep your existing Forge storage folder. If you used a portable copy, keep it
-until Medley is ready in the new installation.
+## Build the Rust edition
 
-On a new PC, open **Midi Forge → Medley → Import existing Medley model →
-Choose local model…** and select your `bsrofo_sw_body.onnx`. If you only have
-`BS-Rofo-SW-Fixed.ckpt`, keep its original sibling YAML; conversion also needs
-the original local Forge Python and MSST installation. Studio accepts only the
-original tested graph. No model yet? **Fast** still converts audio, and you
-can listen to and edit MIDI files without setting up Medley.
+The shipped Windows app uses [Tauri](src-tauri/) with a WebView2 interface, an [in-process Rust keyboard player](player-rs/), and the [Rust Forge engine](forge-rs/). Some optional conversion tools still use [Python](python-engine/). The [Electron host](electron/) is legacy: `npm start` and `npm run build:nsis` are **not** the Rust build.
 
-> [!NOTE]
-> Windows SmartScreen will say "unknown publisher" — the build isn't code-signed yet.
-> Choose **More info → Run anyway**.
-
-## Updates
-
-The app checks [Releases](https://github.com/StarsationX/midi-studio/releases) a few seconds after
-launch, or on demand from the version badge. It verifies the download's SHA-256 against the digest
-GitHub publishes for the release asset, then applies it through the full installer. Toggle it off in
-**⚙ Settings** if you'd rather update by hand.
-
-## Build from source
+For Windows development, install Git, Node.js with npm, Rust stable (MSVC), the Visual Studio C++ Build Tools with a Windows SDK, and WebView2. To work on the desktop and player without packaging Forge models:
 
 ```powershell
 git clone https://github.com/StarsationX/midi-studio.git
 cd midi-studio
-npm install
-
-npm start            # dev run (needs Python 3.10+ with the player deps on PATH)
-npm test             # unit tests
-npm run build:nsis   # -> dist/MIDI-Studio-<version>-Setup.exe
-npm run build:tauri  # Rust Forge + Tauri installer in src-tauri/target/release/bundle/nsis/
+npm ci
+cargo run --locked --manifest-path src-tauri/Cargo.toml --bin midi-studio
 ```
 
-`build:nsis` builds the Electron edition with a bundled Python player.
-`build:tauri` builds the native Windows edition and requires Rust and the Visual Studio C++
-build tools. Its Player runs in-process in Rust. Both hosts use the same renderer.
+For a **full installer**, staging also needs Python 3.11+ and the verified Transkun 2.0.1 exports. Point `MIDI_STUDIO_MODELS_DIR` at a directory containing those exports under `onnx/`. The [staging script](tools/stage_native_assets.py) lists the exact filenames and hashes. The private Medley separator is **not** a build input.
 
-The Editor saves modulation (CC1), volume (CC7), pan (CC10), expression (CC11), sustain
-(CC64), and named MIDI markers. Other imported control changes also survive export.
-The Editor's local audition remains a note preview; controller changes are written to the MIDI file.
-
-Paste a MuseScore score link into Forge and choose **Get MIDI** (or press Enter).
-An isolated browser loads the public player and saves the MIDI response unchanged,
-then opens the file in Editor. This path does not need Forge's Python/model setup.
-Other supported URLs import **audio** through yt-dlp for transcription.
-If the public player does not deliver MIDI, the job reports an error without creating a file.
-
-The public piano-player route was informed by
-[ingui-n/musescore-downloader](https://github.com/ingui-n/musescore-downloader) (MIT).
-MIDI Studio uses its desktop browser's response capture and does not bundle the extension.
-
-Downloader regression tests: `python tools/test_yt_download.py` (no network or yt-dlp install required).
-
-## How it's put together
-
-```
-electron/        main process, Python sidecar manager, forge runner/provisioner, updater
-src-tauri/       native Windows host, IPC, document I/O, updater, and Forge management
-player-rs/       native MIDI playback and keyboard engine
-forge-rs/        native transcription and separation pipelines
-renderer/        shell + the Forge, Player, Editor, and Self Midi tabs
-python-engine/   midi_player.py + ipc_main.py       (playback engine)
-                 song_to_midi / transcribe / ...    (forge pipeline)
-                 provision_forge.py                 (the dependency downloader)
-.github/         CI: build on Windows, publish on a v* tag
+```powershell
+npm run build:tauri
 ```
 
-The shared HTML/CSS/JavaScript interface runs in Tauri or Electron. Tauri hosts the Rust
-Player in-process; Electron supports the Rust or Python sidecar. Forge supports native
-Rust pipelines and Python processing.
+The application is `src-tauri\target\release\MIDI Studio.exe`. The Windows installer is under `src-tauri\target\release\bundle\nsis\`.
 
-UI direction and design-guide credits are recorded in [DESIGN.md](./DESIGN.md).
+## License and credits
 
-## License
+MIDI Studio’s code is [MIT-licensed](LICENSE). Bundled models, instruments, fonts, and runtimes have [separate licenses and credits](third-party/THIRD-PARTY.txt); in particular, the GAME model weights are licensed for noncommercial use under CC BY-NC-SA 4.0.
 
-MIT — see [LICENSE](./LICENSE).
+The MuseScore public-player import was informed by [ingui-n/musescore-downloader](https://github.com/ingui-n/musescore-downloader); its extension is not bundled. See [DESIGN.md](DESIGN.md) for interface credits.
