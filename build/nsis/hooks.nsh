@@ -276,9 +276,9 @@ FunctionEnd
         StrCpy $3 "$3 --keep-shortcuts"
       ${EndIf}
       ClearErrors
-      SetOutPath "$PLUGINSDIR"
-      CopyFiles /SILENT "$MsElectronDir\${MS_ELECTRON_UNINSTALLER}" "$PLUGINSDIR\electron-uninstaller.exe"
-      ${If} ${Errors}
+      ; Copy to one exact file (not Shell CopyFiles' directory semantics).
+      System::Call 'kernel32::CopyFileW(w "$MsElectronDir\${MS_ELECTRON_UNINSTALLER}", w "$PLUGINSDIR\electron-uninstaller.exe", i 0) i.r0'
+      ${If} $0 = 0
         MessageBox MB_ICONSTOP|MB_OK "Could not copy the previous uninstaller. Remove the old version from Settings > Apps first." /SD IDOK
         Abort
       ${EndIf}
@@ -290,8 +290,16 @@ FunctionEnd
         MessageBox MB_ICONSTOP|MB_OK "Could not verify the previous uninstaller. Remove the old version from Settings > Apps first." /SD IDOK
         Abort
       ${EndIf}
-      nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "if ((Get-FileHash -LiteralPath '.\electron-uninstaller.exe' -Algorithm SHA256).Hash -ne '${MS_ELECTRON_UNINSTALLER_SHA256}') { exit 1 }"`
-      Pop $0
+      ; nsExec's child cwd is not $OUTDIR. Hash the very file locked above
+      ; without module lookup or interpreting a filesystem path as shell code.
+      System::Call 'kernel32::SetEnvironmentVariableW(w "MS_STUDIO_LEGACY_UNINSTALLER", w "$PLUGINSDIR\electron-uninstaller.exe") i.r0'
+      ${If} $0 != 0
+        SetOutPath "$SYSDIR"
+        nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "try { $$f=[IO.File]::OpenRead($$env:MS_STUDIO_LEGACY_UNINSTALLER); try { $$h=[BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($$f)).Replace('-',''); if ($$h -eq '${MS_ELECTRON_UNINSTALLER_SHA256}') { exit 0 } } finally { $$f.Dispose() } } catch { }; exit 1"`
+        Pop $0
+      ${Else}
+        StrCpy $0 1
+      ${EndIf}
       ${If} $0 != 0
         System::Call 'kernel32::CloseHandle(p r5)'
         MessageBox MB_ICONSTOP|MB_OK "This is not the published MIDI Studio 3.0.1 uninstaller. To keep your data, remove the old version from Settings > Apps without deleting app data, then run this setup again." /SD IDOK
