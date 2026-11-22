@@ -182,6 +182,7 @@
       },
       forge: {
         check: c('forge:check'),
+        importMedleyModel: c('forge:importMedleyModel'),
         provision: c('forge:provision'),
         cancelProvision: c('forge:provision:cancel'),
         run: c('forge:run'),

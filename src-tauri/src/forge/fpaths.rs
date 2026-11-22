@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
-use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY};
+use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY, KEY_WOW64_64KEY};
 use winreg::RegKey;
 
 use crate::paths::{engine_dir, home_dir, user_data_dir};
@@ -161,14 +161,20 @@ pub fn models_dir(p: &ForgePaths) -> PathBuf {
         return PathBuf::from(&p.models_dir);
     }
     let in_forge = forge_env_dir(p).join("models");
+    let legacy = legacy_forge_env_dir().join("models");
+    let fallback = if legacy.is_dir() { legacy } else { engine_dir().join("models") };
+    // Import may have created the default models folder for the first time.
+    // That must not mask an older model library used by the other modes.
+    if fallback.is_dir() && in_forge == legacy_default_forge_env_dir().join("models")
+        && std::fs::read_dir(&in_forge).is_ok_and(|mut rd| rd.all(|e|
+            e.is_ok_and(|entry| entry.file_name().eq_ignore_ascii_case("bs_rofo_sw"))))
+        && !in_forge.join("bs_rofo_sw/BS-Rofo-SW-Fixed.ckpt").exists() {
+        return fallback;
+    }
     if in_forge.exists() {
         return in_forge;
     }
-    let legacy = legacy_forge_env_dir().join("models");
-    if legacy.exists() {
-        return legacy;
-    }
-    engine_dir().join("models")
+    fallback
 }
 
 /// The Rust Forge engine: FORGE_RS_EXE, next to the app's exe (the
@@ -259,10 +265,32 @@ pub fn forge_child_env(p: &ForgePaths) -> EnvMap {
     forge_child_env_from(EnvMap::from_process(), p)
 }
 
+fn shared_medley_model() -> Option<&'static Path> {
+    // The all-users installer's copy lives outside both uninstall trees.
+    // Always use the native 64-bit Program Files, never an x86 registry view.
+    static MODEL: std::sync::LazyLock<Option<PathBuf>> = std::sync::LazyLock::new(|| {
+        let dir: String = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey_with_flags(r"SOFTWARE\Microsoft\Windows\CurrentVersion", KEY_READ | KEY_WOW64_64KEY).ok()?
+            .get_value("ProgramFilesDir").ok()?;
+        Some(PathBuf::from(dir).join("MIDI Studio Shared Models").join("bs_rofo_sw").join(super::medley::ONNX))
+    });
+    MODEL.as_deref()
+}
+
 pub fn forge_child_env_from(mut env: EnvMap, p: &ForgePaths) -> EnvMap {
     let engine = engine_dir().to_string_lossy().into_owned();
     env.set("MIDI_STUDIO_MODELS_DIR", &models_dir(p).to_string_lossy());
     env.set("MIDI_STUDIO_ENGINE_DIR", &engine);
+    // An imported or installer-preserved copy survives changes to the Forge
+    // storage setting. Do not redirect any of the other models to this folder.
+    let medley = super::medley::destination();
+    if medley.is_file() {
+        env.set("FORGE_RS_ROFO_MODEL", &medley.to_string_lossy());
+    } else if env.get("FORGE_RS_ROFO_MODEL").is_none_or(str::is_empty) {
+        if let Some(shared) = shared_medley_model().filter(|p| p.is_file()) {
+            env.set("FORGE_RS_ROFO_MODEL", &shared.to_string_lossy());
+        }
+    }
     env.set("MIDI_STUDIO_FORGE_ENV_DIR", &forge_env_dir(p).to_string_lossy());
     let pp = match env.get("PYTHONPATH").filter(|v| !v.is_empty()) {
         Some(old) => format!("{engine};{old}"),

@@ -1,6 +1,6 @@
 {
   "name": "midi-studio",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "releaseName": "Medley",
   "description": "Turn a song into MIDI, edit it, and play it back on any keyboard.",
   "author": "StarsationX",
@@ -39,13 +39,17 @@
     ],
     "extraResources": [
       {"from":"forge-rs/target/release/forge-rs.exe","to":"forge-rs/forge-rs.exe"},
-      {"from":"forge-rs/target/native-resources","to":"forge-rs/assets","filter":["**/*","!ort/**"]},
+      {"from":"forge-rs/target/native-resources","to":"forge-rs/assets","filter":["game/**/*.onnx","basic_pitch/nmp.onnx","onnx/transkun_v2*"]},
+      {"from":"forge-rs/target/native-resources/notices","to":"THIRD-PARTY"},
+      {"from":"forge-rs/tools/export_bsrofo_body.py","to":"python-engine/export_bsrofo_body.py"},
       {"from":"forge-rs/target/native-resources/ort","to":"forge-rs/ort-gpu"},
       {
         "from": "python-engine",
         "to": "python-engine",
         "filter": [
           "**/*",
+          "!models/**",
+          "!**/*.{ckpt,pth,pt,safetensors,onnx,data}",
           "!**/__pycache__/**",
           "!**/*.pyc",
           "!**/*.log",

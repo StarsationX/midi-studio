@@ -64,6 +64,20 @@ from the sidebar at any time.
   then choose **Install**. This can download several GB. If the engine is ready,
   skip setup. Your audio stays selected either way.
 
+**Medley model:** The public installer does not include or fetch the six-stem
+separator. **Updating? Install over the old app; don't uninstall it first.**
+Setup checks for the original model before removing old files. If it can't
+preserve or verify the model, it stops and leaves the old installation in place.
+Keep your existing Forge storage folder. If you used a portable copy, keep it
+until Medley is ready in the new installation.
+
+On a new PC, open **Midi Forge → Medley → Import existing Medley model →
+Choose local model…** and select your `bsrofo_sw_body.onnx`. If you only have
+`BS-Rofo-SW-Fixed.ckpt`, keep its original sibling YAML; conversion also needs
+the original local Forge Python and MSST installation. Studio accepts only the
+original tested graph. No model yet? **Fast** still converts audio, and you
+can listen to and edit MIDI files without setting up Medley.
+
 > [!NOTE]
 > Windows SmartScreen will say "unknown publisher" — the build isn't code-signed yet.
 > Choose **More info → Run anyway**.

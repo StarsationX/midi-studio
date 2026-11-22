@@ -387,18 +387,28 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
   ok(/"win:canClose" => json!\(true\)/.test(ipcRs), 'win:canClose has an answer when Forge is not loaded');
 }
 
-// forge:check with the Rust engine chosen asks forge-rs, not env_probe.py:
-// that import of torch costs 1.3 GB and seconds, and names a device Rust never uses.
+// Exercise the native bridge the renderer actually calls: mode-specific
+// checks cannot turn into global checks, and import opens a local picker.
 {
   const fsx = require('fs');
-  const rn = fsx.readFileSync(path.join(root, 'src-tauri', 'src', 'forge', 'runner.rs'), 'utf8');
-  const rc = /fn run_check\([\s\S]*?\r?\n    \}\r?\n/.exec(rn);
-  ok(!!rc, 'run_check is findable');
-  if (rc) {
-    const rustAt = rc[0].indexOf('ctx.forge_engine == "rust"');
-    ok(rustAt > 0 && rustAt < rc[0].indexOf('env_probe.py'), 'a ready Rust engine answers before env_probe.py is spawned');
-    ok(/return rust_verdict\(/.test(rc[0]), 'the Rust answer comes from rust_verdict');
-  }
+  const sent = [];
+  const window = { __TAURI__: {
+    core: { invoke: (command, data) => { sent.push({ command, ...data }); return Promise.resolve(null); } },
+    webviewWindow: { getCurrentWebviewWindow: () => ({ label: 'bridge-test' }) },
+    event: { listen: () => Promise.resolve(() => {}) },
+  } };
+  window.parent = window;
+  require('vm').runInNewContext(fsx.readFileSync(path.join(root, 'renderer/shared/bridge.js'), 'utf8'), { window, document: new EventTarget() });
+  window.forge.check({ mode: 'expressive', skipSeparation: false });
+  window.forge.check({ mode: 'piano', skipSeparation: true });
+  window.forge.check();
+  window.forge.importMedleyModel();
+  ok(sent.length === 4 && sent.every(r => r.command === 'ipc')
+    && sent.slice(0, 3).every(r => r.channel === 'forge:check')
+    && sent[0].args[0].mode === 'expressive' && sent[1].args[0].skipSeparation
+    && sent[2].args.length === 0, 'native mode probes preserve mode and stem selection separately from the global verdict');
+  ok(sent[3].channel === 'forge:importMedleyModel' && sent[3].args.length === 0,
+    'model import goes through the native picker, without renderer-supplied filesystem paths');
   const sh = fsx.readFileSync(path.join(root, 'renderer', 'shell', 'shell.js'), 'utf8');
   ok(!/no CUDA GPU was found/.test(sh), 'the CPU chip does not claim there is no GPU (Rust on CPU may sit on one)');
 }

@@ -1,0 +1,19 @@
+MIDI Studio — third-party components
+
+The application's MIT license does not relicense these files.
+
+GAME 1.0 series, medium: openvpi and the GAME contributors. Original ONNX exports (unchanged) from https://github.com/openvpi/GAME/releases/tag/v1.0.3. The pretrained weights, unlike the MIT inference code, are licensed under CC BY-NC-SA 4.0. Noncommercial use only; adaptations must be shared under the same license. Model credits and training data: https://github.com/openvpi/GAME/releases/tag/v1.0.0. Label contributors: 挚彬Club, YQ之神, 小狼 and 幽寂. See GAME-CC-BY-NC-SA-4.0.txt.
+
+Basic Pitch 0.4.0: Spotify. Unmodified nmp.onnx from the official basic-pitch wheel. Apache License 2.0; see BasicPitch-LICENSE and BasicPitch-NOTICE.
+
+Transkun 2.0.1: Yujia Yan and contributors. Model weights from the official transkun Python distribution, converted by MIDI Studio to ONNX, external data, JSON configuration and decoder tensors. See Transkun-LICENSE (MIT). https://pypi.org/project/transkun/2.0.1/
+
+ONNX Runtime 1.22.0: Microsoft Corporation. Unmodified x64 runtime, shared and CUDA providers from Microsoft.ML.OnnxRuntime.Gpu.Windows 1.22.0. See ORT-LICENSE and ORT-ThirdPartyNotices.txt. The installer does not provide NVIDIA CUDA or cuDNN.
+
+SoX Resampler Library (libsoxr), Rob Sykes and contributors: LGPL-2.1-or-later. The Forge executable statically links libsoxr and PFFFT via our float32 wrapper derived from python-soxr. See libsoxr-* and python-soxr-LICENSE.txt. You may modify the library and relink Forge, and reverse-engineer it for debugging such modifications. The accompanying forge-relink-source.zip contains the Forge Rust and C sources, build script and Cargo dependency lockfile. On x64 Windows with Rust stable (MSVC), Visual Studio C++ Build Tools and Windows SDK, unpack and run `cargo build --locked --release --bin forge-rs` to rebuild the executable. The runtime DLLs/model data are loaded at runtime and are not required to link it.
+
+FluidR3_GM sample instruments: Fluid SoundFont by Frank Wen and contributors, rendered by Benjamin Gleitzman's MIDI.js Soundfonts project (https://github.com/gleitz/midi-js-soundfonts). Selected MP3 instrument scripts, CC BY 3.0 US per upstream; see FluidR3-CC-BY-3.0-US.html. Generator/tooling: see FluidR3-MIDIjs-LICENSE.txt.
+
+Archivo and JetBrains Mono: SIL Open Font License 1.1; see the corresponding OFL texts. NCLS 0.0.70: see NCLS-LICENSE (also included inside its wheel). Rust library versions, licenses and corresponding source links appear in Rust-licenses.txt. Model and runtime archive sources and checksums appear in release-inputs.json; individual staged payload hashes appear in SHA256SUMS.txt.
+
+Microsoft WebView2 SDK loader, 1.0.3800.47: see WebView2-LICENSE.txt and WebView2-NOTICE.txt from the Microsoft.Web.WebView2 NuGet package (SHA-256 56c9f26bdd07916a2d1949fb58a5c7e434dfa1173577dca879206050c4e718db).

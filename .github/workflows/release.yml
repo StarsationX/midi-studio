@@ -26,7 +26,15 @@ permissions:
 concurrency: release-${{ github.ref }}
 
 jobs:
+  upgrade-smoke:
+    if: inputs.cleared && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write # draft assets are visible only to principals with push access
+    uses: ./.github/workflows/windows-upgrade-smoke.yml
+    with:
+      sha256: ${{ inputs.installer_sha256 }}
   publish:
+    needs: upgrade-smoke
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
@@ -59,6 +67,14 @@ jobs:
           grep -Ei '^Path = (.*[/\\])?forge-rs\.exe$' installer-files.txt
           if grep -Ei '^Path = (.*[/\\])?(app\.asar|app-(32|64|arm64)\.7z)$' installer-files.txt; then
             echo "Refusing an Electron payload."; exit 1
+          fi
+          if grep -Ei '^Path = .*(bs[_-]?rofo.*\.(onnx|ckpt|yaml)|\.ckpt)$' installer-files.txt; then
+            echo "Refusing restricted model payload."; exit 1
+          fi
+          7z x -tNsis "$INSTALLER_NAME" -oextracted >/dev/null
+          find extracted -type f -print0 | xargs -0 sha256sum > payload-hashes.txt
+          if grep -E '^(fa89f1997f7120f1eb3cac19e7590653d6e6b92ba9dd2d486645d86c0667aede|24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e) ' payload-hashes.txt; then
+            echo "Restricted weights found under another filename."; exit 1
           fi
 
       - name: Publish only the inspected asset as the latest stable release

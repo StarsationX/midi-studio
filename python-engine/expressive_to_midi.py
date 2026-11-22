@@ -41,13 +41,10 @@ def _sum_stems(stems, out):
 def _separate(src, work):
     backing = work / "backing.wav"
     if forge._resolve_backend() == "onnx_dml":
-        from download_assets import fetch_drums_onnx, fetch_mdx_onnx
         import separate_onnx_dml as mdx
 
-        if not forge.ONNX_MDX_MODEL.is_file() and not fetch_mdx_onnx():
-            raise RuntimeError("Could not download the DirectML instrumental separator.")
-        if not forge.ONNX_DRUMS_MODEL.is_file() and not fetch_drums_onnx():
-            raise RuntimeError("Could not download the DirectML drum separator.")
+        if not forge.ONNX_MDX_MODEL.is_file() or not forge.ONNX_DRUMS_MODEL.is_file():
+            raise RuntimeError("DirectML separation requires locally installed instrumental and drum models.")
         vocals = work / "vocals.wav"
         mdx.separate_vocals_backing(src, vocals, backing, forge.ONNX_MDX_MODEL, forge.ONNX_DRUMS_MODEL)
         return vocals, backing, None, None

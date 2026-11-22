@@ -465,7 +465,7 @@
 
   function setPipeline(v, persist) {
     if (!PIPELINES.includes(v)) return;
-    const changedEngine = (pipeline === 'expressive') !== (v === 'expressive');
+    const changedEngine = pipeline !== v;
     pipeline = v;
     syncPipelineUI();
     if (changedEngine) refreshEnv();
@@ -507,6 +507,7 @@
   on($('c-stems'), 'change', () => {
     stemsChoice = $('c-stems').value;
     syncStems();
+    refreshEnv();
     persistSettings({ skipSeparation: stemsChoice === 'skip' });
   });
 
@@ -1700,7 +1701,7 @@
   function updateStart() {
     const label = !inputPath ? 'Choose audio…' : envReady ? 'Create MIDI'
       : envState === 'checking' ? 'Checking engine…' : envState === 'unknown' ? 'Check engine again'
-      : envState === 'repair' ? 'Show missing files' : 'Set up audio conversion…';
+      : envState === 'import' ? 'Import existing Medley model…' : envState === 'repair' ? 'Show missing files' : 'Set up audio conversion…';
     $('start-label').textContent = label;
     const invalidRange = !!(envReady && inputPath && !validateTiming(false));
     $('start').disabled = busy || !!(inputPath && envState === 'checking' && !envReady) || invalidRange;
@@ -2205,9 +2206,14 @@
     let cached = null;
     const request = ++latestEnvRequest;
     const expressive = pipeline === 'expressive';
+    const native = !!F.importMedleyModel;
     const cacheKey = expressive ? ENV_CACHE_KEY + '.expressive' : ENV_CACHE_KEY;
     envState = 'checking';
-    try { cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); } catch (_) {}
+    // Native checks are mode-specific; never enable Create MIDI using an
+    // old verdict before this machine has checked the current files.
+    if (!native) {
+      try { cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); } catch (_) {}
+    }
     if (cached && cached.forgeReady) {
       envReady = true;
       envGpu = cached.gpu || '';
@@ -2218,15 +2224,19 @@
       setEnv('warn', 'Checking engine…');
       updateStart();
     }
-    refreshStorage();
     let s = null;
-    try { s = await F.check(expressive ? { mode: 'expressive' } : {}); } catch (_) { /* offer a recheck, not an install */ }
+    try {
+      s = await F.check(native ? { mode: pipeline, skipSeparation: skipSeparation() } : expressive ? { mode: 'expressive' } : {});
+    } catch (_) { /* offer a recheck, not an install */ }
     if (request !== latestEnvRequest) return;
     envReady = !!(s && s.forgeReady);
     envGpu = (s && s.gpu) || '';
     envMissing = (s && s.missing) || [];
-    envState = !s ? 'unknown' : envReady ? 'ready' : expressive && s.engine === 'rust' ? 'repair' : 'missing';
-    try { localStorage.setItem(cacheKey, JSON.stringify({ forgeReady: envReady, gpu: envGpu })); } catch (_) {}
+    envState = !s ? 'unknown' : envReady ? 'ready' : native && s.importMedleyModel ? 'import'
+      : expressive && s.engine === 'rust' ? 'repair' : 'missing';
+    if (!native) {
+      try { localStorage.setItem(cacheKey, JSON.stringify({ forgeReady: envReady, gpu: envGpu })); } catch (_) {}
+    }
     if (envReady) {
       setEnv('ok', envGpu ? 'Ready · ' + envGpu : 'Ready · CPU (slow)');
       if (!envGpu && !cpuNoticeShown) {
@@ -2236,41 +2246,47 @@
       closeSetup();
     } else if (envState === 'unknown') {
       setEnv('warn', 'Check again');
+    } else if (envState === 'import') {
+      setEnv('warn', 'Import existing Medley model');
     } else if (envState === 'repair') {
       setEnv('err', 'Medley files missing');
     } else {
       setEnv('err', 'Not set up' + (envMissing.length ? ' · missing ' + envMissing.join(', ') : ''));
     }
     if (!envReady && !$('setup-scrim').hidden) syncSetupAction();
-    // The GPU is only ever known here, and the probe is expensive: share it so
-    // the shell can cache the verdict for the next cold start.
-    if (Bus) Bus.send(T.FORGE_STATUS, { event: 'forge.env', forgeReady: envReady, gpu: envGpu, missing: envMissing });
+    // Only a global probe can update the shell's global engine chip.
+    if (Bus && !native && !expressive) Bus.send(T.FORGE_STATUS, { event: 'forge.env', forgeReady: envReady, gpu: envGpu, missing: envMissing });
     updateStart();
   }
   on($('env-recheck'), 'click', refreshEnv);
 
   // ---- modal -------------------------------------------------------------
   let setupReturn = null;
+  let importingModel = false;
   function syncSetupAction() {
+    const localModel = envState === 'import';
     const repair = envState === 'repair';
     const retry = envState === 'unknown';
-    $('setup-title').textContent = repair ? 'Restore the Medley files' : retry ? 'Couldn’t check the engine'
+    $('setup-title').textContent = localModel ? 'Import existing Medley model' : repair ? 'Restore the Medley files' : retry ? 'Couldn’t check the engine'
       : envReady ? 'Audio conversion is ready' : 'Set up audio conversion';
-    $('setup-description').textContent = repair
-      ? 'Extract the complete MIDI Studio Expressive folder again, keeping its files together. Then choose Check again. ' + envMissing.join('; ')
+    $('setup-description').textContent = localModel
+      ? 'Choose your existing bsrofo_sw_body.onnx. If you only have BS-Rofo-SW-Fixed.ckpt and its original YAML, an already installed Forge environment can convert it locally. Studio verifies the exact model and keeps your originals. No model is downloaded.'
+      : repair ? 'Other engine files are missing. Restore the application files from the installer, then check again. ' + envMissing.join('; ')
       : retry ? 'Check again before installing anything. You can still listen to or edit MIDI files.'
       : envReady ? 'This mode is ready to use. Close this window to make a MIDI. Install is optional and downloads additional engine tools.'
       : 'Audio conversion can need a one-time download of several GB. Listening to or editing MIDI needs no download. Choose Install when you’re ready.';
-    $('setup-store').hidden = repair || retry;
-    if (repair || retry) $('setup-prog').hidden = true;
-    if (!$('setup-start').disabled) $('setup-start').textContent = repair || retry ? 'Check again'
-      : envReady ? 'Install optional tools' : 'Install';
+    $('setup-store').hidden = localModel || repair || retry;
+    if (localModel || repair || retry) $('setup-prog').hidden = true;
+    $('model-import-status').hidden = !localModel;
+    if (!$('setup-start').disabled) $('setup-start').textContent = localModel ? 'Choose local model…'
+      : envState === 'checking' ? 'Checking engine…' : repair || retry ? 'Check again' : envReady ? 'Install optional tools' : 'Install';
   }
   function openSetup() {
     const scrim = $('setup-scrim');
     if (!scrim.hidden) return;
     setupReturn = document.activeElement;
     scrim.hidden = false;
+    if (!importingModel) $('model-import-status').textContent = '';
     syncSetupAction();
     requestAnimationFrame(() => scrim.classList.add('is-open'));
     refreshStorage();
@@ -2359,6 +2375,30 @@
   function noteSetupOutput() { setupHeard = true; clearTimeout(setupSilence); setupSilence = 0; }
 
   on($('setup-start'), 'click', async () => {
+    if (envState === 'checking' || importingModel) return;
+    if (envState === 'import') {
+      const button = $('setup-start'), status = $('model-import-status');
+      importingModel = true;
+      button.disabled = true;
+      status.textContent = 'Choose a local file. Checking an ONNX may take a moment; converting a checkpoint can take several minutes.';
+      try {
+        const r = await F.importMedleyModel();
+        if (r && r.ok) {
+          status.textContent = 'Model verified. Checking this mode…';
+          logLine('Verified local Medley model: ' + r.path);
+          await refreshEnv();
+        } else {
+          status.textContent = r && r.canceled ? 'Import canceled. Nothing changed.' : (r && r.error) || 'Model import failed.';
+        }
+      } catch (error) {
+        status.textContent = String((error && error.message) || error);
+      } finally {
+        importingModel = false;
+        button.disabled = false;
+        syncSetupAction();
+      }
+      return;
+    }
     if (envState === 'repair' || envState === 'unknown') { closeSetup(); refreshEnv(); return; }
     $('setup-start').disabled = true;
     try {
@@ -2668,9 +2708,8 @@
   if (F.getSettings) {
     F.getSettings().then((s) => {
       if (!s) return;
-      if (s.pipeline) setPipeline(s.pipeline, false);
       stemsChoice = s.skipSeparation ? 'skip' : 'separate';
-      syncStems();
+      if (PIPELINES.includes(s.pipeline)) pipeline = s.pipeline;
       if (s.timing) {
         timeEnabled = !!s.timing.enabled;
         $('time-start').value = s.timing.start || '';
@@ -2684,8 +2723,8 @@
       syncTimingControls();
       syncOutput();
       updateStart();
-    }).catch(() => {});
-  }
+    }).catch(() => {}).finally(() => later(250, refreshEnv));
+  } else { later(250, refreshEnv); }
 
   if (S.getUi) {
     S.getUi().then((u) => {
@@ -2729,9 +2768,6 @@
   // delivered the moment this lands.
   if (Bus) Bus.send(T.FRAME_READY, { frame: FRAME, title: 'Forge' });
 
-  // The env probe costs tens of seconds of Python; it must not delay first paint
-  // or the handshake.
-  later(250, refreshEnv);
 
   // Legacy hand-off entry point, harmless once frame:ready has been sent.
   window.setForgeInput = (p) => { if (p) addInputs([p], 'replace'); };

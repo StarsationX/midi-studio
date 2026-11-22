@@ -6,10 +6,12 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
-## 3.1.0 "Medley" — 2026-11-21
+## 3.1.1 "Medley" — 2026-11-22
 
 ### New
 
+- Medley uses the original separation model, not a replacement. Import your
+  existing model on a new PC; the public installer does not include or download it.
 - Getting started offers three first-launch paths: turn a recording into MIDI, listen
   to a MIDI file, or edit notes. Reopen it from the sidebar. Forge’s main button now
   offers the next step, and Listen can open and play a local MIDI without installing Forge.

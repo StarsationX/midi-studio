@@ -1,0 +1,6 @@
+{
+  "game.zip": ["https://github.com/openvpi/GAME/releases/download/v1.0.3/GAME-1.0.3-medium-onnx.zip", "5b7a21e64c6310efac399f5d12838fffa70565be162436b5a4a65f290721e7d8"],
+  "ort.nupkg": ["https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.gpu.windows/1.22.0/microsoft.ml.onnxruntime.gpu.windows.1.22.0.nupkg", "5496c77ed4ea1835caf27fe2f1cc3e52f68fc4a29c3dd84125b8e15c0e444daa"],
+  "basic.whl": ["https://files.pythonhosted.org/packages/99/0e/3a36d22562daeb0ae3c78ac78da3f8dba96543c5576ed57d4acb8ddbab5b/basic_pitch-0.4.0-py2.py3-none-any.whl", "738adb503aae7fdfc7d1e1511aa0ce35052315f260a19531ef4c356708425db0"],
+  "transkun.whl": ["https://files.pythonhosted.org/packages/a2/1f/1e04ac0f04583d593ecca935270401404ad45e88c9db7b249b67bde20a1b/transkun-2.0.1-py3-none-any.whl", "7d7f5bf88b0d21f7da0415b089cff3bcbcbdda04e1a3c9719964947942c859fe"]
+}

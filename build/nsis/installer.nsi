@@ -369,15 +369,55 @@ Function PageLeaveReinstall
   ${EndIf}
 
   reinst_uninstall:
-    HideWindow
+    ; The maintenance page can uninstall BEFORE the Install section runs.
+    Call MidiStudioPreserveMedley
     ClearErrors
 
     ${If} $WixMode = 1
-      ReadRegStr $R1 HKLM "$R6" "UninstallString"
-      ExecWait '$R1' $0
+      ; Use the registered product code, never command text from the registry.
+      ${GetFileName} "$R6" $R1
+      System::Alloc 16
+      Pop $2
+      System::Call 'ole32::CLSIDFromString(w r11, p r2) i.r3'
+      ${If} $3 <> 0
+        System::Free $2
+        MessageBox MB_ICONSTOP|MB_OK "Could not identify the previous Windows Installer product. Nothing was removed." /SD IDOK
+        Abort
+      ${EndIf}
+      System::Call 'ole32::StringFromGUID2(p r2, w .r11, i 39) i.r3'
+      System::Free $2
+      HideWindow
+      ExecWait '"$SYSDIR\msiexec.exe" /x $R1' $0
     ${Else}
       ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
-      ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
+      ; Never execute command text from a per-user uninstall registry entry.
+      ${If} $4 == ""
+        MessageBox MB_ICONSTOP|MB_OK "Cannot identify the old installation directory; nothing was removed." /SD IDOK
+        Abort
+      ${EndIf}
+      ${If} $MsMedleyParentElevated != 0
+        !if "${INSTALLMODE}" == "both"
+          ${If} $MultiUser.InstallMode == "AllUsers"
+            Call MidiStudioCheckMachineUninstaller
+            ${IfThen} $MsMedleyStatus == 0 ${|} Goto trusted_tauri_uninstaller ${|}
+          ${EndIf}
+        !else if "${INSTALLMODE}" == "perMachine"
+          Call MidiStudioCheckMachineUninstaller
+          ${IfThen} $MsMedleyStatus == 0 ${|} Goto trusted_tauri_uninstaller ${|}
+        !endif
+        ; Even a correctly named old executable may be writable by a normal
+        ; user. Use the supported in-place upgrade instead of elevating it.
+        ${If} $R0 = 0
+        ${AndIf} $R1 = 0
+          MessageBox MB_ICONSTOP|MB_OK "The model check has finished. To uninstall without reinstalling, use Windows Settings > Apps." /SD IDOK
+          Abort
+        ${EndIf}
+        DetailPrint "Updating in place without elevating the old uninstaller."
+        Goto reinst_done
+      ${EndIf}
+      trusted_tauri_uninstaller:
+      HideWindow
+      StrCpy $R1 '$\"$4\uninstall.exe$\"'
       ${IfThen} $UpdateMode = 1 ${|} StrCpy $R1 "$R1 /UPDATE" ${|} ; append /UPDATE
       ${IfThen} $PassiveMode = 1 ${|} StrCpy $R1 "$R1 /P" ${|} ; append /P
       StrCpy $R1 "$R1 _?=$4" ; append uninstall directory
@@ -707,11 +747,10 @@ Section WebView2
 SectionEnd
 
 Section Install
-  SetOutPath $INSTDIR
-
   !ifmacrodef NSIS_HOOK_PREINSTALL
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
+  SetOutPath $INSTDIR
 
   !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 

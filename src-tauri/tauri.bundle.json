@@ -2,7 +2,9 @@
   "bundle": {
     "resources": {
       "../python-engine/song_to_midi.py": "python-engine/song_to_midi.py",
-      "../forge-rs/target/native-resources/bs_rofo_sw/*.onnx": "assets/bs_rofo_sw/",
+      "../python-engine/import_medley_checkpoint.py": "python-engine/import_medley_checkpoint.py",
+      "../forge-rs/tools/export_bsrofo_body.py": "python-engine/export_bsrofo_body.py",
+      "../forge-rs/target/native-resources/notices/": "THIRD-PARTY/",
       "../forge-rs/target/native-resources/game/GAME-1.0.3-medium-onnx/*.onnx": "assets/game/GAME-1.0.3-medium-onnx/",
       "../forge-rs/target/native-resources/onnx/*": "assets/onnx/",
       "../forge-rs/target/native-resources/basic_pitch/*.onnx": "assets/basic_pitch/",

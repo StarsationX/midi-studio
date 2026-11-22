@@ -37,8 +37,6 @@ PY = find_python()
 #   cpu      - transkun on torch CPU
 #   auto     - CUDA -> cuda; else DirectML GPU + model present -> onnx_dml; else cpu
 TRANSCRIBE_BACKEND = os.environ.get("TRANSCRIBE_BACKEND", "auto").lower()
-_MODELS_BASE = Path(os.environ.get("MIDI_STUDIO_MODELS_DIR") or (ROOT / "models"))
-TRANSKUN_ONNX = _MODELS_BASE / "onnx" / "transkun_v2.onnx"
 
 
 def resolve_transcribe_backend():
@@ -49,13 +47,9 @@ def resolve_transcribe_backend():
     try:
         import onnxruntime as ort
         if "DmlExecutionProvider" in ort.get_available_providers():
-            if not TRANSKUN_ONNX.exists():
-                # Installs provisioned before v2.3.0 lack the model, fetch it
-                # now (idempotent, ~54 MB) instead of silently using the CPU.
-                from download_assets import fetch_transkun_onnx
-                print("Transkun ONNX model missing, downloading (one-time)...")
-                if not fetch_transkun_onnx():
-                    return "cpu"       # offline; next run retries
+            from download_assets import prepare_transkun_onnx
+            if not prepare_transkun_onnx():
+                return "cpu"
             return "onnx_dml"
     except Exception:
         pass

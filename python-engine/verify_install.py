@@ -97,8 +97,6 @@ except Exception as e:
     issues.append(f"CUDA check: {e}")
 
 print("\nAssets:")
-check_file(MODELS_BASE / "bs_rofo_sw" / "BS-Rofo-SW-Fixed.ckpt", "BS-Rofo-SW-Fixed.ckpt", min_bytes=600 * 1024 * 1024)
-check_file(MODELS_BASE / "bs_rofo_sw" / "BS-Rofo-SW-Fixed.yaml", "BS-Rofo-SW-Fixed.yaml", min_bytes=100)
 
 # ffmpeg.exe in the shared build is a small stub; the codec code is in the DLLs.
 # Verify the DLLs are present instead.

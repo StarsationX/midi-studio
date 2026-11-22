@@ -1,8 +1,11 @@
-"""Download BS-Rofo-SW-Fixed model + FFmpeg shared DLLs into the repo folder.
+"""Download FFmpeg shared DLLs. Model weights are never fetched from mirrors.
 Resumes interrupted transfers, retries on transient failures, sets a UA + timeout."""
+import hashlib
 import os
+import shutil
 import socket
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -15,36 +18,15 @@ ROOT = Path(__file__).resolve().parent
 # models dir, so assets land where song_to_midi.py reads them. Falls back to the
 # co-located repo folder for a dev/source run.
 _MODELS_BASE = Path(os.environ.get("MIDI_STUDIO_MODELS_DIR") or (ROOT / "models"))
-MODEL_DIR = _MODELS_BASE / "bs_rofo_sw"
-# The upstream HuggingFace repo (jarredou/BS-ROFO-SW-Fixed) went gated and now
-# returns HTTP 401, so we host a copy on our own GitHub release. GitHub CDN
-# supports range requests, so _fetch's resume still works.
-_ASSET_BASE_URL = "https://github.com/StarsationX/midi-studio/releases/download/assets-v1"
-CKPT_URL = f"{_ASSET_BASE_URL}/BS-Rofo-SW-Fixed.ckpt"
-YAML_URL = f"{_ASSET_BASE_URL}/BS-Rofo-SW-Fixed.yaml"
-
-# MDX-Net instrumental model for the ONNX + DirectML separation path (non-CUDA
-# GPUs, e.g. AMD RX 580). Hosted on the public UVR model mirror.
 ONNX_DIR = _MODELS_BASE / "onnx"
-MDX_NAME = "UVR-MDX-NET-Inst_HQ_3.onnx"
-MDX_URL = ("https://github.com/TRvlvr/model_repo/releases/download/"
-           f"all_public_uvr_models/{MDX_NAME}")
-
-# Transkun v2 acoustic model as ONNX for the DirectML transcription path
-# (non-CUDA GPUs). Exported from transkun 2.0.1; semi-CRF decode stays in
-# the transkun Python package at runtime. Hosted on our assets release.
 TRANSKUN_ONNX_FILES = ("transkun_v2.onnx", "transkun_v2.onnx.data",
                        "transkun_v2_config.json")
 
-# Drums stem model for General Mode on DirectML (general = instrumental −
-# drums). kuielab MDX-B family, same public UVR mirror as the MDX model.
-DRUMS_NAME = "kuielab_b_drums.onnx"
-DRUMS_URL = ("https://github.com/TRvlvr/model_repo/releases/download/"
-             f"all_public_uvr_models/{DRUMS_NAME}")
-
 # FFmpeg sits next to the env (sibling of models) so song_to_midi.py finds it there.
 FFMPEG_DIR = (_MODELS_BASE.parent / "ffmpeg") if os.environ.get("MIDI_STUDIO_MODELS_DIR") else (ROOT / "ffmpeg")
-FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip"
+FFMPEG_BUILD = "ffmpeg-N-125875-g5d4d3bdc61-win64-lgpl-shared"
+FFMPEG_URL = f"https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-07-31-14-10/{FFMPEG_BUILD}.zip"
+FFMPEG_SHA256 = "6a2e25e2280df8f2071c14155a314ef32ec08100d56e5f32e41a9d7fd8b50cd3"
 
 USER_AGENT = "midi-forge-installer/1.0 (+https://github.com/StarsationX/midi-forge)"
 READ_TIMEOUT = 30
@@ -134,53 +116,23 @@ def _fetch(url: str, dest: Path, label: str) -> None:
                 raise RuntimeError(f"{label} failed after {MAX_ATTEMPTS} attempts: {err}")
 
 
-def fetch_model() -> None:
-    print("Model: BS-Rofo-SW-Fixed (SOTA 6-stem piano separator)")
-    _fetch(YAML_URL, MODEL_DIR / "BS-Rofo-SW-Fixed.yaml", "BS-Rofo-SW-Fixed.yaml")
-    _fetch(CKPT_URL, MODEL_DIR / "BS-Rofo-SW-Fixed.ckpt", "BS-Rofo-SW-Fixed.ckpt")
-
-
-def fetch_mdx_onnx() -> bool:
-    """Idempotent fetch of the MDX separation model. False on failure
-    (offline) so callers can fall back instead of crashing."""
-    try:
-        _fetch(MDX_URL, ONNX_DIR / MDX_NAME, MDX_NAME)
-        return True
-    except Exception as e:
-        print(f"  [warn] MDX ONNX fetch failed: {e}")
-        return False
-
-
-def fetch_drums_onnx() -> bool:
-    """Idempotent fetch of the drums stem model (General Mode on DirectML)."""
-    try:
-        _fetch(DRUMS_URL, ONNX_DIR / DRUMS_NAME, DRUMS_NAME)
-        return True
-    except Exception as e:
-        print(f"  [warn] drums ONNX fetch failed: {e}")
-        return False
-
-
-def fetch_transkun_onnx() -> bool:
-    """Idempotent fetch of the Transkun ONNX model files. Used on demand by
-    the backend resolvers so installs provisioned before v2.3.0 gain the
-    DirectML transcription path without re-running setup."""
-    try:
-        for name in TRANSKUN_ONNX_FILES:
-            _fetch(f"{_ASSET_BASE_URL}/{name}", ONNX_DIR / name, name)
-        return True
-    except Exception as e:
-        print(f"  [warn] transkun ONNX fetch failed: {e}")
-        return False
-
-
-def fetch_onnx() -> None:
-    print("\nMDX-Net ONNX model (DirectML separation for non-NVIDIA GPUs):")
-    fetch_mdx_onnx()
-    print("\nDrums ONNX model (DirectML General Mode):")
-    fetch_drums_onnx()
-    print("\nTranskun v2 ONNX model (DirectML transcription for non-NVIDIA GPUs):")
-    fetch_transkun_onnx()
+def prepare_transkun_onnx() -> bool:
+    """Use existing graphs or the licensed export shipped with this installer."""
+    for name in TRANSKUN_ONNX_FILES:
+        dest = ONNX_DIR / name
+        if dest.is_file():
+            continue
+        source = next((p for p in (ROOT.parent / "assets" / "onnx" / name,
+                                  ROOT.parent / "forge-rs" / "assets" / "onnx" / name)
+                       if p.is_file()), None)
+        if source is None:
+            return False
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=dest.parent) as tmp:
+            verified_copy = Path(tmp) / name
+            shutil.copyfile(source, verified_copy)
+            verified_copy.replace(dest)
+    return True
 
 
 def fetch_ffmpeg() -> None:
@@ -190,11 +142,17 @@ def fetch_ffmpeg() -> None:
         print("  [skip ] FFmpeg already extracted")
         return
     zip_path = FFMPEG_DIR / "ffmpeg.zip"
-    _fetch(FFMPEG_URL, zip_path, "ffmpeg-master-latest-win64-lgpl-shared.zip")
+    _fetch(FFMPEG_URL, zip_path, FFMPEG_BUILD + ".zip")
+    with zip_path.open("rb") as archive:
+        verified = hashlib.file_digest(archive, "sha256").hexdigest() == FFMPEG_SHA256
+    if not verified:
+        zip_path.unlink()
+        raise RuntimeError("FFmpeg archive SHA-256 mismatch; please run setup again.")
     print(f"  [unzip] -> {FFMPEG_DIR}")
     try:
-        with zipfile.ZipFile(zip_path) as z:
-            z.extractall(FFMPEG_DIR)
+        with tempfile.TemporaryDirectory(dir=FFMPEG_DIR) as tmp, zipfile.ZipFile(zip_path) as z:
+            z.extractall(tmp)
+            shutil.copytree(Path(tmp) / FFMPEG_BUILD, target, dirs_exist_ok=True)
     except zipfile.BadZipFile as e:
         zip_path.unlink(missing_ok=True)
         raise RuntimeError(f"FFmpeg zip is corrupt ({e}); deleted, please re-run install.bat") from e
@@ -205,8 +163,6 @@ def fetch_ffmpeg() -> None:
 def main() -> int:
     socket.setdefaulttimeout(READ_TIMEOUT)
     try:
-        fetch_model()
-        fetch_onnx()
         fetch_ffmpeg()
     except Exception as e:
         print(f"\n[ERROR] {type(e).__name__}: {e}")

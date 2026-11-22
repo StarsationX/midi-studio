@@ -253,7 +253,6 @@ def mix_pitched_stems(src: Path, work_dir: Path) -> Path:
 
 
 TRANSCRIBE_BACKEND = os.environ.get("TRANSCRIBE_BACKEND", "auto").lower()
-TRANSKUN_ONNX = MODELS_BASE / "onnx" / "transkun_v2.onnx"
 
 
 def _resolve_transcribe_backend() -> str:
@@ -264,13 +263,9 @@ def _resolve_transcribe_backend() -> str:
     try:
         import onnxruntime as ort
         if "DmlExecutionProvider" in ort.get_available_providers():
-            if not TRANSKUN_ONNX.exists():
-                # Installs provisioned before v2.3.0 lack the model, fetch it
-                # now (idempotent, ~54 MB) instead of silently using the CPU.
-                from download_assets import fetch_transkun_onnx
-                print("Transkun ONNX model missing, downloading (one-time)...")
-                if not fetch_transkun_onnx():
-                    return "cpu"       # offline; next run retries
+            from download_assets import prepare_transkun_onnx
+            if not prepare_transkun_onnx():
+                return "cpu"
             return "onnx_dml"
     except Exception:
         pass
@@ -407,12 +402,7 @@ def _resolve_backend() -> str:
         return "msst"
     try:                                 # no CUDA: prefer a DX12 GPU over slow CPU
         import onnxruntime as ort
-        if "DmlExecutionProvider" in ort.get_available_providers():
-            if not ONNX_MDX_MODEL.exists():
-                from download_assets import fetch_mdx_onnx
-                print("MDX ONNX model missing, downloading (one-time)...")
-                if not fetch_mdx_onnx():
-                    return "msst"      # offline; next run retries
+        if ONNX_MDX_MODEL.is_file() and "DmlExecutionProvider" in ort.get_available_providers():
             return "onnx_dml"
     except Exception:
         pass
@@ -436,11 +426,8 @@ def separate_onnx_general(src: Path, work_dir: Path) -> Path:
     pitched instrument, mirroring mix_pitched_stems on the CUDA path."""
     print("\n[1/3] Separating with MDX-Net (ONNX + DirectML, general: −vocals −drums)")
     if not ONNX_DRUMS_MODEL.exists():
-        from download_assets import fetch_drums_onnx
-        print("Drums ONNX model missing, downloading (one-time)...")
-        if not fetch_drums_onnx():
-            print("  drums model unavailable (offline?), using instrumental only")
-            return separate_onnx(src, work_dir)
+        print("  local drums model unavailable, using instrumental only")
+        return separate_onnx(src, work_dir)
     t0 = time.time()
     import separate_onnx_dml as on
     out = on.separate_general(src, work_dir, ONNX_MDX_MODEL, ONNX_DRUMS_MODEL)

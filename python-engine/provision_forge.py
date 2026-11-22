@@ -6,7 +6,7 @@ interpreter from scratch into the forge-env dir (default
 %LOCALAPPDATA%\midi-studio\forge-env):
 
   embeddable Python 3.13 -> pip -> PyTorch+CUDA (cu128) -> requirements ->
-  basic-pitch (--no-deps) -> onnxruntime -> MSST -> BS-Rofo model + FFmpeg ->
+  basic-pitch (--no-deps) -> onnxruntime -> MSST -> FFmpeg ->
   verify_install.py
 
 Properties: RESUMABLE (each step skips if already done, so an interrupted run or
@@ -43,7 +43,7 @@ TORCH_INDEX_CPU = "https://download.pytorch.org/whl/cpu"
 # cuda | cpu | auto, auto installs the CUDA build only when an NVIDIA GPU is
 # actually present.
 TORCH_BUILD = os.environ.get("FORGE_TORCH", "auto").lower()
-MSST_REF = os.environ.get("MSST_REF", "main")  # TODO: pin to a commit (supply chain)
+MSST_REF = "83d495dfc81b2ede9bc62f4209619f8bdfd14995"
 MSST_ZIP_URL = ("https://github.com/ZFTurbo/Music-Source-Separation-Training/archive/"
                 f"{MSST_REF}.zip")
 
@@ -291,7 +291,7 @@ class Provisioner:
         # onnxruntime-directml (not plain onnxruntime): ships both the CPU EP
         # (basic-pitch) AND DmlExecutionProvider, which gives GPU separation on
         # ANY DirectX 12 card, the only GPU path for non-CUDA users (AMD/Intel).
-        self._pip("--prefer-binary", "onnxruntime-directml")
+        self._pip("--prefer-binary", "onnxruntime-directml==1.24.4")
 
     def fetch_msst(self):
         self._mark("fetching the separation framework")
@@ -311,9 +311,9 @@ class Provisioner:
             ex.rename(dst)
 
     def fetch_assets(self):
-        self._mark("downloading the model and FFmpeg")
-        self._require_disk(MIN_FREE_GB_MODEL, "the model + FFmpeg")
-        step(80, "Model", "Downloading model + FFmpeg (~900 MB)…")
+        self._mark("preparing FFmpeg")
+        self._require_disk(MIN_FREE_GB_MODEL, "FFmpeg")
+        step(80, "FFmpeg", "Preparing FFmpeg…")
         script = self.engine_dir / "download_assets.py"
         if not script.exists():
             raise ProvisionError(f"download_assets.py not found at {script}")

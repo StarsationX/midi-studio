@@ -2043,8 +2043,7 @@
     activity.engine.freeGb = info.forgeFreeGb;
     activity.engine.needGb = info.forgeNeedGb;
     activity.engine.known = true;
-    // forgeInfo only knows whether the marker and torch folder exist; a probe
-    // is what knows about the GPU, so never let this clear a known GPU verdict.
+    // The lightweight storage snapshot does not know the active device.
     activity.engine.ready = !!info.forgeReady;
     if (!info.forgeReady) activity.engine.gpu = null;
     applyVersion(info.version);
@@ -2394,6 +2393,8 @@
       if (forge && runtimeInfo) runtimeInfo = Object.assign({}, runtimeInfo, { forge });
       logPush('Forge engine set to ' + (ENGINE_NAME[b.dataset.engine] || b.dataset.engine) + '.', 'info', 'forge');
       if (forgeApi.check) forgeApi.check().then(adoptEnvProbe).catch(() => {});   // the other engine names the device
+      const frame = byKey.forge;
+      if (frame.loaded && frame.frame.contentWindow.refreshForgeEnvironment) frame.frame.contentWindow.refreshForgeEnvironment();
     } catch (e) {
       toast({ severity: 'err', title: 'Could not switch the Forge engine', message: (e && e.message) || String(e) });
     }
@@ -3264,10 +3265,10 @@
   refreshForgeInfo();
   refreshLibraryIndex().then(() => bootMark('recent'));
 
-  // No cached GPU verdict and nobody has probed: do it ourselves, but late and
-  // once, because the probe imports torch.
+  // Native Forge verdicts are scoped to a mode and do not update this global
+  // chip. Ask for a current global verdict even if the old cache named a GPU.
   setTimeout(() => {
-    if (activity.engine.gpu || !activity.engine.ready || !forgeApi.check) return;
+    if (!forgeApi.check || (!forgeApi.importMedleyModel && (activity.engine.gpu || !activity.engine.ready))) return;
     forgeApi.check().then(adoptEnvProbe).catch(() => {});
   }, 12000);
 

@@ -160,12 +160,14 @@ pub fn probe_rust(exe: &Path, env: &EnvMap) -> Result<Value, String> {
     probe_rust_for(exe, env, None)
 }
 
-fn expressive_engine(env: &EnvMap) -> Result<PathBuf, String> {
+fn expressive_engine(env: &mut EnvMap) -> Result<PathBuf, String> {
     let exe = fpaths::forge_rs_exe().ok_or("The Rust Forge engine is missing from this build.")?;
     if let Some(reason) = rust_blocker("expressive", env, false) {
         return Err(format!("Medley uses the native Rust settings. Check Advanced options: {reason}."));
     }
-    probe_rust_for(&exe, env, Some(("expressive", false)))?;
+    let probe = probe_rust_for(&exe, env, Some(("expressive", false)))?;
+    // Launch with the very path we hashed, not a new search of mutable folders.
+    env.set("FORGE_RS_ROFO_MODEL", probe["roformer"].as_str().ok_or("No verified Medley model")?);
     Ok(exe)
 }
 
@@ -210,7 +212,20 @@ pub fn probe_rust_for(exe: &Path, env: &EnvMap, job: Option<(&str, bool)>) -> Re
     }
     let text = reader.join().unwrap_or_default();
     let v: Value = text.lines().rev().find_map(|l| serde_json::from_str(l.trim()).ok()).ok_or("forge-rs gave no answer")?;
+    probe_result(v, job)
+}
+
+fn probe_result(v: Value, job: Option<(&str, bool)>) -> Result<Value, String> {
+    // A global chip means an engine can run a job, not that every optional
+    // model is present. Each actual job still requires its own mode verdict.
+    if job.is_none() && v["modesReady"].as_object().is_some_and(|m| m.values().any(|ready| ready.as_bool() == Some(true))) {
+        return Ok(v);
+    }
     if v["ready"] == json!(true) {
+        if matches!(job, Some(("expressive", _))) {
+            let path = v["roformer"].as_str().ok_or("roformer: no model path")?;
+            super::medley::verify(Path::new(path)).map_err(|e| format!("roformer: {e}"))?;
+        }
         Ok(v)
     } else {
         let why = v["missing"].as_array().map(|m| m.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; ")).unwrap_or_default();
@@ -918,7 +933,7 @@ impl Runner {
                 return job_id;
             }
         }
-        let env = job_env(fpaths::forge_child_env(&ctx.paths), &ctx.perf, self.background.load(Ordering::SeqCst), advanced, start, end, pipeline, skip);
+        let mut env = job_env(fpaths::forge_child_env(&ctx.paths), &ctx.perf, self.background.load(Ordering::SeqCst), advanced, start, end, pipeline, skip);
         let audio_out = if pipeline == "expressive" {
             // Expressive exports go straight to the chosen output folder, including on read-only input media.
             let source = Path::new(input);
@@ -930,11 +945,13 @@ impl Runner {
             output_midi_path(input, start, end, output_name)
         };
         let rust = if pipeline == "expressive" {
-            match expressive_engine(&env) {
+            match expressive_engine(&mut env) {
                 Ok(exe) => Some(exe),
                 Err(why) => { self.fail_later(&job_id, &why); return job_id; }
             }
-        } else if ctx.forge_engine == "rust" { self.rust_engine_for(&job_id, pipeline, &env, skip) } else { None };
+        } else if ctx.forge_engine == "rust" {
+            self.rust_engine_for(&job_id, pipeline, &env, skip, &ctx.paths)
+        } else { None };
         let label = if rust.is_some() { "forge-rs pipeline (Rust engine)".to_string() } else { script.to_string() };
         (self.emit)(json!({"event": "forge.progress", "jobId": job_id, "stage": "Queued", "percent": -1, "message": format!("Starting {label}")}));
         let meta = json!({
@@ -971,13 +988,13 @@ impl Runner {
     /// forge-rs for this job, when the Rust engine is chosen, covers the
     /// mode and is ready; otherwise None, with one log line saying why the
     /// job stays on Python.
-    fn rust_engine_for(&self, job_id: &str, pipeline: &str, env: &EnvMap, skip: bool) -> Option<PathBuf> {
+    fn rust_engine_for(&self, job_id: &str, pipeline: &str, env: &EnvMap, skip: bool, paths: &ForgePaths) -> Option<PathBuf> {
         let why = match rust_blocker(pipeline, env, skip) {
             Some(why) => why,
             None => match fpaths::forge_rs_exe() {
                 None => "this build does not include the Rust engine".into(),
                 Some(exe) => match probe_rust_for(&exe, env, Some((pipeline, skip))) {
-                    Ok(v) => match cpu_blocker(&v) {
+                    Ok(v) => match cpu_blocker(&v).filter(|_| fpaths::forge_env_ready(paths)) {
                         Some(why) => why,
                         None => return Some(exe),
                     },
@@ -1034,14 +1051,33 @@ impl Runner {
     }
 
     pub fn invalidate_check(&self) {
-        lock(&self.check).cache = None;
+        let mut state = lock(&self.check);
+        state.cache = None;
+        state.in_flight = None;
+    }
+
+    pub fn check_mode(&self, mode: Option<&str>, skip: bool, fresh: bool) -> Value {
+        let ctx = (self.ctx)();
+        if mode == Some("expressive") || ctx.forge_engine == "rust" {
+            let env = fpaths::forge_child_env(&ctx.paths);
+            let result = fpaths::forge_rs_exe().ok_or_else(|| "Missing forge-rs.exe".to_string())
+                .and_then(|exe| probe_rust_for(&exe, &env, mode.map(|m| (m, skip))));
+            match result {
+                Ok(v) => return rust_verdict(&v, Value::Null, fpaths::nvidia_gpu_name),
+                Err(reason) if mode == Some("expressive") || !fpaths::forge_env_ready(&ctx.paths) => {
+                    let import = reason.contains("roformer:");
+                    return json!({"forgeReady":false,"engine":"rust","missing":[reason],"importMedleyModel":import});
+                }
+                _ => {} // Existing non-Medley Python fallback, only when it is installed.
+            }
+        }
+        self.check_python(fresh, &ctx)
     }
 
     /// The out-of-process capability probe: {forgeReady, forgePython, gpu,
     /// torch, missing}. Callers that arrive while one runs share it, and a
     /// verdict is reused for CHECK_TTL; fresh bypasses both.
-    pub fn check(&self, fresh: bool) -> Value {
-        let ctx = (self.ctx)();
+    fn check_python(&self, fresh: bool, ctx: &Ctx) -> Value {
         let py = fpaths::forge_env_python(&ctx.paths);
         let slot = {
             let mut st = lock(&self.check);
@@ -1071,11 +1107,11 @@ impl Runner {
                 g.clone().unwrap_or(Value::Null)
             }
             Ok(mine) => {
-                let v = self.run_check(py.clone(), &ctx);
+                let v = self.run_check(py.clone(), ctx);
                 {
                     let mut st = lock(&self.check);
-                    st.cache = Some((py, Instant::now(), v.clone()));
                     if st.in_flight.as_ref().is_some_and(|(_, s)| Arc::ptr_eq(s, &mine)) {
+                        st.cache = Some((py, Instant::now(), v.clone()));
                         st.in_flight = None;
                     }
                 }
@@ -1088,14 +1124,6 @@ impl Runner {
 
     fn run_check(&self, py: Option<PathBuf>, ctx: &Ctx) -> Value {
         let py_v = py.as_ref().map_or(Value::Null, |p| json!(p.to_string_lossy()));
-        // Rust chosen and ready: its own probe answers, so no torch import
-        // and the GPU named is the one the jobs will really run on. A Rust
-        // engine that is not ready sends jobs to Python, so Python answers.
-        if ctx.forge_engine == "rust" {
-            if let Some(Ok(v)) = fpaths::forge_rs_exe().map(|e| probe_rust(&e, &fpaths::forge_child_env(&ctx.paths))) {
-                return rust_verdict(&v, py_v, fpaths::nvidia_gpu_name);
-            }
-        }
         let none = |missing: &str| json!({"forgeReady": false, "forgePython": py_v, "gpu": null, "torch": false, "missing": [missing]});
         let Some(py) = py else { return none("forge-env") };
         let Ok(job) = Job::new(winjob::mem_limit()) else { return none("forge-env") };
@@ -1615,6 +1643,16 @@ mod tests {
         assert_eq!(v["missing"], json!(["torch"]));
         let v = probe_verdict("{\"torch\": true}", json!("py"), false);
         assert_eq!(v["forgeReady"], false, "torch without the .ready marker is not ready");
+    }
+
+    #[test]
+    fn missing_optional_separator_only_blocks_dependent_modes() {
+        let partial = json!({"ready": false, "modesReady": {"fast": true, "expressive": false},
+            "missing": ["roformer: missing Medley model"]});
+        assert!(probe_result(partial.clone(), None).is_ok());
+        assert!(probe_result(partial, Some(("expressive", false))).unwrap_err().contains("roformer"));
+        assert!(probe_result(json!({"ready":true}), Some(("fast", false))).is_ok());
+        assert!(probe_result(json!({"ready":true}), Some(("expressive", false))).is_err());
     }
 
     #[test]

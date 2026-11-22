@@ -10,6 +10,7 @@
 //   fpaths     the forge env lookup, the child env, the installer's registry
 //   winjob     Job Objects, NtSuspendProcess, SetPriorityClass
 mod fpaths;
+mod medley;
 mod provision;
 mod runner;
 mod storage;
@@ -56,6 +57,7 @@ pub struct Forge {
     runner: Arc<Runner>,
     musescore: Arc<musescore::MuseScore>,
     provisioner: Arc<provision::Provisioner>,
+    model_import: Mutex<()>,
     settled: Gate,
     reaped: Gate,
     /// Paused because a game came up under "Pause Forge jobs entirely", so
@@ -290,6 +292,7 @@ pub fn init(app: &AppHandle) {
         runner: Runner::new(emit.clone(), log.clone(), ctx, fpaths::forge_jobs_file()),
         musescore: musescore::MuseScore::new(app, emit.clone()),
         provisioner: provision::Provisioner::new(emit, log),
+        model_import: Mutex::new(()),
         settled: Gate::default(),
         reaped: Gate::default(),
         auto_paused: AtomicBool::new(false),
@@ -365,7 +368,8 @@ fn forge_info(app: &AppHandle, h: &Host) -> Value {
     let dir = fpaths::forge_env_dir(&s);
     json!({
         "version": app.package_info().version.to_string(),
-        "forgeReady": fpaths::forge_env_ready(&s),
+        "forgeReady": (forge_engine_setting(h) == "rust" && fpaths::forge_rs_exe().is_some_and(|exe|
+            runner::probe_rust(&exe, &fpaths::forge_child_env(&s)).is_ok())) || fpaths::forge_env_ready(&s),
         "forgePython": fpaths::forge_env_python(&s).map_or(Value::Null, |p| json!(p.to_string_lossy())),
         "forgeEnvDir": dir.to_string_lossy(),
         "forgeFreeGb": fpaths::free_gb(&dir),
@@ -376,7 +380,7 @@ fn forge_info(app: &AppHandle, h: &Host) -> Value {
 }
 
 fn busy(f: &Forge) -> bool {
-    f.runner.is_running() || f.musescore.is_running() || f.provisioner.is_running()
+    f.runner.is_running() || f.musescore.is_running() || f.provisioner.is_running() || f.model_import.try_lock().is_err()
 }
 
 const BUSY: &str = "Wait for the current Forge job or setup to finish.";
@@ -488,14 +492,16 @@ fn open_path(app: &AppHandle, p: &Path) -> Result<(), String> {
 /// setup download, without asking. Some(()) = the user chose to keep it.
 fn close_guard(app: &AppHandle, f: &Forge) -> Option<()> {
     let (job, midi, setup) = (f.runner.is_running(), f.musescore.is_running(), f.provisioner.is_running());
-    if !job && !midi && !setup {
+    let importing = f.model_import.try_lock().is_err();
+    if !job && !midi && !setup && !importing {
         return None;
     }
     let visible = app.get_webview_window(MAIN).is_some_and(|w| w.is_visible().unwrap_or(false));
     if !visible {
         return None; // nobody to ask
     }
-    let what = if job { "A transcription is still running." } else if midi { "A MIDI download is still running." } else { "Midi Forge setup is still downloading." };
+    let what = if importing { "Your local Medley model is still being imported." }
+        else if job { "A transcription is still running." } else if midi { "A MIDI download is still running." } else { "Midi Forge setup is still downloading." };
     let r = ask(
         app,
         "Still working",
@@ -523,17 +529,30 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
         }
         "forge:check" => {
             f.settled.wait();
-            if a0.get("mode").and_then(Value::as_str) == Some("expressive") {
-                let env = fpaths::forge_child_env(&forge_paths(&h));
-                match fpaths::forge_rs_exe().ok_or_else(|| "Missing forge-rs.exe".to_string())
-                    .and_then(|exe| runner::probe_rust_for(&exe, &env, Some(("expressive", false)))) {
-                    Ok(v) => runner::rust_verdict(&v, Value::Null, fpaths::nvidia_gpu_name),
-                    Err(reason) => json!({"forgeReady":false,"engine":"rust","missing":[reason]}),
+            let mode = a0.get("mode").and_then(Value::as_str).filter(|m| runner::RUST_MODES.contains(m));
+            f.runner.check_mode(mode, truthy(a0.get("skipSeparation")), truthy(a0.get("fresh")))
+        }
+        "forge:importMedleyModel" => {
+            f.settled.wait();
+            if busy(&f) { return Some(Ok(json!({"ok":false, "error": BUSY}))); }
+            let Ok(_guard) = f.model_import.try_lock() else { return Some(Ok(json!({"ok":false, "error": BUSY}))); };
+            let mut picker = app.dialog().file().set_title("Import existing Medley model")
+                .add_filter("Medley ONNX or original checkpoint", &["onnx", "ckpt"]);
+            if let Some(window) = app.get_webview_window(MAIN) { picker = picker.set_parent(&window); }
+            let Some(source) = picker.blocking_pick_file().and_then(|p| p.into_path().ok()) else {
+                return Some(Ok(json!({"ok":false, "canceled":true})));
+            };
+            match medley::import(&source, &forge_paths(&h)) {
+                Ok(path) => {
+                    f.runner.invalidate_check();
+                    json!({"ok":true, "path":path})
                 }
-            } else { f.runner.check(truthy(a0.get("fresh"))) }
+                Err(error) => json!({"ok":false, "error":error}),
+            }
         }
         "forge:provision" => {
             f.settled.wait();
+            if f.model_import.try_lock().is_err() { return Some(Err(BUSY.into())); }
             if f.provisioner.is_running() {
                 return Some(Ok(json!({"running": true})));
             }
@@ -647,6 +666,12 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
             let dir = fpaths::forge_env_dir(&forge_paths(&h));
             if !storage::is_managed(&dir, &fpaths::forge_env_dir(&ForgePaths::default())) {
                 return Some(Ok(json!({"ok": false, "error": "refused (unsafe path)"})));
+            }
+            let models = dir.join("models");
+            if [models.join("bs_rofo_sw").join(medley::ONNX), models.join("onnx").join(medley::ONNX),
+                models.join(medley::ONNX), models.join("bs_rofo_sw/BS-Rofo-SW-Fixed.ckpt")].iter().any(|p| p.exists()) {
+                return Some(Ok(json!({"ok":false,"error":format!(
+                    "Move your Medley model and any original checkpoint/YAML outside {} before cleaning. Setup cannot download them again.", dir.display())})));
             }
             f.runner.invalidate_check();
             match if dir.exists() { std::fs::remove_dir_all(&dir) } else { Ok(()) } {

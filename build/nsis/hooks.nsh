@@ -42,6 +42,7 @@ Var MsSweepDir
 !ifdef MS_ELECTRON_GUID
   Var MsElectronDir
 !endif
+!include "${__FILEDIR__}\medley-upgrade.nsh"
 
 ; ---- Temp checks and the Forge default (.onInit, before SetContext) --------
 
@@ -57,15 +58,16 @@ Var MsSweepDir
     Abort
   ${EndIf}
   ClearErrors
-  FileOpen $4 "$TEMP\.midi-studio-temp-test" w
-  ${If} ${Errors}
+  InitPluginsDir
+  ${If} $PLUGINSDIR == ""
     MessageBox MB_ICONSTOP|MB_OK "Windows Temp folder is not writable:$\r$\n$TEMP$\r$\n$\r$\nThat is where installers unpack. Check the folder exists and that antivirus is not blocking it, then run this again." /SD IDOK
     Abort
   ${EndIf}
-  FileWrite $4 "ok"
-  FileClose $4
-  Delete "$TEMP\.midi-studio-temp-test"
-  StrCpy $ForgeStorageDir "$LOCALAPPDATA\midi-studio\forge-env"
+  !ifdef MS_ELECTRON_GUID
+    StrCpy $ForgeStorageDir "$LOCALAPPDATA\midi-studio\forge-env"
+  !else
+    StrCpy $ForgeStorageDir "$LOCALAPPDATA\${PRODUCTNAME}\forge-env"
+  !endif
 !macroend
 
 ; SetContext has now selected the same registry view as the x64 Electron installer.
@@ -127,7 +129,7 @@ Function ForgeStoragePageCreate
     Abort
   ${EndIf}
 
-  ${NSD_CreateLabel} 0 0 100% 26u "Forge downloads several GB of engine and model files. Choose a writable drive with enough free space. Existing managed files will be moved during setup."
+  ${NSD_CreateLabel} 0 0 100% 26u "Choose a local drive for Forge's engine and models. Setup checks for an existing Medley model before replacing the app."
   Pop $0
   ${NSD_CreateLabel} 0 38u 100% 10u "Forge storage folder:"
   Pop $0
@@ -177,25 +179,13 @@ Function ForgeStoragePageLeave
     MessageBox MB_ICONEXCLAMATION|MB_OK "Choose a Forge storage folder." /SD IDOK
     Abort
   ${EndIf}
-  ; Create BEFORE resolving: GetFullPathName blanks the variable for a path
-  ; that does not exist yet, which on a first install it never does.
-  ClearErrors
-  CreateDirectory "$ForgeStorageDir"
-  GetFullPathName $1 "$ForgeStorageDir"
-  ${If} $1 != ""
-    StrCpy $ForgeStorageDir $1
-  ${EndIf}
-  ClearErrors
-  FileOpen $0 "$ForgeStorageDir\.midi-studio-write-test" w
-  IfErrors ForgeStorageNotWritable
-  FileWrite $0 "ok"
-  FileClose $0
-  Delete "$ForgeStorageDir\.midi-studio-write-test"
-  Return
-
-  ForgeStorageNotWritable:
-    MessageBox MB_ICONEXCLAMATION|MB_OK "That folder is not writable. Choose another location." /SD IDOK
+  ; The app creates its own storage as its normal user. Never probe an
+  ; arbitrary typed/registry path (or a planted write-test file) as admin.
+  ${GetRoot} "$ForgeStorageDir" $0
+  ${If} $0 == ""
+    MessageBox MB_ICONEXCLAMATION|MB_OK "Choose an absolute local Forge storage folder." /SD IDOK
     Abort
+  ${EndIf}
 FunctionEnd
 
 ; ---- Closing what runs from a folder ----------------------------------------
@@ -234,6 +224,7 @@ FunctionEnd
       ${EndIf}
     !endif
   !endif
+  Call MidiStudioPreserveMedley
   ; Close only processes from the install folder, never the updater's tree
   ; or another user's installation with the same executable name.
   DetailPrint "Closing ${PRODUCTNAME} if it is running..."

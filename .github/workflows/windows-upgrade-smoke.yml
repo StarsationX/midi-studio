@@ -1,0 +1,59 @@
+name: Exercise the published Windows upgrade path
+on:
+  workflow_call:
+    inputs:
+      sha256:
+        required: true
+        type: string
+permissions:
+  contents: write # draft fetch only; no token in the installer step
+jobs:
+  upgrade:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    strategy:
+      matrix:
+        scope: [currentuser, allusers]
+    env:
+      GH_REPO: ${{ github.repository }}
+      INSTALL_SCOPE: ${{ matrix.scope }}
+      NEXT_DIGEST: ${{ inputs.sha256 }}
+    steps:
+      - name: Verify both installers before executing either on this disposable runner
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^v\d+\.\d+\.\d+$' -or $env:NEXT_DIGEST -notmatch '^[a-fA-F0-9]{64}$') { throw 'Expected a release tag and SHA-256' }
+          Set-Location $env:RUNNER_TEMP
+          $next = $env:GITHUB_REF_NAME.Substring(1)
+          gh release download v3.0.1 -p MIDI-Studio-3.0.1-Setup.exe
+          if ($LASTEXITCODE) { throw 'Unable to fetch the public 3.0.1 installer' }
+          gh release download $env:GITHUB_REF_NAME -p "MIDI-Studio-$next-Setup.exe"
+          if ($LASTEXITCODE) { throw 'Unable to fetch the candidate installer' }
+          if ((Get-FileHash MIDI-Studio-3.0.1-Setup.exe).Hash -ne 'd78af42b31dc5edda6f3c7495beefda520a371b16988555868a8c256fcf02654') { throw 'Unexpected 3.0.1 installer' }
+          if ((Get-FileHash "MIDI-Studio-$next-Setup.exe").Hash -ne $env:NEXT_DIGEST) { throw 'Unexpected candidate installer' }
+      - name: Upgrade a real 3.0.1 install and keep application data
+        shell: pwsh
+        run: |
+          Set-Location $env:RUNNER_TEMP
+          $app = Join-Path $env:RUNNER_TEMP 'custom-install'
+          $forge = Join-Path $env:RUNNER_TEMP 'custom-forge'
+          $reg = 'HKCU:\Software\StarsationX\MIDI Studio'
+          $old = Start-Process .\MIDI-Studio-3.0.1-Setup.exe -ArgumentList '/S',"/$env:INSTALL_SCOPE","/D=$app" -Wait -PassThru
+          if ($old.ExitCode -or !(Test-Path "$app\resources\app.asar")) { throw "3.0.1 install failed: $($old.ExitCode)" }
+          New-Item $reg -Force | Out-Null
+          New-ItemProperty $reg ForgeStorageDir -Value $forge -Force | Out-Null
+          $prefs = "$env:APPDATA\midi-studio\midi-studio-settings.json"
+          New-Item (Split-Path $prefs),$forge -ItemType Directory -Force | Out-Null
+          @{paths=@{forgeEnvDir=$forge};ui=@{autoCheckUpdates=$false;lastTab='review'}} | ConvertTo-Json | Set-Content $prefs
+          $saved = (Get-FileHash $prefs).Hash
+          $next = $env:GITHUB_REF_NAME.Substring(1)
+          $updated = Start-Process ".\MIDI-Studio-$next-Setup.exe" -ArgumentList '/S',"/$env:INSTALL_SCOPE","/D=$app" -Wait -PassThru
+          if ($updated.ExitCode -or !(Test-Path "$app\forge-rs.exe") -or (Test-Path "$app\resources\app.asar")) { throw "3.0.1 cutover failed: $($updated.ExitCode)" }
+          if ((Get-Item "$app\MIDI Studio.exe").VersionInfo.ProductVersion -notmatch ('^'+[regex]::Escape($next)+'(?:\.|$)')) { throw 'Wrong desktop version installed' }
+          if ((Get-FileHash $prefs).Hash -ne $saved -or (Get-ItemPropertyValue $reg ForgeStorageDir) -ne $forge) { throw 'Upgrade changed settings or Forge storage' }
+          if (Test-Path "$app\assets\bs_rofo_sw\bsrofo_sw_body.onnx") { throw 'Installer supplied restricted weights' }
+          $hive = if ($env:INSTALL_SCOPE -eq 'allusers') { 'HKLM:' } else { 'HKCU:' }
+          if (Test-Path "$hive\Software\Microsoft\Windows\CurrentVersion\Uninstall\ab5bc8e7-f120-5de1-b7c5-f5b41892fd91") { throw 'Old app still registered' }
+          Write-Output "3.0.1 -> ${next}: custom paths and settings preserved; native app installed."
