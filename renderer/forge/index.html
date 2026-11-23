@@ -553,6 +553,10 @@
       <button class="dlg-x" id="setup-x" type="button" aria-label="Close setup"><i data-icon="close" data-icon-size="12"></i></button>
     </header>
     <div class="dlg-body">
+      <div id="model-import-info" hidden>
+        <p class="field-hint">Choose your existing bsrofo_sw_body.onnx. If you have BS-Rofo-SW-Fixed.ckpt and its matching YAML instead, an existing Forge environment can convert them locally.</p>
+        <a class="btn btn-sm btn-ghost" id="model-source" href="https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem#license" target="_blank" rel="noopener noreferrer">Model source and license information</a>
+      </div>
       <p class="field-hint" id="model-import-status" role="status" hidden></p>
       <div class="fg-setup-store" id="setup-store">
         <div class="fg-group-head"><span class="fg-group-title">Installs to</span></div>

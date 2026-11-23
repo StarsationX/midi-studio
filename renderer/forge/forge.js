@@ -2270,13 +2270,14 @@
     $('setup-title').textContent = localModel ? 'Import existing Medley model' : repair ? 'Restore the Medley files' : retry ? 'Couldn’t check the engine'
       : envReady ? 'Audio conversion is ready' : 'Set up audio conversion';
     $('setup-description').textContent = localModel
-      ? 'Choose your existing bsrofo_sw_body.onnx. If you only have BS-Rofo-SW-Fixed.ckpt and its original YAML, an already installed Forge environment can convert it locally. Studio verifies the exact model and keeps your originals. No model is downloaded.'
+      ? 'Medley requires the original BS-Rofo-SW-Fixed model. Studio doesn’t include or download it. Import a local copy you’re authorized to use, or choose Fast in Forge to convert audio without it.'
       : repair ? 'Other engine files are missing. Restore the application files from the installer, then check again. ' + envMissing.join('; ')
       : retry ? 'Check again before installing anything. You can still listen to or edit MIDI files.'
       : envReady ? 'This mode is ready to use. Close this window to make a MIDI. Install is optional and downloads additional engine tools.'
       : 'Audio conversion can need a one-time download of several GB. Listening to or editing MIDI needs no download. Choose Install when you’re ready.';
     $('setup-store').hidden = localModel || repair || retry;
     if (localModel || repair || retry) $('setup-prog').hidden = true;
+    $('model-import-info').hidden = !localModel;
     $('model-import-status').hidden = !localModel;
     if (!$('setup-start').disabled) $('setup-start').textContent = localModel ? 'Choose local model…'
       : envState === 'checking' ? 'Checking engine…' : repair || retry ? 'Check again' : envReady ? 'Install optional tools' : 'Install';
@@ -2302,6 +2303,12 @@
   }
   on($('env-chip'), 'click', openSetup);
   on($('setup-open'), 'click', openSetup);
+  on($('model-source'), 'click', async (e) => {
+    if (!S.openExternal) return;
+    e.preventDefault();
+    try { await S.openExternal(e.currentTarget.href); }
+    catch (_) { $('model-import-status').textContent = 'Could not open the model card in your browser.'; }
+  });
   on($('setup-x'), 'click', closeSetup);
   on($('setup-scrim'), 'pointerdown', (e) => { if (e.target === $('setup-scrim')) closeSetup(); });
   on($('setup'), 'keydown', (e) => {
