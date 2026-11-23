@@ -16,7 +16,7 @@ Under **Assets**, download `MIDI-Studio-<version>-Setup.exe` and run it. This is
 |---|---|
 | **A MIDI file I want to hear** | Open **Listen → Open MIDI and play**, then choose your `.mid` file. The built-in instruments play it directly; no game, target window, or model needed. |
 | **An MP3 or WAV I want to turn into notes** | In **Forge**, select **Choose audio…**, pick your recording, choose **Fast**, then **Create MIDI**. Open the finished file from **Results**. Fast works without the Medley model. |
-| **A MIDI file with notes I want to fix** | Open it in **Editor**. Move, add, or delete notes in the piano roll, listen back, then save. When you have the original recording, use its waveform to check the timing. |
+| **A MIDI file with notes I want to fix** | Open it in **Editor**. Playback and note edits use a sampled acoustic grand piano on every channel, without changing the instruments in your MIDI file. Turn on **Original** to compare with an attached recording. |
 | **A MIDI file I want to play in a game** | Open the game first. In **Player**, open the MIDI, select the game window under **Target**, and choose a keyboard mapping that matches the game. Press **Play**. Playback pauses if the target loses focus. |
 
 If Forge shows **Set up audio conversion** instead of **Create MIDI**, check the free space shown, choose a storage folder, and select **Install**. Some engines download several GB. Your recording stays selected. Skip this step if you only want to listen to or edit MIDI.

@@ -183,13 +183,13 @@
   let mediaRequest = 0;
   let audioOffset = 0;
   let ctxAudio = null, master = null;
-  let sampledReady = false, samplePrepare = null;
+  let sampledReady = false, samplePrepare = null, previewRequest = 0;
   let peaks = null, peaksVersion = 0, peaksSpan = 0, peaksRequest = null;
   let openRequest = 0;
   let spaceTransport = true;
   let ownTransport = null, caps = null;
 
-  const soundfonts = window.MidiStudioSoundfonts || null;
+  const soundfonts = window.MidiStudioSoundfonts;
   const INSTRUMENT = 'grand_piano';
   const audio = $('audio');
 
@@ -1157,7 +1157,7 @@
   disposers.push(Tokens.onChange(() => { readTokens(); bumpNotes(); paintAll(); }));
 
   // ==========================================================================
-  // 9. audio preview  (shared/audio.js does not exist yet — see the return note)
+  // 9. Sampled acoustic piano preview
   // ==========================================================================
   function ctx() {
     if (!ctxAudio) {
@@ -1169,18 +1169,19 @@
     return ctxAudio;
   }
   function ensureSamples() {
-    if (!soundfonts || sampledReady) return samplePrepare || Promise.resolve(sampledReady);
-    if (samplePrepare) return samplePrepare;
-    const d = doc();
-    if (!d) return Promise.resolve(false);
-    const set = new Set();
-    for (let i = 0; i < notes.length; i++) set.add(notes[i].pitch);
-    const pitches = set.size ? [...set] : [60];
-    const preparing = soundfonts.prepare(ctx(), INSTRUMENT, pitches)
-      .then(() => { if (doc() === d) sampledReady = true; return true; })
-      .catch(() => false)
-      .finally(() => { if (samplePrepare === preparing) samplePrepare = null; });
-    samplePrepare = preparing;
+    if (sampledReady) return Promise.resolve(true);
+    if (!samplePrepare) {
+      // Prepare the whole 88-key bank, not just the pitches in the opened
+      // file. The sampler maps out-of-range MIDI notes to the end samples.
+      const keys = Array.from({ length: 88 }, (_, i) => i + 21);
+      samplePrepare = soundfonts.prepare(ctx(), INSTRUMENT, keys)
+        .then(() => { sampledReady = true; return true; })
+        .catch(() => {
+          say('Could not load the bundled grand piano. Press Play to retry.', 'err');
+          return false;
+        })
+        .finally(() => { samplePrepare = null; });
+    }
     return samplePrepare;
   }
   // `at` is an AudioContext timestamp; 0 means "right now".
@@ -1188,29 +1189,22 @@
     if (!force && !midiOn) return;
     if (!audible(n.channel)) return;
     const c = ctx();
+    if (force && c.state === 'suspended') c.resume().catch(() => {});
+    if (!sampledReady) {
+      if (force) {
+        const request = ++previewRequest, current = doc();
+        ensureSamples().then(ready => {
+          if (ready && request === previewRequest && doc() === current) playNote(n, 0, true);
+        });
+      }
+      return;
+    }
     const when = at || c.currentTime;
     const fullLength = clamp((n.end - n.start) / rate, 0.05, 4);
     const len = fullLength - elapsed;
     if (len <= 0) return;
-    if (sampledReady && soundfonts) {
-      const voice = soundfonts.play(c, INSTRUMENT, n.pitch, when, len, n.velocity, master, elapsed);
-      if (voice) {
-        trackVoice(voice, n.pitch, index);
-        return;
-      }
-      if (elapsed && soundfonts.has(INSTRUMENT, n.pitch)) return; // The sample's recorded tail has ended.
-    } else ensureSamples();
-    const osc = c.createOscillator();
-    const g = c.createGain();
-    osc.type = 'triangle';
-    osc.frequency.value = 440 * Math.pow(2, (n.pitch - 69) / 12);
-    const peak = Math.max(.001, (n.velocity / 127) * .12);
-    const decay = Math.max(0, elapsed - .008) / (fullLength - .008);
-    const level = peak * Math.pow(.001 / peak, decay);
-    const voice = new window.MidiStudioNoteVoice(osc, g, master || c.destination, when, len, {
-      attack: elapsed ? .004 : .008, initial: 0, peak: level, floor: 0.001,
-    });
-    trackVoice(voice, n.pitch, index);
+    const voice = soundfonts.play(c, INSTRUMENT, n.pitch, when, len, n.velocity, master, elapsed);
+    if (voice) trackVoice(voice, n.pitch, index);
   }
   // The lookahead scheduler hands notes to Web Audio up to LOOKAHEAD ahead, so
   // the highlight has to be timed too or the roll lights up before you hear it.
@@ -1251,6 +1245,7 @@
     sounding.clear();
   }
   function clearSounding() {
+    ++previewRequest;
     for (const voice of voices) {
       try { voice.source.stop(); } catch (_) { /* already ended */ }
     }
@@ -1287,20 +1282,18 @@
     const source = project && (project.sourceAudio || project.previewAudio);
     $('t-audio').disabled = !source;
     $('compare-sources').disabled = !source;
+    midiOn = true;
+    audioOn = false;
+    $('t-midi').setAttribute('aria-pressed', 'true');
+    $('t-audio').setAttribute('aria-checked', 'false');
     if (!source) {
       audio.removeAttribute('src');
       audio.load();
-      if (audioOn && !midiOn) midiOn = true;
-      audioOn = false;
-      $('t-audio').setAttribute('aria-checked', 'false');
-      $('t-midi').setAttribute('aria-pressed', midiOn ? 'true' : 'false');
       bumpNotes();
       paintAll();
       return;
     }
     audio.src = R.fileUrl ? R.fileUrl(source) : source;
-    audioOn = true;
-    $('t-audio').setAttribute('aria-checked', 'true');
     try {
       const buf = await peakReader.read(audio.src, request.signal);
       if (request.signal.aborted) return;
@@ -1368,7 +1361,7 @@
   }
 
   function scheduleAhead() {
-    if (!midiOn) return;
+    if (!midiOn || !sampledReady) return;
     const now = songTime();
     const end = boundary();
     const upto = Math.min(end, now + LOOKAHEAD);
@@ -1421,8 +1414,9 @@
     playing = true;
     const request = ++playRequest;
     const c = ctx();
-    await Promise.all([c.resume().catch(() => {}), midiOn ? ensureSamples() : Promise.resolve()]);
+    const [, ready] = await Promise.all([c.resume().catch(() => {}), midiOn ? ensureSamples() : true]);
     if (!playing || request !== playRequest) return;
+    if (midiOn && !ready) { pausePlayback(); return; }
     clockBase = c.currentTime;
     songBase = playhead;
     resetSchedule(playhead);
@@ -1627,7 +1621,6 @@
     loopA = 0;
     loopB = 0;
     loopOn = false;
-    sampledReady = false;
     sx = 0; sy = 0;
     rollScroll.scrollLeft = 0;
     rollScroll.scrollTop = 0;
@@ -1785,8 +1778,6 @@
     $('proj-name').disabled = false;
     $('empty').hidden = true;
     syncBpm();
-    sampledReady = false;
-    samplePrepare = null;
     buildTracks();
     renderSources();
     renderMarkers();
@@ -1798,19 +1789,8 @@
     rollScroll.scrollLeft = 0;
     rollScroll.scrollTop = 0;
     relayout();
-    // AFTER the picture, deliberately. ensureSamples() constructs the
-    // AudioContext, which OPENS THE AUDIO DEVICE: 108ms for the first one in the
-    // process and 13ms for the first one in each renderer, and it used to sit
-    // between the click and the first pixel of the newly opened song -- 65-78%
-    // of all the JS on the open path at 2k notes. Nothing about drawing a piano
-    // roll needs an audio device. The samples still load, still finish long
-    // before a note can be auditioned, and playNote()/startPlayback() both call
-    // ensureSamples() themselves if they somehow get there first, so no audio
-    // behaviour and no first-note latency changes.
-    // Two frames, not later(): the second rAF runs once the first has been
-    // composited, and later() enrols its timer in the set clearSounding()
-    // cancels, which would silently drop this.
-    requestAnimationFrame(() => requestAnimationFrame(() => { ensureSamples(); }));
+    // Open the audio device and warm the bank after the roll has painted.
+    requestAnimationFrame(() => requestAnimationFrame(() => { if (loaded()) ensureSamples(); }));
     maybeClaim();
     await loadPeaks();
   }
@@ -3410,11 +3390,14 @@
       }
     }
     if (playing && midiOn && !wasMidi) {
-      ensureSamples();
-      if (clockTimer) {
-        resetSchedule(current);
-        scheduleAhead();
-      }
+      const request = playRequest;
+      const resumeMidi = ready => {
+        if (!playing || request !== playRequest || !midiOn) return;
+        if (!ready) { pausePlayback(); return; }
+        if (clockTimer) { resetSchedule(songTime()); scheduleAhead(); }
+      };
+      if (sampledReady) resumeMidi(true);
+      else ensureSamples().then(resumeMidi);
     }
     syncUi();
   }

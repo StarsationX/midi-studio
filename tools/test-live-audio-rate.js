@@ -51,13 +51,17 @@ async function session(editor, sampled) {
     .map(([start, end], i) => ({ start, end, channel: 0, pitch: 60 + i, velocity: 85 }));
   let timer = 0;
   const media = { currentTime: 0, paused: true, playbackRate: 1 };
-  const s = vm.createContext({ window: { MIDI: { Soundfont: { acoustic_grand_piano: { C4: 'data:audio/mp3;base64,AAAA' } } } },
+  const song = { notes };
+  const s = vm.createContext({ window: { MIDI: { Soundfont: { acoustic_grand_piano: {
+    C4: 'data:audio/mp3;base64,AAAA', C8: 'data:audio/mp3;base64,AAAA',
+  } } } },
     fetch, clamp: (v, lo, hi) => Math.min(hi, Math.max(lo, v)), notes, duration: 20,
     ctx: () => ctx, ctxAudio: ctx, master: ctx.destination, sampledReady: sampled, INSTRUMENT: 'grand_piano',
+    doc: () => song, samplePrepare: null, previewRequest: 0, say: noop,
     audible: () => true, midiOn: true, playing: true, clockTimer: 1, playhead: 7, songBase: 8, clockBase: 100,
     rate: 1, cursor: 0, schedTo: 8, chaseAt: null, usingAudio: () => !media.paused, audio: media, audioOffset: 12,
     voices: new Set(), timers: new Set(), sounding: new Set(), offAt: new Map(), setTimeout: () => ++timer, clearTimeout: noop,
-    loopOn: false, ensureSorted: noop, ensureSamples: noop, paint: noop, reportTransport: noop,
+    loopOn: false, ensureSorted: noop, paint: noop, reportTransport: noop,
     currentDocument: () => ({ notes }), loop: { on: false }, repeat: 'off', LOOKAHEAD: editor ? 0.14 : 1.5,
     ctl: { speed: 1, instrument: 'grand_piano', sustain: false, volume: 100, transpose: 0 },
     player: { duration: 20, context: ctx, master: ctx.destination, position: 7, playing: true, voices: new Set(),
@@ -69,7 +73,7 @@ async function session(editor, sampled) {
   if (sampled) await s.soundfonts.prepare(ctx, 'grand_piano', [60, 61, 62, 63, 64]);
   const audioProcs = ['playNote', 'scheduleAhead', 'songTime'];
   const panel = editor ? 'review/review.js' : 'audition/audition.js';
-  const names = editor ? ['boundary', 'markSounding', 'later', 'trackVoice', 'clearHighlights', 'setRate'] :
+  const names = editor ? ['ensureSamples', 'boundary', 'markSounding', 'later', 'trackVoice', 'clearHighlights', 'setRate'] :
     ['region', 'cursorFor', 'pruneVoices', 'playFallback', 'setSpeed'];
   vm.runInContext(procedures(panel, audioProcs.concat(names)), s);
   return { s, ctx, media, change: editor ? s.setRate : s.setSpeed, voices: editor ? s.voices : s.player.voices };
@@ -130,7 +134,21 @@ async function exercise(editor, sampled) {
 }
 
 async function test() {
-  for (const editor of [false, true]) for (const sampled of [false, true]) await exercise(editor, sampled);
+  for (const sampled of [false, true]) await exercise(false, sampled);
+  await exercise(true, true);
+  // A cold keyboard click and a newly drawn high note must both use samples,
+  // even though the original song only contained notes near middle C.
+  const { s, ctx, voices } = await session(true, false);
+  ctx.createOscillator = () => assert.fail('Editor used a synthesized tone');
+  const audition = pitch => s.playNote({ pitch, channel: 4, velocity: 80, start: 0, end: .5 }, 0, true);
+  audition(60);
+  assert.equal(voices.size, 0);
+  await s.ensureSamples();
+  assert.ok([...voices][0]?.source.buffer, 'first audition waited for a decoded piano recording');
+  audition(108);
+  const high = [...voices].at(-1);
+  assert.equal(high.pitch, 108);
+  assert.equal(high.source.playbackRate.value, 1, 'new C8 plays its own recording rather than transposed C4');
 }
 
 module.exports = test;
