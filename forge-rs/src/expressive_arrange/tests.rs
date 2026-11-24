@@ -59,7 +59,7 @@ fn an_unplayable_ninth_keeps_the_outer_voices() {
     // Three registers, too far apart for any pair to fit under one hand.
     let keys = [note(46, 0., 0.4), note(78, 0.005, 0.4), note(92, 0.015, 0.4)];
     let mut midi = arrange(&[], &[], Some(&[]), 1., &[]);
-    arrange_piano_passages(&mut midi, &keys, &[(0., 1.)]);
+    arrange_piano_passages(&mut midi, &keys, &[(0., 1.)], &[]);
     assert_eq!(midi.instruments[0].notes, [keys[2]]);
     assert_eq!(midi.instruments[1].notes, [keys[0]]);
 }
@@ -69,7 +69,11 @@ fn piano_preserves_rolled_chord_attacks_and_leaves_the_band_outside() {
     let band = [note(83, 0., 1.1), note(74, 1.2, 1.5), note(87, 3., 3.4)];
     let keys = [note(38, 1.2, 2.), note(45, 1.209, 2.), note(69, 1.218, 2.), note(76, 1.227, 2.)];
     let mut midi = arrange(&band, &[], Some(&[]), 4., &[]);
-    arrange_piano_passages(&mut midi, &keys, &[(1., 3.)]);
+    arrange_piano_passages(&mut midi, &keys, &[(1., 3.)], &[(0.9, 1.8), (2., 4.)]);
+    for hand in &midi.instruments {
+        let pedal: Vec<_> = hand.control_changes.iter().map(|e| (e.time, e.number, e.value)).collect();
+        assert_eq!(pedal, [(1., 64, 127), (1.8, 64, 0), (2., 64, 127), (3., 64, 0)]);
+    }
     let rh = &midi.instruments[0].notes;
     let lh = &midi.instruments[1].notes;
     assert_eq!(&rh[1..3], &keys[2..]);
@@ -81,7 +85,7 @@ fn piano_preserves_rolled_chord_attacks_and_leaves_the_band_outside() {
 fn piano_releases_unreachable_holds_instead_of_folding_new_keys() {
     let keys = [note(33, 0., 2.), note(69, 0., 2.), note(53, 0.6, 1.), note(93, 0.6, 1.)];
     let mut midi = arrange(&[], &[], Some(&[]), 2., &[]);
-    arrange_piano_passages(&mut midi, &keys, &[(0., 2.)]);
+    arrange_piano_passages(&mut midi, &keys, &[(0., 2.)], &[]);
     for (track, expected) in midi.instruments.iter().zip([[69, 93], [33, 53]]) {
         assert_eq!(track.notes.iter().map(|n| n.pitch).collect::<Vec<_>>(), expected);
         assert_eq!(track.notes[0].end, 0.6);

@@ -6,6 +6,15 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.8 "Medley" — 2026-11-24
+
+### Changed
+
+- The right hand can play a distinct upper instrumental attack without cutting off the lower key already ringing beneath it. It leaves the vocal melody alone.
+- When two chords fit the backing, Medley also checks the sustained bass. The left hand favors chord tones the recording actually emphasizes.
+- Medley writes detected sustain-pedal presses and releases on both hands during exposed piano passages. The pedal lifts when the arrangement returns to the band.
+- Listen and Editor now play written sustain timing. In Listen, turn Sustain off to hear just the key presses. Files without a pedal lane keep their previous playback behavior.
+
 ## 3.1.7 "Medley" — 2026-11-24
 
 ### Changed

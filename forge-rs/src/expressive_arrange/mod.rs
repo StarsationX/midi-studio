@@ -245,6 +245,60 @@ fn treble_dyads(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[
     dyads
 }
 
+/// The monophonic path can hold a lower backing key across a distinct upper
+/// attack. Keep the sustained key and add the attack at its own source time,
+/// only if both fit one hand. An octave can be a partial of the held key.
+fn interior_treble(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[Note],
+    bass: &[Note], extra: &mut Vec<Note>, duration: f64) {
+    const SEPARATE: f64 = 0.065;
+    let dyad_count = extra.len();
+    for (i, held) in lead.iter().enumerate() {
+        if held.end - held.start <= SEPARATE { continue; }
+        let vocal = vocals.get(vocals.partition_point(|n| n.start < held.start));
+        if vocal.is_some_and(|v| v.start == held.start) { continue; }
+        let next = lead.get(i + 1);
+        let until = held.end.min(next.map_or(duration, |n| n.start - SEPARATE))
+            .min(vocal.map_or(duration, |n| n.start - 0.24));
+        // A rolled partner of the following lead key can arrive 35 ms early.
+        let release = next.map_or(duration, |n| n.start - 0.035);
+        let from = instrumental.partition_point(|n| n.start < held.start + SEPARATE);
+        let mut candidates = &instrumental[from..];
+        while let Some(first) = candidates.first().filter(|n| n.start < until) {
+            let (group, tail) = candidates.split_at(candidates.partition_point(|n| n.start < (first.start + SEPARATE).min(until)));
+            candidates = tail;
+            let chosen = group.iter().filter_map(|n| {
+                let end = n.end.min(release);
+                if !(66..=96).contains(&n.pitch) || !(2..=11).contains(&n.pitch.saturating_sub(held.pitch))
+                    || n.velocity < 53 || n.end - n.start < 0.12 || end - n.start < SEPARATE
+                    || overlapping(&extra[..dyad_count], n.start, end).next().is_some()
+                    || overlapping(bass, n.start, end).any(|b| b.pitch >= n.pitch) { return None; }
+                // A weaker, touching fragment of a recently struck key isn't
+                // another attack unless the piano detector also heard it.
+                let confirmed = confirmed_upper_attack(n, piano);
+                if !confirmed {
+                    let before = instrumental.partition_point(|p| p.start < n.start);
+                    let previous = instrumental[..before].iter().rev()
+                        .take_while(|p| n.start - p.start <= 0.50).find(|p| p.pitch == n.pitch);
+                    if previous.is_some_and(|p| n.start - p.end <= 0.012 && n.velocity < p.velocity.saturating_add(5)) {
+                        return None;
+                    }
+                }
+                Some(((confirmed, n.velocity, n.pitch), Note {
+                    end, velocity: (54. + 0.30 * f64::from(n.velocity)).round() as u8, ..*n
+                }))
+            }).max_by_key(|(rank, _)| *rank);
+            if let Some((_, n)) = chosen {
+                if extra.len() > dyad_count {
+                    let last = extra.last_mut().unwrap();
+                    if n.start - last.start < SEPARATE { continue; }
+                    last.end = last.end.min(n.start);
+                }
+                extra.push(n);
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 struct Chord {
     start: f64,
@@ -530,7 +584,8 @@ pub(crate) fn arrange_with_instruments(
             low
         }
     };
-    let dyads = treble_dyads(&lead, &instrumental, &evidence, &vocals, &bass);
+    let mut dyads = treble_dyads(&lead, &instrumental, &evidence, &vocals, &bass);
+    interior_treble(&lead, &instrumental, &evidence, &vocals, &bass, &mut dyads, duration);
     // Left-hand evidence stays independent of the instrumental lead detector.
     if !harmonic_notes.is_empty() {
         evidence.extend_from_slice(harmonic_notes);

@@ -371,13 +371,17 @@
     });
   }
 
-  function playNote(note, when, index) {
+  function playNote(note, when, index, regionEnd) {
     if (!player.context || ctl.volume <= 0) return;          // volume 0 schedules nothing
     const speed = ctl.speed;
     let duration = clamp((Number(note.end) - Number(note.start)) / speed, 0.04, 2.5);
     const pitch = Number(note.pitch) + ctl.transpose;
     const drum = Number(note.channel) === 9 || ctl.instrument === 'synth_drum';
-    if (ctl.sustain && !drum) duration = clamp(duration + 1.25 / speed, 0.2, 5);
+    if (ctl.sustain && !drum) {
+      const release = currentDocument().__pedal.release(note, player.duration);
+      duration = release === null ? clamp(duration + 1.25 / speed, 0.2, 5)
+        : Math.max(0.04, (Math.min(release, regionEnd) - note.start) / speed);
+    }
     const at = Math.max(when, player.context.currentTime);
     const sampled = player.instrumentReady === ctl.instrument &&
       soundfonts.play(player.context, ctl.instrument, pitch, at, duration, note.velocity, player.master);
@@ -500,7 +504,7 @@
       while (player.cursor < notes.length && Number(notes[player.cursor].start) <= limit) {
         const note = notes[player.cursor];
         player.cursor += 1;
-        playNote(note, player.audioStart + Number(note.start) / speed, player.cursor - 1);
+        playNote(note, player.audioStart + Number(note.start) / speed, player.cursor - 1, r.b);
       }
       if (r.on) {
         // Roll the timeline forward instead of seeking, so the loop has no gap.
@@ -1578,6 +1582,7 @@
     pause();
     player.candidate = name;
     const doc = currentDocument();
+    doc.__pedal = new window.MidiStudioSustain(doc.controllers);
 
     // Everything the draw path would otherwise recompute per frame is computed
     // once, here, and cached on the document.

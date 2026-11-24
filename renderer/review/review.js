@@ -422,6 +422,7 @@
   function txRemove(n) { if (tx) tx.removed.push(n); }
   function txMeta(before, after) { if (tx) tx.meta = { before, after }; }
   function snapEvents(field) {
+    if (field === 'controllers') pedalEvents = null;
     if (tx && !tx.events[field]) tx.events[field] = { before: (doc()[field] || []).map((e) => ({ ...e })) };
   }
   function applyEvents(events, side) {
@@ -1184,6 +1185,15 @@
     }
     return samplePrepare;
   }
+  let pedalEvents = null, pedalMap = null;
+  function pedals() {
+    const events = doc()?.controllers;
+    if (!pedalMap || pedalEvents !== events) {
+      pedalMap = new window.MidiStudioSustain(events);
+      pedalEvents = events;
+    }
+    return pedalMap;
+  }
   // `at` is an AudioContext timestamp; 0 means "right now".
   function playNote(n, at, force, elapsed = 0, index = null) {
     if (!force && !midiOn) return;
@@ -1200,7 +1210,9 @@
       return;
     }
     const when = at || c.currentTime;
-    const fullLength = clamp((n.end - n.start) / rate, 0.05, 4);
+    const release = force ? null : pedals().release(n, duration);
+    const fullLength = release === null ? clamp((n.end - n.start) / rate, 0.05, 4)
+      : Math.max(0.05, (Math.min(release, boundary()) - n.start) / rate);
     const len = fullLength - elapsed;
     if (len <= 0) return;
     const voice = soundfonts.play(c, INSTRUMENT, n.pitch, when, len, n.velocity, master, elapsed);
@@ -1375,8 +1387,11 @@
       const entry = chaseAt;
       chaseAt = null;
       const position = Math.max(entry, now);
-      if (position < end) forOverlapping(entry, entry, n => {
-        if (n.start < entry && n.end > position) playNote(n, cNow, false, (position - n.start) / rate, -1);
+      const pedal = pedals();
+      if (position < end) forOverlapping(pedal.chaseFrom(entry), entry, n => {
+        if (n.start < entry && (pedal.release(n, duration) ?? n.end) > position) {
+          playNote(n, cNow, false, (position - n.start) / rate, -1);
+        }
       });
     }
     if (cursor > notes.length) cursor = notes.length;

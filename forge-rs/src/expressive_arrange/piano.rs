@@ -1,6 +1,6 @@
 //! When the recording itself is a piano performance, preserve its keys and
 //! attacks rather than transposing them into the vocal/bass reduction.
-use crate::pmidi::{Note, PrettyMidi};
+use crate::pmidi::{ControlChange, Note, PrettyMidi};
 use std::borrow::Cow;
 
 /// Half-second sums of squared mono samples: piano stem, all other stems.
@@ -103,7 +103,7 @@ fn assign(group: &[Note], left: &mut Hand, right: &mut Hand, time: f64) {
     right.strike(r, (l.last().map_or(21, |n| n.pitch + 1),108), time);
 }
 
-pub fn arrange_piano_passages(midi: &mut PrettyMidi, piano: &[Note], passages: &[(f64,f64)]) {
+pub fn arrange_piano_passages(midi: &mut PrettyMidi, piano: &[Note], passages: &[(f64,f64)], sustain: &[(f64,f64)]) {
     if passages.is_empty() || piano.is_empty() { return; }
     let valid = |n: &Note| (21..=108).contains(&n.pitch) && n.velocity > 0 && n.end > n.start;
     // Native transcription is already on the recording clock and onset-sorted.
@@ -136,6 +136,21 @@ pub fn arrange_piano_passages(midi: &mut PrettyMidi, piano: &[Note], passages: &
         }
     }
     if ranges.is_empty() { return; }
+    // A MIDI pedal is channel-local. Clip it to the actual piano ranges so
+    // the following band passage never inherits a held pedal from either hand.
+    for &(start, end) in &ranges {
+        let first = sustain.partition_point(|&(_,up)| up <= start);
+        for &(down, up) in sustain[first..].iter().take_while(|&&(down,_)| down < end) {
+            let (a,b) = (down.max(start), up.min(end));
+            if midi.time_to_tick(a) >= midi.time_to_tick(b) { continue; }
+            for track in midi.instruments.iter_mut().take(2) {
+                track.control_changes.extend([
+                    ControlChange { time: a, number: 64, value: 127 },
+                    ControlChange { time: b, number: 64, value: 0 },
+                ]);
+            }
+        }
+    }
     for (track, hand) in midi.instruments.iter_mut().zip([right,left]) {
         track.notes.retain_mut(|n| {
             let i = ranges.partition_point(|&(_,end)| end <= n.start);

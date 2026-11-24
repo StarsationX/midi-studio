@@ -8,8 +8,8 @@ const FFT: usize = 4096;
 const HOP: usize = 256;
 type Chroma = [f32; 12];
 
-// Inversions share one mask. Triad templates propose voices only when all
-// three pitch classes have independent spectral support.
+// Inversions share one mask. Each voice needs spectral support; for ordinary
+// triads the separate bass stem can supply the root.
 fn triads() -> Vec<(u16, usize, f32)> {
     let mut masks = Vec::new();
     for root in 0..12 {
@@ -101,8 +101,17 @@ fn classify(bands: &Chroma, masks: &[(u16, usize, f32)], previous: u16, bass: &C
         let mut support = 0.;
         let mut weakest = max;
         let mut bass_support = 0.;
+        // The backing excludes the bass stem. Two strong upper voices can
+        // otherwise be assigned to the wrong triad because its root is faint
+        // here. Do not let a passing bass, third or fifth fill a missing voice.
+        let root_floor = if penalty == 0. && bass[root] >= 0.6 {
+            0.55 * max * bass[root]
+        } else {
+            0.
+        };
         for (i, &strength) in bands.iter().enumerate() {
             if mask & (1 << i) != 0 {
+                let strength = if i == root { strength.max(root_floor) } else { strength };
                 support += strength;
                 weakest = weakest.min(strength);
                 bass_support += bass[i] * if i == root { 0.12 } else { 0.04 };
@@ -247,7 +256,10 @@ pub fn harmony_notes(mono: &[f32], sample_rate: u32, bass: &[Note]) -> Result<Ve
                 }
                 notes.push(Note {
                     pitch: 60 + pc as u8,
-                    velocity: 43 + (9. * level / peak).round() as u8,
+                    // Preserve the difference between a dominant backing
+                    // tone and a barely supported one when only one fits the
+                    // hand. Keep even the weakest above the chord input gate.
+                    velocity: (32. + 20. * level / peak).round().max(38.) as u8,
                     start: (start as f64 * step - step * 0.5).max(0.),
                     end: (end as f64 * step - step * 0.5).min(duration),
                 });
@@ -330,6 +342,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn quiet_chord_member_is_retained_but_not_ranked_as_a_loud_one() {
+        let mut sound = tones(&[(0., &[57])], 1.);
+        for (pitch, gain) in [(60, 0.9), (64, 0.36)] {
+            for (sample, tone) in sound.iter_mut().zip(tones(&[(0., &[pitch])], 1.)) {
+                *sample += gain * tone;
+            }
+        }
+        let notes = harmony_notes(&sound, RATE as u32, &[]).unwrap();
+        let vel = |pitch| notes.iter().find(|n| n.pitch == pitch).unwrap().velocity;
+        assert!(vel(64) >= 38 && vel(69) >= vel(64) + 10, "{notes:?}");
+    }
+
+    #[test]
+    fn bass_stem_can_supply_the_root_but_not_an_upper_voice() {
+        let masks = triads();
+        let mut bands = [0.; 12];
+        bands[1] = 1.;
+        bands[5] = 0.9;
+        bands[8] = 0.55;
+        let major = (1 << 1) | (1 << 5) | (1 << 8);
+        let minor = (1 << 10) | (1 << 1) | (1 << 5);
+        let mut bass = [0.; 12];
+        assert_eq!(classify(&bands, &masks, 0, &bass), major);
+        bass[10] = 0.4; // Passing Bb under Db major.
+        assert_eq!(classify(&bands, &masks, 0, &bass), major);
+        bass[10] = 1.; // Held Bb with Db and F above it.
+        assert_eq!(classify(&bands, &masks, major, &bass), minor);
+        bands[5] = 0.;
+        bands[8] = 0.;
+        assert_eq!(classify(&bands, &masks, minor, &bass), 0);
     }
 
     #[test]

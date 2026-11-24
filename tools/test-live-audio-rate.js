@@ -46,34 +46,36 @@ function audioClock() {
   return context;
 }
 
-async function session(editor, sampled) {
+async function session(editor, sampled, controllers = []) {
   const ctx = audioClock(), notes = [[8, 10], [8, 8.0625], [8.125, 8.625], [8.125, 9], [8.25, 9.25]]
     .map(([start, end], i) => ({ start, end, channel: 0, pitch: 60 + i, velocity: 85 }));
   let timer = 0;
   const media = { currentTime: 0, paused: true, playbackRate: 1 };
-  const song = { notes };
+  const song = { notes, controllers };
   const s = vm.createContext({ window: { MIDI: { Soundfont: { acoustic_grand_piano: {
     C4: 'data:audio/mp3;base64,AAAA', C8: 'data:audio/mp3;base64,AAAA',
   } } } },
     fetch, clamp: (v, lo, hi) => Math.min(hi, Math.max(lo, v)), notes, duration: 20,
     ctx: () => ctx, ctxAudio: ctx, master: ctx.destination, sampledReady: sampled, INSTRUMENT: 'grand_piano',
-    doc: () => song, samplePrepare: null, previewRequest: 0, say: noop,
+    doc: () => song, pedalEvents: null, pedalMap: null, samplePrepare: null, previewRequest: 0, say: noop,
     audible: () => true, midiOn: true, playing: true, clockTimer: 1, playhead: 7, songBase: 8, clockBase: 100,
     rate: 1, cursor: 0, schedTo: 8, chaseAt: null, usingAudio: () => !media.paused, audio: media, audioOffset: 12,
     voices: new Set(), timers: new Set(), sounding: new Set(), offAt: new Map(), setTimeout: () => ++timer, clearTimeout: noop,
     loopOn: false, ensureSorted: noop, paint: noop, reportTransport: noop,
-    currentDocument: () => ({ notes }), loop: { on: false }, repeat: 'off', LOOKAHEAD: editor ? 0.14 : 1.5,
+    currentDocument: () => song, loop: { on: false }, repeat: 'off', LOOKAHEAD: editor ? 0.14 : 1.5,
     ctl: { speed: 1, instrument: 'grand_piano', sustain: false, volume: 100, transpose: 0 },
     player: { duration: 20, context: ctx, master: ctx.destination, position: 7, playing: true, voices: new Set(),
       instrumentReady: sampled ? 'grand_piano' : '', audioStart: 92, cursor: 0 }, prefs: {}, rollHandle: null,
     syncSpeedUI: noop, setClock: noop, savePrefs: noop, reportState: noop });
   vm.runInContext(read('shared/note-voice.js'), s);
+  vm.runInContext(read('shared/sustain.js'), s);
+  song.__pedal = new s.window.MidiStudioSustain(controllers);
   vm.runInContext(read('soundfonts/player.js'), s);
   s.soundfonts = s.window.MidiStudioSoundfonts;
   if (sampled) await s.soundfonts.prepare(ctx, 'grand_piano', [60, 61, 62, 63, 64]);
   const audioProcs = ['playNote', 'scheduleAhead', 'songTime'];
   const panel = editor ? 'review/review.js' : 'audition/audition.js';
-  const names = editor ? ['ensureSamples', 'boundary', 'markSounding', 'later', 'trackVoice', 'clearHighlights', 'setRate'] :
+  const names = editor ? ['pedals', 'ensureSamples', 'boundary', 'markSounding', 'later', 'trackVoice', 'clearHighlights', 'setRate'] :
     ['region', 'cursorFor', 'pruneVoices', 'playFallback', 'setSpeed'];
   vm.runInContext(procedures(panel, audioProcs.concat(names)), s);
   return { s, ctx, media, change: editor ? s.setRate : s.setSpeed, voices: editor ? s.voices : s.player.voices };
@@ -136,6 +138,19 @@ async function exercise(editor, sampled) {
 async function test() {
   for (const sampled of [false, true]) await exercise(false, sampled);
   await exercise(true, true);
+  for (const editor of [false, true]) {
+    const { s, voices } = await session(editor, true, [
+      { channel: 0, controller: 64, time: 8, value: 127 },
+      { channel: 0, controller: 64, time: 8.01, value: 90 },
+      { channel: 1, controller: 64, time: 8.1, value: 0 },
+      { channel: 0, controller: 64, time: 8.5, value: 0 },
+    ]);
+    s.ctl.sustain = true;
+    s.scheduleAhead();
+    const at = index => Array.from(voices).find(v => v.index === index).releaseAt;
+    close(at(1), 100.5); // short key rings to its own channel's pedal-up
+    close(at(2), 100.625); // key released after pedal-up, no synthetic tail
+  }
   // A cold keyboard click and a newly drawn high note must both use samples,
   // even though the original song only contained notes near middle C.
   const { s, ctx, voices } = await session(true, false);

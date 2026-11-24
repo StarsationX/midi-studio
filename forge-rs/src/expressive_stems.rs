@@ -19,6 +19,7 @@ pub struct Evidence {
     pub backing: Vec<Note>,
     pub instrumental: Vec<Note>,
     pub piano_passages: Vec<(f64, f64)>,
+    pub sustain: Vec<(f64, f64)>,
     pub harmonic_notes: Vec<Note>,
     pub duration: f64,
     pub mixture_tempos: Vec<(f64, f64)>,
@@ -141,6 +142,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
     let Signals { vocals, bass, drums, harmony, piano_passages } = split(separated.stems, frames)?;
     let mut instrumental = Vec::new();
     let mut backing = Vec::new();
+    let mut sustain = Vec::new();
     let tk_ep = if args.transkun_gpu { separated.ep } else { Ep::Cpu };
     println!("[3/6] Transcribe accompaniment with Transkun V2 ({})", ep_name(tk_ep));
     // Transkun's input reader scales float-container WAVs differently from 16-bit PCM.
@@ -164,6 +166,8 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
             let start = note.start.max(0.0);
             if (21..=108).contains(&note.pitch) && end > start {
                 backing.push(Note { pitch: note.pitch as u8, start, end, velocity: note.velocity });
+            } else if note.pitch == -64 && note.velocity >= 64 && end > start && !piano_passages.is_empty() {
+                sustain.push((start, end));
             }
         }
         println!("Detect instrumental lead with Basic Pitch (CPU)");
@@ -188,7 +192,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         pm.write(&work.join("backing.mid"))?;
         println!("  (kept stems: {})", work.display());
     }
-    Ok(Evidence { vocals, bass, bass_notes, drums, sample_rate: SAMPLE_RATE, backing, instrumental, harmonic_notes, piano_passages, duration, source_start, mixture_tempos })
+    Ok(Evidence { vocals, bass, bass_notes, drums, sample_rate: SAMPLE_RATE, backing, instrumental, harmonic_notes, piano_passages, sustain, duration, source_start, mixture_tempos })
 }
 
 fn supplement_instrumental(instrumental: &mut Vec<Note>, piano: &[Note]) {
