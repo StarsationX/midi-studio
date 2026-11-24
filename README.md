@@ -18,10 +18,13 @@ Under **Assets**, download `MIDI-Studio-<version>-Setup.exe` and run it. This is
 | **An MP3 or WAV I want to turn into notes** | In **Forge**, select **Choose audio…**, pick your recording, choose **Fast**, then **Create MIDI**. Open the finished file from **Results**. Fast works without the Medley model. |
 | **A MIDI file with notes I want to fix** | Open it in **Editor**. Playback and note edits use a sampled acoustic grand piano on every channel, without changing the instruments in your MIDI file. Turn on **Original** to compare with an attached recording. |
 | **A MIDI file I want to play in a game** | Open the game first. In **Player**, open the MIDI, select the game window under **Target**, and choose a keyboard mapping that matches the game. Press **Play**. Playback pauses if the target loses focus. |
+| **A Virtual Piano sheet I want to play** | In **Player → Song → Paste a VP sheet**, paste the text and choose **Load only** to see the notes. To play, select your game window under **Target** and press **Play**, or choose **Auto Play** with a target already selected. |
 
 If Forge shows **Set up audio conversion** instead of **Create MIDI**, check the free space shown, choose a storage folder, and select **Install**. Some engines download several GB. Your recording stays selected. Skip this step if you only want to listen to or edit MIDI.
 
 You can reopen **Getting started** from the sidebar. In **Player**, **Listen**, and **Editor**, you can slow down a tricky passage without restarting the song. Changing speed while paused keeps your place.
+
+**Try a VP sheet:** Paste `t y [ui] - o`. It plays `t`, then `y`, then `u` and `i` together, waits one step, and plays `o`. At 120 BPM with two steps per beat, each step takes a quarter second. Spaces, newlines and `|` are for readability, not timing. Use fewer steps per beat for slower notes at the same BPM. Note length changes how long keys are held when **Sustain** is on.
 
 ## Make a two-hand piano arrangement
 
@@ -31,6 +34,7 @@ Medley uses the original six-stem separator. The public installer **does not bun
 The [model source and license information](https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem#license) is provided for reference; the mirror grants no additional rights. Only import a copy you’re authorized to use. Otherwise choose **Fast** in Forge to convert audio without it.
 
 - **On an existing installation:** Setup checks for the original model before replacing the app. If it can’t safely preserve it, setup stops. If you used a portable copy, keep it until the new app shows Medley is ready.
+- **If Setup stops with code 26:** Leave the old app installed. Retry with the new installer under the Windows account that used MIDI Studio; if it still stops, send support the entire message, including the preservation check that failed.
 - **On a new PC with your own model:** Open **Forge → Medley → Import existing Medley model → Choose local model…** and select `bsrofo_sw_body.onnx`. Studio verifies the file before using it.
 - **If you only have `BS-Rofo-SW-Fixed.ckpt`:** Keep its matching YAML file. Offline conversion also needs your original local Forge Python and MSST installation. The checkpoint alone isn’t enough.
 

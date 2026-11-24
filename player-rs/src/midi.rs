@@ -390,7 +390,21 @@ pub fn events_to_sheet(events: &[NoteEvent], bpm: f64) -> String {
             line.clear();
             line_start_slot += slots_per_line;
         }
-        line.push(if keys.len() == 1 { keys[0].to_string() } else { format!("[{}]", keys.concat()) });
+        let mut token = String::new();
+        if keys.len() > 1 {
+            token.push('[');
+        }
+        for key in &keys {
+            // The extended Virtual Piano layout also uses sheet punctuation as pitches.
+            if matches!(*key, "[" | "]" | "|" | "-" | "\\") {
+                token.push('\\');
+            }
+            token.push_str(key);
+        }
+        if keys.len() > 1 {
+            token.push(']');
+        }
+        line.push(token);
         prev_slot = slot;
         i = j;
     }

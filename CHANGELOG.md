@@ -6,6 +6,16 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.4 "Medley" — 2026-11-24
+
+### New
+
+- Paste a Virtual Piano sheet into Player. Set the BPM, steps per beat and note length, then load it or play it into your selected game window.
+
+### Fixed
+
+- Windows Setup can upgrade an inspected, model-free Rust installation even when the desktop-user check is unavailable. If it cannot rule out model loss, it still stops before removing the old app and now explains the reason.
+
 ## 3.1.3 "Medley" — 2026-11-22
 
 ### Fixed

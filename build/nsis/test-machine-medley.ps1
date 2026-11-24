@@ -1,7 +1,7 @@
 # Default: read-only no-desktop policy against a never-registered fake tree.
 # Optional: on a disposable Windows VM ONLY, use its REAL Program Files ACLs
 # and the isolated test-product shared cache. No production cache is touched.
-[CmdletBinding()]param([switch]$DisposableMachine,[string]$Onnx)
+[CmdletBinding()]param([switch]$DisposableMachine,[string]$Onnx,[string]$PublicTauriExe)
 $ErrorActionPreference = 'Stop'
 $scriptFile = Join-Path $PSScriptRoot 'shared-medley.ps1'
 $root = Join-Path ([IO.Path]::GetTempPath()) ('ms-machine-upgrade-' + [Guid]::NewGuid().ToString('N'))
@@ -26,6 +26,61 @@ try {
     [IO.File]::Delete("$nested\$ckpt"); $custom="$store\models\bs_rofo_sw"; $null=[IO.Directory]::CreateDirectory($custom)
     [IO.File]::WriteAllText("$custom\$ckpt",'external checkpoint'); Gate 26
     [IO.File]::Delete("$custom\$ckpt"); $env:MS_MEDLEY_OLD_VERSION='3.1.0'; Gate 26
+
+    $app = "$root\tauri"; $exe = "$app\MIDI Studio.exe"; $assets = "$app\resources\assets"
+    $null = [IO.Directory]::CreateDirectory($assets)
+    $env:MS_MEDLEY_REGISTERED='tauri'; $env:MS_MEDLEY_ELECTRON=$null
+    $env:MS_MEDLEY_TAURI=$app; $env:MS_MEDLEY_TARGET=$app
+    [IO.File]::WriteAllText("$app\uninstall.exe",'never executed')
+    foreach ($build in 2,3,4) {
+        $v = "3.1.$build"
+        # Tiny PE version-resource fixtures; neither the gate nor test runs them.
+        $source = @"
+using System.Reflection;
+[assembly: AssemblyProduct("MIDI Studio")]
+[assembly: AssemblyCompany("StarsationX")]
+[assembly: AssemblyFileVersion("$v")]
+[assembly: AssemblyInformationalVersion("$v")]
+class PublicFixture$build { static void Main() {} }
+"@
+        Add-Type -TypeDefinition $source -OutputAssembly "$root\fixture$build.exe" -OutputType ConsoleApplication
+        [IO.File]::Copy("$root\fixture$build.exe",$exe,$true)
+        $env:MS_MEDLEY_OLD_VERSION=$v; Gate 0
+    }
+    foreach ($v in '3.1.0','3.1.2','3.1.3-beta','3.1.5','') {
+        $env:MS_MEDLEY_OLD_VERSION=$v; Gate 26 # bundled, mismatched or unknown
+    }
+    $env:MS_MEDLEY_OLD_VERSION='3.1.4'
+    $env:MS_MEDLEY_ELECTRON=$old; Gate 26; $env:MS_MEDLEY_ELECTRON=$null
+    $env:MS_MEDLEY_WIX=$old; Gate 26; $env:MS_MEDLEY_WIX=$null
+    $env:MS_MEDLEY_REGISTERED='ambiguous'; Gate 26; $env:MS_MEDLEY_REGISTERED='tauri'
+    $env:MS_MEDLEY_TARGET="$root\other"; Gate 26; $env:MS_MEDLEY_TARGET=$app
+    foreach ($file in "$assets\$graph","$assets\$ckpt","$custom\$graph","$custom\$ckpt","$app\MIDI Studio Expressive.exe") {
+        [IO.File]::WriteAllText($file,'must be retained'); Gate 26; [IO.File]::Delete($file)
+    }
+    $junction = "$root\alias"
+    $null = New-Item -ItemType Junction -Path $junction -Target $app
+    try {
+        $env:MS_MEDLEY_TAURI=$junction; $env:MS_MEDLEY_TARGET=$junction; Gate 26
+    } finally { [IO.Directory]::Delete($junction) }
+    $env:MS_MEDLEY_TAURI=$app; $env:MS_MEDLEY_TARGET=$app
+    $null = New-Item -ItemType Junction -Path "$app\alias" -Target $assets
+    try { Gate 26 } finally { [IO.Directory]::Delete("$app\alias") }
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.WindowsIdentity]::GetCurrent().User,'ListDirectory','Deny')
+    $denied = [IO.Directory]::GetAccessControl($assets)
+    $denied.AddAccessRule($rule)
+    [IO.Directory]::SetAccessControl($assets,$denied)
+    try { Gate 26 } finally {
+        $denied.RemoveAccessRuleSpecific($rule)
+        [IO.Directory]::SetAccessControl($assets,$denied)
+    }
+    [IO.File]::Delete($exe); Gate 26
+    [IO.File]::WriteAllText($exe,'not a versioned app'); Gate 26
+    if ($PublicTauriExe) {
+        [IO.File]::Copy($PublicTauriExe,$exe,$true)
+        $env:MS_MEDLEY_OLD_VERSION=[Diagnostics.FileVersionInfo]::GetVersionInfo($exe).ProductVersion
+        Gate 0
+    }
     Write-Output 'Headless machine preflight passed.'
     if ($DisposableMachine) {
         if (!$Onnx) { throw 'Supply the locally held verified ONNX using -Onnx on the disposable VM.' }

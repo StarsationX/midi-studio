@@ -86,29 +86,45 @@ function Read-StorageSettings([string]$path) {
     $paths
 }
 function Check-HeadlessTarget {
-    # No interactive token. Only inspect names/attributes; never copy a user
-    # file, run Python, or parse user-supplied commands. A known Medley app,
+    # No interactive token. Only read metadata and inspect paths; never copy
+    # a user file, run an old executable or parse commands. A known Medley app,
     # ambiguous storage choice, link, inaccessible path, model or checkpoint
     # requires the old user's own session. In particular this is NOT a general
     # fallback for a failed conversion, hash mismatch or failed preservation.
     $kind = $env:MS_MEDLEY_REGISTERED
-    if ($kind -notin 'none','electron' -or $env:MS_MEDLEY_TAURI -or $env:MS_MEDLEY_WIX -or $env:MS_MEDLEY_OLD_VERSION) { throw 'This upgrade requires the old app user to sign in.' }
+    if ($env:MS_MEDLEY_WIX -or $kind -notin 'none','electron','tauri') { throw 'Mixed or unknown old installation. Sign in as the user of the old app.' }
+    if ($kind -ne 'tauri' -and ($env:MS_MEDLEY_TAURI -or $env:MS_MEDLEY_OLD_VERSION)) { throw 'Incomplete or conflicting Tauri registration.' }
     $target = Local-Path $env:MS_MEDLEY_TARGET
     $old = $null
-    if ($kind -eq 'electron') {
+    if ($kind -eq 'tauri') {
+        $version = $env:MS_MEDLEY_OLD_VERSION
+        if ($env:MS_MEDLEY_ELECTRON -or $version -notin '3.1.2','3.1.3','3.1.4') { throw "Mixed registration or unrecognized nonbundled release ($version). Sign in as the user of the old app." }
+        $old = Local-Path $env:MS_MEDLEY_TAURI
+        if (![string]::Equals($old,$target,[StringComparison]::OrdinalIgnoreCase)) { throw 'The selected folder differs from the registered Tauri installation.' }
+        $names = 'MIDI Studio.exe','uninstall.exe'
+    } elseif ($kind -eq 'electron') {
         $old = Local-Path $env:MS_MEDLEY_ELECTRON
-        foreach ($name in 'MIDI Studio.exe','Uninstall MIDI Studio.exe') {
-            if ($null -eq (Local-Attributes ([IO.Path]::Combine($old,$name)))) { throw 'Incomplete Electron installation.' }
+        $names = 'MIDI Studio.exe','Uninstall MIDI Studio.exe'
+    } elseif ($env:MS_MEDLEY_ELECTRON) { throw 'Ambiguous prior Electron installation.' }
+    if ($old) {
+        foreach ($name in $names) {
+            $attr = Local-Attributes ([IO.Path]::Combine($old,$name))
+            if ($null -eq $attr -or ($attr -band [IO.FileAttributes]::Directory)) { throw "Missing or invalid installed file: $old\$name" }
+        }
+        if ($kind -eq 'tauri') {
+            $info = [Diagnostics.FileVersionInfo]::GetVersionInfo([IO.Path]::Combine($old,'MIDI Studio.exe'))
+            if ($info.ProductName -ne 'MIDI Studio' -or $info.CompanyName -ne 'StarsationX' -or $info.ProductVersion -ne $version -or $info.FileVersion -ne $version) { throw 'The installed MIDI Studio executable does not match its registered public release.' }
         }
         $stack = [Collections.Generic.Stack[string]]::new(); $stack.Push($old)
         while ($stack.Count) {
             foreach ($entry in [IO.DirectoryInfo]::new($stack.Pop()).EnumerateFileSystemInfos()) {
                 if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Cannot inspect link in the old app: $($entry.FullName)" }
+                if ($kind -eq 'tauri' -and $entry.Name -in 'MIDI Studio Expressive.exe','Uninstall MIDI Studio.exe') { throw 'Conflicting old app files. Sign in as the user of the old app.' }
                 if ($entry.Name -in 'bsrofo_sw_body.onnx','BS-Rofo-SW-Fixed.ckpt') { throw 'Old app includes a Medley model; sign in to preserve it before upgrading.' }
                 if ($entry.Attributes -band [IO.FileAttributes]::Directory) { $stack.Push($entry.FullName) }
             }
         }
-    } elseif ($env:MS_MEDLEY_ELECTRON) { throw 'Ambiguous prior Electron installation.' }
+    }
     if ($target -ne $old -and $null -ne (Local-Attributes $target)) {
         $entries = [IO.Directory]::EnumerateFileSystemEntries($target).GetEnumerator()
         try { if ($entries.MoveNext()) { throw 'A nonempty/portable target requires its interactive user.' } } finally { $entries.Dispose() }

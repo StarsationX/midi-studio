@@ -16,6 +16,7 @@ mod paths;
 mod review;
 mod settings;
 mod updater;
+mod vp_sheet;
 mod watch;
 
 use std::io::Write;

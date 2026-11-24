@@ -120,11 +120,13 @@ function Convert-Checkpoint([string]$checkpoint) {
     }
     Stop-Upgrade 22 "Checkpoint retained: $checkpoint. In a normal PowerShell session run your Forge python.exe -I `"$kit\import_medley_checkpoint.py`" `"<Forge env>\msst`" `"$checkpoint`" `"$target`", with the original sibling YAML. Rerun setup after successful verification."
 }
+$canWriteDiagnostic = $false
 try {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     if (([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         Stop-Upgrade 25 'Run preservation from a non-administrator session.'
     }
+    $canWriteDiagnostic = $Installer
     $graphs = New-PathSet; $checkpoints = New-PathSet; $roots = New-PathSet; $modelBases = New-PathSet
     $product = 'midi-studio'
     $machineRoots = New-PathSet
@@ -249,7 +251,7 @@ try {
 } catch {
     $message = $_.Exception.Message
     [Console]::Error.WriteLine($message)
-    if ($Installer) {
+    if ($canWriteDiagnostic) {
         try { [IO.File]::WriteAllText("$PSScriptRoot\medley-error.txt",$message,[Text.UnicodeEncoding]::new($false,$false)) } catch {}
     }
     exit $failure

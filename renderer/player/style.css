@@ -116,6 +116,10 @@ body { background: var(--bg); color: var(--text); font: 400 var(--t2)/1.45 var(-
 
 .p-open { justify-content: center; height: var(--h-ctl-lg); }
 .p-browse { justify-content: center; margin-top: var(--s2); }
+#vp-sheet > summary { cursor: pointer; font-weight: 600; padding-block: var(--s2); }
+#vp-form { margin-top: var(--s1); }
+#vp-text { width: 100%; height: auto; resize: vertical; font-family: var(--font-mono); }
+#vp-status:empty { display: none; }
 
 .p-queue { display: flex; flex-direction: column; min-height: 0; }
 .p-queue > .vlist {

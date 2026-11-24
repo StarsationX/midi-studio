@@ -187,6 +187,12 @@
   let pendingSeekAfterLoad = null;  // seconds, pre-seek after the next load
   let pendingAutoTranspose = false;
   let autoPlayNext = false;
+  let sheetRequest = null, sheetStart = null;
+  function cancelSheetLoad() {
+    if (sheetRequest) $('vp-status').textContent = 'Load canceled.';
+    sheetRequest = null;
+    sheetStart = null;
+  }
   let userStopped = false;
   // A stop WE sent to rebuild the session while paused. playback_done carries no
   // "why", so without this the renderer reads that stop as the natural end of
@@ -501,6 +507,7 @@
     // command reader block in session_thread.join(1.0) before dropping it, and
     // that thread is the one that has to stay free to answer the next Stop.
     if (isCounting) return;
+    cancelSheetLoad();
     testMode = false;
     const range = playbackRange();
     let preSeek = viz.elapsed();
@@ -536,6 +543,8 @@
   // of carrying on. userStopped then suppresses the queue advance, the
   // sent/dropped summary and the practice loop.
   function doStop() {
+    cancelSheetLoad();
+    autoPlayNext = false;
     pendingRestartAt = null;
     pendingSeekAfterLoad = null;
     restarting = false;             // a user stop outranks a restart in flight
@@ -914,6 +923,7 @@
 
   function selectTrack(i, andPlay) {
     if (i < 0 || i >= tracks.length) return;
+    cancelSheetLoad();
     curIdx = i;
     autoPlayNext = !!andPlay;
     const p = tracks[i];
@@ -960,6 +970,7 @@
   }
 
   function clearLoaded() {
+    cancelSheetLoad();
     lastMidiPath = '';
     settings.midiPath = '';
     totalDuration = 0; totalNotes = 0; bpm = 0; bpmEstimate = 0;
@@ -1002,6 +1013,46 @@
   }
 
   on($('open-midi'), 'click', () => pickMidi(false));
+  $('vp-sheet').hidden = !api.vpSheet;
+  on($('vp-form'), 'submit', async (e) => {
+    e.preventDefault();
+    const status = $('vp-status');
+    const play = e.submitter === $('vp-play');
+    const target = targetHwnd;
+    if (isPlaying || isCounting) {
+      status.textContent = 'Stop the current song before loading a sheet.';
+      return;
+    }
+    const request = sheetRequest = {};
+    sheetStart = null;
+    const args = { text: $('vp-text').value, bpm: $('vp-bpm').valueAsNumber,
+      stepsPerBeat: Number($('vp-steps').value), gatePercent: Number($('vp-gate').value) };
+    status.textContent = 'Reading sheet…';
+    try {
+      const r = await api.vpSheet(args);
+      if (request !== sheetRequest) return;
+      if (!r || !r.ok) { status.textContent = r?.error || 'Could not read the sheet.'; return; }
+      if (isPlaying || isCounting) { status.textContent = 'Playback changed. Stop it and try again.'; return; }
+      sheetRequest = null;
+      mappingSelect.value = mapping = settings.mapping = 'virtualpiano';
+      setTempo(1, false);
+      setMidiFile(r.path, false);
+      status.textContent = `Loaded ${r.notes} notes at ${args.bpm} BPM.`;
+      if (play && target !== null && target === targetHwnd) {
+        sheetStart = { path: r.path, target };
+      } else if (play) {
+        const hint = 'Select a game window under Target, then press Play.';
+        status.textContent += ' ' + hint;
+        say(hint);
+        showTab('target');
+        $('target-select').focus();
+      }
+    } catch (err) {
+      if (request === sheetRequest) status.textContent = 'Could not load the sheet: ' + String(err?.message || err);
+    } finally {
+      if (request === sheetRequest) sheetRequest = null;
+    }
+  });
   on($('viz-open'), 'click', () => pickMidi(false));
   on($('queue-add'), 'click', () => pickMidi(true));
   on($('open-audio'), 'click', () => {
@@ -1249,6 +1300,7 @@
 
   function paintTarget() {
     const w = selectedWindow();
+    $('vp-target').textContent = w ? `Auto Play target: ${w.title || w.process}` : 'No target selected. Auto Play will load the sheet without sending keys.';
     const app = $('target-app');
     const iconEl = $('target-icon');
     const dot = $('target-dot');
@@ -1283,6 +1335,7 @@
   }
 
   on($('target-select'), 'change', (e) => {
+    cancelSheetLoad();
     const v = e.target.value;
     targetHwnd = v === '' ? null : Number(v);
     const w = selectedWindow();
@@ -2373,6 +2426,7 @@
       }
 
       case 'midi_loaded': {
+        if (evt.path && evt.path !== lastMidiPath) break;
         lastMidiLoaded = evt;            // a late-opening Perch needs it whole
         const events = evt.events || [];
         viz.load(events, evt.note_to_key || {});
@@ -2414,6 +2468,11 @@
         }
         renderQueue();
         reportState();
+        if (sheetStart && evt.path === sheetStart.path) {
+          const { path, target } = sheetStart;
+          sheetStart = null;
+          if (path === lastMidiPath && target === targetHwnd) sendPlay(0, countdownVal);
+        }
         if (autoPlayNext) { autoPlayNext = false; sendPlay(0, 0); }
         break;
       }
@@ -2573,7 +2632,8 @@
   }));
 
   keep(window.Bus.on(T.NAV_ACTIVATED, (p) => {
-    if (!p || p.tab !== FRAME) return;
+    if (!p) return;
+    if (p.tab !== FRAME) { cancelSheetLoad(); return; }
     claimTransport();
     readUiPrefs();
     vizHandle.invalidate(); mapHandle.invalidate(); artHandle.invalidate();
@@ -2707,6 +2767,7 @@
   function teardown() {
     if (torn) return;
     torn = true;
+    cancelSheetLoad();
     saveSettings.flush();
     for (const id of timers) clearTimeout(id);
     timers.clear();

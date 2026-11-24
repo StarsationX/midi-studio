@@ -48,6 +48,27 @@
           <button class="btn u-fill p-browse" id="open-songs" type="button">
             <i data-icon="list" data-icon-size="13"></i>Browse songs
           </button>
+          <details id="vp-sheet" hidden>
+            <summary>Paste a VP sheet</summary>
+            <form class="p-block" id="vp-form">
+              <label class="p-block-title" for="vp-text">Virtual Piano sheet</label>
+              <textarea class="input" id="vp-text" rows="4" required spellcheck="false" autocapitalize="off" placeholder="t y [ui] - o"></textarea>
+              <p class="field-hint">Each letter is a key. [ui] plays two keys together; - waits one step. Capitals matter. Spaces and | don’t change the timing.</p>
+              <div class="insp-row"><label class="insp-label" for="vp-bpm">Tempo (BPM)</label>
+                <input class="input is-sm" id="vp-bpm" type="number" min="20" max="400" step="any" value="120" required></div>
+              <div class="insp-row"><label class="insp-label" for="vp-steps">Steps per beat</label>
+                <select class="select is-sm" id="vp-steps"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></div>
+              <div class="insp-row"><label class="insp-label" for="vp-gate">Note length</label>
+                <select class="select is-sm" id="vp-gate"><option value="50">Short</option><option value="85" selected>Normal</option><option value="100">Full step</option></select></div>
+              <p class="field-hint">Load to preview the notes at 1× speed with the Virtual Piano layout. Note length applies when Sustain is on.</p>
+              <p class="field-hint" id="vp-target"></p>
+              <div class="u-row">
+                <button class="btn" type="submit" id="vp-load">Load only</button>
+                <button class="btn btn-primary" type="submit" id="vp-play">Auto Play</button>
+              </div>
+              <p class="field-hint" id="vp-status" role="status"></p>
+            </form>
+          </details>
           <span class="pathchip" id="song-path" hidden>
             <span class="pathchip-dir" id="song-dir"></span>
             <span class="pathchip-name" id="song-name"></span>

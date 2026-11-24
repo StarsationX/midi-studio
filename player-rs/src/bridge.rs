@@ -275,6 +275,7 @@ impl Bridge {
         let note_to_key: Map<String, Value> = ntk.iter().map(|(k, v)| (k.to_string(), Value::String(v.clone()))).collect();
         self.inner.emit(json!({
             "event": "midi_loaded",
+            "path": path,
             "events": event_rows(&p),
             "collapsed_sharps": collapsed,
             "report": {"max_chord": r.max_chord, "big_chords": r.big_chords,

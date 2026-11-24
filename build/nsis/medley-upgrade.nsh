@@ -13,6 +13,19 @@ Var MsMedleyHelpersPrepared
 !system `node -e "const fs=require('fs');fs.writeFileSync(process.argv[2],require('crypto').createHash('sha256').update(fs.readFileSync(process.argv[1])).digest('hex'))" "${__FILEDIR__}\shared-medley.ps1" "${MS_SHARED_HASH_FILE}"` = 0
 !define /file MS_SHARED_SCRIPT_HASH "${MS_SHARED_HASH_FILE}"
 !delfile "${MS_SHARED_HASH_FILE}"
+; Only the headless exception needs an unambiguous registration. Interactive
+; preservation still inspects every old tree supplied by the installer.
+!macro MS_CHECK_OTHER_REGISTRATION HIVE
+  ReadRegStr $6 ${HIVE} "${MANUPRODUCTKEY}" ""
+  ReadRegStr $7 ${HIVE} "${UNINSTKEY}" "InstallLocation"
+  ReadRegStr $8 ${HIVE} "${UNINSTKEY}" "UninstallString"
+  ${IfThen} "$6$7$8" != "" ${|} StrCpy $4 "ambiguous" ${|}
+  !ifdef MS_ELECTRON_GUID
+    ReadRegStr $6 ${HIVE} "${MS_ELECTRON_INSTKEY}" "InstallLocation"
+    ReadRegStr $7 ${HIVE} "${MS_ELECTRON_UNINSTKEY}" "UninstallString"
+    ${IfThen} "$6$7" != "" ${|} StrCpy $4 "ambiguous" ${|}
+  !endif
+!macroend
 
 Function MidiStudioPreserveMedley
   System::Store S
@@ -28,8 +41,9 @@ Function MidiStudioPreserveMedley
   ${EndIf}
 
   ReadRegStr $0 SHCTX "${MANUPRODUCTKEY}" ""
+  ReadRegStr $6 SHCTX "${UNINSTKEY}" "InstallLocation"
   ${If} $0 == ""
-    ReadRegStr $0 SHCTX "${UNINSTKEY}" "InstallLocation"
+    StrCpy $0 $6
   ${EndIf}
   ReadRegStr $1 SHCTX "${UNINSTKEY}" "DisplayVersion"
   StrCpy $2 ""
@@ -40,7 +54,25 @@ Function MidiStudioPreserveMedley
     ${IfThen} $5 != "" ${|} StrCpy $4 "electron" ${|}
   !endif
   ReadRegStr $5 SHCTX "${UNINSTKEY}" "UninstallString"
-  ${IfThen} $5 != "" ${|} StrCpy $4 "tauri" ${|}
+  ${If} $5 != ""
+    ; Public Tauri installers record all three paths in this exact form.
+    ; Never parse registry command text, or let Tauri mask an Electron entry.
+    ${If} $4 == "none"
+    ${AndIf} $2 == ""
+    ${AndIf} $6 == "$\"$0$\""
+    ${AndIf} $5 == "$\"$0\uninstall.exe$\""
+      StrCpy $4 "tauri"
+      !if "${INSTALLMODE}" == "both"
+        ${If} $MultiUser.InstallMode == "AllUsers"
+          !insertmacro MS_CHECK_OTHER_REGISTRATION HKCU
+        ${Else}
+          !insertmacro MS_CHECK_OTHER_REGISTRATION HKLM
+        ${EndIf}
+      !endif
+    ${Else}
+      StrCpy $4 "ambiguous"
+    ${EndIf}
+  ${EndIf}
   System::Call 'kernel32::SetEnvironmentVariableW(w "MS_MEDLEY_REGISTERED", w r4)'
   StrCpy $3 ""
   ${If} $WixMode = 1
@@ -150,11 +182,13 @@ Function MidiStudioPreserveMedley
     ${EndIf}
   ${EndIf}
   ${If} $MsMedleyStatus != 0
-    ClearErrors
-    FileOpen $0 "$PLUGINSDIR\medley-error.txt" r
-    ${IfNot} ${Errors}
-      FileReadUTF16LE $0 $MsMedleyDiagnostic
-      FileClose $0
+    ${If} $MsMedleyDiagnostic == ""
+      ClearErrors
+      FileOpen $0 "$PLUGINSDIR\medley-error.txt" r
+      ${IfNot} ${Errors}
+        FileReadUTF16LE $0 $MsMedleyDiagnostic
+        FileClose $0
+      ${EndIf}
     ${EndIf}
     ${If} $MsMedleyStatus = 22
       MessageBox MB_ICONSTOP|MB_OK "Update stopped before removing the old app. Medley needs a verified local conversion. Close setup; in normal (non-administrator) PowerShell use your Forge python.exe with the offline import_medley_checkpoint.py in your Local AppData\midi-studio\medley-import-${VERSION} folder. Keep the original checkpoint and YAML. Rerun setup after conversion.$\r$\n$\r$\n$MsMedleyDiagnostic" /SD IDOK
@@ -175,6 +209,9 @@ FunctionEnd
 
 Function MidiStudioProtectedOperation
   System::Call 'kernel32::SetEnvironmentVariableW(w "MS_MEDLEY_SHARED_SCRIPT", w "$PLUGINSDIR\shared-medley.ps1")'
-  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "$$ErrorActionPreference='Stop'; $$b=[IO.File]::ReadAllBytes($$env:MS_MEDLEY_SHARED_SCRIPT); if ([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($$b)).Replace('-','') -ne '${MS_SHARED_SCRIPT_HASH}') { exit 26 }; & ([scriptblock]::Create([Text.Encoding]::UTF8.GetString($$b)))"`
+  ; Keep the protected helper's stderr in the pipe, not an elevated log file.
+  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "$$ErrorActionPreference='Stop'; try { $$b=[IO.File]::ReadAllBytes($$env:MS_MEDLEY_SHARED_SCRIPT); if ([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($$b)).Replace('-','') -ne '${MS_SHARED_SCRIPT_HASH}') { throw 'The packaged preservation helper failed verification.' }; & ([scriptblock]::Create([Text.Encoding]::UTF8.GetString($$b))) } catch { [Console]::Error.WriteLine($$_.Exception.Message); exit 26 }"`
   Pop $MsMedleyStatus
+  Pop $MsMedleyDiagnostic
+  DetailPrint "$MsMedleyDiagnostic"
 FunctionEnd

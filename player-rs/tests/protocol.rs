@@ -111,8 +111,9 @@ fn bridge_speaks_ipc_main() {
     h.send(json!({"cmd": "load_midi", "path": midi, "mapping": "roblox", "tempo": 1.0}));
     let loaded = h.wait(at, "midi_loaded");
     let keys: Vec<&str> = loaded.as_object().unwrap().keys().map(String::as_str).collect();
-    assert_eq!(keys, ["event", "events", "collapsed_sharps", "report", "mapping_description", "duration", "bpm",
+    assert_eq!(keys, ["event", "path", "events", "collapsed_sharps", "report", "mapping_description", "duration", "bpm",
                       "bpm_estimate", "note_to_key", "mapping_name", "unmapped", "transpose"]);
+    assert_eq!(loaded["path"], json!(midi));
     assert_eq!(loaded["bpm"], json!(150.0));
     assert_eq!(loaded["mapping_name"], "roblox");
     assert_eq!(loaded["events"][0], json!([0.0, "t", 0.2, 60, 0]));

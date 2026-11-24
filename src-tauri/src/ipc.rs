@@ -203,6 +203,15 @@ fn runtime(h: &Host) -> Value {
 }
 
 fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Result<Value, String> {
+    if channel == "app:vpSheet" {
+        return Ok(match crate::vp_sheet::create(args.first().unwrap_or(&Value::Null), &paths::user_data_dir()) {
+            Ok((path, notes, duration)) => {
+                allow_file(app, &path);
+                json!({"ok": true, "path": path, "notes": notes, "duration": duration})
+            }
+            Err(error) => json!({"ok": false, "error": error}),
+        });
+    }
     let h: Arc<Host> = app.state::<Arc<Host>>().inner().clone();
     let a0 = args.first().cloned().unwrap_or(Value::Null);
     let win = || app.get_webview_window(MAIN).ok_or_else(|| "the main window is gone".to_string());

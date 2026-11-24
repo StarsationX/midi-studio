@@ -167,6 +167,7 @@
         onEngineEvent: on('engine-event'),
         onEngineError: on('engine-error'),
         pickMidi: c('dialog:openMidi'),
+        vpSheet: c('app:vpSheet'),
         pickMapping: c('dialog:openMapping'),
         getDroppedFilePath,
         openExternal: c('app:openExternal'),
