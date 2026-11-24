@@ -62,7 +62,7 @@ Start at **120 BPM** and **2 steps per beat**: each step lasts a quarter second.
 
 **Medley** (formerly **Expressive Piano**) arranges a recording for two hands: the right hand follows vocal and instrumental melodies, while the left plays bass and chords. Choose **Melody** instead if you want only the lead line.
 
-Quiet piano intros and outros can keep both hands of the detected piano part. In a dense mix, Medley looks for agreement between instruments before adding a lead note. It’s an arrangement, not a note-for-note transcription: compare the result with the recording in passages where several instruments share the melody.
+Quiet piano intros and outros keep both hands through brief rests. When a chord is too wide to play, Medley favors the top and bass notes without shifting their pitches. In a dense mix, the right hand can play two notes together when the detectors support them. It’s still an arrangement, not a note-for-note transcription.
 
 Medley uses the original six-stem separator. The public installer **does not bundle, download, or substitute** that model.
 The [model source and license information](https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem#license) is provided for reference; the mirror grants no additional rights. Only import a copy you’re authorized to use. Otherwise choose **Fast** in Forge to convert audio without it.

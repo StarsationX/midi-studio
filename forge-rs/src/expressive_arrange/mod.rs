@@ -211,6 +211,40 @@ fn melody(vocals: &[Note], instrumental: &[Note], piano: &[Note], duration: f64,
     lead
 }
 
+/// Retain a second, sustained instrumental key at an already selected attack.
+/// One of the two keys must agree across detectors. A single piano fallback
+/// or a stack of octave partials is not evidence of two playable voices.
+fn treble_dyads(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[Note], bass: &[Note]) -> Vec<Note> {
+    let mut dyads = Vec::new();
+    for (i, key) in lead.iter().enumerate() {
+        if key.end - key.start < 0.08 || vocals.binary_search_by(|n| n.start.total_cmp(&key.start)).is_ok() {
+            continue;
+        }
+        let first = instrumental.partition_point(|n| n.start < key.start - 0.035);
+        let count = instrumental[first..].partition_point(|n| n.start <= key.start + 0.035);
+        let attacks = &instrumental[first..first + count];
+        if attacks.len() < 2 { continue; }
+        let Some(primary) = attacks.iter().find(|n| n.pitch == key.pitch && n.start == key.start) else { continue };
+        let supported = confirmed_upper_attack(primary, piano);
+        let partner = attacks.iter().filter_map(|n| {
+            // Stay above the left-hand chord ceiling. Do not extend across
+            // either neighboring melody key; retain the source's rolled onset.
+            let end = n.end.min(key.end);
+            if n.pitch <= 65 || !fill_candidate(n) || !(2..=10).contains(&n.pitch.abs_diff(key.pitch))
+                || end - n.start.max(key.start) < 0.08 || (i > 0 && n.start < lead[i - 1].end)
+                || overlapping(bass, n.start, end).any(|b| b.pitch >= n.pitch)
+            { return None; }
+            let confirmed = confirmed_upper_attack(n, piano);
+            if !confirmed && !(supported && n.end - n.start >= 0.12) { return None; }
+            Some(((confirmed, n.velocity, n.pitch), Note {
+                end, velocity: key.velocity.saturating_sub(10).max(1), ..*n
+            }))
+        }).max_by_key(|&(rank, _)| rank);
+        if let Some((_, n)) = partner { dyads.push(n); }
+    }
+    dyads
+}
+
 #[derive(Default)]
 struct Chord {
     start: f64,
@@ -481,7 +515,9 @@ pub(crate) fn arrange_with_instruments(
     let mut midi = PrettyMidi::with_tempo_map(960, tempos);
     let beat = midi.tick_scales[0].1 * f64::from(midi.resolution);
     let mut evidence = ordered(backing, duration);
-    let lead = melody(&ordered(vocals, duration), &ordered(instrumental, duration), &evidence, duration, beat);
+    let vocals = ordered(vocals, duration);
+    let instrumental = ordered(instrumental, duration);
+    let mut lead = melody(&vocals, &instrumental, &evidence, duration, beat);
     let bass = match bass {
         Some(line) => ordered(line, duration),
         None => {
@@ -494,12 +530,17 @@ pub(crate) fn arrange_with_instruments(
             low
         }
     };
+    let dyads = treble_dyads(&lead, &instrumental, &evidence, &vocals, &bass);
     // Left-hand evidence stays independent of the instrumental lead detector.
     if !harmonic_notes.is_empty() {
         evidence.extend_from_slice(harmonic_notes);
         order_in_place(&mut evidence, duration);
     }
     let left = left_hand(&bass, &evidence, &groups(&evidence), &lead, duration, beat);
+    if !dyads.is_empty() {
+        lead.extend(dyads);
+        lead.sort_unstable_by(|a, b| a.start.total_cmp(&b.start).then(a.pitch.cmp(&b.pitch)));
+    }
     for (name, notes) in [
         ("Right Hand - Melody", lead),
         ("Left Hand - Bass and Chords", left),
@@ -513,3 +554,5 @@ pub(crate) fn arrange_with_instruments(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod treble_tests;

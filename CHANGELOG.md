@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.7 "Medley" — 2026-11-24
+
+### Changed
+
+- Medley keeps quiet piano notes through brief rests and favors the melody and bass when a wide chord won't fit under two hands.
+- The right hand can keep two instrumental notes struck together when the recording supports both. It no longer has to discard one just because they share an onset.
+- Bass tracking checks the spacing of overtones before moving the left hand up a register and listens for a fresh pluck before repeating a held note.
+
 ## 3.1.6 "Medley" — 2026-11-24
 
 ### Changed

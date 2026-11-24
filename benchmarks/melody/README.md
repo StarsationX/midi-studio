@@ -26,3 +26,10 @@ fitting the output MIDI. Synchronized player-piano key presses can serve as
 performance truth. An independently arranged cover measures agreement with
 that guide, not song-wide transcription accuracy. Keep private recordings,
 references and generated MIDIs outside the repository.
+
+For a wide-chord check, group the **reference** attacks by time: start a group
+at the earliest remaining attack and include the next 35 ms. For groups with
+at least three attacks and a span greater than 12 semitones, count matches to
+the lowest and highest keys separately from the all-key score. This tests
+whether a reduction preserves the outside voices, not whether it plays every
+inner note. Use the same reference groups for both exports.

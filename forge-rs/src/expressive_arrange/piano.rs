@@ -12,7 +12,17 @@ pub fn piano_passages(energy: &[[f64; 2]], duration: f64) -> Vec<(f64, f64)> {
         let solo = energy.get(i).is_some_and(|&[p, other]| {
             let window = &energy[i.saturating_sub(2)..energy.len().min(i + 3)];
             let (piano, rest) = window.iter().fold((0., 0.), |(a,b), e| (a+e[0], b+e[1]));
-            piano > 1e-5 && piano >= 9. * rest && (p >= other || p + other < 1e-4)
+            if piano > 1e-5 && piano >= 9. * rest && (p >= other || p + other < 1e-4) {
+                return true;
+            }
+            // At a quiet release, room sound can outweigh the dying piano for
+            // a few frames. Keep the performance across the breath, but never
+            // explain a foreground band entrance as room sound.
+            let phrase = &energy[i.saturating_sub(8)..energy.len().min(i + 9)];
+            let (keys, band) = phrase.iter().fold((0., 0.), |(a,b), e| (a+e[0], b+e[1]));
+            keys > 1e-4 && keys >= 9. * band
+                && (p >= 2. * other || other * (phrase.len() as f64) < 0.03 * keys)
+                && phrase.iter().filter(|e| e[0] > 2. * e[1] && e[0] > keys * 0.005).take(4).count() == 4
         });
         if solo { begin.get_or_insert(i); }
         else if let Some(first) = begin.take() {
@@ -40,13 +50,16 @@ impl Hand {
     // A contiguous cluster of at most five attacks within an octave. Prefer
     // retaining the actual pitches to moving the hand less; use motion and
     // normal playing register to break ties between playable distributions.
-    fn shape(&self, group: &[Note]) -> Shape {
+    fn shape(&self, group: &[Note], outer: (u8, u8)) -> Shape {
         let mut best = Shape::default();
         for (first, lowest) in group.iter().enumerate() {
             let mut value = 0.;
             for (i, n) in group[first..].iter().take(5).enumerate() {
                 if n.pitch - lowest.pitch > 12 { break; }
                 value += 48. + f64::from(n.velocity) * 0.25;
+                // When the chord exceeds hand reach, favor its bass and top
+                // line over an inner doubling without changing their pitches.
+                if n.pitch == outer.0 || n.pitch == outer.1 { value += 20.; }
                 let center = f64::from(n.pitch + lowest.pitch) * 0.5;
                 let cost = 0.65 * (center - self.center).abs() + 0.32 * (center - self.home).abs();
                 let score = value - cost;
@@ -76,9 +89,10 @@ impl Hand {
 
 fn assign(group: &[Note], left: &mut Hand, right: &mut Hand, time: f64) {
     let mut best = (f64::NEG_INFINITY, 0..0, 0..0);
+    let outer = (group[0].pitch, group[group.len()-1].pitch);
     for split in 0..=group.len() {
-        let l = left.shape(&group[..split]);
-        let r = right.shape(&group[split..]);
+        let l = left.shape(&group[..split], outer);
+        let r = right.shape(&group[split..], outer);
         if l.score + r.score > best.0 {
             let rf = split + r.first;
             best = (l.score + r.score, l.first..l.first+l.count, rf..rf+r.count);

@@ -31,9 +31,8 @@ fn pitch_templates() -> Vec<Vec<Harmonic>> {
         .collect()
 }
 
-/// A weak bass fundamental can leave its second harmonic as the winning
-/// template. Confirm the lower octave with an odd partial at 3/2 and a
-/// fourth partial at twice that strong peak before changing the note.
+/// Resolve a dominant overtone only when other peaks share its proposed
+/// fundamental. A loud fifth or octave on its own is not a bass note below it.
 fn bass_fundamental(mag: &[f32], candidate: i16) -> i16 {
     if candidate < 35 {
         return candidate;
@@ -56,22 +55,45 @@ fn bass_fundamental(mag: &[f32], candidate: i16) -> i16 {
         (location >= center / tolerance && location <= center * tolerance)
             .then_some((location, mag[k]))
     };
-    let Some((second, level)) = peak(bin, 1.064) else {
+    let Some((dominant, level)) = peak(bin, 1.064) else {
         return candidate;
     };
-    let Some((third, level3)) = peak(second * 1.5, 1.019) else {
-        return candidate;
+    let partial = |bin, fraction| peak(bin, 1.019).filter(|&(_, a)| a >= level * fraction);
+    let pitch = |mut bins: [f32; 3]| {
+        bins.sort_unstable_by(f32::total_cmp);
+        let hz = bins[1] * RATE as f32 / FFT as f32;
+        (69. + 12. * (hz / 440.).log2()).round() as i16
     };
-    let Some((fourth, level4)) = peak(second * 2., 1.019) else {
-        return candidate;
-    };
-    if level3 < level * 0.24 || level4 < level * 0.10 {
-        return candidate;
+
+    if candidate >= 42 {
+        let root = dominant / 3.;
+        // Partials 2 and 4 could both belong to a note a fifth below the
+        // dominant. Require a peak unique to the deeper series as well.
+        if let Some((second, _)) = partial(root * 2., 0.20) {
+            if let Some((fourth, _)) = partial(root * 4., 0.12) {
+                if partial(root, 0.07).is_some() || partial(root * 5., 0.07).is_some() {
+                    return pitch([second / 2., root, fourth / 4.]);
+                }
+            }
+        }
     }
-    let mut fundamentals = [second / 2., third / 3., fourth / 4.];
-    fundamentals.sort_by(f32::total_cmp);
-    let hz = fundamentals[1] * RATE as f32 / FFT as f32;
-    (69. + 12. * (hz / 440.).log2()).round() as i16
+
+    let root = dominant / 2.;
+    if let Some((third, amp3)) = partial(root * 3., 0.14) {
+        // Both odd partials can establish the lower octave even when its
+        // fourth partial is weak. Require substantial combined energy.
+        if let Some((first, amp1)) = partial(root, 0.10) {
+            if amp1 * amp1 + amp3 * amp3 >= 0.16 * level * level {
+                return pitch([first, root, third / 3.]);
+            }
+        }
+        if amp3 >= level * 0.24 {
+            if let Some((fourth, _)) = partial(root * 4., 0.10) {
+                return pitch([root, third / 3., fourth / 4.]);
+            }
+        }
+    }
+    candidate
 }
 
 fn scan_bass(mono: &[f32]) -> (Vec<i16>, Vec<f32>, Vec<f32>) {
@@ -158,6 +180,43 @@ mod fundamental_tests {
         let (labels, _, _) = scan_bass(&wave);
         assert!(labels[15..85].iter().all(|&p| p == 41), "{labels:?}");
     }
+
+    #[test]
+    fn strong_third_or_second_still_belongs_to_the_same_bass_key() {
+        for amps in [[0.20, 0.42, 1., 0.28], [0.40, 1., 0.26, 0.04]] {
+            let wave: Vec<_> = (0..RATE)
+                .map(|i| {
+                    let phase = std::f32::consts::TAU * 38.9 * i as f32 / RATE as f32;
+                    amps.iter()
+                        .enumerate()
+                        .map(|(h, a)| a * ((h + 1) as f32 * phase).sin())
+                        .sum()
+                })
+                .collect();
+            let (labels, _, _) = scan_bass(&wave);
+            assert!(labels[15..85].iter().all(|&p| p == 27), "{labels:?}");
+        }
+    }
+
+    #[test]
+    fn fifth_and_its_octave_do_not_establish_a_deeper_fundamental() {
+        let mut mag = vec![0.; FFT / 2 + 1];
+        // Candidate 46 at bin 81, accompanied by a fifth below (54)
+        // and that fifth's octave (108). No peak at bin 27 or 135.
+        for (bin, level) in [(81, 1.), (54, 0.45), (108, 0.25)] {
+            mag[bin] = level;
+        }
+        assert_eq!(bass_fundamental(&mag, 46), 46);
+    }
+
+    #[test]
+    fn shallow_dip_needs_a_new_attack_not_a_slow_swell() {
+        let mut envelope = [1.; 48];
+        envelope[20..25].copy_from_slice(&[0.8, 0.65, 0.55, 0.72, 0.97]);
+        assert_eq!(restrikes(&envelope, 0, 48, 1.), [0, 23, 48]);
+        envelope[23..29].copy_from_slice(&[0.57, 0.61, 0.66, 0.74, 0.84, 0.94]);
+        assert_eq!(restrikes(&envelope, 0, 48, 1.), [0, 48]);
+    }
 }
 
 fn restrikes(smooth: &[f32], a: usize, b: usize, reference: f32) -> Vec<usize> {
@@ -175,7 +234,20 @@ fn restrikes(smooth: &[f32], a: usize, b: usize, reference: f32) -> Vec<usize> {
             .iter()
             .copied()
             .fold(0., f32::max);
-        if smooth[v] > 0.40 * before.min(after) || after < 0.12 * reference {
+        let valley = smooth[v];
+        let shoulders = before.min(after);
+        if after < 0.12 * reference || valley > 0.60 * shoulders {
+            continue;
+        }
+        // A ringing string need not go quiet before the next pluck. For
+        // shallower valleys insist on a comparable, fast attack (30 ms);
+        // gradual swells during a held note must not create extra strikes.
+        if valley > 0.40 * shoulders
+            && (after < 0.65 * before
+                || !smooth[v + 1..=v + 3]
+                    .iter()
+                    .any(|&x| x > valley + 0.75 * (after - valley)))
+        {
             continue;
         }
         let threshold = smooth[v] + 0.25 * (after - smooth[v]);

@@ -45,6 +45,26 @@ fn piano_passages_require_sustained_piano_not_silence_or_a_short_fill() {
 }
 
 #[test]
+fn quiet_piano_breath_keeps_its_keys_but_a_band_entrance_stops_it() {
+    let mut bins = [[1., 0.01]; 25];
+    bins[8..11].fill([0.001, 0.005]); // soft enough for room noise to dominate
+    bins[18..].fill([0.01, 1.]);
+    let passages = piano_passages(&bins, 12.5);
+    assert!(passages.iter().any(|&(a,b)| a <= 3.5 && b >= 6.));
+    assert!(passages.iter().all(|&(_,b)| b <= 9.));
+}
+
+#[test]
+fn an_unplayable_ninth_keeps_the_outer_voices() {
+    // Three registers, too far apart for any pair to fit under one hand.
+    let keys = [note(46, 0., 0.4), note(78, 0.005, 0.4), note(92, 0.015, 0.4)];
+    let mut midi = arrange(&[], &[], Some(&[]), 1., &[]);
+    arrange_piano_passages(&mut midi, &keys, &[(0., 1.)]);
+    assert_eq!(midi.instruments[0].notes, [keys[2]]);
+    assert_eq!(midi.instruments[1].notes, [keys[0]]);
+}
+
+#[test]
 fn piano_preserves_rolled_chord_attacks_and_leaves_the_band_outside() {
     let band = [note(83, 0., 1.1), note(74, 1.2, 1.5), note(87, 3., 3.4)];
     let keys = [note(38, 1.2, 2.), note(45, 1.209, 2.), note(69, 1.218, 2.), note(76, 1.227, 2.)];
