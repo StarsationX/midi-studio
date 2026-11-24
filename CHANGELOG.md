@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.13 "Medley" — 2026-11-24
+
+### Changed
+
+- A strummed note can now ring over the next attack when two detectors still hear it and both hands have room. This restores the ending without adding another strike.
+- Medley uses higher harmonics to distinguish a low bass note from its louder octave. This helps keep the left hand in the recorded register.
+- On sung lines, the piano can lift at the end of the vowel rather than holding through the hiss or breath that follows. A quieter vowel that still repeats at the same pitch is protected.
+
 ## 3.1.12 "Medley" — 2026-11-24
 
 ### Changed

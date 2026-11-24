@@ -79,11 +79,11 @@ fn bass_fundamental(mag: &[f32], candidate: i16) -> i16 {
     }
 
     let root = dominant / 2.;
-    if let Some((third, amp3)) = partial(root * 3., 0.14) {
-        // Both odd partials can establish the lower octave even when its
-        // fourth partial is weak. Require substantial combined energy.
-        if let Some((first, amp1)) = partial(root, 0.10) {
-            if amp1 * amp1 + amp3 * amp3 >= 0.16 * level * level {
+    if let Some((third, amp3)) = partial(root * 3., 0.04) {
+        // A pickup can nearly cancel either odd partial. Require both
+        // peaks above the Hann sidelobes, but judge their power together.
+        if let Some((first, amp1)) = partial(root, 0.05) {
+            if amp1 * amp1 + amp3 * amp3 >= 0.09 * level * level {
                 return pitch([first, root, third / 3.]);
             }
         }
@@ -195,6 +195,19 @@ mod fundamental_tests {
                 .collect();
             let (labels, _, _) = scan_bass(&wave);
             assert!(labels[15..85].iter().all(|&p| p == 27), "{labels:?}");
+        }
+    }
+
+    #[test]
+    fn uneven_odd_partials_can_establish_an_octave_but_weak_leakage_cannot() {
+        // A dominant second partial at bin 80 is MIDI 46. The lower
+        // fundamental (34) and its third partial are at bins 40 and 120.
+        for (first, third, expected) in [(0.65, 0.06, 34), (0.07, 0.36, 34), (0.07, 0.06, 46)] {
+            let mut mag = vec![0.; FFT / 2 + 1];
+            mag[40] = first;
+            mag[80] = 1.;
+            mag[120] = third;
+            assert_eq!(bass_fundamental(&mag, 46), expected);
         }
     }
 

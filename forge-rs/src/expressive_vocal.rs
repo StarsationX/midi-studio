@@ -454,16 +454,44 @@ fn refine_phrase(
     None
 }
 
-// GAME can hold the piano key through a quiet consonant or a rest after the
-// vowel has ended. Missing pitch alone is not a release: require a sustained
-// fall in level from a confirmed vowel, and keep any audible decay.
-fn refine_release(note: &mut Note, rms: &[f32], pitches: &[f32]) {
+// A breath and a quiet vowel can both fall below the frame tracker's clarity
+// threshold. Test the known key's period locally before dropping a noisy tail.
+fn faint_vowel(wave: &[f32], key: u8, first: usize, end: usize) -> bool {
+    let period = RATE as f64 / (440. * 2.0_f64.powf((f64::from(key) - 69.) / 12.));
+    let lags = [0.975, 1., 1.025].map(|scale| (period * scale).round() as usize);
+    let width = ((3. * period).round() as usize).max(RATE / 40);
+    let sample = |f: usize| (f as f64 * FRAME * RATE as f64).round() as usize;
+    let step = RATE / 100;
+    let start = sample(first);
+    let Some(last) = sample(end).min(wave.len()).checked_sub(width + lags[2]) else { return true };
+    if last < start + step { return true; }
+    let mut previous = false;
+    for i in (start..=last).step_by(step) {
+        let window = &wave[i..i + width + lags[2]];
+        let periodic = lags.iter().any(|&lag| {
+            let (mut cross, mut power) = (0., 0.);
+            for j in (0..width).step_by(4) {
+                let (a, b) = (window[j], window[j + lag]);
+                cross += a * b;
+                power += a * a + b * b;
+            }
+            power > 1e-8 && 2. * cross >= 0.5 * power
+        });
+        if periodic && previous { return true; }
+        previous = periodic;
+    }
+    false
+}
+
+// A model segment may include the consonant after the sung vowel. Keep a
+// quiet pitched decay; an audible but aperiodic breath is not a held key.
+fn refine_release(note: &mut Note, rms: &[f32], pitches: &[f32], wave: &[f32]) {
     let start = frame(note.start);
     let end = frame(note.end);
     if end < start + 26 || end >= rms.len().saturating_sub(1) {
         return;
     }
-    let first = (start + 20).max(end.saturating_sub(35));
+    let first = (start + 20).max(end.saturating_sub(48));
     let Some(last) = (first..end).rfind(|&i| near(pitches[i], note.pitch, 0.85)) else {
         return;
     };
@@ -474,16 +502,22 @@ fn refine_release(note: &mut Note, rms: &[f32], pitches: &[f32]) {
     }
     let level = rms[last - 9..=last].iter().sum::<f32>() / 10.;
     let tail = &pitches[last + 3..end];
-    if level <= 0.012
-        || max_level(&rms[last + 3..end]) >= 0.48 * level
-        || 10 * tail.iter().filter(|p| p.is_finite()).count() >= 3 * tail.len()
+    if level <= 0.012 { return; }
+    let voiced = tail.iter().filter(|p| p.is_finite()).count();
+    let envelope = &rms[last + 3..end];
+    if end - last <= 35 && max_level(envelope) < 0.48 * level {
+        if 10 * voiced >= 3 * tail.len() { return; }
+        let threshold = (0.34 * level).max(0.003);
+        let release = (last..end).rfind(|&i| rms[i] >= threshold).map_or(last, |i| i + 1);
+        if end - release >= 6 { note.end = release as f64 * FRAME; }
+    } else if level > 0.015 && 100 * voiced <= 14 * tail.len()
+        && pitches[last - 12..=last].iter().filter(|&&p| near(p, note.pitch, 0.70)).count() >= 10
+        && envelope.iter().sum::<f32>() < 0.80 * level * envelope.len() as f32
+        && !faint_vowel(wave, note.pitch, last + 3, end)
     {
-        return;
-    }
-    let threshold = (0.34 * level).max(0.003);
-    let release = (last..end).rfind(|&i| rms[i] >= threshold).map_or(last, |i| i + 1);
-    if end - release >= 6 {
-        note.end = release as f64 * FRAME;
+        // Leave a short transition after the last periodic cycle. Do not
+        // shorten a slide into another pitch or a full-level tracker dropout.
+        note.end = (last + 3) as f64 * FRAME;
     }
 }
 
@@ -599,7 +633,7 @@ fn align_attacks(wave: &[f32], notes: &mut Vec<Note>, rejected: &[Note]) -> Resu
     }
     for (note, level) in notes.iter_mut().zip(levels) {
         note.velocity = velocity(level);
-        refine_release(note, &rms, &pitches);
+        refine_release(note, &rms, &pitches, wave);
     }
     if !recovered.is_empty() {
         notes.append(&mut recovered);
@@ -777,12 +811,13 @@ mod tests {
         rms[50..55].fill(0.085); // Audible decay, no longer pitch-trackable.
         rms[55..].fill(0.012);
         let mut held = note(65, 0., 0.35);
-        refine_release(&mut held, &rms, &pitches);
+        let breath = vec![0.; RATE];
+        refine_release(&mut held, &rms, &pitches, &breath);
         assert_eq!(held, note(65, 0., 55. * FRAME));
 
         for candidate in [note(65, 0.20, 0.31), note(65, 0., 0.24)] {
             let mut unchanged = candidate;
-            refine_release(&mut unchanged, &rms, &pitches);
+            refine_release(&mut unchanged, &rms, &pitches, &breath);
             assert_eq!(unchanged, candidate);
         }
         let candidate = note(65, 0., 0.35);
@@ -790,9 +825,18 @@ mod tests {
             rms[50..].fill(level);
             pitches[50..].fill(pitch);
             let mut unchanged = candidate;
-            refine_release(&mut unchanged, &rms, &pitches);
+            refine_release(&mut unchanged, &rms, &pitches, &breath);
             assert_eq!(unchanged, candidate);
         }
+        pitches[50..].fill(f32::NAN);
+        rms[50..].fill(0.13); // An audible consonant, not silence.
+        let mut syllable = candidate;
+        refine_release(&mut syllable, &rms, &pitches, &breath);
+        assert_eq!(syllable, note(65, 0., 52. * FRAME));
+        let vowel = sing(&[(65, 0., 0.5, 0.13)], 0.05);
+        let mut sustained = candidate;
+        refine_release(&mut sustained, &rms, &pitches, &vowel);
+        assert_eq!(sustained, candidate);
     }
 
     #[test]

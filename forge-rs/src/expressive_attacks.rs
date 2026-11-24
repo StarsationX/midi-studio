@@ -1,5 +1,4 @@
-//! An instrumental detector can anticipate a pluck. Trust a later onset only
-//! when the same key actually swells in the pitched backing, not in the drums.
+//! Refine instrumental articulation without changing the selected keys.
 use crate::{basicpitch::SAMPLE_RATE, pmidi::{Note, PrettyMidi}};
 
 // 32 ms Hann window, sampled every 4 ms on the existing 22.05 kHz detector input.
@@ -144,10 +143,105 @@ pub(super) fn accent_repeats(midi: &mut PrettyMidi, wave: &[f32], instrumental: 
     for last in pending.into_iter().flatten() { last.apply(notes, None); }
 }
 
+/// The reduction cuts a melodic key at the next attack, even when the player
+/// kept it down. Restore only the tail heard by *both* pitched detectors.
+/// Run after voicing and dynamics: no attack, accent or other key moves.
+pub(super) fn restore_held_keys(midi: &mut PrettyMidi, instrumental: &[Note], backing: &[Note], vocals: &[Note], piano: &[(f64, f64)]) {
+    const MIN_TAIL: f64 = 0.050;
+    let [right, left] = midi.instruments.as_mut_slice() else { return };
+    if instrumental.is_empty() || backing.is_empty() { return; }
+    let (mut rh, mut lh) = (0, 0);
+    for i in 0..right.notes.len() {
+        let n = right.notes[i];
+        if !(53..=96).contains(&n.pitch) { continue; }
+        let j = instrumental.partition_point(|k| k.start < n.start - 0.017);
+        let Some(raw) = instrumental[j..].iter().take_while(|k| k.start <= n.start)
+            .filter(|k| k.pitch == n.pitch).last() else { continue };
+        if raw.end < n.end + MIN_TAIL { continue; }
+        let j = backing.partition_point(|k| k.start < raw.start - 0.035);
+        let near = &backing[j..j + backing[j..].partition_point(|k| k.start <= raw.start + 0.035)];
+        if near.contains(raw) { continue; } // piano fallback, not independent evidence
+        let Some(other) = near.iter().filter(|k| k.pitch == n.pitch && k.velocity >= 55)
+            .min_by(|a, b| (a.start - raw.start).abs().total_cmp(&(b.start - raw.start).abs())) else { continue };
+        let mut end = raw.end.min(other.end);
+        let v = vocals.partition_point(|k| k.start < n.start);
+        if v > 0 && vocals[v - 1].end > n.start { continue; }
+        if let Some(next) = vocals.get(v) { end = end.min(next.start); }
+        if let Some(&(start, _)) = piano.get(piano.partition_point(|&(_, stop)| stop <= n.start)) {
+            end = end.min(start);
+        }
+        if end < n.end + MIN_TAIL { continue; }
+        // Releases aren't onset-sorted. Discard only expired prefixes, so a
+        // held earlier chord member still constrains either hand's reach.
+        while lh < left.notes.len() && left.notes[lh].end <= n.start { lh += 1; }
+        for k in &left.notes[lh..] {
+            if k.start >= end { break; }
+            if k.end > n.end && k.pitch >= n.pitch { end = end.min(k.start); }
+        }
+        while rh < i && right.notes[rh].end <= n.start { rh += 1; }
+        let mut others = 0;
+        for (j, k) in right.notes[rh..].iter().enumerate() {
+            if k.start >= end { break; }
+            if rh + j == i || k.end <= n.end { continue; }
+            others += 1;
+            // Reserve a finger per other attack in the extension, even when
+            // two of those fingers could in principle be reused.
+            if others >= 5 || k.pitch == n.pitch || k.pitch.abs_diff(n.pitch) > 12 {
+                end = end.min(k.start);
+            }
+        }
+        if end >= n.end + MIN_TAIL { right.notes[i].end = end; }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::pmidi::Instrument;
+
+    fn key(pitch: u8, start: f64, end: f64) -> Note { Note { pitch, start, end, velocity: 72 } }
+
+    #[test]
+    fn clipped_pluck_keeps_only_independently_supported_playable_tail() {
+        let raw = key(64, 0.20, 0.82);
+        let corroborated = key(64, 0.21, 0.73);
+        let aligned = key(64, 0.21, 0.41);
+        for (other, left, blocker, voice, passage, expected) in [
+            (corroborated, None, None, None, None, 0.73),
+            (raw, None, None, None, None, 0.41), // copied fallback
+            (corroborated, Some(key(65, 0.52, 0.63)), None, None, None, 0.52),
+            (corroborated, Some(key(65, 0.15, 0.63)), None, None, None, 0.41),
+            (corroborated, None, Some(key(64, 0.50, 0.59)), None, None, 0.50),
+            (corroborated, None, Some(key(77, 0.54, 0.64)), None, None, 0.54),
+            (corroborated, None, None, Some(aligned), None, 0.41),
+            (corroborated, None, None, Some(key(72, 0.52, 0.90)), None, 0.52),
+            (corroborated, None, None, None, Some((0.1, 0.9)), 0.41),
+            (corroborated, None, None, None, Some((0.52, 0.9)), 0.52),
+        ] {
+            let mut midi = PrettyMidi::new(960, 120.);
+            let mut rh = Instrument::new(0, false, "Right");
+            let mut lh = Instrument::new(0, false, "Left");
+            rh.notes.extend([aligned, key(69, 0.41, 0.51)]);
+            rh.notes.extend(blocker);
+            lh.notes.extend(left);
+            midi.instruments.extend([rh, lh]);
+            restore_held_keys(&mut midi, &[raw], &[other], voice.as_slice(), passage.as_slice());
+            assert_eq!(midi.instruments[0].notes[0], Note { end: expected, ..aligned });
+            assert_eq!(midi.instruments[0].notes[1], key(69, 0.41, 0.51));
+        }
+    }
+
+    #[test]
+    fn held_tail_yields_to_a_fifth_other_key() {
+        let raw = key(64, 0.0, 0.9);
+        let mut midi = PrettyMidi::new(960, 120.);
+        let mut rh = Instrument::new(0, false, "Right");
+        rh.notes.push(key(64, 0.0, 0.2));
+        rh.notes.extend((0..5).map(|i| key(65+i, 0.2 + 0.1*f64::from(i), 1.)));
+        midi.instruments.extend([rh, Instrument::new(0, false, "Left")]);
+        restore_held_keys(&mut midi, &[raw], &[key(64, 0.01, 1.)], &[], &[]);
+        assert_eq!(midi.instruments[0].notes[0].end, midi.instruments[0].notes[5].start);
+    }
 
     #[test]
     fn late_pluck_moves_but_block_chords_and_sustained_tones_do_not() {
