@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.9 "Medley" — 2026-11-24
+
+### Changed
+
+- The two-hand arrangement follows swells and quiet passages in the recording. Medley compares the pitched instruments with the notes already assigned to the piano, so neither a drum hit nor a fuller chord gets mistaken for a crescendo. Exposed piano passages keep their detected key velocities.
+- In exposed piano passages, Medley looks ahead for large leaps. When either hand can take the next chord, it favors the assignment that lets a held key finish ringing without dropping a new attack.
+- When two accompaniment chords share a held key, the left hand can keep it down across the chord change. A fresh attack around the change still gets its own keystroke.
+
 ## 3.1.8 "Medley" — 2026-11-24
 
 ### Changed

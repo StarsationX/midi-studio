@@ -20,6 +20,8 @@ pub struct Evidence {
     pub instrumental: Vec<Note>,
     pub piano_passages: Vec<(f64, f64)>,
     pub sustain: Vec<(f64, f64)>,
+    /// Mean square energy of pitched stems, excluding percussion; half-second bins.
+    pub(super) pitched_power: Vec<f64>,
     pub harmonic_notes: Vec<Note>,
     pub duration: f64,
     pub mixture_tempos: Vec<(f64, f64)>,
@@ -59,6 +61,7 @@ struct Signals {
     drums: Vec<f32>,
     harmony: Audio,
     piano_passages: Vec<(f64, f64)>,
+    pitched_power: Vec<f64>,
 }
 
 fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
@@ -71,11 +74,14 @@ fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
     let mut harmony = Vec::<f32>::new();
     let half_second = SAMPLE_RATE as usize / 2;
     let mut energy = vec![[0.; 2]; expected_frames.div_ceil(half_second)];
+    let mut pitched_power = vec![0.; energy.len()];
     for (name, channels) in INSTRUMENTS.into_iter().zip(stems) {
         let channel = mono(channels, expected_frames)?;
         let column = usize::from(name != "piano");
-        for (bin, samples) in energy.iter_mut().zip(channel.chunks(half_second)) {
-            bin[column] += samples.iter().map(|&x| f64::from(x) * f64::from(x)).sum::<f64>();
+        for ((bin, pitched), samples) in energy.iter_mut().zip(&mut pitched_power).zip(channel.chunks(half_second)) {
+            let power = samples.iter().map(|&x| f64::from(x) * f64::from(x)).sum::<f64>();
+            bin[column] += power;
+            if name != "drums" { *pitched += power / samples.len() as f64; }
         }
         match name {
             "vocals" => vocals = Some(channel),
@@ -102,6 +108,7 @@ fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
         drums: drums.context("missing drums")?,
         harmony: Audio { channels: 1, kind: SourceKind::Float, sample_rate: SAMPLE_RATE, samples: harmony },
         piano_passages: crate::expressive_arrange::piano_passages(&energy, expected_frames as f64 / f64::from(SAMPLE_RATE)),
+        pitched_power,
     })
 }
 
@@ -139,7 +146,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
     if (frames as f64 - duration * SAMPLE_RATE as f64).abs() > 2.0 {
         bail!("Separated audio length differs from the source window.");
     }
-    let Signals { vocals, bass, drums, harmony, piano_passages } = split(separated.stems, frames)?;
+    let Signals { vocals, bass, drums, harmony, piano_passages, pitched_power } = split(separated.stems, frames)?;
     let mut instrumental = Vec::new();
     let mut backing = Vec::new();
     let mut sustain = Vec::new();
@@ -192,7 +199,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         pm.write(&work.join("backing.mid"))?;
         println!("  (kept stems: {})", work.display());
     }
-    Ok(Evidence { vocals, bass, bass_notes, drums, sample_rate: SAMPLE_RATE, backing, instrumental, harmonic_notes, piano_passages, sustain, duration, source_start, mixture_tempos })
+    Ok(Evidence { vocals, bass, bass_notes, drums, sample_rate: SAMPLE_RATE, backing, instrumental, harmonic_notes, piano_passages, sustain, pitched_power, duration, source_start, mixture_tempos })
 }
 
 fn supplement_instrumental(instrumental: &mut Vec<Note>, piano: &[Note]) {
@@ -230,6 +237,10 @@ mod tests {
         assert_eq!(split.drums, vec![0., 3.]);
         assert_eq!(split.vocals, vec![0., 4.5]);
         assert!((split.harmony.samples[1] - 0.225).abs() < 1e-6);
+        // The loud drum is not part of the piano dynamic target. The short
+        // final bin is normalized by its two real samples, not half a second.
+        let pitched = (1.5_f64.powi(2) + 4.5_f64.powi(2) + 3. * 0.225_f64.powi(2)) / 2.;
+        assert!((split.pitched_power[0] - pitched).abs() < 1e-6);
     }
 
     #[test]

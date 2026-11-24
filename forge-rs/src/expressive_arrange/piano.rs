@@ -87,18 +87,51 @@ impl Hand {
     }
 }
 
-fn assign(group: &[Note], left: &mut Hand, right: &mut Hand, time: f64) {
+// With uncrossed hands, a leap above a held RH key (or below a held LH key)
+// by more than an octave forces its release. Reserve that hand for the leap
+// when the other hand can take the same attacks. Ignore short release tails:
+// the transcription can include resonance rather than a finger on the key.
+fn left_hold_advantage(n: &Note, upcoming: &[Note], horizon: f64) -> f64 {
+    let cutoff = (n.end - 0.25).min(horizon);
+    let (mut left_loss, mut right_loss) = (0., 0.);
+    for next in upcoming.iter().take(16).take_while(|m| m.start < cutoff) {
+        let loss = if next.pitch > n.pitch + 12 { &mut right_loss }
+            else if n.pitch > next.pitch + 12 { &mut left_loss }
+            else { continue };
+        if *loss == 0. {
+            *loss = (n.end - next.start - 0.25).min(1.);
+            if left_loss > 0. && right_loss > 0. { break; }
+        }
+    }
+    24. * (right_loss - left_loss)
+}
+
+fn assign(group: &[Note], upcoming: &[Note], left: &mut Hand, right: &mut Hand, time: f64) {
     let mut best = (f64::NEG_INFINITY, 0..0, 0..0);
+    let mut complete = (f64::NEG_INFINITY, 0);
+    let mut hold_advantage = 0.;
     let outer = (group[0].pitch, group[group.len()-1].pitch);
     for split in 0..=group.len() {
         let l = left.shape(&group[..split], outer);
         let r = right.shape(&group[split..], outer);
-        if l.score + r.score > best.0 {
+        let score = l.score + r.score;
+        if score > best.0 {
             let rf = split + r.first;
-            best = (l.score + r.score, l.first..l.first+l.count, rf..rf+r.count);
+            best = (score, l.first..l.first+l.count, rf..rf+r.count);
+        }
+        if l.count + r.count == group.len() && score + hold_advantage > complete.0 {
+            complete = (score + hold_advantage, split);
+        }
+        // Moving the split past one pitch changes only that key's hold cost.
+        if group.len() <= 10 && split < group.len() {
+            hold_advantage += left_hold_advantage(&group[split], upcoming, time + 2.);
         }
     }
-    let (l,r) = (&group[best.1], &group[best.2]);
+    let (l,r) = if best.1.len() + best.2.len() == group.len() {
+        group.split_at(complete.1)
+    } else {
+        (&group[best.1], &group[best.2])
+    };
     left.strike(l, (21,r.first().map_or(108, |n| n.pitch - 1)), time);
     right.strike(r, (l.last().map_or(21, |n| n.pitch + 1),108), time);
 }
@@ -131,8 +164,8 @@ pub fn arrange_piano_passages(midi: &mut PrettyMidi, piano: &[Note], passages: &
                 group.push(Note { end: n.end.min(end), ..n });
             }
             group.sort_unstable_by_key(|n| n.pitch);
-            assign(&group, &mut left, &mut right, time);
             pending = &pending[group.len()..];
+            assign(&group, pending, &mut left, &mut right, time);
         }
     }
     if ranges.is_empty() { return; }
@@ -162,5 +195,22 @@ pub fn arrange_piano_passages(midi: &mut PrettyMidi, piano: &[Note], passages: &
         });
         track.notes.extend(hand.notes);
         track.notes.sort_unstable_by(|a,b| a.start.total_cmp(&b.start).then(a.pitch.cmp(&b.pitch)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sustained_middle_chord_leaves_a_hand_for_the_upcoming_leap() {
+        let key = |pitch, start, end| Note { pitch, start, end, velocity: 72 };
+        let chord = [key(58, 0., 1.8), key(64, 0.02, 1.7)];
+        let leap = [key(79, 0.6, 0.8)];
+        let (mut left, mut right) = (Hand::new(48.), Hand::new(72.));
+        assign(&chord, &leap, &mut left, &mut right, 0.);
+        assign(&leap, &[], &mut left, &mut right, 0.6);
+        assert_eq!(left.notes, chord);
+        assert_eq!(right.notes, leap);
     }
 }

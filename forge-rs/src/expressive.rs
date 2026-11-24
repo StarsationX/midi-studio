@@ -5,6 +5,9 @@ use serde_json::json;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+#[path = "expressive_dynamics.rs"]
+mod dynamics;
+
 pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> Result<()> {
     if !output.extension().is_some_and(|s| s.eq_ignore_ascii_case("mid")) {
         bail!("Medley output must be a .mid file");
@@ -27,6 +30,7 @@ pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> R
     }
     let mut midi = expressive_arrange::arrange_with_instruments(&lead, &evidence.instrumental, &evidence.backing, &evidence.harmonic_notes, Some(&bass), evidence.duration, &tempos);
     expressive_arrange::arrange_piano_passages(&mut midi, &evidence.backing, &evidence.piano_passages, &evidence.sustain);
+    dynamics::shape(&mut midi, &evidence.pitched_power, &evidence.piano_passages);
     let count = midi.note_count();
     if count == 0 { bail!("No playable notes were detected in the selected audio"); }
     println!("[6/6] Save piano MIDI");

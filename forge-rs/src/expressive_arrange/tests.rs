@@ -324,3 +324,33 @@ fn measures_a_tempo_change_and_writes_events_at_source_seconds() {
         assert!((n.start - original.start).abs() < 0.0005 && (n.end - original.end).abs() < 0.0005);
     }
 }
+
+#[test]
+fn chord_change_ties_a_held_key_but_respects_a_recorded_restrike() {
+    let backing = [note(52, 0.1, 1.2), note(55, 0.1, 0.6), note(57, 0.6, 1.2)];
+    let bass = [note(48, 0.0, 1.2)];
+    let lead = [note(78, 0.0, 1.2)];
+    for (instrumental, expected) in [
+        (vec![], vec![(0.1, 1.2)]),
+        (vec![note(64, 0.63, 0.85)], vec![(0.1, 0.6), (0.6, 1.2)]),
+    ] {
+        let left = left_hand(&bass, &backing, &instrumental, &groups(&backing), &lead, 1.2, 0.5);
+        let times = |pitch| left.iter().filter(|n| n.pitch == pitch)
+            .map(|n| (n.start, n.end)).collect::<Vec<_>>();
+        assert_eq!(times(52), expected);
+        assert_eq!(times(55), [(0.1, 0.6)]);
+        assert_eq!(times(57), [(0.6, 1.2)]);
+    }
+}
+
+#[test]
+fn chord_tie_does_not_bridge_a_gap_or_infer_an_octave_hold() {
+    let mut notes = vec![
+        note(52, 0.1, 0.55), note(55, 0.1, 0.6),
+        note(52, 0.6, 1.2), note(55, 0.6, 1.2),
+    ];
+    let backing = [note(52, 0.1, 1.2), note(67, 0.1, 1.2)];
+    join_held_support(&mut notes, &backing, &[]);
+    assert_eq!(notes.len(), 4);
+    assert_eq!(notes[0].end, 0.55);
+}

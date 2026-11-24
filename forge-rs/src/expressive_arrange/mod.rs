@@ -381,9 +381,51 @@ fn overlapping(line: &[Note], start: f64, end: f64) -> impl Iterator<Item = &Not
         .filter(move |n| n.end > start)
 }
 
+// Tie only touching, already-playable support segments. This changes the
+// articulation, not the keys sounding at any point or the reach of either hand.
+fn join_held_support(harmony: &mut Vec<Note>, backing: &[Note], instrumental: &[Note]) {
+    let mut held_until = [0.0f64; 128];
+    let mut previous = [usize::MAX; 128];
+    let mut source = backing.iter().peekable();
+    let mut written = 0;
+    for read in 0..harmony.len() {
+        let n = harmony[read];
+        let key = usize::from(n.pitch);
+        let prior = previous[key];
+        if prior != usize::MAX && harmony[prior].end == n.start {
+            while let Some(s) = source.next_if(|s| s.start <= n.start - 0.08) {
+                let p = usize::from(s.pitch);
+                if s.velocity >= 37 && p < held_until.len() {
+                    held_until[p] = held_until[p].max(s.end);
+                }
+            }
+            // Require an exact-key hold; since voicing folds octaves, even an
+            // octave-displaced attack in either input argues against a tie.
+            let attacked = |line: &[Note]| {
+                let first = line.partition_point(|s| s.start < n.start - 0.075);
+                line[first..]
+                    .iter()
+                    .take_while(|s| s.start <= n.start + 0.075)
+                    .any(|s| s.pitch % 12 == n.pitch % 12)
+            };
+            if held_until[key] >= n.start + 0.08 && !attacked(backing) && !attacked(instrumental) {
+                harmony[prior].end = n.end;
+                continue;
+            }
+        }
+        previous[key] = written;
+        if written != read {
+            harmony[written] = n;
+        }
+        written += 1;
+    }
+    harmony.truncate(written);
+}
+
 fn left_hand(
     raw_bass: &[Note],
     backing: &[Note],
+    instrumental: &[Note],
     attacks: &[Vec<Note>],
     lead: &[Note],
     duration: f64,
@@ -537,6 +579,7 @@ fn left_hand(
             }
         }
     }
+    join_held_support(&mut harmony, backing, instrumental);
     bass.extend(harmony);
     ordered(&bass, duration)
 }
@@ -586,12 +629,12 @@ pub(crate) fn arrange_with_instruments(
     };
     let mut dyads = treble_dyads(&lead, &instrumental, &evidence, &vocals, &bass);
     interior_treble(&lead, &instrumental, &evidence, &vocals, &bass, &mut dyads, duration);
-    // Left-hand evidence stays independent of the instrumental lead detector.
+    // The instrumental detector can veto a tie, never supply a chord tone.
     if !harmonic_notes.is_empty() {
         evidence.extend_from_slice(harmonic_notes);
         order_in_place(&mut evidence, duration);
     }
-    let left = left_hand(&bass, &evidence, &groups(&evidence), &lead, duration, beat);
+    let left = left_hand(&bass, &evidence, &instrumental, &groups(&evidence), &lead, duration, beat);
     if !dyads.is_empty() {
         lead.extend(dyads);
         lead.sort_unstable_by(|a, b| a.start.total_cmp(&b.start).then(a.pitch.cmp(&b.pitch)));
