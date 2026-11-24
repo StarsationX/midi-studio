@@ -128,7 +128,7 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
             total: chunk.iter().map(|p| p.total).sum::<f64>() / chunk.len() as f64,
             ..Power::default()
         });
-        shape_at(midi, level, 10, &measured_piano, Some((0.67, 3.7)), Meter::Recording, &mut fit);
+        shape_at(midi, level, 10, &measured_piano, Some((0.71, 3.95)), Meter::Recording, &mut fit);
     }
 }
 

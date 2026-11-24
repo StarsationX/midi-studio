@@ -123,6 +123,58 @@ jobs:
           if ($p.ExitCode -or (Get-Item "$app\MIDI Studio.exe").VersionInfo.ProductVersion -ne $ver) { throw 'Fresh core install failed' }
           if (!(Test-Path "$app\forge-rs.exe") -or (Test-Path "$app\assets\onnx") -or (Test-Path "$app\ort-gpu") -or (Test-Path "$store\native\ort-gpu\onnxruntime.dll")) { throw 'Unexpected fresh payload' }
 
+  upgrade-stable:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: [currentuser, allusers]
+    env:
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      INSTALL_SCOPE: ${{ matrix.scope }}
+    steps:
+      - name: Authenticate the public 3.1.34 installer and candidate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_DIGEST: ${{ inputs.sha256 }}
+        run: |
+          cd $env:RUNNER_TEMP
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw 'Invalid release tag' }
+          gh release download v3.1.34 -p MIDI-Studio-3.1.34-Setup.exe
+          if ($LASTEXITCODE -or (Get-FileHash MIDI-Studio-3.1.34-Setup.exe).Hash -ne '376d1fb9e58111a5ab4264ddf7f5c404c7cbf39cd3beacecd0490fb0fc8d3b47') { throw 'Invalid public 3.1.34 installer' }
+          $next = 'MIDI-Studio-' + $env:RELEASE_TAG.Substring(1) + '-Setup.exe'
+          gh release download $env:RELEASE_TAG -p $next
+          if ($LASTEXITCODE -or (Get-FileHash $next).Hash -ne $env:NEXT_DIGEST) { throw 'Invalid candidate' }
+      - name: Upgrade 3.1.34 in place without moving settings or Forge storage
+        shell: pwsh
+        run: |
+          cd $env:RUNNER_TEMP
+          $hive = if ($env:INSTALL_SCOPE -eq 'allusers') { 'HKLM:' } else { 'HKCU:' }
+          $uninstall = "$hive\Software\Microsoft\Windows\CurrentVersion\Uninstall\MIDI Studio"
+          $reg = 'HKCU:\Software\StarsationX\MIDI Studio'
+          $store = "$env:RUNNER_TEMP\Forge Library"
+          $prefs = "$env:APPDATA\midi-studio\midi-studio-settings.json"
+          function Install($version) {
+            $p = Start-Process ".\MIDI-Studio-$version-Setup.exe" -ArgumentList '/S',"/$env:INSTALL_SCOPE" -Wait -PassThru
+            if ($p.ExitCode) { throw "Install of $version exited $($p.ExitCode)" }
+          }
+          Install '3.1.34'
+          $app = (Get-ItemPropertyValue $uninstall InstallLocation).Trim('"')
+          if ((Get-FileHash "$app\MIDI Studio.exe").Hash -ne '35cb8faa4e3e55e6b8b9b9e5820f3c0c02ae1bf162aeb8adaedfa03b3e7f82d8') { throw 'Not the public 3.1.34 desktop' }
+          New-Item (Split-Path $prefs),$store -ItemType Directory -Force | Out-Null
+          if (!(Test-Path $reg)) { New-Item $reg -Force | Out-Null }
+          New-ItemProperty $reg ForgeStorageDir -Value $store -Force | Out-Null
+          @{paths=@{forgeEnvDir=$store};ui=@{lastTab='review'}} | ConvertTo-Json | Set-Content $prefs
+          Set-Content "$store\library-marker" 'user data'
+          $saved = (Get-FileHash $prefs).Hash
+          $next = $env:RELEASE_TAG.Substring(1)
+          Install $next
+          if ((Get-ItemPropertyValue $uninstall InstallLocation).Trim('"') -ne $app -or (Get-Item "$app\MIDI Studio.exe").VersionInfo.ProductVersion -ne $next) { throw 'Wrong upgrade path or version' }
+          if ((Get-FileHash $prefs).Hash -ne $saved -or (Get-ItemPropertyValue $reg ForgeStorageDir) -ne $store -or (Get-Content "$store\library-marker") -ne 'user data') { throw 'Settings or Forge storage not preserved' }
+
   preserve-native:
     runs-on: windows-2022
     timeout-minutes: 18

@@ -128,7 +128,7 @@ impl Fit {
         let mut active = Vec::<usize>::new();
         const WIDTH: isize = super::super::salience::WIDTH as isize;
         const NEAR: f64 = 0.12;
-        const WEIGHT: f32 = 20000.;
+        const WEIGHT: f32 = 75000.;
         let first_row = self.rows.len();
         let mut first = 0;
         let mut previous = [None; PITCHES];
@@ -154,7 +154,9 @@ impl Fit {
                 }
             }
             while t-probes[first].time >= NEAR { first += 1; }
-            let weight = 0.15 * WEIGHT;
+            // A change in register balance must still respect which key
+            // carried the accent when both hands struck together.
+            let weight = 0.65 * WEIGHT;
             for (k, other) in probes[first..j].iter().enumerate() {
                 if keys[other.key].note.pitch != keys[hit.key].note.pitch {
                     self.pairs.push(AttackPair { earlier: first_row+first+k, later: row,

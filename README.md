@@ -68,6 +68,8 @@ If the bass steps back while the melody stays loud, listen for the same change i
 
 Try a passage where one hand changes chords while the other repeats a note. Medley compares the sound of its sampled keys, including what keeps ringing after key-up, with the same passage in the original. A loud tail from the last chord needn’t become a loud new strike. This adjusts how hard the keys are played; it doesn’t add notes or move the beat.
 
+To hear the bass balance, try a verse where the left-hand line grows stronger under a steady melody. Medley checks how much each ringing piano key contributes to the low and middle ranges: it can bring out a separate bass note without turning up the whole chord.
+
 Re-run **Forge → Medley** to hear the new touch. Your earlier MIDI stays available for comparison; no new model is needed.
 
 Listen to the space between picked notes. One string can keep ringing while the next one starts; Medley can hold that piano key instead of cutting both notes to the same length. For a short low pluck, it follows the pitch and an overtone into the decay rather than stretching every note with the sustain pedal. Vocal phrases still release when the vowel fades.

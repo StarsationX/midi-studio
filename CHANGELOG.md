@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.35 "Medley" — 2026-11-25
+
+### Changed
+
+- Medley now follows changes in the recording’s bass-to-melody balance more closely when the two parts can be played independently. A single low piano key also produces higher overtones, so the arranger doesn’t treat those as a second instrument to turn up.
+- When both hands strike together, Medley gives more weight to which key carried the accent. This changes key velocities, not the transcription. Re-run **Forge → Medley** on the original recording; existing MIDI files and installed models are unchanged.
+
 ## 3.1.34 "Medley" — 2026-11-25
 
 ### Changed
