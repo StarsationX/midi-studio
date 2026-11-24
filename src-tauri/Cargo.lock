@@ -2160,7 +2160,7 @@ dependencies = [
 
 [[package]]
 name = "midi-studio"
-version = "3.1.29"
+version = "3.1.30"
 dependencies = [
  "midi-player",
  "midly",

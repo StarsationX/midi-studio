@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.30 "Medley" — 2026-11-25
+
+### Changed
+
+- The piano bass can now step forward or recede under a melody even when the band’s overall volume stays steady. Medley compares the bass and middle register of the recording with the sound of the piano keys still ringing.
+- Re-run **Forge → Medley** to hear the new balance. This changes how hard keys are struck, not which notes are detected. Existing MIDI files and installed models are untouched.
+
 ## 3.1.29 "Medley" — 2026-11-25
 
 ### Changed

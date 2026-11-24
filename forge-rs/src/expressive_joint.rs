@@ -12,7 +12,7 @@ const PITCHES: usize = 78;
 const FIRST: usize = 14; // Register used for relative chord colour (MIDI 35..89).
 const WIDTH: usize = 54;
 const PHRASE: usize = PITCHES + 3;
-const GROUPS: usize = PHRASE + 2;
+const GROUPS: usize = PHRASE + 6; // Level, middle and bass/middle at two time scales.
 const NONE: usize = usize::MAX;
 struct Filter { first: usize, weights: Vec<f32> }
 static FILTERS: LazyLock<[Filter; PITCHES]> = LazyLock::new(|| std::array::from_fn(|p| {
@@ -103,7 +103,9 @@ impl Fit {
             // A sounding key's fundamental is stronger evidence of its
             // intended level than an overtone it may share with another key.
             let focus = if fundamental[i] { 6.0 } else { 1.4 };
-            let weight = focus * 30. * (0.45*played[i]/total + 0.55*observed[i]/src);
+            // Agreement matters: a strong piano harmonic alone shouldn't
+            // drown out the attack evidence for a different key.
+            let weight = focus * 190. * (played[i]/total * observed[i]/src).sqrt();
             self.add(observed[i].max(0.35*noise), weight, NONE, reference,
                 voices.iter().map(|v| (v.key, v.scale * TONES[v.template][FIRST+i])));
         }
@@ -149,12 +151,12 @@ impl Fit {
             if let Some((time, earlier)) = previous[p].replace((t, row)) {
                 let gap = t - time;
                 if (0.04..2.).contains(&gap) {
-                    self.pairs.push(AttackPair { earlier, later: row, weight: 300. / (1. + gap as f32), target: 0. });
+                    self.pairs.push(AttackPair { earlier, later: row, weight: 1500. / (1. + gap as f32), target: 0. });
                 }
             }
             while t-probes[first].time >= NEAR { first += 1; }
             // Do not let a dense rolled chord outweigh every other beat.
-            let weight = 100./(1.+0.28*(j-first) as f32);
+            let weight = 500./(1.+0.28*(j-first) as f32);
             for (k, other) in probes[first..j].iter().enumerate() {
                 if keys[other.key].note.pitch != keys[hit.key].note.pitch {
                     self.pairs.push(AttackPair { earlier: first_row+first+k, later: row,

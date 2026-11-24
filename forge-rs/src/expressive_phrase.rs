@@ -10,10 +10,16 @@ impl Fit {
             KeyResponse::new(k.note.pitch, k.note.velocity, k.note.end - k.note.start)
         ).collect();
         let mut active = Vec::<usize>::new();
+        // One pair of response lookups per ringing key, shared by all three
+        // measurements. Reuse the storage for every window of the recording.
+        let mut terms = Vec::new();
         let hz = WINDOWS_PER_SECOND as f64;
         // The short window follows an accent; the longer window keeps that
         // accent from pulling a whole phrase away from its recorded level.
-        for (group, (stride, weight)) in [(2, 100.), (10, 250.)].into_iter().enumerate() {
+        // Give register balance more time than overall loudness: a single
+        // accented syllable needn't pull the bass out of the next chord.
+        let windows = [(2, 300., 56.25), (10, 750., 625.)];
+        for (group, (stride, level_weight, balance_weight)) in windows.into_iter().enumerate() {
             active.clear();
             let (mut next, mut passage) = (0, 0);
             for (i, chunk) in source.chunks(stride).enumerate() {
@@ -27,15 +33,62 @@ impl Fit {
                     next += 1;
                 }
                 if active.is_empty() { continue; }
-                let recorded = (chunk.iter().map(|p| p.total - 0.78 * p.low + p.supported_beat()).sum::<f64>() / hz) as f32;
-                if recorded <= EPS { continue; }
-                self.add(recorded, weight, PHRASE + group, NONE, active.iter().map(|&j| {
+                let mut source_power = [0.; 3];
+                for p in chunk {
+                    source_power[0] += p.total - 0.78 * p.low + p.supported_beat();
+                    source_power[1] += p.low;
+                    source_power[2] += p.mid;
+                }
+                let [level, bass, middle] = source_power.map(|v| (v / hz) as f32);
+                if level <= EPS { continue; }
+                terms.clear();
+                for &j in &active {
                     let onset = keys[j].note.start;
-                    let (a, lo_a, _) = curves[j].at(start - onset);
-                    let (b, lo_b, _) = curves[j].at(end - onset);
-                    (j, keys[j].scale * ((b - a) - 0.78 * (lo_b - lo_a)) as f32)
-                }));
+                    let (a, lo_a, mid_a) = curves[j].at(start - onset);
+                    let (b, lo_b, mid_b) = curves[j].at(end - onset);
+                    let bands = [(b - a) - 0.78 * (lo_b - lo_a), lo_b - lo_a, mid_b - mid_a];
+                    terms.push((j, bands.map(|x| keys[j].scale * x as f32)));
+                }
+                let band = |n: usize| terms.iter().map(move |&(j, x)| (j, x[n]));
+                self.add(level, level_weight, PHRASE + group, NONE, band(0));
+                if bass <= EPS || middle <= EPS { continue; }
+                // A bass note also excites the middle band. Fit the ratio
+                // of the *whole chord*, not independent left/right gains.
+                let reference = self.add(middle, 0.65 * balance_weight, PHRASE + 2 + group, NONE, band(2));
+                if self.rows[reference].base > EPS {
+                    self.add(bass, balance_weight, PHRASE + 4 + group, reference, band(1));
+                }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pmidi::Note;
+
+    #[test]
+    fn repeated_chords_follow_the_bass_without_a_louder_phrase() {
+        // Both halves have the same broadband target and the same notes.
+        // Only the relative strength of the pitched registers changes.
+        let mut keys = Vec::new();
+        for beat in 0..12 {
+            for pitch in [38, 69] {
+                let start = f64::from(beat) * 0.5;
+                keys.push(Key { note: Note { pitch, start, end: start + 0.3, velocity: 70 },
+                    hand: usize::from(pitch == 38), index: beat as usize, scale: 1., gain: 1.,
+                    shared: true, energy: 0., weight: 0., step: 0. });
+            }
+        }
+        let source: Vec<_> = (0..6 * WINDOWS_PER_SECOND).map(|i| {
+            let low = if i < 3 * WINDOWS_PER_SECOND { 0.50 } else { 0.08 };
+            Power { total: 1. + 0.78 * low, low, mid: 0.50, beat: 0. }
+        }).collect();
+        let mut fit = Fit::default();
+        fit.phrases(&keys, &source, &[]);
+        fit.solve(&mut keys);
+        let balance = |beat: usize| keys[2 * beat].gain / keys[2 * beat + 1].gain;
+        assert!(balance(3) > 1.3 * balance(9));
     }
 }
