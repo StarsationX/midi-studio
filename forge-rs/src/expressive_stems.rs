@@ -23,7 +23,7 @@ pub struct Evidence {
     pub(super) instrumental_wave: Vec<f32>,
     pub piano_passages: Vec<(f64, f64)>,
     pub sustain: Vec<(f64, f64)>,
-    /// Broadband and low-register mean-square energy on the dynamics clock.
+    /// Broadband, bass and melody-band energy on the dynamics clock.
     pub(super) pitched_power: Vec<Power>,
     pub harmony: crate::expressive_arrange::Harmony,
     pub duration: f64,

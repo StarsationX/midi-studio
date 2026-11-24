@@ -64,7 +64,7 @@ Start at **120 BPM** and **2 steps per beat**: each step lasts a quarter second.
 
 For a strummed chord, Medley can keep up to three right-hand keys when two detectors agree on the attacks and the notes fit under one hand. The left hand checks which octave is actually sounding in the backing before doubling the melody. A prominent chord tone can sound louder than its neighbor, and one key can be struck again while the rest of the chord rings. Medley is a playable arrangement, not a note-for-note transcription.
 
-In a band mix, listen for where the bass comes forward and where it steps back under the melody. Medley adjusts the two registers separately. It uses the loudness and decay of each key on the bundled Grand Piano, so a melody can cross from a loud key to a quiet one without accidentally dropping out. A louder drum hit alone won’t make the whole piano louder.
+In a band mix, listen for the bass stepping back under the melody. Medley measures the middle register separately from deep bass and very bright sounds, so a wash behind the singer needn’t become a piano accent. It compares that balance with how the bundled Grand Piano’s 88 keys actually sound, from the first strike through the release. Drum hits alone don’t set piano velocity.
 
 A quiet pickup and an accented downbeat can now get different touches even a fraction of a beat apart. For a held key, Medley follows the part of the note that still rings rather than assigning it the accent of the next strike.
 

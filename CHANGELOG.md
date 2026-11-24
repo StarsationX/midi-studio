@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.19 "Medley" — 2026-11-24
+
+### Changed
+
+- Band arrangements now use the middle register of the recording to distinguish a melody accent from bright backing sounds or a bass swell.
+- Medley follows the measured attack, sustain and release of each bundled Grand Piano key when balancing the two hands. This changes how hard notes are played, not the pitches, timing or model you need.
+
 ## 3.1.18 "Medley" — 2026-11-24
 
 ### Changed
