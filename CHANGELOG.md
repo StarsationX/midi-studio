@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.18 "Medley" — 2026-11-24
+
+### Changed
+
+- In a band arrangement, a quiet pickup can lead into a stronger downbeat without both piano notes getting the same touch. Medley follows the pitched instruments in 50 ms windows, then checks the longer phrase so it doesn’t lose a gradual swell.
+- Held keys take their touch from the part of the note that still rings. The six-stem model and the detected touch in exposed piano passages are unchanged.
+
 ## 3.1.17 "Medley" — 2026-11-24
 
 ### Changed

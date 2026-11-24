@@ -3,7 +3,7 @@
 use super::{apply_window, ep_name, file_stem, roformer_model, run_separation, safe_name,
     say_device, say_engine, start_runtime, transcribe, transkun_assets, work_root, write_stem_wav,
     Args, Knobs};
-use super::expressive_dynamics::Power;
+use super::expressive_dynamics::{Power, WINDOWS_PER_SECOND};
 use crate::audio::{self, Audio, SourceKind};
 use crate::demix::{Planar, Stems};
 use crate::pmidi::Note;
@@ -23,7 +23,7 @@ pub struct Evidence {
     pub(super) instrumental_wave: Vec<f32>,
     pub piano_passages: Vec<(f64, f64)>,
     pub sustain: Vec<(f64, f64)>,
-    /// Broadband and low-register mean-square energy of pitched stems per half-second.
+    /// Broadband and low-register mean-square energy on the dynamics clock.
     pub(super) pitched_power: Vec<Power>,
     pub harmony: crate::expressive_arrange::Harmony,
     pub duration: f64,
@@ -75,14 +75,18 @@ fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
     let mut bass = None;
     let mut drums = None;
     let mut harmony = Vec::<f32>::new();
+    const { assert!(WINDOWS_PER_SECOND % 2 == 0 && SAMPLE_RATE as usize % WINDOWS_PER_SECOND == 0); }
     let half_second = SAMPLE_RATE as usize / 2;
     let mut energy = vec![[0.; 2]; expected_frames.div_ceil(half_second)];
-    let mut pitched_power = vec![Power::default(); energy.len()];
+    let accent_window = SAMPLE_RATE as usize / WINDOWS_PER_SECOND;
+    let mut pitched_power = vec![Power::default(); expected_frames.div_ceil(accent_window)];
     for (name, channels) in INSTRUMENTS.into_iter().zip(stems) {
         let channel = mono(channels, expected_frames)?;
         let column = usize::from(name != "piano");
-        for ((bin, pitched), samples) in energy.iter_mut().zip(&mut pitched_power).zip(channel.chunks(half_second)) {
-            bin[column] += if name == "drums" {
+        // The piano-passage detector still uses half seconds. Accumulate its
+        // energy in the same pass rather than scanning the stems a second time.
+        for (i, (pitched, samples)) in pitched_power.iter_mut().zip(channel.chunks(accent_window)).enumerate() {
+            energy[i / (WINDOWS_PER_SECOND / 2)][column] += if name == "drums" {
                 samples.iter().map(|&x| f64::from(x).powi(2)).sum::<f64>()
             } else {
                 pitched.add_stem(samples)

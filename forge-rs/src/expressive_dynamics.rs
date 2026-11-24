@@ -1,6 +1,10 @@
 //! Match phrase contrast, not drum hits or the absolute mastering level.
 use crate::pmidi::PrettyMidi;
 
+// Must divide the 44.1 kHz separator clock and nest inside half-second
+// piano-passage windows without rounding.
+pub(super) const WINDOWS_PER_SECOND: usize = 20;
+
 #[derive(Clone, Copy, Default)]
 pub(super) struct Power {
     pub(super) total: f64,
@@ -80,18 +84,34 @@ fn bass_touch(low_share: f64) -> f64 { (low_share / 0.65).min(1.) }
 pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)]) {
     let measured_piano = |t: f64| piano.get(piano.partition_point(|&(_, end)| end <= t))
         .is_some_and(|&(start, _)| start <= t);
-    if source.len() < 8 || !midi.instruments.iter().flat_map(|t| &t.notes).any(|n| !measured_piano(n.start)) {
+    if source.len() < 4 * WINDOWS_PER_SECOND || !midi.instruments.iter().flat_map(|t| &t.notes).any(|n| !measured_piano(n.start)) {
         return;
     }
+    if !shape_at(midi, source.iter().copied(), WINDOWS_PER_SECOND, &measured_piano, false) { return; }
+    // A note can have only one velocity. After fitting the accents, correct
+    // leftover phrase drift without flattening their differences.
+    let phrases = source.chunks(WINDOWS_PER_SECOND / 2).map(|chunk| {
+        let mut p = Power::default();
+        for s in chunk { p.total += s.total; p.low += s.low; }
+        p.total /= chunk.len() as f64;
+        p.low /= chunk.len() as f64;
+        p
+    });
+    shape_at(midi, phrases, 2, &measured_piano, true);
+}
+
+fn shape_at(midi: &mut PrettyMidi, source: impl ExactSizeIterator<Item = Power>, per_second: usize,
+    measured_piano: &impl Fn(f64) -> bool, residual: bool) -> bool {
+    let hz = per_second as f64;
     // Estimate the relative power of the *written arrangement*: a full chord
     // naturally plays louder than a single key, even at identical velocity.
-    // Integrate a decaying piano key into each half-second it occupies.
-    let mut bins: Vec<_> = source.iter().map(|&s| (s, Power::default())).collect();
+    // Integrate each decaying piano key into the windows where it can be heard.
+    let mut bins: Vec<_> = source.map(|s| (s, Power::default())).collect();
     for n in midi.instruments.iter().flat_map(|t| &t.notes) {
         // Energy-equivalent release of the sampled piano's fading envelope.
         let end = (n.end + 0.035).min(n.start + 5.0);
-        let first = (n.start * 2.0) as usize;
-        let last = ((end * 2.0).ceil() as usize).min(bins.len());
+        let first = (n.start * hz) as usize;
+        let last = ((end * hz).ceil() as usize).min(bins.len());
         if first >= last { continue; }
         let velocity = f64::from(n.velocity);
         // A high piano string dies away faster than a bass string. Integrate
@@ -101,14 +121,14 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
         let low = power * low_share;
         let mut attack = 1.0;
         for (j, (_, written)) in bins[first..last].iter_mut().enumerate() {
-            let elapsed = (0.5 * (first + j + 1) as f64).min(end) - n.start;
+            let elapsed = ((first + j + 1) as f64 / hz).min(end) - n.start;
             let decay = (-rate * elapsed).exp();
             written.total += power * (attack - decay);
             written.low += low * (attack - decay);
             attack = decay;
         }
     }
-    // Smooth one half-second either side. Longer windows blur short accents.
+    // Smooth adjacent windows, not entire beats: an offbeat can be much quieter.
     let mut before = bins[0];
     let mut peak = (Power::default(), Power::default());
     for i in 0..bins.len() {
@@ -125,13 +145,13 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
     // Anchor relative gains only where both the recording and the written
     // notes are audible. Rests and solo piano must not set the band's level.
     let audible = |i: usize, s: Power, p: Power| s.total > 0.001 * peak.0.total
-        && p.total > 0.006 * peak.1.total && !measured_piano((i as f64 + 0.5) * 0.5);
+        && p.total > 0.006 * peak.1.total && !measured_piano((i as f64 + 0.5) / hz);
     let mut ratios = Vec::with_capacity(bins.len());
     for (i, &(s, p)) in bins.iter().enumerate() {
         if audible(i, s, p) { ratios.push(s.phrase_power() / p.phrase_power()); }
     }
     let median = |v: &mut [f64]| *v.select_nth_unstable_by(v.len() / 2, f64::total_cmp).1;
-    if ratios.len() < 4 { return; }
+    if ratios.len() < 2 * per_second { return false; }
     let anchor = median(&mut ratios);
     ratios.clear();
     for (i, &(s, p)) in bins.iter().enumerate() {
@@ -139,7 +159,7 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
             ratios.push(s.balance() / p.balance());
         }
     }
-    let balance_anchor = (ratios.len() >= 8).then(|| median(&mut ratios));
+    let balance_anchor = (ratios.len() >= 4 * per_second).then(|| median(&mut ratios));
     ratios.clear();
     // A swelling bass should be allowed to get louder even when the energy
     // above the bass falls. Use broadband power as the bass key's reference.
@@ -147,13 +167,13 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
         .map(|(_, &(s, p))| s.total / p.total));
     let broadband_anchor = median(&mut ratios);
     let gains: Vec<_> = bins.into_iter().map(|(s, p)| {
-        let level_db = |ratio: f64| (8.5 * ratio.max(1e-9).log10()).clamp(-8., 5.);
+        let level_db = |ratio: f64| (10. * ratio.max(1e-9).log10()).clamp(-9., 6.);
         let floor = peak.1.total * 1e-9;
         let volume = level_db(s.phrase_power() / (p.phrase_power().max(floor) * anchor));
         let bass_volume = level_db(s.total / (p.total.max(floor) * broadband_anchor));
         let tilt = balance_anchor.map_or(0., |base| {
             let confidence = (p.low / (peak.1.low * 0.01)).min(1.);
-            (9. * (s.balance() / (p.balance() * base)).log10()).clamp(-7., 7.) * confidence
+            (10. * (s.balance() / (p.balance() * base)).log10()).clamp(-8., 8.) * confidence
         });
         // Redistribute energy between registers rather than turning both up.
         let gain = if tilt == 0. { volume } else {
@@ -165,23 +185,51 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
         if measured_piano(n.start) { continue; } // retain measured keystroke velocity
         let (_, rate, low_share) = key_response(n.pitch);
         let span = (n.end - n.start + 0.035).min(5.);
-        // Energy centroid of exp(-rate*t) over the sounding part of the key:
-        // its strike sets the level of the whole note, not just the onset bin.
-        let center = 1. / rate - span / (rate * span).exp_m1();
-        let at = (2.0 * (n.start + center) - 0.5).clamp(0.0, (gains.len() - 1) as f64);
-        let i = at as usize;
+        // A held note has only one velocity. Sample early, middle and late
+        // thirds of its *energy*, not three equally spaced times: the tail of
+        // a fast-decaying key shouldn't inherit the accent of the next note.
+        let mass = -(-rate * span).exp_m1();
         let weight = bass_touch(low_share);
         let level = |(gain, tilt): (f64, f64)| gain + weight * tilt;
-        let left = level(gains[i]);
-        let db = left + at.fract() * (level(gains[(i + 1).min(gains.len() - 1)]) - left);
+        let sample = |quantile: f64| {
+            let time = n.start - (-quantile * mass).ln_1p() / rate;
+            let at = (hz * time - 0.5).clamp(0., (gains.len() - 1) as f64);
+            let i = at as usize;
+            let left = level(gains[i]);
+            left + at.fract() * (level(gains[(i + 1).min(gains.len() - 1)]) - left)
+        };
+        let db = (sample(1. / 6.) + sample(0.5) + sample(5. / 6.)) / 3.;
+        let db = if residual { (0.4 * db).clamp(-2.5, 2.5) } else { db };
         n.velocity = (f64::from(n.velocity) * 10_f64.powf(db / 25.)).round().clamp(1.0, 127.0) as u8;
     }
+    true
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::pmidi::{Instrument, Note};
+
+    #[test]
+    fn neighboring_strikes_keep_an_accent_within_one_beat() {
+        let mut midi = PrettyMidi::new(960, 120.);
+        let mut keys = Instrument::new(0, false, "Melody");
+        for i in 0..32 {
+            let start = f64::from(i) * 0.25 + 0.015;
+            keys.notes.push(Note { pitch: 69, velocity: 70, start, end: start + 0.13 });
+        }
+        midi.instruments.push(keys);
+        // Every beat has the same mean energy; only the offbeat is accented.
+        let source: Vec<_> = (0..8 * WINDOWS_PER_SECOND).map(|i| {
+            let t = (i as f64 + 0.5) / WINDOWS_PER_SECOND as f64;
+            let total = if t % 0.5 >= 0.25 { 1. } else { 0.12 };
+            Power { total, low: 0.03 * total }
+        }).collect();
+        shape(&mut midi, &source, &[]);
+        for pair in midi.instruments[0].notes[4..28].chunks_exact(2) {
+            assert!(pair[1].velocity > pair[0].velocity + 10);
+        }
+    }
 
     #[test]
     fn a_quieter_piano_key_does_not_make_an_even_phrase_disappear() {
@@ -193,7 +241,7 @@ mod tests {
                 start, end: start + 0.3 });
         }
         midi.instruments.push(hand);
-        let source = [Power { total: 1., low: 0.03 }; 24];
+        let source = [Power { total: 1., low: 0.03 }; 12 * WINDOWS_PER_SECOND];
         shape(&mut midi, &source, &[]);
         let notes = &midi.instruments[0].notes;
         // The bundled F#4 is much quieter than A4 at the same MIDI velocity.
@@ -210,8 +258,8 @@ mod tests {
                 hand.notes.push(Note { pitch: 70, velocity: 70, start, end: start + 0.25 });
             }
             m.instruments.push(hand);
-            let source: Vec<_> = (0..30).map(|i| Power {
-                total: scale * if i < 12 { 0.1 } else { 1.0 }, low: 0.,
+            let source: Vec<_> = (0..15 * WINDOWS_PER_SECOND).map(|i| Power {
+                total: scale * if i < 6 * WINDOWS_PER_SECOND { 0.1 } else { 1.0 }, low: 0.,
             }).collect();
             shape(&mut m, &source, &[(12., 15.)]);
             m.instruments[0].notes.iter().map(|n| n.velocity).collect()
@@ -234,8 +282,8 @@ mod tests {
         };
         let mut midi = PrettyMidi::new(960, 120.);
         let mut keys = Instrument::new(0, false, "Duet");
-        let mut phrases = [power(82.); 24];
-        phrases[12..].fill(power(880.));
+        let mut phrases = [power(82.); 12 * WINDOWS_PER_SECOND];
+        phrases[6 * WINDOWS_PER_SECOND..].fill(power(880.));
         for i in 0..24 {
             let start = i as f64 * 0.5;
             for pitch in [42, 78] {

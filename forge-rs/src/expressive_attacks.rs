@@ -181,7 +181,8 @@ fn ringing_end(wave: &[f32], n: Note, limit: f64, hann: &[f32; WIDTH]) -> Option
 /// The reduction cuts a melodic key at the next attack, even when the player
 /// kept it down. Corroborate the pitched detector with the backing detector
 /// or with a ringing fundamental and overtone in the backing waveform.
-/// Run after voicing and dynamics: no attack, accent or other key moves.
+/// Finalize holds before shaping dynamics so the loudness estimate uses
+/// the actual sounding duration. No attack or other key moves.
 pub(super) fn restore_held_keys(midi: &mut PrettyMidi, instrumental: &[Note], backing: &[Note], vocals: &[Note], piano: &[(f64, f64)], wave: &[f32]) {
     const MIN_TAIL: f64 = 0.050;
     let [right, left] = midi.instruments.as_mut_slice() else { return };
