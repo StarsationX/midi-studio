@@ -2,6 +2,10 @@
 <h1 align="center">MIDI Studio</h1>
 <p align="center">Turn a recording into piano notes, edit what you hear, or play a Virtual Piano sheet into a game.</p>
 <p align="center"><strong><a href="https://github.com/StarsationX/midi-studio/releases/latest">Download for Windows x64</a></strong> · <a href="#your-first-song">Your first song</a> · <a href="#play-a-virtual-piano-sheet">Try a VP sheet</a> · <a href="CHANGELOG.md">What’s new</a></p>
+<p align="center">
+  <a href="https://github.com/StarsationX/midi-studio/releases"><img src="https://img.shields.io/github/downloads/StarsationX/midi-studio/total?label=All%20release%20downloads" alt="GitHub release asset downloads across all releases"></a>
+  <a href="https://github.com/StarsationX/midi-studio/releases/latest"><img src="https://img.shields.io/github/downloads/StarsationX/midi-studio/latest/total?label=Latest%20release%20downloads" alt="GitHub release asset downloads for the latest release"></a>
+</p>
 
 ![Player with a pasted Virtual Piano sheet, its timing controls, and the resulting piano roll](docs/img/player-vp-sheet.png)
 
@@ -20,6 +24,25 @@ On the [release page](https://github.com/StarsationX/midi-studio/releases/latest
 | **A pasted sheet instead of a file** | Open **Player → Song → Paste a VP sheet**. Try the example below before selecting a game window. |
 
 The left sidebar switches workspaces. **Getting started** reopens the first-launch guide; **Ctrl+K** searches commands and songs. In **Player**, **Listen**, and **Editor**, you can change speed mid-song without jumping back to the start.
+
+## Workspace gallery
+
+Select a screenshot to see it at full size.
+
+| **Forge** · Turn a recording into MIDI | **Editor** · Correct notes in the piano roll |
+| --- | --- |
+| [![Forge transcription workspace](docs/img/workspace-forge.png)](docs/img/workspace-forge.png) | [![Editor showing the notes of Morning Arpeggio](docs/img/workspace-editor.png)](docs/img/workspace-editor.png) |
+| **Listen** · Audition a MIDI file | **Library** · Find a song and open it in another workspace |
+| [![Listen with Morning Arpeggio loaded](docs/img/workspace-listen.png)](docs/img/workspace-listen.png) | [![Library with three example piano pieces](docs/img/workspace-library.png)](docs/img/workspace-library.png) |
+
+<details>
+<summary><strong>Logs</strong> · Inspect messages when something goes wrong</summary>
+
+[![Logs workspace showing application activity](docs/img/workspace-logs.png)](docs/img/workspace-logs.png)
+
+</details>
+
+The download badges use GitHub’s release asset counts. Repeat downloads and updater downloads can count; the badges don’t measure unique users or completed installs. No in-app tracking is needed.
 
 ## Play a Virtual Piano sheet
 
