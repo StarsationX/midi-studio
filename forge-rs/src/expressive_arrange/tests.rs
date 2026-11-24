@@ -336,6 +336,17 @@ fn accompaniment_keeps_the_recorded_octave_when_both_hands_have_room() {
 }
 
 #[test]
+fn a_playable_inner_voice_does_not_require_a_false_octave_partner() {
+    let melody = [note(75, 0., 1.)];
+    let bass = [note(40, 0., 1.)];
+    let chord = [note(50, 0.2, 0.9), note(57, 0.2, 0.9)];
+    let midi = arrange(&melody, &chord, Some(&bass), 1., &[]);
+    let keys: Vec<_> = midi.instruments[1].notes.iter()
+        .filter(|n| n.start <= 0.3 && n.end > 0.3).map(|n| n.pitch).collect();
+    assert_eq!(keys, [40, 50]); // The A3 doesn't fit. Don't invent an A2.
+}
+
+#[test]
 fn rolled_accompaniment_keeps_the_later_strike_and_original_release() {
     let lead = [note(79, 0., 1.)];
     let keys = [note(60, 0.2, 0.9), note(64, 0.23, 0.8)];

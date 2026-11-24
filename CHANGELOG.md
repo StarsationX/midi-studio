@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.20 "Medley" — 2026-11-24
+
+### Changed
+
+- A strummed or plucked key can be heard again in the right hand without replaying the whole chord. Medley checks for a second strike and leaves exposed piano and sung phrases alone during this repair.
+- Short lower backing notes can survive the reduction when the recording confirms both the fundamental and an overtone. They keep their source timing and are skipped if the left hand cannot reach them.
+- When an inner chord voice fits as played, Medley avoids inventing a partner an octave away from the recorded key. No new model is needed.
+
 ## 3.1.19 "Medley" — 2026-11-24
 
 ### Changed

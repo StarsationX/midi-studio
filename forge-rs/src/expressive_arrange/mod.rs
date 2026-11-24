@@ -385,7 +385,7 @@ fn voicing(
     if strongest == 0. {
         return vec![];
     }
-    let playable: Vec<_> = (floor..=ceiling)
+    let mut playable: Vec<_> = (floor..=ceiling)
         .filter(|p| {
             let spectral = register.strength(*p) >= 0;
             let struck = recorded & (1_u128 << p) != 0;
@@ -396,6 +396,13 @@ fn voicing(
                 && (upper_classes & (1 << (p % 12)) == 0 || struck || spectral)
         })
         .collect();
+    // Once a real inner voice fits, don't manufacture a partner by folding
+    // an observed key down or up an octave. Keep the chroma-only fallback
+    // when the recording doesn't resolve any playable register.
+    let observed = |p: u8| recorded & (1_u128 << p) != 0 || register.strength(p) >= 0;
+    if playable.iter().any(|&p| observed(p)) {
+        playable.retain(|&p| observed(p) || recorded & ((1_u128 << (p + 12)) | (1_u128 << (p - 12))) == 0);
+    }
     let score = |p: u8| {
         let motion = prior
             .iter()
@@ -611,7 +618,7 @@ fn left_hand(mut bass: Vec<Note>, backing: &[Note], instrumental: &[Note], piano
         // Stable spectral peaks are independent evidence for the octave.
         let first = piano.partition_point(|n| n.start < start - 0.045);
         let recorded = piano[first..].iter().take_while(|n| n.start <= start + 0.055)
-            .filter(|n| (40..=65).contains(&n.pitch) && n.velocity >= 45 && n.end - n.start >= 0.075)
+            .filter(|n| (32..=89).contains(&n.pitch) && n.velocity >= 45 && n.end - n.start >= 0.075)
             .fold(0_u128, |keys, n| keys | (1_u128 << n.pitch));
         let lead_classes = if registers.is_empty() { 0 } else {
             nearby.clone().take_while(|n| n.start < start + 0.055).fold(0, |pcs, n| pcs | (1 << (n.pitch % 12)))

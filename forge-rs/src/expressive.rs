@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 
 #[path = "expressive_attacks.rs"]
 mod attacks;
+#[path = "expressive_treble_recovery.rs"]
+mod treble_recovery;
+#[path = "expressive_tenor.rs"]
+mod tenor;
 
 pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> Result<()> {
     if !output.extension().is_some_and(|s| s.eq_ignore_ascii_case("mid")) {
@@ -36,6 +40,8 @@ pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> R
     expressive_arrange::arrange_piano_passages(&mut midi, &evidence.backing, &evidence.piano_passages, &evidence.sustain);
     bass.articulate(&mut midi, &evidence.piano_passages);
     attacks::restore_held_keys(&mut midi, &evidence.instrumental, &evidence.backing, &lead, &evidence.piano_passages, &evidence.instrumental_wave);
+    treble_recovery::apply(&mut midi, &evidence.instrumental, &evidence.backing, &lead, &evidence.piano_passages, &evidence.instrumental_wave);
+    tenor::apply(&mut midi, &evidence.backing, &evidence.instrumental_wave, &evidence.piano_passages);
     dynamics::shape(&mut midi, &evidence.pitched_power, &evidence.piano_passages);
     attacks::accent_repeats(&mut midi, &evidence.instrumental_wave, &evidence.instrumental, &lead, &evidence.piano_passages);
     let count = midi.note_count();
