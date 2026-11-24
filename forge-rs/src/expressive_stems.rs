@@ -25,7 +25,7 @@ pub struct Evidence {
     pub sustain: Vec<(f64, f64)>,
     /// Broadband and low-register mean-square energy of pitched stems per half-second.
     pub(super) pitched_power: Vec<Power>,
-    pub harmonic_notes: Vec<Note>,
+    pub harmony: crate::expressive_arrange::Harmony,
     pub duration: f64,
     pub mixture_tempos: Vec<(f64, f64)>,
     /// Add this to a clip-relative note time to obtain its original recording time.
@@ -162,7 +162,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
     // Keep real unit-scale PCM and optionally normalize the backing's level.
     let present = harmony.samples.iter().any(|v| v.abs() >= 0.001);
     let bass_line = crate::expressive_arrange::bass_line(&bass, SAMPLE_RATE)?;
-    let harmonic_notes = crate::expressive_arrange::harmony_notes(&harmony.samples, harmony.sample_rate, &bass_line.notes)?;
+    let chord_evidence = crate::expressive_arrange::analyze_harmony(&harmony.samples, harmony.sample_rate, &bass_line.notes)?;
     let input = if knobs.loudness_norm {
         crate::post::loudness_normalize(&harmony, &knobs.normalize)
     } else {
@@ -207,7 +207,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         pm.write(&work.join("backing.mid"))?;
         println!("  (kept stems: {})", work.display());
     }
-    Ok(Evidence { vocals, bass, bass_line, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, harmonic_notes, piano_passages, sustain, pitched_power, duration, source_start, mixture_tempos })
+    Ok(Evidence { vocals, bass, bass_line, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, harmony: chord_evidence, piano_passages, sustain, pitched_power, duration, source_start, mixture_tempos })
 }
 
 fn supplement_instrumental(instrumental: &mut Vec<Note>, piano: &[Note]) {

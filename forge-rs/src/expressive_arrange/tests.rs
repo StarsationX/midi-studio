@@ -354,13 +354,24 @@ fn chord_change_ties_a_held_key_but_respects_a_recorded_restrike() {
         (vec![], vec![(0.1, 1.2)]),
         (vec![note(64, 0.63, 0.85)], vec![(0.1, 0.6), (0.6, 1.2)]),
     ] {
-        let left = left_hand(bass.to_vec(), &backing, &instrumental, &backing, &lead, &[], 1.2, 0.5);
+        let left = left_hand(bass.to_vec(), &backing, &instrumental, &backing, &lead, &[], &[], 1.2, 0.5);
         let times = |pitch| left.iter().filter(|n| n.pitch == pitch)
             .map(|n| (n.start, n.end)).collect::<Vec<_>>();
         assert_eq!(times(52), expected);
         assert_eq!(times(55), [(0.1, 0.6)]);
         assert_eq!(times(57), [(0.6, 1.2)]);
     }
+}
+
+#[test]
+fn repeated_strum_splits_only_the_replayed_key() {
+    let mut chord = vec![note(52, 0., 1.), note(55, 0., 1.)];
+    let strikes = [note(52, 0., 0.24), note(55, 0., 1.), note(52, 0.36, 0.6),
+        Note { velocity: 49, ..note(55, 0.41, 0.59) }];
+    // The weak fragment copied from backing is not independent corroboration.
+    restore_chord_repeats(&mut chord, &strikes, &strikes);
+    assert_eq!(chord.iter().map(|n| (n.pitch, n.start, n.end)).collect::<Vec<_>>(),
+        [(52, 0., 0.36), (55, 0., 1.), (52, 0.36, 1.)]);
 }
 
 #[test]

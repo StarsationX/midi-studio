@@ -62,7 +62,7 @@ Start at **120 BPM** and **2 steps per beat**: each step lasts a quarter second.
 
 **Medley** (formerly **Expressive Piano**) arranges a recording for two hands: the right hand follows vocal and instrumental melodies, while the left plays bass and chords. Choose **Melody** instead if you want only the lead line.
 
-For a strummed chord, Medley can keep up to three right-hand keys when two detectors agree on the attacks and the notes fit under one hand. The left hand favors the octave struck in the recording. A rolled chord can keep its staggered timing instead of sounding like all the keys were struck together. Medley is a playable arrangement, not a note-for-note transcription.
+For a strummed chord, Medley can keep up to three right-hand keys when two detectors agree on the attacks and the notes fit under one hand. The left hand checks which octave is actually sounding in the backing before doubling the melody. A prominent chord tone can sound louder than its neighbor, and one key can be struck again while the rest of the chord rings. Medley is a playable arrangement, not a note-for-note transcription.
 
 In a band mix, listen for where the bass comes forward and where it steps back under the melody. Medley follows those changes by varying the touch of low and high keys separately. It also follows short swells and accents on repeated plucks; a louder drum hit alone won’t make the whole piano louder.
 Medley can move an early instrumental attack closer to a clear pluck and release a vocal melody key when the vowel fades. These corrections follow the recording rather than snapping notes to the tempo grid.

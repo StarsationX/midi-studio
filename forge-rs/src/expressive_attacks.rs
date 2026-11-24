@@ -17,7 +17,7 @@ fn coefficients(pitch: u8) -> [f32; 3] {
 }
 
 // Three Goertzel bins instead of a song-sized spectrogram.
-fn magnitude(frame: &[f32], hann: &[f32; WIDTH], coeff: &[f32; 3]) -> f32 {
+fn partials(frame: &[f32], hann: &[f32; WIDTH], coeff: &[f32; 3]) -> [f32; 3] {
     let (mut a, mut b) = ([0.0_f32; 3], [0.0_f32; 3]);
     for (&s, &w) in frame.iter().zip(hann) {
         let x = s * w;
@@ -27,9 +27,12 @@ fn magnitude(frame: &[f32], hann: &[f32; WIDTH], coeff: &[f32; 3]) -> f32 {
             a[k] = next;
         }
     }
-    [1.0, 0.45, 0.25].iter().enumerate().map(|(k, weight)| {
-        weight * (a[k]*a[k] + b[k]*b[k] - coeff[k]*a[k]*b[k]).max(0.0).sqrt()
-    }).sum()
+    std::array::from_fn(|k| (a[k]*a[k] + b[k]*b[k] - coeff[k]*a[k]*b[k]).max(0.0).sqrt())
+}
+
+fn magnitude(frame: &[f32], hann: &[f32; WIDTH], coeff: &[f32; 3]) -> f32 {
+    let [a, b, c] = partials(frame, hann, coeff);
+    a + 0.45*b + 0.25*c
 }
 
 fn audible_attack(wave: &[f32], note: &Note, hann: &[f32; WIDTH]) -> Option<f64> {
@@ -143,13 +146,47 @@ pub(super) fn accent_repeats(midi: &mut PrettyMidi, wave: &[f32], instrumental: 
     for last in pending.into_iter().flatten() { last.apply(notes, None); }
 }
 
+// A ringing pluck can outlast the piano detector's key-off. Require the
+// fundamental and the same overtone to rise out of the pre-attack background
+// and stay present after key-off. Stop at a dropout or a fresh loud attack.
+fn ringing_end(wave: &[f32], n: Note, limit: f64, hann: &[f32; WIDTH]) -> Option<f64> {
+    if n.end - n.start < 0.065 { return None; }
+    let coeff = coefficients(n.pitch);
+    let bands = |t: f64| {
+        let center = (t * f64::from(SAMPLE_RATE)).round() as usize;
+        let start = center.checked_sub(WIDTH / 2)?;
+        Some(partials(wave.get(start..start + WIDTH)?, hann, &coeff))
+    };
+    let median = |a: [f32; 3], b: [f32; 3], c: [f32; 3]| -> [f32; 3] {
+        std::array::from_fn(|i| a[i].clamp(b[i].min(c[i]), b[i].max(c[i])))
+    };
+    let before = median(bands(n.start - 0.048)?, bands(n.start - 0.036)?, bands(n.start - 0.024)?);
+    let attack = median(bands(n.start + 0.024)?, bands(n.start + 0.044)?, bands((n.start + 0.064).min(n.end - 0.012))?);
+    let tail = median(bands(n.end - 0.044)?, bands(n.end - 0.032)?, bands(n.end - 0.020)?);
+    let mut keep = std::array::from_fn::<_, 3, _>(|k| attack[k] > (before[k]*2.5).max(0.001)
+        && tail[k] > (attack[k]*0.10).max(before[k]*1.25));
+    let mut end = n.end;
+    while keep[0] && (keep[1] || keep[2]) && end < limit {
+        let next = (end + 0.016).min(limit);
+        let Some(level) = bands(next) else { break };
+        for k in 0..3 {
+            keep[k] &= level[k] > (attack[k]*0.10).max(before[k]*1.3).max(tail[k]*0.30)
+                && level[k] < (tail[k]*2.).max(attack[k]*1.15);
+        }
+        if keep[0] && (keep[1] || keep[2]) { end = next; }
+    }
+    Some(end)
+}
+
 /// The reduction cuts a melodic key at the next attack, even when the player
-/// kept it down. Restore only the tail heard by *both* pitched detectors.
+/// kept it down. Corroborate the pitched detector with the backing detector
+/// or with a ringing fundamental and overtone in the backing waveform.
 /// Run after voicing and dynamics: no attack, accent or other key moves.
-pub(super) fn restore_held_keys(midi: &mut PrettyMidi, instrumental: &[Note], backing: &[Note], vocals: &[Note], piano: &[(f64, f64)]) {
+pub(super) fn restore_held_keys(midi: &mut PrettyMidi, instrumental: &[Note], backing: &[Note], vocals: &[Note], piano: &[(f64, f64)], wave: &[f32]) {
     const MIN_TAIL: f64 = 0.050;
     let [right, left] = midi.instruments.as_mut_slice() else { return };
     if instrumental.is_empty() || backing.is_empty() { return; }
+    let window = hann();
     let (mut rh, mut lh) = (0, 0);
     for i in 0..right.notes.len() {
         let n = right.notes[i];
@@ -161,9 +198,10 @@ pub(super) fn restore_held_keys(midi: &mut PrettyMidi, instrumental: &[Note], ba
         let j = backing.partition_point(|k| k.start < raw.start - 0.035);
         let near = &backing[j..j + backing[j..].partition_point(|k| k.start <= raw.start + 0.035)];
         if near.contains(raw) { continue; } // piano fallback, not independent evidence
-        let Some(other) = near.iter().filter(|k| k.pitch == n.pitch && k.velocity >= 55)
-            .min_by(|a, b| (a.start - raw.start).abs().total_cmp(&(b.start - raw.start).abs())) else { continue };
-        let mut end = raw.end.min(other.end);
+        let confirmed = near.iter().filter(|k| k.pitch == n.pitch && k.velocity >= 55)
+            .min_by(|a, b| (a.start - raw.start).abs().total_cmp(&(b.start - raw.start).abs()))
+            .map_or(n.end, |k| k.end.max(n.end));
+        let mut end = raw.end.min(confirmed + 0.40);
         let v = vocals.partition_point(|k| k.start < n.start);
         if v > 0 && vocals[v - 1].end > n.start { continue; }
         if let Some(next) = vocals.get(v) { end = end.min(next.start); }
@@ -189,6 +227,12 @@ pub(super) fn restore_held_keys(midi: &mut PrettyMidi, instrumental: &[Note], ba
             if others >= 5 || k.pitch == n.pitch || k.pitch.abs_diff(n.pitch) > 12 {
                 end = end.min(k.start);
             }
+        }
+        if end > confirmed {
+            let held = Note { end: confirmed, ..n };
+            end = if end >= confirmed + MIN_TAIL && !wave.is_empty() {
+                ringing_end(wave, held, end, &window).unwrap_or(confirmed)
+            } else { confirmed };
         }
         if end >= n.end + MIN_TAIL { right.notes[i].end = end; }
     }
@@ -225,7 +269,7 @@ mod tests {
             rh.notes.extend(blocker);
             lh.notes.extend(left);
             midi.instruments.extend([rh, lh]);
-            restore_held_keys(&mut midi, &[raw], &[other], voice.as_slice(), passage.as_slice());
+            restore_held_keys(&mut midi, &[raw], &[other], voice.as_slice(), passage.as_slice(), &[]);
             assert_eq!(midi.instruments[0].notes[0], Note { end: expected, ..aligned });
             assert_eq!(midi.instruments[0].notes[1], key(69, 0.41, 0.51));
         }
@@ -239,8 +283,36 @@ mod tests {
         rh.notes.push(key(64, 0.0, 0.2));
         rh.notes.extend((0..5).map(|i| key(65+i, 0.2 + 0.1*f64::from(i), 1.)));
         midi.instruments.extend([rh, Instrument::new(0, false, "Left")]);
-        restore_held_keys(&mut midi, &[raw], &[key(64, 0.01, 1.)], &[], &[]);
+        restore_held_keys(&mut midi, &[raw], &[key(64, 0.01, 1.)], &[], &[], &[]);
         assert_eq!(midi.instruments[0].notes[0].end, midi.instruments[0].notes[5].start);
+    }
+
+    #[test]
+    fn unconfirmed_pluck_rings_only_until_the_wave_dies_or_the_key_repeats() {
+        let pluck = key(69, 0.20, 0.38);
+        let raw = key(69, 0.20, 0.80);
+        let wave = (0..SAMPLE_RATE).map(|i| {
+            let t = f64::from(i) / f64::from(SAMPLE_RATE);
+            let phase = std::f64::consts::TAU * 440. * t;
+            if (0.20..0.60).contains(&t) { (0.2*phase.sin() + 0.1*(2.*phase).sin()) as f32 } else { 0. }
+        }).collect::<Vec<_>>();
+        for (repeat, vocals, piano, source, range) in [
+            (None, None, None, &wave[..], 0.57..0.62),
+            (Some(key(69, 0.52, 0.60)), None, None, &wave, 0.52..0.521),
+            (None, Some(pluck), None, &wave, 0.38..0.381),
+            (None, None, Some((0.1, 0.9)), &wave, 0.38..0.381),
+            (None, None, None, &wave[..(SAMPLE_RATE as usize / 3)], 0.38..0.381),
+        ] {
+            let mut midi = PrettyMidi::new(960, 120.);
+            let mut rh = Instrument::new(0, false, "Right");
+            rh.notes.push(pluck);
+            rh.notes.extend(repeat);
+            midi.instruments.extend([rh, Instrument::new(0, false, "Left")]);
+            restore_held_keys(&mut midi, &[raw], &[key(60, 0.21, 0.40)], vocals.as_slice(), piano.as_slice(), source);
+            let result = midi.instruments[0].notes[0];
+            assert!(range.contains(&result.end), "{}", result.end);
+            assert_eq!(result, Note { end: result.end, ..pluck });
+        }
     }
 
     #[test]

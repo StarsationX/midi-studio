@@ -30,13 +30,14 @@ pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> R
     println!("Detected {} vocal notes.", lead.len());
     drop(evidence.vocals);
     println!("[5/6] Voice the piano arrangement");
-    let mut midi = expressive_arrange::arrange_with_instruments(&lead, &evidence.instrumental, &evidence.backing, &evidence.harmonic_notes, Some(&bass.notes), evidence.duration, &tempos);
+    let mut midi = expressive_arrange::arrange_with_instruments(&lead, &evidence.instrumental, &evidence.backing,
+        &evidence.harmony.notes, &evidence.harmony.registers, Some(&bass.notes), evidence.duration, &tempos);
     attacks::align(&mut midi, &evidence.instrumental_wave, &lead, &evidence.piano_passages);
     expressive_arrange::arrange_piano_passages(&mut midi, &evidence.backing, &evidence.piano_passages, &evidence.sustain);
     dynamics::shape(&mut midi, &evidence.pitched_power, &evidence.piano_passages);
     attacks::accent_repeats(&mut midi, &evidence.instrumental_wave, &evidence.instrumental, &lead, &evidence.piano_passages);
     bass.articulate(&mut midi, &evidence.piano_passages);
-    attacks::restore_held_keys(&mut midi, &evidence.instrumental, &evidence.backing, &lead, &evidence.piano_passages);
+    attacks::restore_held_keys(&mut midi, &evidence.instrumental, &evidence.backing, &lead, &evidence.piano_passages, &evidence.instrumental_wave);
     let count = midi.note_count();
     if count == 0 { bail!("No playable notes were detected in the selected audio"); }
     println!("[6/6] Save piano MIDI");

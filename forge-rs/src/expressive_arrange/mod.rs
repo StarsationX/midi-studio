@@ -6,7 +6,8 @@ mod piano;
 mod tempo;
 pub use bass::bass_notes;
 pub(crate) use bass::{bass_line, BassLine};
-pub use harmony::harmony_notes;
+pub use harmony::{analyze_harmony, Harmony};
+use harmony::{register_at, Register};
 pub use piano::{arrange_piano_passages, piano_passages};
 pub(crate) use piano::align_piano_entries;
 pub use tempo::tempo_map;
@@ -366,8 +367,9 @@ fn voicing(
     prior: &[(u8, f64)],
     recorded: u128,
     upper_classes: u16,
+    register: Register,
 ) -> Vec<u8> {
-    let floor = bass.map_or(43, |p| {
+    let floor = bass.map_or(40, |p| {
         p + if p < 36 {
             7
         } else if p < 43 {
@@ -385,9 +387,13 @@ fn voicing(
     }
     let playable: Vec<_> = (floor..=ceiling)
         .filter(|p| {
-            weights[(p % 12) as usize] >= 0.42 * strongest
+            let spectral = register.strength(*p) >= 0;
+            let struck = recorded & (1_u128 << p) != 0;
+            let weight = weights[(p % 12) as usize];
+            (*p >= 43 || bass.is_some() || spectral)
+                && (weight >= 0.42 * strongest || (weight > 0. && struck && spectral))
                 && bass.is_none_or(|b| b % 12 != p % 12)
-                && (upper_classes & (1 << (p % 12)) == 0 || recorded & (1_u128 << p) != 0)
+                && (upper_classes & (1 << (p % 12)) == 0 || struck || spectral)
         })
         .collect();
     let score = |p: u8| {
@@ -401,6 +407,7 @@ fn voicing(
         });
         weights[(p % 12) as usize] / strongest - 0.035 * f64::from(motion)
             + if recorded & (1u128 << p) != 0 { 0.50 } else { 0. }
+            + match register.strength(p) { 1 => 0.95, 0 => 0.45, _ => 0. }
             + if character { 0.14 } else { 0. }
     };
     let doubled = |p: u8| lead.is_some_and(|n| n % 12 == p % 12);
@@ -517,8 +524,35 @@ fn playable_bass(raw_bass: &[Note], lead: &[Note], duration: f64) -> Vec<Note> {
     bass
 }
 
+// Chord grouping may merge repeated strums. Split only the key that was
+// attacked again, never the bass or the other fingers holding the chord.
+fn restore_chord_repeats(harmony: &mut Vec<Note>, piano: &[Note], instrumental: &[Note]) {
+    let mut repeats = Vec::new();
+    for n in harmony.iter_mut() {
+        let end = n.end;
+        let lo = piano.partition_point(|s| s.start < n.start + 0.090);
+        let mut tail = *n;
+        for (offset, s) in piano[lo..].iter().take_while(|s| s.start <= end - 0.075).enumerate() {
+            if s.pitch != n.pitch || s.start < tail.start + 0.090 || s.velocity < 45 || s.end - s.start < 0.075 { continue; }
+            let i = instrumental.partition_point(|p| p.start < s.start - 0.040);
+            let corroborated = instrumental[i..].iter().take_while(|p| p.start <= s.start + 0.040)
+                .any(|p| p.pitch == s.pitch && p != s);
+            if !corroborated {
+                let prior = piano[..lo + offset].iter().rev().take_while(|p| p.start >= s.start - 1.)
+                    .find(|p| p.pitch == s.pitch && p.start < s.start);
+                if s.velocity < 55 || !prior.is_some_and(|p| (0.015..=0.8).contains(&(s.start - p.end))) { continue; }
+            }
+            tail.end = s.start;
+            if tail.start == n.start { n.end = tail.end; } else { repeats.push(tail); }
+            tail.start = s.start;
+        }
+        if tail.start > n.start { tail.end = end; repeats.push(tail); }
+    }
+    harmony.extend(repeats);
+}
+
 fn left_hand(mut bass: Vec<Note>, backing: &[Note], instrumental: &[Note], piano: &[Note],
-    lead: &[Note], partners: &[Note], duration: f64, beat: f64) -> Vec<Note> {
+    lead: &[Note], partners: &[Note], registers: &[Register], duration: f64, beat: f64) -> Vec<Note> {
     let mut upper = partners;
     let mut active: Vec<&Note> = vec![];
     let mut next = 0;
@@ -574,16 +608,19 @@ fn left_hand(mut bass: Vec<Note>, backing: &[Note], instrumental: &[Note], piano
         let prior = chords.last().map_or(&[][..], |c| c.notes.as_slice());
         // Pitch-class weights cannot distinguish a recorded G3 from G4.
         // Prefer the struck register only among otherwise playable chord keys.
-        // Inferred harmony contributes to the chord, not to the register vote.
+        // Stable spectral peaks are independent evidence for the octave.
         let first = piano.partition_point(|n| n.start < start - 0.045);
         let recorded = piano[first..].iter().take_while(|n| n.start <= start + 0.055)
-            .filter(|n| (43..=65).contains(&n.pitch) && n.velocity >= 45 && n.end - n.start >= 0.075)
+            .filter(|n| (40..=65).contains(&n.pitch) && n.velocity >= 45 && n.end - n.start >= 0.075)
             .fold(0_u128, |keys, n| keys | (1_u128 << n.pitch));
+        let lead_classes = if registers.is_empty() { 0 } else {
+            nearby.clone().take_while(|n| n.start < start + 0.055).fold(0, |pcs, n| pcs | (1 << (n.pitch % 12)))
+        };
         let (ceiling, upper_classes) = sounding_partners(&mut upper, start, start + 0.32)
-            .fold((nearby.map(|n| n.pitch).min(), 0_u16), |(lowest, classes), n| {
+            .fold((nearby.map(|n| n.pitch).min(), lead_classes), |(lowest, classes), n| {
                 (Some(lowest.map_or(n.pitch, |p| p.min(n.pitch))), classes | (1 << (n.pitch % 12)))
             });
-        let voiced = voicing(&weights, bass_key, ceiling, prior, recorded, upper_classes);
+        let voiced = voicing(&weights, bass_key, ceiling, prior, recorded, upper_classes, register_at(registers, start));
         let notes: Vec<_> = voiced
             .into_iter()
             .map(|p| (p, releases[(p % 12) as usize]))
@@ -624,6 +661,9 @@ fn left_hand(mut bass: Vec<Note>, backing: &[Note], instrumental: &[Note], piano
         let start = chord.start;
         let boundary = chords.get(i + 1).map_or(duration, |c| c.start);
         let shape_start = harmony.len();
+        let register = register_at(registers, start);
+        let mean = chord.notes.iter().map(|&(p, _)| f64::from(register.strength(p))).sum::<f64>() / chord.notes.len() as f64;
+        // Keep the existing chord accent while varying the touch of its members.
         for &(pitch, release) in &chord.notes {
             let mut end = release.min(boundary);
             for n in overlapping(&bass, start, end) {
@@ -642,7 +682,7 @@ fn left_hand(mut bass: Vec<Note>, backing: &[Note], instrumental: &[Note], piano
             if end - start >= 0.08 {
                 harmony.push(Note {
                     pitch,
-                    velocity: chord.velocity,
+                    velocity: (f64::from(chord.velocity) * 10f64.powf(0.07 * (f64::from(register.strength(pitch)) - mean))).round().clamp(1., 127.) as u8,
                     start,
                     end,
                 });
@@ -667,11 +707,21 @@ fn left_hand(mut bass: Vec<Note>, backing: &[Note], instrumental: &[Note], piano
         let mut strikes = piano[first..].iter().take_while(|s| s.start <= n.start + 0.055)
             .filter(|s| s.pitch == n.pitch && s.velocity >= 45 && s.end - s.start >= 0.075);
         if let Some(s) = strikes.next() {
-            if s.start > n.start + 0.012 && n.end - s.start >= 0.065 && strikes.next().is_none() {
+            if strikes.next().is_some() { continue; }
+            let i = instrumental.partition_point(|p| p.start < s.start - 0.055);
+            let release = instrumental[i..].iter().take_while(|p| p.start <= s.start + 0.055)
+                .filter(|p| p.pitch == s.pitch).map(|p| p.end).fold(s.end, f64::max);
+            if release < n.end - 0.060 && release - n.start >= 0.075
+                && register_at(registers, n.start).strength(n.pitch) >= 0
+                && register_at(registers, release + 0.040).strength(n.pitch) < 0 {
+                n.end = release;
+            }
+            if s.start > n.start + 0.012 && n.end - s.start >= 0.065 {
                 n.start = s.start;
             }
         }
     }
+    restore_chord_repeats(&mut harmony, piano, instrumental);
     bass.extend(harmony);
     order_in_place(&mut bass, duration);
     bass
@@ -695,11 +745,11 @@ pub fn arrange_with_harmony(
     duration: f64,
     tempos: &[(f64, f64)],
 ) -> PrettyMidi {
-    arrange_with_instruments(vocals, backing, backing, harmonic_notes, bass, duration, tempos)
+    arrange_with_instruments(vocals, backing, backing, harmonic_notes, &[], bass, duration, tempos)
 }
 
 pub(crate) fn arrange_with_instruments(
-    vocals: &[Note], instrumental: &[Note], backing: &[Note], harmonic_notes: &[Note],
+    vocals: &[Note], instrumental: &[Note], backing: &[Note], harmonic_notes: &[Note], registers: &[Register],
     bass: Option<&[Note]>, duration: f64, tempos: &[(f64, f64)],
 ) -> PrettyMidi {
     let mut midi = PrettyMidi::with_tempo_map(960, tempos);
@@ -732,7 +782,7 @@ pub(crate) fn arrange_with_instruments(
     };
     let low = playable_bass(&bass, &lead, duration);
     let mut extra = treble_partners(&lead, &instrumental, &piano, &vocals, &low);
-    let left = left_hand(low, evidence, &instrumental, &piano, &lead, &extra, duration, beat);
+    let left = left_hand(low, evidence, &instrumental, &piano, &lead, &extra, registers, duration, beat);
     interior_treble(&lead, &instrumental, &piano, &vocals, &bass, &mut extra, duration);
     if !extra.is_empty() {
         lead.extend(extra);

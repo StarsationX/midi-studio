@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.16 "Medley" — 2026-11-24
+
+### Changed
+
+- Medley uses the backing audio to choose the octave and relative loudness of left-hand chord notes. It no longer assumes a lower copy of a melody note was played just because it fits the chord.
+- A strummed chord can repeat one note without restarting the other fingers. When a recorded key drops out of the backing, the left hand can release it before the chord changes.
+- A plucked right-hand note can ring past a short backing transcription when the recording still carries its fundamental and an overtone. It stops at the instrumental detector’s release or sooner if the hand needs to move.
+
 ## 3.1.15 "Medley" — 2026-11-24
 
 ### Changed

@@ -8,6 +8,36 @@ const FFT: usize = 4096;
 const HOP: usize = 256;
 type Chroma = [f32; 12];
 
+#[derive(Default)]
+pub struct Harmony {
+    pub notes: Vec<Note>,
+    pub(crate) registers: Vec<Register>,
+}
+
+/// Exact keys before folding the spectrum into pitch classes; bit zero is MIDI 32.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct Register {
+    present: u64,
+    strong: u64,
+}
+
+impl Register {
+    pub(super) fn strength(self, pitch: u8) -> i8 {
+        if !(32..=65).contains(&pitch) { return -1; }
+        let bit = 1u64 << (pitch - 32);
+        if self.strong & bit != 0 { 1 } else if self.present & bit != 0 { 0 } else { -1 }
+    }
+}
+
+pub(super) fn register_at(frames: &[Register], onset: f64) -> Register {
+    if frames.is_empty() { return Register::default(); }
+    let i = ((onset + 0.065) * RATE as f64 / HOP as f64) as usize;
+    let frame = |j: usize| frames[j.min(frames.len() - 1)];
+    let (a, b, c) = (frame(i.saturating_sub(2)), frame(i), frame(i + 2));
+    let majority = |a, b, c| (a & b) | (b & c) | (a & c);
+    Register { present: majority(a.present, b.present, c.present), strong: majority(a.strong, b.strong, c.strong) }
+}
+
 // Inversions share one mask. Each voice needs spectral support; for ordinary
 // triads the separate bass stem can supply the root.
 fn triads() -> Vec<(u16, usize, f32)> {
@@ -32,7 +62,7 @@ fn triads() -> Vec<(u16, usize, f32)> {
     masks
 }
 
-fn chroma(mag: &[f32]) -> Chroma {
+fn chroma(mag: &[f32]) -> (Chroma, Register) {
     let mut pitch = [0f32; 128];
     let mut bands = [0.; 12];
     let mut energy = 0.;
@@ -64,7 +94,7 @@ fn chroma(mag: &[f32]) -> Chroma {
         tonal += strength * strength;
     }
     if tonal < 0.12 * energy || energy < 0.001 {
-        return bands;
+        return (bands, Register::default());
     }
     // Peel harmonics from lower notes before folding octaves. Otherwise a
     // bright solo note supplies its own fifth and major third.
@@ -87,7 +117,16 @@ fn chroma(mag: &[f32]) -> Chroma {
             bands[key % 12] += value * if (52..=79).contains(&key) { 1. } else { 0.60 };
         }
     }
-    bands
+    let peak = pitch[38..=95].iter().copied().fold(0., f32::max);
+    let mut register = Register::default();
+    if peak > 0. {
+        for key in 32..=65 {
+            let bit = 1u64 << (key - 32);
+            if pitch[key] >= 0.085 * peak { register.present |= bit; }
+            if pitch[key] >= 0.32 * peak { register.strong |= bit; }
+        }
+    }
+    (bands, register)
 }
 
 fn classify(bands: &Chroma, masks: &[(u16, usize, f32)], previous: u16, bass: &Chroma) -> u16 {
@@ -136,10 +175,10 @@ fn classify(bands: &Chroma, masks: &[(u16, usize, f32)], previous: u16, bass: &C
 }
 
 /// Extract source-timed evidence for inner harmony from a pitched backing stem.
-pub fn harmony_notes(mono: &[f32], sample_rate: u32, bass: &[Note]) -> Result<Vec<Note>> {
+pub fn analyze_harmony(mono: &[f32], sample_rate: u32, bass: &[Note]) -> Result<Harmony> {
     ensure!(sample_rate > 0, "invalid backing sample rate");
     if mono.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Harmony::default());
     }
     let samples = resample_hq(mono, 1, sample_rate as f64, RATE as f64)?;
     let fft = RealFftPlanner::<f32>::new().plan_fft_forward(FFT);
@@ -153,6 +192,7 @@ pub fn harmony_notes(mono: &[f32], sample_rate: u32, bass: &[Note]) -> Result<Ve
     let mut padded = vec![0.; samples.len() + WINDOW];
     padded[WINDOW / 2..WINDOW / 2 + samples.len()].copy_from_slice(&samples);
     let mut frames = Vec::with_capacity(samples.len().div_ceil(HOP));
+    let mut registers = Vec::with_capacity(samples.len().div_ceil(HOP));
     for center in (0..samples.len()).step_by(HOP) {
         input.fill(0.);
         for (i, w) in window.iter().enumerate() {
@@ -162,7 +202,9 @@ pub fn harmony_notes(mono: &[f32], sample_rate: u32, bass: &[Note]) -> Result<Ve
         for (dst, bin) in mag.iter_mut().zip(&output) {
             *dst = bin.norm();
         }
-        frames.push(chroma(&mag));
+        let (bands, register) = chroma(&mag);
+        frames.push(bands);
+        registers.push(register);
     }
     let masks = triads();
     let step = HOP as f64 / RATE as f64;
@@ -267,7 +309,7 @@ pub fn harmony_notes(mono: &[f32], sample_rate: u32, bass: &[Note]) -> Result<Ve
         }
         start = end;
     }
-    Ok(notes)
+    Ok(Harmony { notes, registers })
 }
 
 #[cfg(test)]
@@ -328,7 +370,7 @@ mod tests {
                 velocity: 62,
             },
         ];
-        let notes = harmony_notes(&audio, RATE as u32, &bass).unwrap();
+        let notes = analyze_harmony(&audio, RATE as u32, &bass).unwrap().notes;
         assert_eq!(notes.len(), 6, "{notes:?}");
         for (part, onset, end, keys) in [
             (&notes[..3], 0.45, 1.48, [60, 64, 67]),
@@ -352,7 +394,7 @@ mod tests {
                 *sample += gain * tone;
             }
         }
-        let notes = harmony_notes(&sound, RATE as u32, &[]).unwrap();
+        let notes = analyze_harmony(&sound, RATE as u32, &[]).unwrap().notes;
         let vel = |pitch| notes.iter().find(|n| n.pitch == pitch).unwrap().velocity;
         assert!(vel(64) >= 38 && vel(69) >= vel(64) + 10, "{notes:?}");
     }
@@ -386,7 +428,11 @@ mod tests {
             pitch: 43,
             velocity: 65,
         }];
-        assert!(harmony_notes(&solo, RATE as u32, &bass).unwrap().is_empty());
+        let harmony = analyze_harmony(&solo, RATE as u32, &bass).unwrap();
+        assert!(harmony.notes.is_empty());
+        let register = register_at(&harmony.registers, 0.2);
+        assert_eq!(register.strength(55), 1);
+        assert_eq!(register.strength(43), -1, "a bright G3 is not a struck G2");
         let mut seed = 131u32;
         let noise = (0..RATE * 2)
             .map(|_| {
@@ -394,11 +440,7 @@ mod tests {
                 (seed as f32 / u32::MAX as f32 - 0.5) * 0.3
             })
             .collect::<Vec<_>>();
-        assert!(harmony_notes(&noise, RATE as u32, &bass)
-            .unwrap()
-            .is_empty());
-        assert!(harmony_notes(&vec![0.; RATE], RATE as u32, &bass)
-            .unwrap()
-            .is_empty());
+        assert!(analyze_harmony(&noise, RATE as u32, &bass).unwrap().notes.is_empty());
+        assert!(analyze_harmony(&vec![0.; RATE], RATE as u32, &bass).unwrap().notes.is_empty());
     }
 }
