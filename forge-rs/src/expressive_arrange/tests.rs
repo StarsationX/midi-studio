@@ -326,6 +326,26 @@ fn measures_a_tempo_change_and_writes_events_at_source_seconds() {
 }
 
 #[test]
+fn accompaniment_keeps_the_recorded_octave_when_both_hands_have_room() {
+    let melody = [note(79, 0., 1.)];
+    let chord = [note(60, 0.2, 0.9), note(64, 0.2, 0.9)];
+    let pitches = |m: PrettyMidi| m.instruments[1].notes.iter().map(|n| n.pitch).collect::<Vec<_>>();
+    assert_eq!(pitches(arrange(&melody, &chord, Some(&[]), 1., &[])), [60, 64]);
+    // A chroma-only estimate identifies C and E but supplies no octave vote.
+    assert_eq!(pitches(arrange_with_harmony(&melody, &[], &chord, Some(&[]), 1., &[])), [48, 52]);
+}
+
+#[test]
+fn rolled_accompaniment_keeps_the_later_strike_and_original_release() {
+    let lead = [note(79, 0., 1.)];
+    let keys = [note(60, 0.2, 0.9), note(64, 0.23, 0.8)];
+    let midi = arrange(&lead, &keys, Some(&[]), 1., &[]);
+    let left = &midi.instruments[1].notes;
+    assert_eq!(left.iter().map(|n| (n.pitch, n.start, n.end)).collect::<Vec<_>>(),
+        [(60, 0.2, 0.9), (64, 0.23, 0.8)]);
+}
+
+#[test]
 fn chord_change_ties_a_held_key_but_respects_a_recorded_restrike() {
     let backing = [note(52, 0.1, 1.2), note(55, 0.1, 0.6), note(57, 0.6, 1.2)];
     let bass = [note(48, 0.0, 1.2)];
@@ -334,7 +354,7 @@ fn chord_change_ties_a_held_key_but_respects_a_recorded_restrike() {
         (vec![], vec![(0.1, 1.2)]),
         (vec![note(64, 0.63, 0.85)], vec![(0.1, 0.6), (0.6, 1.2)]),
     ] {
-        let left = left_hand(&bass, &backing, &instrumental, &groups(&backing), &lead, 1.2, 0.5);
+        let left = left_hand(bass.to_vec(), &backing, &instrumental, &backing, &lead, &[], 1.2, 0.5);
         let times = |pitch| left.iter().filter(|n| n.pitch == pitch)
             .map(|n| (n.start, n.end)).collect::<Vec<_>>();
         assert_eq!(times(52), expected);

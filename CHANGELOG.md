@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.14 "Medley" — 2026-11-24
+
+### Changed
+
+- A strummed chord can keep three right-hand keys when the recording supports all three. The left hand leaves room rather than adding an unrecorded octave underneath.
+- Backing chords favor the octave struck in the recording. When one key arrives slightly later than the others, it can keep that timing instead of landing on the first strike.
+- In exposed piano passages, a held pedal can carry through a quiet gap. With the pedal up, either hand can take an isolated note so the other hand need not release a held key early.
+
 ## 3.1.13 "Medley" — 2026-11-24
 
 ### Changed

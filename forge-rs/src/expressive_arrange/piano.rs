@@ -3,11 +3,28 @@
 use crate::pmidi::{ControlChange, Note, PrettyMidi};
 use std::borrow::Cow;
 
+// A short breath between two confirmed piano passages need not release the
+// pedal. Require it to be quiet relative to an attack on *each* side, with
+// no foreground instrument rising above the neighboring background.
+fn quiet_piano_gap(energy: &[[f64; 2]], from: usize, to: usize) -> bool {
+    if to - from > 4 { return false; }
+    let level = |bins: &[[f64; 2]]| bins.iter().fold((0_f64, 0.), |(peak, rest), &[p, r]| {
+        (peak.max(p), rest + r)
+    });
+    // Each accepted passage has at least four half-second bins.
+    let (before, left_rest) = level(&energy[from-4..from]);
+    let (after, right_rest) = level(&energy[to..to+4]);
+    let quiet = 0.1 * before.min(after);
+    let background = (left_rest + right_rest) * 0.25; // twice the adjacent mean
+    energy[from..to].iter().all(|&[p, r]| p + r < quiet && r <= background)
+}
+
 /// Half-second sums of squared mono samples: piano stem, all other stems.
 /// Require a sustained majority, not a single exposed note in a band mix.
 pub fn piano_passages(energy: &[[f64; 2]], duration: f64) -> Vec<(f64, f64)> {
     let mut passages = Vec::new();
     let mut begin = None;
+    let mut previous_end = 0;
     for i in 0..=energy.len() {
         let solo = energy.get(i).is_some_and(|&[p, other]| {
             let window = &energy[i.saturating_sub(2)..energy.len().min(i + 3)];
@@ -27,7 +44,13 @@ pub fn piano_passages(energy: &[[f64; 2]], duration: f64) -> Vec<(f64, f64)> {
         if solo { begin.get_or_insert(i); }
         else if let Some(first) = begin.take() {
             if i - first >= 4 {
-                passages.push((first as f64 * 0.5, duration.min(i as f64 * 0.5)));
+                let end = duration.min(i as f64 * 0.5);
+                if let Some((_, prior_end)) = passages.last_mut().filter(|_| quiet_piano_gap(energy, previous_end, first)) {
+                    *prior_end = end;
+                } else {
+                    passages.push((first as f64 * 0.5, end));
+                }
+                previous_end = i;
             }
         }
     }
@@ -67,6 +90,12 @@ impl Hand {
             }
         }
         best
+    }
+
+    fn held_seconds(&self, time: f64, unreachable: impl Fn(u8) -> bool) -> f64 {
+        self.active.iter().map(|&i| &self.notes[i])
+            .filter(|n| n.end > time && unreachable(n.pitch))
+            .map(|n| (n.end - time).min(1.)).sum()
     }
 
     fn strike(&mut self, new: &[Note], other: &[Note], crosses: impl Fn(u8, u8) -> bool, time: f64, dry_roll: bool) {
@@ -112,7 +141,7 @@ fn left_hold_advantage(n: &Note, upcoming: &[Note], horizon: f64) -> f64 {
     24. * (right_loss - left_loss)
 }
 
-fn assign(group: &[Note], upcoming: &[Note], left: &mut Hand, right: &mut Hand, time: f64, dry_roll: bool) {
+fn assign(group: &[Note], upcoming: &[Note], left: &mut Hand, right: &mut Hand, time: f64, dry: bool) {
     let mut best = (f64::NEG_INFINITY, 0..0, 0..0);
     let mut complete = (f64::NEG_INFINITY, 0);
     let mut hold_advantage = 0.;
@@ -130,7 +159,15 @@ fn assign(group: &[Note], upcoming: &[Note], left: &mut Hand, right: &mut Hand, 
         }
         // Moving the split past one pitch changes only that key's hold cost.
         if group.len() <= 10 && split < group.len() {
-            hold_advantage += left_hold_advantage(&group[split], upcoming, time + 2.);
+            let n = &group[split];
+            hold_advantage += left_hold_advantage(n, upcoming, time + 2.);
+            // A lone moving note can use the other hand instead of damping
+            // already-held keys an octave away. Under pedal, a transcribed
+            // tail may be resonance rather than an occupied finger.
+            if dry && group.len() == 1 {
+                hold_advantage += 24. * (right.held_seconds(time, |p| p > n.pitch + 12)
+                    - left.held_seconds(time, |p| n.pitch > p + 12));
+            }
         }
     }
     let (l,r) = if best.1.len() + best.2.len() == group.len() {
@@ -138,6 +175,7 @@ fn assign(group: &[Note], upcoming: &[Note], left: &mut Hand, right: &mut Hand, 
     } else {
         (&group[best.1], &group[best.2])
     };
+    let dry_roll = dry && group.len() > 1;
     left.strike(l, r, |held, rh| held >= rh, time, dry_roll);
     right.strike(r, l, |held, lh| held <= lh, time, dry_roll);
 }
@@ -169,11 +207,11 @@ pub fn arrange_piano_passages(midi: &mut PrettyMidi, piano: &[Note], passages: &
                 if n.start > time + 0.035 || group.iter().any(|m| m.pitch == n.pitch) { break; }
                 group.push(Note { end: n.end.min(end), ..n });
             }
-            let dry_roll = group.last().is_some_and(|last| last.start > time &&
+            let dry = group.last().is_some_and(|last|
                 sustain.get(sustain.partition_point(|&(_,up)| up <= time)).is_none_or(|&(down,_)| down > last.start));
             group.sort_unstable_by_key(|n| n.pitch);
             pending = &pending[group.len()..];
-            assign(&group, pending, &mut left, &mut right, time, dry_roll);
+            assign(&group, pending, &mut left, &mut right, time, dry);
         }
     }
     if ranges.is_empty() { return; }
@@ -232,5 +270,32 @@ mod tests {
             hand.strike(&rh, &[], |a,b| a <= b, 0.5, dry);
             assert_eq!(hand.notes[0].end, end);
         }
+    }
+
+    #[test]
+    fn dry_moving_note_can_leave_an_unreachable_key_ringing() {
+        let high = Note { pitch: 80, start: 0., end: 1.6, velocity: 68 };
+        let moving = Note { pitch: 65, start: 0.3, end: 0.5, velocity: 68 };
+        for dry in [true, false] {
+            let (mut left, mut right) = (Hand::new(48.), Hand::new(72.));
+            assign(&[high], &[moving], &mut left, &mut right, 0., dry);
+            assign(&[moving], &[], &mut left, &mut right, moving.start, dry);
+            if dry {
+                assert_eq!(left.notes, [moving]);
+                assert_eq!(right.notes, [high]);
+            } else {
+                assert!(left.notes.is_empty());
+                assert_eq!(right.notes, [Note { end: moving.start, ..high }, moving]);
+            }
+        }
+    }
+
+    #[test]
+    fn only_a_background_level_breath_joins_confirmed_piano_passages() {
+        let mut energy = [[1., 0.025]; 11];
+        energy[4..7].fill([0.002, 0.04]);
+        assert_eq!(piano_passages(&energy, 5.5), [(0., 5.5)]);
+        energy[5] = [0.002, 0.09];
+        assert_eq!(piano_passages(&energy, 5.5), [(0., 2.), (3.5, 5.5)]);
     }
 }

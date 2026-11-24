@@ -215,11 +215,11 @@ fn melody(vocals: &[Note], instrumental: &[Note], piano: &[Note], duration: f64,
     lead
 }
 
-/// Retain a second, sustained instrumental key at an already selected attack.
-/// One of the two keys must agree across detectors. A single piano fallback
-/// or a stack of octave partials is not evidence of two playable voices.
-fn treble_dyads(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[Note], mut left: &[Note]) -> Vec<Note> {
-    let mut dyads = Vec::new();
+/// Retain sustained partners at a selected instrumental attack. Keep the
+/// preferred dyad; a third key needs its own independent detector onset
+/// and must fit within the same octave-wide hand.
+fn treble_partners(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[Note], mut left: &[Note]) -> Vec<Note> {
+    let mut partners = Vec::new();
     for (i, key) in lead.iter().enumerate() {
         if key.end - key.start < 0.08 || vocals.binary_search_by(|n| n.start.total_cmp(&key.start)).is_ok() {
             continue;
@@ -235,7 +235,7 @@ fn treble_dyads(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[
         while left.first().is_some_and(|n| n.end <= key.start - 0.035) {
             left = &left[1..];
         }
-        let partner = attacks.iter().filter_map(|n| {
+        let candidates = attacks.iter().filter_map(|n| {
             // Preserve the source's rolled onset, but not at the expense of
             // either neighboring melody key or the sounding left hand.
             let end = n.end.min(key.end);
@@ -251,10 +251,20 @@ fn treble_dyads(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[
             Some(((upper, confirmed, n.velocity, n.pitch), Note {
                 end, velocity: key.velocity.saturating_sub(10).max(1), ..*n
             }))
-        }).max_by_key(|&(rank, _)| rank);
-        if let Some((_, n)) = partner { dyads.push(n); }
+        });
+        let Some((_, partner)) = candidates.clone().max_by_key(|&(rank, _)| rank) else { continue };
+        if count >= 3 {
+            let third = candidates.filter(|((_, confirmed, _, _), n)| {
+                *confirmed && (2..=12).contains(&n.pitch.abs_diff(partner.pitch))
+            }).max_by_key(|&(_, n)| (n.velocity, n.pitch));
+            if let Some((_, n)) = third {
+                partners.extend(if n.start < partner.start { [n, partner] } else { [partner, n] });
+                continue;
+            }
+        }
+        partners.push(partner);
     }
-    dyads
+    partners
 }
 
 /// The monophonic path can hold a lower backing key across a distinct upper
@@ -263,7 +273,7 @@ fn treble_dyads(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[
 fn interior_treble(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[Note],
     bass: &[Note], extra: &mut Vec<Note>, duration: f64) {
     const SEPARATE: f64 = 0.065;
-    let dyad_count = extra.len();
+    let partner_count = extra.len();
     for (i, held) in lead.iter().enumerate() {
         if held.end - held.start <= SEPARATE { continue; }
         let vocal = vocals.get(vocals.partition_point(|n| n.start < held.start));
@@ -273,6 +283,9 @@ fn interior_treble(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals:
             .min(vocal.map_or(duration, |n| n.start - 0.24));
         // A rolled partner of the following lead key can arrive 35 ms early.
         let release = next.map_or(duration, |n| n.start - 0.035);
+        // A later strum partner can release before the earlier one. Look at
+        // both, rather than just the last partner preceding an interior note.
+        let first_partner = extra[..partner_count].partition_point(|p| p.start < held.start - 0.035);
         let from = instrumental.partition_point(|n| n.start < held.start + SEPARATE);
         let mut candidates = &instrumental[from..];
         while let Some(first) = candidates.first().filter(|n| n.start < until) {
@@ -282,7 +295,7 @@ fn interior_treble(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals:
                 let end = n.end.min(release);
                 if !(66..=96).contains(&n.pitch) || !(2..=11).contains(&n.pitch.saturating_sub(held.pitch))
                     || n.velocity < 53 || n.end - n.start < 0.12 || end - n.start < SEPARATE
-                    || overlapping(&extra[..dyad_count], n.start, end).next().is_some()
+                    || extra[first_partner..partner_count].iter().take_while(|p| p.start < end).any(|p| p.end > n.start)
                     || overlapping(bass, n.start, end).any(|b| b.pitch >= n.pitch) { return None; }
                 // A weaker, touching fragment of a recently struck key isn't
                 // another attack unless the piano detector also heard it.
@@ -300,7 +313,7 @@ fn interior_treble(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals:
                 }))
             }).max_by_key(|(rank, _)| *rank);
             if let Some((_, n)) = chosen {
-                if extra.len() > dyad_count {
+                if extra.len() > partner_count {
                     let last = extra.last_mut().unwrap();
                     if n.start - last.start < SEPARATE { continue; }
                     last.end = last.end.min(n.start);
@@ -323,6 +336,8 @@ fn voicing(
     bass: Option<u8>,
     lead: Option<u8>,
     prior: &[(u8, f64)],
+    recorded: u128,
+    upper_classes: u16,
 ) -> Vec<u8> {
     let floor = bass.map_or(43, |p| {
         p + if p < 36 {
@@ -342,7 +357,9 @@ fn voicing(
     }
     let playable: Vec<_> = (floor..=ceiling)
         .filter(|p| {
-            weights[(p % 12) as usize] >= 0.42 * strongest && bass.is_none_or(|b| b % 12 != p % 12)
+            weights[(p % 12) as usize] >= 0.42 * strongest
+                && bass.is_none_or(|b| b % 12 != p % 12)
+                && (upper_classes & (1 << (p % 12)) == 0 || recorded & (1_u128 << p) != 0)
         })
         .collect();
     let score = |p: u8| {
@@ -355,6 +372,7 @@ fn voicing(
             weights[(b % 12) as usize] > 0. && matches!((p - b) % 12, 3 | 4 | 10 | 11)
         });
         weights[(p % 12) as usize] / strongest - 0.035 * f64::from(motion)
+            + if recorded & (1u128 << p) != 0 { 0.50 } else { 0. }
             + if character { 0.14 } else { 0. }
     };
     let doubled = |p: u8| lead.is_some_and(|n| n % 12 == p % 12);
@@ -385,12 +403,23 @@ fn voicing(
 }
 
 /// The monophonic outer voices are sorted by note-on when calling this helper.
-fn overlapping(line: &[Note], start: f64, end: f64) -> impl Iterator<Item = &Note> {
+fn overlapping(line: &[Note], start: f64, end: f64) -> impl Iterator<Item = &Note> + Clone {
     let first = line.partition_point(|n| n.start < start).saturating_sub(1);
     line[first..]
         .iter()
         .take_while(move |n| n.start < end)
         .filter(move |n| n.end > start)
+}
+
+// The cursor moves forward with the chord onsets. A high, held member of an
+// earlier strum still counts even after a later chord member has released.
+fn sounding_partners<'a>(cursor: &mut &'a [Note], start: f64, end: f64) -> impl Iterator<Item = &'a Note> {
+    while let Some((first, rest)) = cursor.split_first() {
+        if first.end > start { break; }
+        *cursor = rest;
+    }
+    let line = *cursor;
+    line.iter().take_while(move |n| n.start < end).filter(move |n| n.end > start)
 }
 
 // Tie only touching, already-playable support segments. This changes the
@@ -434,15 +463,7 @@ fn join_held_support(harmony: &mut Vec<Note>, backing: &[Note], instrumental: &[
     harmony.truncate(written);
 }
 
-fn left_hand(
-    raw_bass: &[Note],
-    backing: &[Note],
-    instrumental: &[Note],
-    attacks: &[Vec<Note>],
-    lead: &[Note],
-    duration: f64,
-    beat: f64,
-) -> Vec<Note> {
+fn playable_bass(raw_bass: &[Note], lead: &[Note], duration: f64) -> Vec<Note> {
     let mut bass = vec![];
     for (i, &n) in raw_bass.iter().enumerate() {
         let end = n
@@ -465,10 +486,16 @@ fn left_hand(
             });
         }
     }
+    bass
+}
+
+fn left_hand(mut bass: Vec<Note>, backing: &[Note], instrumental: &[Note], piano: &[Note],
+    lead: &[Note], partners: &[Note], duration: f64, beat: f64) -> Vec<Note> {
+    let mut upper = partners;
     let mut active: Vec<&Note> = vec![];
     let mut next = 0;
     let mut chords: Vec<Chord> = vec![];
-    for group in attacks {
+    for group in &groups(backing) {
         let start = group[0].start;
         let sample = start + 0.075f64.min(beat / 6.);
         active.retain(|n| n.end > sample);
@@ -502,9 +529,7 @@ fn left_hand(
             .checked_sub(1)
             .filter(|&i| bass[i].end > start)
             .map(|i| bass[i].pitch);
-        let nearby: Vec<_> = overlapping(lead, start, start + 0.32)
-            .map(|n| n.pitch)
-            .collect();
+        let nearby = overlapping(lead, start, start + 0.32);
         if weights.iter().filter(|&&w| w > 0.).count() < 2
             && !bass_key.is_some_and(|b| {
                 group.iter().any(|n| {
@@ -512,14 +537,25 @@ fn left_hand(
                         && n.velocity >= 45
                         && n.end - n.start >= (0.60 * beat).max(0.22)
                         && n.pitch % 12 != b % 12
-                        && !nearby.iter().any(|p| p % 12 == n.pitch % 12)
+                        && !nearby.clone().any(|p| p.pitch % 12 == n.pitch % 12)
                 })
             })
         {
             continue;
         }
         let prior = chords.last().map_or(&[][..], |c| c.notes.as_slice());
-        let voiced = voicing(&weights, bass_key, nearby.iter().copied().min(), prior);
+        // Pitch-class weights cannot distinguish a recorded G3 from G4.
+        // Prefer the struck register only among otherwise playable chord keys.
+        // Inferred harmony contributes to the chord, not to the register vote.
+        let first = piano.partition_point(|n| n.start < start - 0.045);
+        let recorded = piano[first..].iter().take_while(|n| n.start <= start + 0.055)
+            .filter(|n| (43..=65).contains(&n.pitch) && n.velocity >= 45 && n.end - n.start >= 0.075)
+            .fold(0_u128, |keys, n| keys | (1_u128 << n.pitch));
+        let (ceiling, upper_classes) = sounding_partners(&mut upper, start, start + 0.32)
+            .fold((nearby.map(|n| n.pitch).min(), 0_u16), |(lowest, classes), n| {
+                (Some(lowest.map_or(n.pitch, |p| p.min(n.pitch))), classes | (1 << (n.pitch % 12)))
+            });
+        let voiced = voicing(&weights, bass_key, ceiling, prior, recorded, upper_classes);
         let notes: Vec<_> = voiced
             .into_iter()
             .map(|p| (p, releases[(p % 12) as usize]))
@@ -555,6 +591,7 @@ fn left_hand(
         });
     }
     let mut harmony = vec![];
+    let mut upper = partners;
     for (i, chord) in chords.iter().enumerate() {
         let start = chord.start;
         let boundary = chords.get(i + 1).map_or(duration, |c| c.start);
@@ -570,6 +607,9 @@ fn left_hand(
                 if n.pitch <= pitch + 1 {
                     end = end.min(n.start);
                 }
+            }
+            for n in sounding_partners(&mut upper, start, end) {
+                if n.pitch <= pitch { end = end.min(n.start); }
             }
             if end - start >= 0.08 {
                 harmony.push(Note {
@@ -592,8 +632,21 @@ fn left_hand(
         }
     }
     join_held_support(&mut harmony, backing, instrumental);
+    // Grouping finds the chord, but a rolled member has its own onset.
+    // Delay only unambiguous recorded strikes; never move a bass attack.
+    for n in &mut harmony {
+        let first = piano.partition_point(|s| s.start < n.start - 0.060);
+        let mut strikes = piano[first..].iter().take_while(|s| s.start <= n.start + 0.055)
+            .filter(|s| s.pitch == n.pitch && s.velocity >= 45 && s.end - s.start >= 0.075);
+        if let Some(s) = strikes.next() {
+            if s.start > n.start + 0.012 && n.end - s.start >= 0.065 && strikes.next().is_none() {
+                n.start = s.start;
+            }
+        }
+    }
     bass.extend(harmony);
-    ordered(&bass, duration)
+    order_in_place(&mut bass, duration);
+    bass
 }
 
 pub fn arrange(
@@ -649,11 +702,12 @@ pub(crate) fn arrange_with_instruments(
         order_in_place(&mut combined, duration);
         &combined
     };
-    let left = left_hand(&bass, evidence, &instrumental, &groups(evidence), &lead, duration, beat);
-    let mut dyads = treble_dyads(&lead, &instrumental, &piano, &vocals, &left);
-    interior_treble(&lead, &instrumental, &piano, &vocals, &bass, &mut dyads, duration);
-    if !dyads.is_empty() {
-        lead.extend(dyads);
+    let low = playable_bass(&bass, &lead, duration);
+    let mut extra = treble_partners(&lead, &instrumental, &piano, &vocals, &low);
+    let left = left_hand(low, evidence, &instrumental, &piano, &lead, &extra, duration, beat);
+    interior_treble(&lead, &instrumental, &piano, &vocals, &bass, &mut extra, duration);
+    if !extra.is_empty() {
+        lead.extend(extra);
         lead.sort_unstable_by(|a, b| a.start.total_cmp(&b.start).then(a.pitch.cmp(&b.pitch)));
     }
     for (name, notes) in [

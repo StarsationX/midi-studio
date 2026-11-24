@@ -10,12 +10,12 @@ fn confirmed_dyad_keeps_rolled_onset_but_not_the_following_keys_space() {
     let second = key(74, 0.11, 0.51);
     let third = key(71, 0.13, 0.36);
     let piano = [key(74, 0.114, 0.29), key(79, 0.126, 0.42)];
-    let dyads = treble_dyads(&[lead], &[second, lead, third], &piano, &[], &[]);
+    let dyads = treble_partners(&[lead], &[second, lead, third], &piano, &[], &[]);
     assert_eq!(dyads.len(), 1);
     assert_eq!((dyads[0].pitch, dyads[0].start, dyads[0].end), (74, 0.11, 0.33));
     assert!(dyads[0].velocity < lead.velocity);
     let prior = key(60, 0., lead.start);
-    assert!(treble_dyads(&[prior, lead], &[second, lead], &piano, &[], &[]).is_empty());
+    assert!(treble_partners(&[prior, lead], &[second, lead], &piano, &[], &[]).is_empty());
 }
 
 #[test]
@@ -24,11 +24,11 @@ fn copied_detector_keys_and_vocal_attacks_are_not_instrumental_dyads() {
     let nearby = key(74, 1.01, 1.35);
     let both = [lead, nearby];
     let confirmation = [key(78, 1.01, 1.45)];
-    assert!(treble_dyads(&[lead], &both, &both, &[], &[]).is_empty());
-    assert!(treble_dyads(&[lead], &both, &confirmation, &[lead], &[]).is_empty());
-    assert!(treble_dyads(&[lead], &both, &confirmation, &[], &[key(75, 1.2, 1.3)]).is_empty());
-    assert!(treble_dyads(&[lead], &[lead, key(90, 1.01, 1.4)], &confirmation, &[], &[]).is_empty());
-    assert_eq!(treble_dyads(&[lead], &both, &confirmation, &[], &[]).len(), 1);
+    assert!(treble_partners(&[lead], &both, &both, &[], &[]).is_empty());
+    assert!(treble_partners(&[lead], &both, &confirmation, &[lead], &[]).is_empty());
+    assert!(treble_partners(&[lead], &both, &confirmation, &[], &[key(75, 1.2, 1.3)]).is_empty());
+    assert!(treble_partners(&[lead], &[lead, key(90, 1.01, 1.4)], &confirmation, &[], &[]).is_empty());
+    assert_eq!(treble_partners(&[lead], &both, &confirmation, &[], &[]).len(), 1);
 }
 
 #[test]
@@ -37,17 +37,17 @@ fn middle_partner_needs_its_own_detector_agreement_and_free_left_hand_space() {
     let middle = key(62, 1.01, 1.35);
     let attacks = [lead, middle];
     let lead_only = [key(67, 1.01, 1.35)];
-    assert!(treble_dyads(&[lead], &attacks, &lead_only, &[], &[]).is_empty());
-    assert!(treble_dyads(&[lead], &attacks, &[middle], &[], &[]).is_empty());
+    assert!(treble_partners(&[lead], &attacks, &lead_only, &[], &[]).is_empty());
+    assert!(treble_partners(&[lead], &attacks, &[middle], &[], &[]).is_empty());
     let piano = [key(62, 1.015, 1.32)];
     let low = key(50, 0.94, 1.25);
     for left in [
         [key(62, 0.7, 1.04), low], // a held chord member, not the latest bass note
         [low, key(64, 1.23, 1.36)], // crossing later in the dyad's sustain
     ] {
-        assert!(treble_dyads(&[lead], &attacks, &piano, &[], &left).is_empty());
+        assert!(treble_partners(&[lead], &attacks, &piano, &[], &left).is_empty());
     }
-    let dyads = treble_dyads(&[lead], &attacks, &piano, &[], &[low]);
+    let dyads = treble_partners(&[lead], &attacks, &piano, &[], &[low]);
     assert_eq!(dyads.len(), 1);
     assert_eq!((dyads[0].pitch, dyads[0].start, dyads[0].end), (62, 1.01, 1.35));
 }
@@ -58,9 +58,23 @@ fn a_corroborated_inner_key_does_not_replace_an_available_upper_voice() {
     let mid = Note { velocity: 100, ..key(62, 1., 1.3) };
     let upper = key(71, 1.01, 1.35);
     let piano = [key(62, 1.01, 1.35), key(67, 1.02, 1.3)];
-    let dyads = treble_dyads(&[lead], &[mid, lead, upper], &piano, &[], &[]);
-    assert_eq!(dyads.len(), 1);
-    assert_eq!(dyads[0].pitch, 71);
+    let partners = treble_partners(&[lead], &[mid, lead, upper], &piano, &[], &[]);
+    assert_eq!(partners.len(), 2);
+    assert_eq!((partners[0].pitch, partners[0].start), (mid.pitch, mid.start));
+    assert_eq!((partners[1].pitch, partners[1].start), (upper.pitch, upper.start));
+
+    let wide = key(75, upper.start, upper.end);
+    let partners = treble_partners(&[lead], &[mid, lead, wide], &piano, &[], &[]);
+    assert_eq!(partners.len(), 1);
+    assert_eq!(partners[0].pitch, wide.pitch);
+}
+
+#[test]
+fn an_early_strum_partner_can_outlast_its_neighbor() {
+    let held = key(64, 1., 1.7);
+    let mut partners = vec![key(60, 0.99, 1.5), key(68, 1.01, 1.25)];
+    interior_treble(&[held], &[key(74, 1.3, 1.55)], &[], &[], &[], &mut partners, 2.);
+    assert_eq!(partners.len(), 2);
 }
 
 #[test]
