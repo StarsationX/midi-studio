@@ -1,0 +1,15 @@
+[
+  {"group":"fast","path":"assets/basic_pitch/nmp.onnx","size":230444,"sha256":"2c3c1d144bfa61ad236e92e169c13535c880469a12a047d4e73451f2c059a0ec"},
+  {"group":"full","path":"assets/game/GAME-1.0.3-medium-onnx/bd2dur.onnx","size":4569,"sha256":"6672d56b00f27a20e9bfaa92801c15e394bb520e49031d3ed2515b0a6cf27402"},
+  {"group":"full","path":"assets/game/GAME-1.0.3-medium-onnx/dur2bd.onnx","size":2632,"sha256":"49d10d1ea186e43c51fd2c51cedb01a3852d363f1c7056ae77df50f7e8dd0996"},
+  {"group":"full","path":"assets/game/GAME-1.0.3-medium-onnx/encoder.onnx","size":40809108,"sha256":"fb00295abf8156806a3bf2477ccadc9dd6a8f464fa4ee1a65c85100ce17e36fe"},
+  {"group":"full","path":"assets/game/GAME-1.0.3-medium-onnx/estimator.onnx","size":74457404,"sha256":"2662a01e24548dc3b9f8ebc081b26947873c01eeaa573c9d0a87e7bf2a43642b"},
+  {"group":"full","path":"assets/game/GAME-1.0.3-medium-onnx/segmenter.onnx","size":80703699,"sha256":"49c20f890d02f8877be4b092fae3913ec969e9236cf0a91e661e8bf52465ffda"},
+  {"group":"piano","path":"assets/onnx/transkun_v2.onnx","size":200368,"sha256":"2d6e68afdaf341a14adf566afaa7d032cac6160dcae7c34037a46f7fa36ff3bd"},
+  {"group":"piano","path":"assets/onnx/transkun_v2.onnx.data","size":64146508,"sha256":"c49407f5ca6ec7b6705722442c0e20b142f1e5ef886aa856fd947324100eb11d"},
+  {"group":"piano","path":"assets/onnx/transkun_v2_aux.safetensors","size":5397308,"sha256":"3998a1ff1e1e2cbdd48259e74c0a5fdea487125cea1ae851db0d2af1bacfe10e"},
+  {"group":"piano","path":"assets/onnx/transkun_v2_config.json","size":1133,"sha256":"988baf3596887d36c33b1ff9851911e5a536fbd575d3d07eedeba1002f6c3556"},
+  {"group":"cpu","path":"ort-gpu/onnxruntime.dll","size":13312032,"sha256":"8c934c01f34702f60de665273876dbe9f70fcbbe0f7e0f292840ac0c13daa338"},
+  {"group":"cuda","path":"ort-gpu/onnxruntime_providers_cuda.dll","size":322615352,"sha256":"0f32c09da925ec58c650a0d72ccc950a73db570cae0adeffb3d07165419b8bd1"},
+  {"group":"cpu","path":"ort-gpu/onnxruntime_providers_shared.dll","size":22072,"sha256":"3b53c353cd52a7be926beb289277b79de1e659a1dc3bb74b24c99a6a7296d9d9"}
+]
