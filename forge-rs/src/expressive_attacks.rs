@@ -7,8 +7,10 @@ const HOP: usize = 88;
 const SIDE: usize = 18;
 const FRAMES: usize = 2 * SIDE + 1;
 
-fn hann() -> [f32; WIDTH] {
-    std::array::from_fn(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / (WIDTH - 1) as f32).cos())
+fn hann() -> &'static [f32; WIDTH] {
+    static WINDOW: std::sync::LazyLock<[f32; WIDTH]> = std::sync::LazyLock::new(||
+        std::array::from_fn(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / (WIDTH - 1) as f32).cos()));
+    &WINDOW
 }
 
 fn coefficients(pitch: u8) -> [f32; 3] {
@@ -150,7 +152,7 @@ pub(super) fn accent_repeats(midi: &mut PrettyMidi, wave: &[f32], instrumental: 
 // fundamental and the same overtone to rise out of the pre-attack background
 // and stay present after key-off. Stop at a dropout or a fresh loud attack.
 fn ringing_end(wave: &[f32], n: Note, limit: f64, hann: &[f32; WIDTH]) -> Option<f64> {
-    if n.end - n.start < 0.065 { return None; }
+    if n.end - n.start < 0.030 { return None; }
     let coeff = coefficients(n.pitch);
     let bands = |t: f64| {
         let center = (t * f64::from(SAMPLE_RATE)).round() as usize;
@@ -162,7 +164,9 @@ fn ringing_end(wave: &[f32], n: Note, limit: f64, hann: &[f32; WIDTH]) -> Option
     };
     let before = median(bands(n.start - 0.048)?, bands(n.start - 0.036)?, bands(n.start - 0.024)?);
     let attack = median(bands(n.start + 0.024)?, bands(n.start + 0.044)?, bands((n.start + 0.064).min(n.end - 0.012))?);
-    let tail = median(bands(n.end - 0.044)?, bands(n.end - 0.032)?, bands(n.end - 0.020)?);
+    // For short, muted attacks the last frames must still fall inside the note.
+    let near_end = |offset: f64, earliest: f64| bands((n.end - offset).max(n.start + earliest));
+    let tail = median(near_end(0.044, 0.012)?, near_end(0.032, 0.018)?, near_end(0.020, 0.024)?);
     let mut keep = std::array::from_fn::<_, 3, _>(|k| attack[k] > (before[k]*2.5).max(0.001)
         && tail[k] > (attack[k]*0.10).max(before[k]*1.25));
     let mut end = n.end;
@@ -176,6 +180,33 @@ fn ringing_end(wave: &[f32], n: Note, limit: f64, hann: &[f32; WIDTH]) -> Option
         if keep[0] && (keep[1] || keep[2]) { end = next; }
     }
     Some(end)
+}
+
+// Both hands already fit before the extension. Check only the newly occupied
+// interval. Fingers released between successive attacks are available again.
+fn playable_end(hand: &[Note], opposite: &[Note], i: usize, first: &mut usize, other: &mut usize,
+    mut end: f64, right: bool) -> f64 {
+    let n = hand[i];
+    while *other < opposite.len() && opposite[*other].end <= n.start { *other += 1; }
+    for k in &opposite[*other..] {
+        if k.start >= end { break; }
+        let crosses = if right { k.pitch >= n.pitch } else { k.pitch <= n.pitch + 1 };
+        if k.end > n.end && crosses { end = end.min(k.start); }
+    }
+    while *first < i && hand[*first].end <= n.start { *first += 1; }
+    let mut fingers = [0.; 4];
+    for (j, k) in hand[*first..].iter().enumerate() {
+        if k.start >= end { break; }
+        if *first + j == i || k.end <= n.end { continue; }
+        if k.pitch != n.pitch && k.pitch.abs_diff(n.pitch) <= 12 {
+            if let Some(free) = fingers.iter_mut().find(|e| **e <= k.start.max(n.end)) {
+                *free = k.end;
+                continue;
+            }
+        }
+        return end.min(k.start);
+    }
+    end
 }
 
 /// The reduction cuts a melodic key at the next attack, even when the player
@@ -192,17 +223,20 @@ pub(super) fn restore_held_keys(midi: &mut PrettyMidi, instrumental: &[Note], ba
     for i in 0..right.notes.len() {
         let n = right.notes[i];
         if !(53..=96).contains(&n.pitch) { continue; }
-        let j = instrumental.partition_point(|k| k.start < n.start - 0.017);
-        let Some(raw) = instrumental[j..].iter().take_while(|k| k.start <= n.start)
-            .filter(|k| k.pitch == n.pitch).last() else { continue };
-        if raw.end < n.end + MIN_TAIL { continue; }
+        let j = instrumental.partition_point(|k| k.start < n.start - 0.035);
+        let Some(raw) = instrumental[j..].iter().take_while(|k| k.start <= n.start + 0.025)
+            .filter(|k| k.pitch == n.pitch)
+            .min_by(|a, b| (a.start - n.start).abs().total_cmp(&(b.start - n.start).abs())) else { continue };
         let j = backing.partition_point(|k| k.start < raw.start - 0.035);
         let near = &backing[j..j + backing[j..].partition_point(|k| k.start <= raw.start + 0.035)];
         if near.contains(raw) { continue; } // piano fallback, not independent evidence
         let confirmed = near.iter().filter(|k| k.pitch == n.pitch && k.velocity >= 55)
             .min_by(|a, b| (a.start - raw.start).abs().total_cmp(&(b.start - raw.start).abs()))
             .map_or(n.end, |k| k.end.max(n.end));
-        let mut end = raw.end.min(confirmed + 0.40);
+        // The melodic detector may stop at the next picked string while the
+        // polyphonic detector still follows this one. Trust that independent
+        // hold for at most 1.2 s beyond the written release.
+        let mut end = raw.end.min(confirmed + 0.40).max(confirmed.min(n.end + 1.20));
         let v = vocals.partition_point(|k| k.start < n.start);
         if v > 0 && vocals[v - 1].end > n.start { continue; }
         if let Some(next) = vocals.get(v) { end = end.min(next.start); }
@@ -210,32 +244,42 @@ pub(super) fn restore_held_keys(midi: &mut PrettyMidi, instrumental: &[Note], ba
             end = end.min(start);
         }
         if end < n.end + MIN_TAIL { continue; }
-        // Releases aren't onset-sorted. Discard only expired prefixes, so a
-        // held earlier chord member still constrains either hand's reach.
-        while lh < left.notes.len() && left.notes[lh].end <= n.start { lh += 1; }
-        for k in &left.notes[lh..] {
-            if k.start >= end { break; }
-            if k.end > n.end && k.pitch >= n.pitch { end = end.min(k.start); }
-        }
-        while rh < i && right.notes[rh].end <= n.start { rh += 1; }
-        let mut others = 0;
-        for (j, k) in right.notes[rh..].iter().enumerate() {
-            if k.start >= end { break; }
-            if rh + j == i || k.end <= n.end { continue; }
-            others += 1;
-            // Reserve a finger per other attack in the extension, even when
-            // two of those fingers could in principle be reused.
-            if others >= 5 || k.pitch == n.pitch || k.pitch.abs_diff(n.pitch) > 12 {
-                end = end.min(k.start);
-            }
-        }
+        end = playable_end(&right.notes, &left.notes, i, &mut rh, &mut lh, end, true);
         if end > confirmed {
             let held = Note { end: confirmed, ..n };
             end = if end >= confirmed + MIN_TAIL && !wave.is_empty() {
-                ringing_end(wave, held, end, &window).unwrap_or(confirmed)
+                ringing_end(wave, held, end, window).unwrap_or(confirmed)
             } else { confirmed };
         }
         if end >= n.end + MIN_TAIL { right.notes[i].end = end; }
+    }
+}
+
+// Some low plucks are recognized as 30–50 ms attacks, but ring underneath
+// the next chord. Don't turn them into a pedal: follow the SAME partials from
+// the attack, stop at a dropout or re-strike, and never add a note.
+pub(super) fn hold_lower(midi: &mut PrettyMidi, backing: &[Note], piano: &[(f64, f64)], wave: &[f32]) {
+    let [right, left] = midi.instruments.as_mut_slice() else { return };
+    if backing.is_empty() || wave.is_empty() { return; }
+    let window = hann();
+    let (mut lh, mut rh) = (0, 0);
+    for i in 0..left.notes.len() {
+        let n = left.notes[i];
+        if !(40..=65).contains(&n.pitch) { continue; }
+        let j = backing.partition_point(|k| k.start < n.start - 0.035);
+        let Some(source) = backing[j..].iter().take_while(|k| k.start <= n.start + 0.035)
+            .filter(|k| k.pitch == n.pitch && k.velocity >= 45)
+            .min_by(|a, b| (a.start - n.start).abs().total_cmp(&(b.start - n.start).abs())) else { continue };
+        let mut end = source.end.clamp(n.end + 0.35, n.end + 0.80);
+        if let Some(&(start, _)) = piano.get(piano.partition_point(|&(_, stop)| stop <= n.start)) {
+            end = end.min(start);
+        }
+        if end < n.end + 0.050 { continue; }
+        end = playable_end(&left.notes, &right.notes, i, &mut lh, &mut rh, end, false);
+        if end < n.end + 0.050 { continue; }
+        if let Some(heard) = ringing_end(wave, n, end, window) {
+            if heard >= n.end + 0.050 { left.notes[i].end = heard; }
+        }
     }
 }
 
@@ -243,6 +287,47 @@ pub(super) fn restore_held_keys(midi: &mut PrettyMidi, instrumental: &[Note], ba
 mod tests {
     use super::*;
     use crate::pmidi::Instrument;
+    #[test]
+    fn longer_polyphonic_release_survives_successive_reachable_notes() {
+        let n = key(64, 0.20, 0.40);
+        let mut midi = PrettyMidi::new(960, 120.);
+        let mut hand = Instrument::new(0, false, "Right");
+        hand.notes.push(n);
+        hand.notes.extend((0..6).map(|i| {
+            let start = 0.42 + 0.1 * f64::from(i);
+            key(67 + i, start, start + 0.06)
+        }));
+        midi.instruments.extend([hand, Instrument::new(0, false, "Left")]);
+        restore_held_keys(&mut midi, &[key(64, 0.215, 0.39)], &[key(64, 0.20, 1.02)], &[], &[], &[]);
+        assert_eq!(midi.instruments[0].notes[0], key(64, 0.20, 1.02));
+    }
+
+    #[test]
+    fn short_lower_pluck_rings_until_silence_or_hand_crossing() {
+        let n = key(50, 0.20, 0.242);
+        let wave: Vec<_> = (0..SAMPLE_RATE).map(|i| {
+            let t = f64::from(i) / f64::from(SAMPLE_RATE);
+            let phase = std::f64::consts::TAU * 146.832 * t;
+            if (0.20..0.49).contains(&t) { (0.2 * phase.sin() + 0.10 * (2.*phase).sin()) as f32 } else { 0. }
+        }).collect();
+        for (right, piano, release) in [
+            (None, None, 0.46..0.52),
+            (Some(key(49, 0.36, 0.50)), None, 0.359..0.361),
+            (None, Some((0.10, 0.60)), 0.241..0.243),
+        ] {
+            let mut midi = PrettyMidi::new(960, 120.);
+            let mut rh = Instrument::new(0, false, "Right");
+            rh.notes.extend(right);
+            let mut lh = Instrument::new(0, false, "Left");
+            lh.notes.push(n);
+            midi.instruments.extend([rh, lh]);
+            hold_lower(&mut midi, &[n], piano.as_slice(), &wave);
+            let out = midi.instruments[1].notes[0];
+            assert!(release.contains(&out.end), "{}", out.end);
+            assert_eq!(out, Note { end: out.end, ..n });
+        }
+    }
+
 
     fn key(pitch: u8, start: f64, end: f64) -> Note { Note { pitch, start, end, velocity: 72 } }
 

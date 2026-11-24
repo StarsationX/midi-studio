@@ -68,7 +68,7 @@ In a band mix, listen for the bass stepping back under the melody. Medley measur
 
 A quiet pickup and an accented downbeat can now get different touches even a fraction of a beat apart. For a held key, Medley follows the part of the note that still rings rather than assigning it the accent of the next strike.
 
-Medley can move an early instrumental attack closer to a clear pluck and release a vocal melody key when the vowel fades. These corrections follow the recording rather than snapping notes to the tempo grid.
+Listen to the space between picked notes. One string can keep ringing while the next one starts; Medley can hold that piano key instead of cutting both notes to the same length. For a short low pluck, it follows the pitch and an overtone into the decay rather than stretching every note with the sustain pedal. Vocal phrases still release when the vowel fades.
 
 For exposed piano passages, Medley keeps the detected key velocities and writes the sustain pedal. A quiet gap need not lift the pedal; when the pedal is up, Medley can use the free hand for a new note so a held key keeps ringing. **Listen** follows the pedal when **Sustain** is on. In **Editor**, open the **Sustain** controller lane to adjust it without lengthening the key presses.
 

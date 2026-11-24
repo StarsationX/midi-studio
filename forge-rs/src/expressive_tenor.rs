@@ -23,19 +23,7 @@ fn struck(wave: &[f32], n: Note) -> bool {
     let offset = if short { (n.end - n.start) * 0.5 - 0.040 } else { 0.005 };
     let (Some(before), Some(after)) = (frame(-0.089), frame(offset)) else { return false };
     let omega = std::f64::consts::TAU * 440. * 2_f64.powf((f64::from(n.pitch) - 69.) / 12.) / f64::from(SAMPLE_RATE);
-    let partial = |h: f64| {
-        let coeff = [1., 0.8908987181403393, 1.122462048309373].map(|r| 2. * (omega * h * r).cos());
-        let (mut a, mut b) = ([0.; 4], [0.; 4]);
-        for ((&x, &old), &w) in after.iter().zip(before).zip(WINDOW.iter()) {
-            let prev = a;
-            let x = f64::from(x * w);
-            for j in 0..3 { a[j] = x + coeff[j] * prev[j] - b[j]; }
-            a[3] = f64::from(old * w) + coeff[0] * prev[3] - b[3];
-            b = prev;
-        }
-        let magnitude = |i: usize, c: f64| (a[i]*a[i] + b[i]*b[i] - c*a[i]*b[i]).max(0.).sqrt();
-        (magnitude(0, coeff[0]), (magnitude(1, coeff[1]) + magnitude(2, coeff[2])) * 0.5, magnitude(3, coeff[0]))
-    };
+    let partial = |h: f64| super::partials::contrast(before, after, &*WINDOW, omega * h);
     let (peak, sides, pre) = partial(1.);
     let rise = if short { 2. } else { 1.5 };
     peak > 1.25 * sides && peak > rise * pre.max(0.001) && [2., 3.].into_iter().any(|h| {

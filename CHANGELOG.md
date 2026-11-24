@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.21 "Medley" — 2026-11-24
+
+### Changed
+
+- A picked melody note can keep ringing under the next string when the backing detector still hears it. The piano can reuse released fingers without cutting that note short.
+- A low pluck no longer has to end at its first transient. Medley follows its pitch and overtone until they fade, another key needs the hand, or an exposed piano passage begins.
+- Medley can recover an omitted note inside a strum without mistaking another string’s harmonics for an extra key. No model change or new setup.
+
 ## 3.1.20 "Medley" — 2026-11-24
 
 ### Changed
