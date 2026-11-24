@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.11 "Medley" — 2026-11-24
+
+### Changed
+
+- Repeated instrumental notes now follow the recorded accents. Medley compares clear plucks of the same pitch within a phrase and adjusts how hard the right hand plays them, without changing their timing. It leaves sung notes, chords and exposed piano keystrokes alone.
+- The left hand can lift a bass key when the recording has a sharp mute. The arranger chooses the chord first, so that shorter release does not replace a chord tone or invent a new bass attack.
+- In an unpedaled piano roll with a free finger, the hand can hold a previous key until the first conflicting note of the roll, rather than lifting it at the start of the whole chord.
+
 ## 3.1.10 "Medley" — 2026-11-24
 
 ### Changed

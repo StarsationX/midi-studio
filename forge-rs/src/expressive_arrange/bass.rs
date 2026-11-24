@@ -217,6 +217,41 @@ mod fundamental_tests {
         envelope[23..29].copy_from_slice(&[0.57, 0.61, 0.66, 0.74, 0.84, 0.94]);
         assert_eq!(restrikes(&envelope, 0, 48, 1.), [0, 48]);
     }
+
+    #[test]
+    fn damped_release_precedes_the_next_attack_but_a_quiet_sustain_does_not() {
+        let mut env = [1.; 40];
+        env[20..30].copy_from_slice(&[0.82, 0.54, 0.24, 0.09, 0.07, 0.06, 0.06, 0.07, 0.12, 0.25]);
+        assert_eq!(damped_release(&env, 0, 30, 1.), 22);
+        env[23..29].fill(0.22);
+        assert_eq!(damped_release(&env, 0, 30, 1.), 30);
+        env[16..26].copy_from_slice(&[0.68, 0.62, 0.57, 0.52, 0.48, 0.44, 0.40, 0.35, 0.30, 0.25]);
+        env[26..30].fill(0.10);
+        assert_eq!(damped_release(&env, 0, 30, 1.), 30);
+    }
+
+    #[test]
+    fn apply_damping_only_to_the_original_written_bass_key() {
+        use crate::pmidi::{Instrument, PrettyMidi};
+        let bass = |start| Note { start, end: start + 0.5, pitch: 36, velocity: 60 };
+        let line = BassLine {
+            notes: (0..4).map(|t| bass(t as f64)).collect(),
+            damped: (0..4).map(|t| (t, t as f64 + 0.4)).collect(),
+        };
+        let mut left = Instrument::new(0, false, "Left");
+        left.notes = vec![
+            bass(0.), Note { pitch: 43, ..bass(0.) }, // chord partner
+            bass(1.), // piano passage
+            Note { end: 2.3, ..bass(2.) }, // already clipped
+            Note { pitch: 24, ..bass(3.) }, // octave-folded
+        ];
+        let mut midi = PrettyMidi::new(960, 120.);
+        midi.instruments.push(Instrument::new(0, false, "Right"));
+        midi.instruments.push(left);
+        line.apply_releases(&mut midi, &[(1., 2.)]);
+        let ends: Vec<_> = midi.instruments[1].notes.iter().map(|n| n.end).collect();
+        assert_eq!(ends, [0.4, 0.5, 1.5, 2.3, 3.5]);
+    }
 }
 
 fn restrikes(smooth: &[f32], a: usize, b: usize, reference: f32) -> Vec<usize> {
@@ -261,7 +296,64 @@ fn restrikes(smooth: &[f32], a: usize, b: usize, reference: f32) -> Vec<usize> {
     cuts
 }
 
+// A pitch window can ring across a mute, or keep a note tied until the
+// next pluck. Only move the release on a fast level drop into a quiet trough.
+fn damped_release(smooth: &[f32], frame: usize, release: usize, level: f32) -> usize {
+    if release - frame < 10 {
+        return release;
+    }
+    let start = (frame + 8).max(release.saturating_sub(10)) - 1;
+    let Some(last_loud) = smooth[start..release].iter().rposition(|&x| x >= 0.50 * level) else {
+        return release;
+    };
+    let fall = start + last_loud + 1;
+    let until = (fall + 6).min(release + 3).min(smooth.len());
+    if fall < release && smooth[fall - 3..fall].iter().any(|&x| x >= 0.75 * level)
+        && smooth[fall..until].windows(2).any(|w| w[0].max(w[1]) <= 0.15 * level)
+    {
+        fall
+    } else {
+        release
+    }
+}
+
 pub fn bass_notes(mono: &[f32], sample_rate: u32) -> Result<Vec<Note>> {
+    detect_bass(mono, sample_rate, |_, _| {})
+}
+
+/// Pitch occupancy is evidence for harmony and voicing. Physical damping is
+/// articulation of the written bass key, not permission to revoice its chord.
+pub(crate) struct BassLine {
+    pub(crate) notes: Vec<Note>,
+    damped: Vec<(usize, f64)>,
+}
+
+impl BassLine {
+    pub(crate) fn apply_releases(&self, midi: &mut crate::pmidi::PrettyMidi, piano: &[(f64, f64)]) {
+        let Some(hand) = midi.instruments.get_mut(1) else { return };
+        for &(index, end) in &self.damped {
+            let n = self.notes[index];
+            let section = piano.partition_point(|&(_, stop)| stop <= n.start);
+            if piano.get(section).is_some_and(|&(start, _)| start <= n.start) { continue; }
+            let first = hand.notes.partition_point(|k| k.start < n.start);
+            // Exact copied fields distinguish the original bass from a folded
+            // key, a chord partner or a note already clipped for playability.
+            if let Some(key) = hand.notes[first..].iter_mut().take_while(|k| k.start == n.start)
+                .find(|k| k.pitch == n.pitch && k.end == n.end)
+            {
+                key.end = end;
+            }
+        }
+    }
+}
+
+pub(crate) fn bass_line(mono: &[f32], sample_rate: u32) -> Result<BassLine> {
+    let mut damped = Vec::new();
+    let notes = detect_bass(mono, sample_rate, |index, end| damped.push((index, end)))?;
+    Ok(BassLine { notes, damped })
+}
+
+fn detect_bass(mono: &[f32], sample_rate: u32, mut on_damping: impl FnMut(usize, f64)) -> Result<Vec<Note>> {
     ensure!(sample_rate > 0, "Bass sample rate must be positive");
     if mono.is_empty() {
         return Ok(vec![]);
@@ -343,6 +435,10 @@ pub fn bass_notes(mono: &[f32], sample_rate: u32) -> Result<Vec<Note>> {
                             begin = rise as f64 * 0.01;
                         }
                     }
+                }
+                let damped = damped_release(&smooth, frame, release, level);
+                if damped < release {
+                    on_damping(notes.len(), damped as f64 * 0.01);
                 }
                 notes.push(Note {
                     pitch: keys[a] as u8,

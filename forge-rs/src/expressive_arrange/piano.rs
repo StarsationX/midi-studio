@@ -69,16 +69,22 @@ impl Hand {
         best
     }
 
-    fn strike(&mut self, new: &[Note], limits: (u8,u8), time: f64) {
+    fn strike(&mut self, new: &[Note], other: &[Note], crosses: impl Fn(u8, u8) -> bool, time: f64, dry_roll: bool) {
         self.active.retain(|&i| self.notes[i].end > time);
+        // When every finger has room, a rolled chord need not lift this key
+        // until the particular attack that conflicts. Under pedal the source
+        // tail may be resonance; don't extend the existing finger assignment.
+        let release_on_attack = dry_roll && self.active.len() + new.len() <= 5;
         let mut kept = 0;
         self.active.retain(|&i| {
             let n = &mut self.notes[i];
-            if kept + new.len() >= 5 || n.pitch < limits.0 || n.pitch > limits.1 ||
-                new.iter().any(|m| n.pitch.abs_diff(m.pitch) > 12 || n.pitch == m.pitch) {
-                n.end = time;
-                false
-            } else { kept += 1; true }
+            if kept + new.len() >= 5 { n.end = time; return false; }
+            let mut conflicts = new.iter().filter(|m| n.pitch.abs_diff(m.pitch) > 12 || n.pitch == m.pitch)
+                .chain(other.iter().filter(|m| crosses(n.pitch, m.pitch)));
+            let cutoff = if release_on_attack { conflicts.map(|m| m.start).reduce(f64::min) }
+                else { conflicts.next().map(|_| time) };
+            if let Some(t) = cutoff { n.end = n.end.min(t); false }
+            else { kept += 1; true }
         });
         if let (Some(lo), Some(hi)) = (new.first(), new.last()) {
             self.center = f64::from(lo.pitch + hi.pitch) * 0.5;
@@ -106,7 +112,7 @@ fn left_hold_advantage(n: &Note, upcoming: &[Note], horizon: f64) -> f64 {
     24. * (right_loss - left_loss)
 }
 
-fn assign(group: &[Note], upcoming: &[Note], left: &mut Hand, right: &mut Hand, time: f64) {
+fn assign(group: &[Note], upcoming: &[Note], left: &mut Hand, right: &mut Hand, time: f64, dry_roll: bool) {
     let mut best = (f64::NEG_INFINITY, 0..0, 0..0);
     let mut complete = (f64::NEG_INFINITY, 0);
     let mut hold_advantage = 0.;
@@ -132,8 +138,8 @@ fn assign(group: &[Note], upcoming: &[Note], left: &mut Hand, right: &mut Hand, 
     } else {
         (&group[best.1], &group[best.2])
     };
-    left.strike(l, (21,r.first().map_or(108, |n| n.pitch - 1)), time);
-    right.strike(r, (l.last().map_or(21, |n| n.pitch + 1),108), time);
+    left.strike(l, r, |held, rh| held >= rh, time, dry_roll);
+    right.strike(r, l, |held, lh| held <= lh, time, dry_roll);
 }
 
 pub fn arrange_piano_passages(midi: &mut PrettyMidi, piano: &[Note], passages: &[(f64,f64)], sustain: &[(f64,f64)]) {
@@ -163,9 +169,11 @@ pub fn arrange_piano_passages(midi: &mut PrettyMidi, piano: &[Note], passages: &
                 if n.start > time + 0.035 || group.iter().any(|m| m.pitch == n.pitch) { break; }
                 group.push(Note { end: n.end.min(end), ..n });
             }
+            let dry_roll = group.last().is_some_and(|last| last.start > time &&
+                sustain.get(sustain.partition_point(|&(_,up)| up <= time)).is_none_or(|&(down,_)| down > last.start));
             group.sort_unstable_by_key(|n| n.pitch);
             pending = &pending[group.len()..];
-            assign(&group, pending, &mut left, &mut right, time);
+            assign(&group, pending, &mut left, &mut right, time, dry_roll);
         }
     }
     if ranges.is_empty() { return; }
@@ -208,9 +216,21 @@ mod tests {
         let chord = [key(58, 0., 1.8), key(64, 0.02, 1.7)];
         let leap = [key(79, 0.6, 0.8)];
         let (mut left, mut right) = (Hand::new(48.), Hand::new(72.));
-        assign(&chord, &leap, &mut left, &mut right, 0.);
-        assign(&leap, &[], &mut left, &mut right, 0.6);
+        assign(&chord, &leap, &mut left, &mut right, 0., true);
+        assign(&leap, &[], &mut left, &mut right, 0.6, false);
         assert_eq!(left.notes, chord);
         assert_eq!(right.notes, leap);
+    }
+
+    #[test]
+    fn dry_roll_releases_at_first_conflicting_attack_not_first_chord_onset() {
+        let key = |pitch, start, end| Note { pitch, start, end, velocity: 72 };
+        let rh = [key(67, 0.5, 0.8), key(76, 0.52, 0.8)];
+        for (dry, end) in [(true, 0.52), (false, 0.5)] {
+            let mut hand = Hand::new(72.);
+            hand.strike(&[key(60, 0., 0.9)], &[], |a,b| a <= b, 0., false);
+            hand.strike(&rh, &[], |a,b| a <= b, 0.5, dry);
+            assert_eq!(hand.notes[0].end, end);
+        }
     }
 }

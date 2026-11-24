@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 pub struct Evidence {
     pub vocals: Vec<f32>,
     pub bass: Vec<f32>,
-    pub bass_notes: Vec<Note>,
+    pub(super) bass_line: crate::expressive_arrange::BassLine,
     pub drums: Vec<f32>,
     pub sample_rate: u32,
     pub backing: Vec<Note>,
@@ -158,8 +158,8 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
     // Transkun's input reader scales float-container WAVs differently from 16-bit PCM.
     // Keep real unit-scale PCM and optionally normalize the backing's level.
     let present = harmony.samples.iter().any(|v| v.abs() >= 0.001);
-    let bass_notes = crate::expressive_arrange::bass_notes(&bass, SAMPLE_RATE)?;
-    let harmonic_notes = crate::expressive_arrange::harmony_notes(&harmony.samples, harmony.sample_rate, &bass_notes)?;
+    let bass_line = crate::expressive_arrange::bass_line(&bass, SAMPLE_RATE)?;
+    let harmonic_notes = crate::expressive_arrange::harmony_notes(&harmony.samples, harmony.sample_rate, &bass_line.notes)?;
     let input = if knobs.loudness_norm {
         crate::post::loudness_normalize(&harmony, &knobs.normalize)
     } else {
@@ -203,7 +203,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         pm.write(&work.join("backing.mid"))?;
         println!("  (kept stems: {})", work.display());
     }
-    Ok(Evidence { vocals, bass, bass_notes, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, harmonic_notes, piano_passages, sustain, pitched_power, duration, source_start, mixture_tempos })
+    Ok(Evidence { vocals, bass, bass_line, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, harmonic_notes, piano_passages, sustain, pitched_power, duration, source_start, mixture_tempos })
 }
 
 fn supplement_instrumental(instrumental: &mut Vec<Note>, piano: &[Note]) {
@@ -216,6 +216,11 @@ fn supplement_instrumental(instrumental: &mut Vec<Note>, piano: &[Note]) {
             instrumental.push(n);
         }
     }
+    if instrumental.len() > detected {
+        // A piano fallback can precede the first detector attack. Consumers
+        // search the combined sequence on the recording clock.
+        instrumental.sort_unstable_by(|a, b| a.start.total_cmp(&b.start).then(a.pitch.cmp(&b.pitch)));
+    }
 }
 
 #[cfg(test)]
@@ -225,8 +230,8 @@ mod tests {
     fn instrument_attack_wins_once_and_piano_fills_missing_attacks() {
         let n = |pitch, start, velocity| Note { pitch, start, end: start + 0.15, velocity };
         let mut lead = vec![n(76, 1., 72), n(74, 1.5, 29)];
-        supplement_instrumental(&mut lead, &[n(76, 1.02, 91), n(77, 1.50, 80), n(36, 2., 90)]);
-        assert_eq!(lead.iter().map(|n| (n.pitch, n.start)).collect::<Vec<_>>(), [(76, 1.), (77, 1.5)]);
+        supplement_instrumental(&mut lead, &[n(69, 0.5, 63), n(76, 1.02, 91), n(77, 1.50, 80), n(36, 2., 90)]);
+        assert_eq!(lead.iter().map(|n| (n.pitch, n.start)).collect::<Vec<_>>(), [(69, 0.5), (76, 1.), (77, 1.5)]);
     }
 
 

@@ -32,7 +32,7 @@ try {
     $env:MS_MEDLEY_REGISTERED='tauri'; $env:MS_MEDLEY_ELECTRON=$null
     $env:MS_MEDLEY_TAURI=$app; $env:MS_MEDLEY_TARGET=$app
     [IO.File]::WriteAllText("$app\uninstall.exe",'never executed')
-    foreach ($build in 2..10) {
+    foreach ($build in 2..11) {
         $v = "3.1.$build"
         # Tiny PE version-resource fixtures; neither the gate nor test runs them.
         $source = @"
@@ -47,10 +47,10 @@ class PublicFixture$build { static void Main() {} }
         [IO.File]::Copy("$root\fixture$build.exe",$exe,$true)
         $env:MS_MEDLEY_OLD_VERSION=$v; Gate 0
     }
-    foreach ($v in '3.1.0','3.1.2','3.1.3-beta','3.1.4','3.1.11','') {
+    foreach ($v in '3.1.0','3.1.2','3.1.3-beta','3.1.4','3.1.12','') {
         $env:MS_MEDLEY_OLD_VERSION=$v; Gate 26 # bundled, mismatched or unknown
     }
-    $env:MS_MEDLEY_OLD_VERSION='3.1.10'
+    $env:MS_MEDLEY_OLD_VERSION='3.1.11'
     $env:MS_MEDLEY_STORAGE="$app\custom"; Gate 26; $env:MS_MEDLEY_STORAGE=$store
     $env:MS_MEDLEY_ELECTRON=$old; Gate 26; $env:MS_MEDLEY_ELECTRON=$null
     $env:MS_MEDLEY_WIX=$old; Gate 26; $env:MS_MEDLEY_WIX=$null

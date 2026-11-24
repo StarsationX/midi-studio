@@ -17,7 +17,7 @@ pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> R
     println!("[1/6] Prepare vocal model");
     let game = expressive_model(args.models.as_deref())?;
     let evidence = expressive_stems::extract(args, knobs, source)?;
-    let bass = evidence.bass_notes;
+    let bass = evidence.bass_line;
     let mut tempos = evidence.mixture_tempos;
     if tempos.is_empty() {
         tempos = expressive_arrange::tempo_map(&evidence.drums, evidence.sample_rate);
@@ -32,10 +32,12 @@ pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> R
     println!("Detected {} vocal notes.", lead.len());
     drop(evidence.vocals);
     println!("[5/6] Voice the piano arrangement");
-    let mut midi = expressive_arrange::arrange_with_instruments(&lead, &evidence.instrumental, &evidence.backing, &evidence.harmonic_notes, Some(&bass), evidence.duration, &tempos);
+    let mut midi = expressive_arrange::arrange_with_instruments(&lead, &evidence.instrumental, &evidence.backing, &evidence.harmonic_notes, Some(&bass.notes), evidence.duration, &tempos);
     attacks::align(&mut midi, &evidence.instrumental_wave, &lead, &evidence.piano_passages);
     expressive_arrange::arrange_piano_passages(&mut midi, &evidence.backing, &evidence.piano_passages, &evidence.sustain);
     dynamics::shape(&mut midi, &evidence.pitched_power, &evidence.piano_passages);
+    attacks::accent_repeats(&mut midi, &evidence.instrumental_wave, &evidence.instrumental, &lead, &evidence.piano_passages);
+    bass.apply_releases(&mut midi, &evidence.piano_passages);
     let count = midi.note_count();
     if count == 0 { bail!("No playable notes were detected in the selected audio"); }
     println!("[6/6] Save piano MIDI");

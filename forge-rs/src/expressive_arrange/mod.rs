@@ -5,6 +5,7 @@ mod harmony;
 mod piano;
 mod tempo;
 pub use bass::bass_notes;
+pub(crate) use bass::{bass_line, BassLine};
 pub use harmony::harmony_notes;
 pub use piano::{arrange_piano_passages, piano_passages};
 pub use tempo::tempo_map;
