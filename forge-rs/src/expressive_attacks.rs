@@ -19,7 +19,7 @@ fn coefficients(pitch: u8) -> [f32; 3] {
 }
 
 // Three Goertzel bins instead of a song-sized spectrogram.
-fn partials(frame: &[f32], hann: &[f32; WIDTH], coeff: &[f32; 3]) -> [f32; 3] {
+fn partials(frame: &[f32], hann: &[f32], coeff: &[f32; 3]) -> [f32; 3] {
     let (mut a, mut b) = ([0.0_f32; 3], [0.0_f32; 3]);
     for (&s, &w) in frame.iter().zip(hann) {
         let x = s * w;
@@ -209,6 +209,70 @@ fn playable_end(hand: &[Note], opposite: &[Note], i: usize, first: &mut usize, o
     end
 }
 
+// Follow a fundamental and at least one overtone through the boundary.
+// A simultaneous 6 dB rise on two audible partials is a possible re-pluck.
+fn continuous(wave: &[f32], n: Note, window: &[f32], hop: usize, rate: u32) -> bool {
+    let width = window.len();
+    let Some(start) = ((n.start * f64::from(rate)).round() as usize).checked_sub(width / 2 + 12 * hop) else { return false };
+    let Some(region) = wave.get(start..start + width + 24 * hop) else { return false };
+    let omega = std::f32::consts::TAU * 440.0 * 2.0_f32.powf((f32::from(n.pitch) - 69.0) / 12.0) / rate as f32;
+    if 3.0 * omega >= std::f32::consts::PI { return false; }
+    let coeff = [1., 2., 3.].map(|h| 2. * (h * omega).cos());
+    let floor = width as f32 * 0.00025;
+    let mut low = [f32::MAX; 3];
+    let mut high = [0_f32; 3];
+    let mut history = [[0.0; 3]; 2];
+    for (i, frame) in region.windows(width).step_by(2 * hop).enumerate() {
+        let levels = partials(frame, window, &coeff);
+        let previous = &mut history[i % 2];
+        if i >= 2 && (0..3).filter(|&h| levels[h] > floor && levels[h] > 2. * previous[h]).count() >= 2 { return false; }
+        *previous = levels;
+        for h in 0..3 { low[h] = low[h].min(levels[h]); high[h] = high[h].max(levels[h]); }
+    }
+    let steady = |h: usize| low[h] > floor && low[h] > high[h] * 0.5;
+    steady(0) && (steady(1) || steady(2))
+}
+
+/// Join contiguous right-hand notes only when the backing detector heard
+/// one hold and both the backing mix and isolated guitar have no new attack.
+pub(super) fn join_splits(notes: &mut Vec<Note>, backing: &[Note], vocals: &[Note], piano: &[(f64, f64)],
+    wave: &[f32], guitar: &[f32], isolated: &[bool]) {
+    if guitar.is_empty() || backing.is_empty() { return; }
+    static SMALL: std::sync::LazyLock<[f32; WIDTH / 2]> = std::sync::LazyLock::new(||
+        std::array::from_fn(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / (WIDTH / 2 - 1) as f32).cos()));
+    let voice_span = vocals.iter().map(|v| v.end - v.start).fold(0., f64::max);
+    let mut last = [usize::MAX; 128];
+    let mut written = 0;
+    for read in 0..notes.len() {
+        let n = notes[read];
+        if (53..=96).contains(&n.pitch) {
+            let slot = &mut last[usize::from(n.pitch)];
+            if *slot != usize::MAX {
+                let prior: Note = notes[*slot];
+                let start = ((n.start - 0.065) * 20.).floor() as usize;
+                let end = ((n.start + 0.065) * 20.).floor() as usize;
+                if (n.start - prior.end).abs() < 0.001 && n.start - prior.start > 0.10
+                    && isolated.get(start..=end).is_some_and(|bins| bins.iter().all(|&ok| ok))
+                    && backing[backing.partition_point(|k| k.start < prior.start - 0.035)..]
+                        .iter().take_while(|k| k.start <= prior.start + 0.035)
+                        .any(|k| k.pitch == n.pitch && k.end >= n.start + 0.048)
+                    && !piano.get(piano.partition_point(|&(_, t)| t <= prior.start)).is_some_and(|&(s, _)| s < n.end)
+                    && !vocals[vocals.partition_point(|v| v.start < prior.start - voice_span)..]
+                        .iter().take_while(|v| v.start < n.end).any(|v| v.end > prior.start)
+                    && continuous(wave, n, hann(), HOP, SAMPLE_RATE)
+                    && continuous(guitar, n, &*SMALL, HOP / 2, SAMPLE_RATE / 2) {
+                    notes[*slot].end = n.end;
+                    continue;
+                }
+            }
+            *slot = written;
+        }
+        if written != read { notes[written] = n; }
+        written += 1;
+    }
+    notes.truncate(written);
+}
+
 /// The reduction cuts a melodic key at the next attack, even when the player
 /// kept it down. Corroborate the pitched detector with the backing detector
 /// or with a ringing fundamental and overtone in the backing waveform.
@@ -287,6 +351,30 @@ pub(super) fn hold_lower(midi: &mut PrettyMidi, backing: &[Note], piano: &[(f64,
 mod tests {
     use super::*;
     use crate::pmidi::Instrument;
+    #[test]
+    fn backing_hold_needs_both_steady_guitar_and_isolation() {
+        let a = Note { pitch: 69, start: 0.1, end: 0.35, velocity: 75 };
+        let b = Note { start: a.end, end: 0.62, ..a };
+        let held = Note { end: b.end, ..a };
+        let tone = |rate: u32, repluck: bool| (0..rate).map(|i| {
+            let t = f64::from(i) / f64::from(rate);
+            let phase = std::f64::consts::TAU * 440. * t;
+            let amplitude = if repluck && t < b.start { 0.02 } else { 0.25 };
+            (amplitude * (phase.sin() + 0.4 * (2. * phase).sin())) as f32
+        }).collect::<Vec<_>>();
+        let mix = tone(SAMPLE_RATE, false);
+        let mut mask = [true; 20];
+        let check = |pluck, mask: &[bool]| {
+            let mut notes = vec![a, b];
+            join_splits(&mut notes, &[held], &[], &[], &mix, &tone(SAMPLE_RATE / 2, pluck), mask);
+            notes
+        };
+        assert_eq!(check(false, &mask), [held]);
+        assert_eq!(check(true, &mask), [a, b]); // the mix alone would erase this pluck
+        mask[7] = false;
+        assert_eq!(check(false, &mask), [a, b]); // another energetic stem vetoes the merge
+    }
+
     #[test]
     fn longer_polyphonic_release_survives_successive_reachable_notes() {
         let n = key(64, 0.20, 0.40);

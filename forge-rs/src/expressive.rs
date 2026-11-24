@@ -44,6 +44,10 @@ pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> R
     expressive_arrange::arrange_piano_passages(&mut midi, &evidence.backing, &evidence.piano_passages, &evidence.sustain);
     bass.articulate(&mut midi, &evidence.piano_passages);
     attacks::restore_held_keys(&mut midi, &evidence.instrumental, &evidence.backing, &lead, &evidence.piano_passages, &evidence.instrumental_wave);
+    if let [right, _] = midi.instruments.as_mut_slice() {
+        attacks::join_splits(&mut right.notes, &evidence.backing, &lead, &evidence.piano_passages,
+            &evidence.instrumental_wave, &evidence.guitar_wave, &evidence.guitar_isolated);
+    }
     treble_recovery::apply(&mut midi, &evidence.instrumental, &evidence.backing, &lead, &evidence.piano_passages, &evidence.instrumental_wave);
     tenor::apply(&mut midi, &evidence.backing, &evidence.instrumental_wave, &evidence.piano_passages);
     strum::apply(&mut midi, &evidence.instrumental, &evidence.backing, &lead, &evidence.piano_passages, &evidence.instrumental_wave);

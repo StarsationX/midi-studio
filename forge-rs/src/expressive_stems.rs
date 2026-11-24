@@ -21,6 +21,9 @@ pub struct Evidence {
     pub instrumental: Vec<Note>,
     /// Existing mono detector input, reused to locate attacks in the selected instrumental keys.
     pub(super) instrumental_wave: Vec<f32>,
+    /// Separate 11.025 kHz guitar and 50 ms isolation mask for confirming a sustained pluck.
+    pub(super) guitar_wave: Vec<f32>,
+    pub(super) guitar_isolated: Vec<bool>,
     pub piano_passages: Vec<(f64, f64)>,
     pub sustain: Vec<(f64, f64)>,
     /// Broadband, bass and melody-band energy on the dynamics clock.
@@ -67,6 +70,26 @@ struct Signals {
     harmony: Audio,
     piano_passages: Vec<(f64, f64)>,
     pitched_power: Vec<Power>,
+    guitar_wave: Vec<f32>,
+    guitar_isolated: Vec<bool>,
+}
+
+fn isolated(power: &[f64; 2]) -> bool { power[0] > 1000. * power[1] }
+
+fn exposed_guitar(power: &[[f64; 2]]) -> bool {
+    power.windows(3).any(|bins| bins.iter().all(isolated))
+}
+
+// Only a locally exposed guitar is worth retaining. Subsequent stems can
+// veto a window; its final 30 dB margin is against all five other stems.
+fn guitar_probe(samples: &[f32], power: &[[f64; 2]]) -> Result<Vec<f32>> {
+    if !exposed_guitar(power) { return Ok(Vec::new()); }
+    crate::resample::resample_hq(samples, 1, 44_100., 11_025.)
+}
+
+fn guitar_mask(wave: Vec<f32>, power: &[[f64; 2]]) -> (Vec<f32>, Vec<bool>) {
+    if wave.is_empty() || !exposed_guitar(power) { return (Vec::new(), Vec::new()); }
+    (wave, power.iter().map(isolated).collect())
 }
 
 fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
@@ -82,18 +105,24 @@ fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
     let mut energy = vec![[0.; 2]; expected_frames.div_ceil(half_second)];
     let accent_window = SAMPLE_RATE as usize / WINDOWS_PER_SECOND;
     let mut pitched_power = vec![Power::default(); expected_frames.div_ceil(accent_window)];
+    const { assert!(WINDOWS_PER_SECOND == 20 && SAMPLE_RATE == 44_100); }
+    let mut isolation = vec![[0.; 2]; pitched_power.len()];
+    let mut guitar_wave = Vec::new();
     for (name, channels) in INSTRUMENTS.into_iter().zip(stems) {
         let channel = mono(channels, expected_frames)?;
         let column = usize::from(name != "piano");
         // The piano-passage detector still uses half seconds. Accumulate its
         // energy in the same pass rather than scanning the stems a second time.
         for (i, (pitched, samples)) in pitched_power.iter_mut().zip(channel.chunks(accent_window)).enumerate() {
-            energy[i / (WINDOWS_PER_SECOND / 2)][column] += if name == "drums" {
+            let power = if name == "drums" {
                 samples.iter().map(|&x| f64::from(x).powi(2)).sum::<f64>()
             } else {
                 pitched.add_stem(samples)
             };
+            energy[i / (WINDOWS_PER_SECOND / 2)][column] += power;
+            isolation[i][usize::from(name != "guitar")] += power;
         }
+        if name == "guitar" { guitar_wave = guitar_probe(&channel, &isolation)?; }
         match name {
             "vocals" => vocals = Some(channel),
             "bass" => bass = Some(channel),
@@ -113,6 +142,7 @@ fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
     for sample in &mut harmony {
         *sample /= 3.0;
     }
+    let (guitar_wave, guitar_isolated) = guitar_mask(guitar_wave, &isolation);
     Ok(Signals {
         vocals: vocals.context("missing vocals")?,
         bass: bass.context("missing bass")?,
@@ -120,6 +150,7 @@ fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
         harmony: Audio { channels: 1, kind: SourceKind::Float, sample_rate: SAMPLE_RATE, samples: harmony },
         piano_passages: crate::expressive_arrange::piano_passages(&energy, expected_frames as f64 / f64::from(SAMPLE_RATE)),
         pitched_power,
+        guitar_wave, guitar_isolated,
     })
 }
 
@@ -157,7 +188,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
     if (frames as f64 - duration * SAMPLE_RATE as f64).abs() > 2.0 {
         bail!("Separated audio length differs from the source window.");
     }
-    let Signals { vocals, bass, drums, harmony, mut piano_passages, pitched_power } = split(separated.stems, frames)?;
+    let Signals { vocals, bass, drums, harmony, mut piano_passages, pitched_power, guitar_wave, guitar_isolated } = split(separated.stems, frames)?;
     const { assert!(SAMPLE_RATE == 44_100); }
     let pitched_mix = if duration < 4. || piano_passages.first().is_some_and(|&(a, b)| a <= 0. && b >= duration) {
         Vec::new()
@@ -219,7 +250,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         pm.write(&work.join("backing.mid"))?;
         println!("  (kept stems: {})", work.display());
     }
-    Ok(Evidence { vocals, bass, bass_line, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, harmony: chord_evidence, piano_passages, sustain, pitched_power, pitched_mix, duration, source_start, mixture_tempos })
+    Ok(Evidence { vocals, bass, bass_line, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, guitar_wave, guitar_isolated, harmony: chord_evidence, piano_passages, sustain, pitched_power, pitched_mix, duration, source_start, mixture_tempos })
 }
 
 fn supplement_instrumental(instrumental: &mut Vec<Note>, piano: &[Note]) {

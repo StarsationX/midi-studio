@@ -114,7 +114,7 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
     }) {
         // Use the full-rate stems for the final short phrase contour: the
         // pitched spectrum intentionally omits the very top of the recording.
-        shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 10).map(average), 10, &measured_piano, Some((0.62, 3.)), &mut fit);
+        shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 10).map(average), 10, &measured_piano, Some((0.72, 3.)), &mut fit);
     }
 }
 

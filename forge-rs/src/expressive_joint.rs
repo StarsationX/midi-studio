@@ -48,8 +48,11 @@ struct Row {
     base: f32, target: f32, weight: f32,
     inverse: f32, log_gain: f32, gradient: f32, curvature: f32,
 }
+// Row indices refer to the two attack probes, not just their newly struck
+// keys: both measurements may also contain a third note that is still ringing.
+struct AttackPair { earlier: usize, later: usize, weight: f32, target: f32 }
 #[derive(Default)]
-struct Fit { rows: Vec<Row>, terms: Vec<(usize, f32)> }
+struct Fit { rows: Vec<Row>, terms: Vec<(usize, f32)>, pairs: Vec<AttackPair> }
 impl Fit {
     // A reference row turns an absolute target into a proportion: one pitch
     // within a chord, or the bass relative to the middle of the recording.
@@ -74,7 +77,9 @@ impl Fit {
         let mut bins = [0usize; WIDTH];
         let (mut count, mut total, mut src) = (0, 0., 0.);
         for i in 0..WIDTH {
-            if played[i] > floor && observed[i] > noise {
+            // A strong piano partial absent from the recording is evidence
+            // for turning a voice down, not a reason to skip the measurement.
+            if played[i] > 0.30*floor && (observed[i] > noise || played[i] > 2.*floor) {
                 bins[count] = i; count += 1; total += played[i]; src += observed[i];
             }
         }
@@ -84,8 +89,8 @@ impl Fit {
             (v.key, v.scale * bins.iter().map(|i| TONES[v.template][FIRST+i]).sum::<f32>())
         }));
         for &i in bins {
-            let weight = 36. * (played[i]/total * observed[i]/src).sqrt();
-            self.add(observed[i], weight, NONE, reference,
+            let weight = 30. * (0.45*played[i]/total + 0.55*observed[i]/src);
+            self.add(observed[i].max(0.35*noise), weight, NONE, reference,
                 voices.iter().map(|v| (v.key, v.scale * TONES[v.template][FIRST+i])));
         }
     }
@@ -100,20 +105,37 @@ impl Fit {
         let half = N as f64 / (2.*RATE);
         let mut next = 0;
         let mut active = Vec::<usize>::new();
-        for (t,p,src) in probes {
+        const NEAR: f64 = 0.14;
+        let first_row = self.rows.len();
+        let mut first = 0;
+        for (j, &(t,p,src)) in probes.iter().enumerate() {
             while next < keys.len() && keys[next].note.start < t+half { active.push(next); next += 1; }
             active.retain(|&i| keys[i].note.end.max(keys[i].note.start+0.06) + half + 0.024 > t);
-            self.add(src, 7., p, NONE, active.iter().map(|&i| {
+            let row = self.add(src, 7., p, NONE, active.iter().map(|&i| {
                 let k = &keys[i]; let age = t-k.note.start;
                 let cut = |dt: f64| CDF[((dt*RATE).round() + (N/2) as f64).clamp(0., N as f64) as usize];
                 let onset = cut(-age);
                 let gate = (cut(k.note.end.max(k.note.start+0.06)+0.024-t)-onset)/(1.-onset).max(EPS);
-                let a = AGES.partition_point(|&s| s < age);
-                let a = if a==AGES.len() || a>0 && age-AGES[a-1]<=AGES[a]-age { a-1 } else { a };
-                let tones = &TONES[usize::from(k.note.pitch-21)*AGES.len()+a];
-                let power = tones[p] + 0.45*tones.get(p+12).copied().unwrap_or(0.) + 0.2*tones.get(p+19).copied().unwrap_or(0.);
-                (i, k.scale*gate*power)
+                let upper = AGES.partition_point(|&s| s < age).clamp(1, AGES.len()-1);
+                let lower = upper-1;
+                let fraction = ((age-AGES[lower])/(AGES[upper]-AGES[lower])).clamp(0.,1.) as f32;
+                let base = usize::from(k.note.pitch-21)*AGES.len();
+                let projected = |a| {
+                    let tones: &[f32; PITCHES] = &TONES[base+a];
+                    tones[p] + 0.45*tones.get(p+12).copied().unwrap_or(0.) + 0.2*tones.get(p+19).copied().unwrap_or(0.)
+                };
+                let left = projected(lower);
+                (i, k.scale*gate*(left+fraction*(projected(upper)-left)))
             }));
+            while t-probes[first].0 >= NEAR { first += 1; }
+            // Do not let a dense rolled chord outweigh every other beat.
+            let weight = 24./(1.+0.28*(j-first) as f32);
+            for (k, &(time, other, _)) in probes[first..j].iter().enumerate() {
+                if other != p {
+                    self.pairs.push(AttackPair { earlier: first_row+first+k, later: row,
+                        weight: weight*(1.-((t-time)/NEAR) as f32), target: 0. });
+                }
+            }
         }
     }
 
@@ -126,6 +148,13 @@ impl Fit {
                 if let Some(m) = medians[r.group] { r.target = (r.target-m).clamp(-1.6, 1.6); } else { r.weight = 0.; }
             }
         }
+        self.pairs.retain_mut(|p| {
+            let (a,b) = (&self.rows[p.earlier], &self.rows[p.later]);
+            // Compare departures from each pitch's usual level, not the raw
+            // power of two different instruments or registers.
+            p.target = (b.target-a.target).clamp(-2.,2.);
+            a.weight > 0. && b.weight > 0.
+        });
         for _ in 0..9 {
             for k in &mut *keys { k.step = 0.; k.weight = 0.; }
             let mut begin = 0;
@@ -143,6 +172,12 @@ impl Fit {
                 let w = if den == NONE { r.weight } else { 1.5*r.weight };
                 self.rows[i].gradient += d; self.rows[i].curvature += w;
                 if den != NONE { self.rows[den].gradient -= d; self.rows[den].curvature += w; }
+            }
+            for p in &self.pairs {
+                let contrast = self.rows[p.later].log_gain-self.rows[p.earlier].log_gain;
+                let d = p.weight*(p.target-contrast).clamp(-1.5,1.5);
+                self.rows[p.later].gradient += d; self.rows[p.earlier].gradient -= d;
+                self.rows[p.later].curvature += p.weight; self.rows[p.earlier].curvature += p.weight;
             }
             begin = 0;
             for r in &self.rows {
@@ -179,7 +214,7 @@ pub(super) fn refine(keys: &mut [Key], frames: &[Frame], voices: &[Voice], sourc
             let target = source.bands[i][j];
             if bands[i][j] < peak[j]*0.004 || target < src_peak[j]*0.001 { continue; }
             let reference = if j==0 { mid } else { NONE };
-            let row = fit.add(target, [2.5,2.,4.][j], PITCHES+j, reference,
+            let row = fit.add(target, [3.7,2.6,5.4][j], PITCHES+j, reference,
                 sounding.iter().map(|v| (v.key, v.scale*KEYS[v.template].bands[j])));
             if j==1 { mid = row; }
         }

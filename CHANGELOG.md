@@ -6,6 +6,17 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.27 "Medley" — 2026-11-25
+
+### Changed
+
+- Notes struck close together can now trade emphasis: Medley compares how strongly each pitch stands out in the recording, accounting for the other keys still ringing. This helps a melody carry over a quieter chord.
+
+### Fixed
+
+- A steadily ringing guitar string could become two right-hand key presses. In isolated guitar passages, Medley now checks the guitar and backing audio before joining the notes. A new pluck or an ambiguous band mix keeps the second strike.
+- Re-run **Forge → Medley** to regenerate an arrangement. Existing MIDI files and installed models are unchanged.
+
 ## 3.1.26 "Medley" — 2026-11-25
 
 ### Changed

@@ -68,7 +68,7 @@ In a band mix, listen for the bass stepping back under the melody. Medley measur
 
 Listen to a long melody note as the next chord comes in. Medley compares the ringing piano keys with the recording throughout the overlap, not just when the keys are struck. That helps the stronger voice carry without an extra accent from an overtone the two notes share. On sustained bass, it checks whether the low pitch is still ringing before writing an octave jump.
 
-Listen to a quiet pickup before a loud chorus. Medley compares each repeated pitch with its other appearances, counting the piano keys already ringing when the next note starts. It checks the chord balance and the loudness over short phrases, so bringing out the pickup needn’t turn up the whole chord. Re-run **Forge → Medley** to hear the change in an existing song.
+Listen for the melody inside a rolled chord. When notes land close together, Medley compares how much each stands out from its usual level in the recording. That lets the melody come forward without giving the accompaniment the same accent. Re-run **Forge → Medley** to hear the change in an existing song.
 
 Listen to the space between picked notes. One string can keep ringing while the next one starts; Medley can hold that piano key instead of cutting both notes to the same length. For a short low pluck, it follows the pitch and an overtone into the decay rather than stretching every note with the sustain pedal. Vocal phrases still release when the vowel fades.
 
