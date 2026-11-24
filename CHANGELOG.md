@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.17 "Medley" — 2026-11-24
+
+### Changed
+
+- Medley matches phrase loudness using measurements of the bundled Grand Piano’s 88 keys. A quiet or fast-decaying sample no longer counts as loudly as a ringing key when the arranger chooses the next accent.
+- A bass swell can bring out the left hand without also pushing the melody up. This changes how hard the piano plays, not which notes it plays or when. Exposed piano passages retain their recorded touch.
+
 ## 3.1.16 "Medley" — 2026-11-24
 
 ### Changed
