@@ -8,6 +8,7 @@ pub use bass::bass_notes;
 pub(crate) use bass::{bass_line, BassLine};
 pub use harmony::harmony_notes;
 pub use piano::{arrange_piano_passages, piano_passages};
+pub(crate) use piano::align_piano_entries;
 pub use tempo::tempo_map;
 
 use crate::pmidi::{Instrument, Note, PrettyMidi};
@@ -77,6 +78,32 @@ fn confirmed_attack(n: &Note, piano: &[Note]) -> bool {
 
 fn confirmed_upper_attack(n: &Note, piano: &[Note]) -> bool {
     n.pitch >= 64 && confirmed_attack(n, piano)
+}
+
+// A detector can split off a tiny lead-in just before a sustained strike.
+// Repair that key after selecting the line so its longer release can't
+// change which pitches win later. Leave room for the next rolled chord.
+fn restore_fragmented_attacks(lead: &mut [Note], instrumental: &[Note], piano: &[Note], vocals: &[Note], duration: f64) {
+    const SEPARATE: f64 = 0.065;
+    for i in 0..lead.len() {
+        let short = lead[i];
+        if short.end - short.start > SEPARATE { continue; }
+        let from = instrumental.partition_point(|n| n.start < short.end - 0.012);
+        let Some(strike) = instrumental[from..].iter().take_while(|n| n.start < short.start + SEPARATE)
+            .find(|n| n.pitch == short.pitch && n.velocity >= short.velocity && n.start <= short.end + 0.012
+                && confirmed_attack(n, piano)) else { continue };
+        let first = piano.partition_point(|p| p.start < short.start - 0.035);
+        if piano[first..].iter().take_while(|p| p.start <= short.start + 0.035)
+            .any(|p| p.pitch == short.pitch && p.velocity >= 55 && p.end - p.start >= 0.030) { continue; }
+        let next_vocal = vocals.get(vocals.partition_point(|n| n.start <= short.start));
+        if next_vocal.is_some_and(|n| n.start - strike.start < 0.24) { continue; }
+        let next_attack = lead.get(i + 1).map_or(duration, |next| {
+            let from = instrumental.partition_point(|n| n.start < next.start - 0.035);
+            instrumental.get(from).map_or(next.start, |n| n.start.min(next.start))
+        });
+        let end = strike.end.min(next_attack).min(next_vocal.map_or(duration, |n| n.start - 0.045));
+        if end - strike.start >= 0.030 { lead[i] = Note { end, ..*strike }; }
+    }
 }
 
 // A short lower-key repeat under an already sounding octave can come from
@@ -193,6 +220,7 @@ fn melody(vocals: &[Note], instrumental: &[Note], piano: &[Note], duration: f64,
         }
     });
     remove_octave_echoes(&mut lead, instrumental, piano, beat);
+    restore_fragmented_attacks(&mut lead, instrumental, piano, vocals, duration);
     for n in &mut lead {
         n.velocity = (57. + 0.30 * f64::from(n.velocity)).round() as u8;
     }

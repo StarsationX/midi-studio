@@ -157,6 +157,17 @@ mod fundamental_tests {
     use super::*;
 
     #[test]
+    fn steady_sub_bass_is_not_the_adjacent_template_key() {
+        for (hz, expected) in [(58.0, 34), (87.3, 41)] {
+            let wave: Vec<_> = (0..RATE)
+                .map(|i| (std::f32::consts::TAU * hz * i as f32 / RATE as f32).sin())
+                .collect();
+            let notes = bass_notes(&wave, RATE as u32).unwrap();
+            assert_eq!(notes.iter().find(|n| n.start <= 0.5 && n.end > 0.5).map(|n| n.pitch), Some(expected));
+        }
+    }
+
+    #[test]
     fn dominant_second_and_odd_partial_recover_low_bass_pitch() {
         for (fundamental, expected) in [(44.2, 29), (51.7, 32)] {
             let wave: Vec<_> = (0..RATE)
@@ -268,6 +279,37 @@ mod fundamental_tests {
         assert!(velocity[0] < 60);
         assert_eq!(velocity[1..], [60; 4]);
     }
+}
+
+// Adjacent bass keys can share a template's rounded FFT bins. Reassign an
+// already detected note only if its waveform consistently measures one key
+// away. Bends and rich attacks often lack one rising zero crossing per cycle.
+fn steady_key(audio: &[f32], key: u8) -> u8 {
+    let nominal = (RATE as f32 / 440.) * 2f32.powf((69. - key as f32) / 12.);
+    // Period ratios for 0.75 and 1.25 semitones.
+    let (inner, outer) = (1.04427, 1.07487);
+    let higher = nominal / outer..=nominal / inner;
+    let lower = nominal * inner..=nominal * outer;
+    let required = (0.70 * audio.len() as f32).max(3. * nominal);
+    let mut previous = None;
+    let (mut high_time, mut low_time) = (0., 0.);
+    for (i, w) in audio.windows(2).enumerate() {
+        if w[0] <= 0. && w[1] > 0. {
+            let crossing = i as f32 - w[0] / (w[1] - w[0]);
+            if let Some(last) = previous {
+                let period = crossing - last;
+                if higher.contains(&period) {
+                    high_time += period;
+                    if high_time >= required { return key + 1; }
+                } else if lower.contains(&period) {
+                    low_time += period;
+                    if low_time >= required { return key - 1; }
+                }
+            }
+            previous = Some(crossing);
+        }
+    }
+    key
 }
 
 fn restrikes(smooth: &[f32], a: usize, b: usize, reference: f32) -> Vec<usize> {
@@ -485,7 +527,10 @@ fn detect_bass(mono: &[f32], sample_rate: u32, mut on_note: impl FnMut(Note, f64
                 }
                 let damped = damped_release(&smooth, frame, release, level);
                 let note = Note {
-                    pitch: keys[a] as u8,
+                    pitch: steady_key(
+                        &audio[frame * HOP..(release * HOP).min(audio.len())],
+                        keys[a] as u8,
+                    ),
                     start: begin,
                     end: (release as f64 * 0.01).min(audio.len() as f64 / RATE as f64),
                     velocity: (51. + 19. * (level / reference).min(1.)).round() as u8,

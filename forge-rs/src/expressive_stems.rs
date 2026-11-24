@@ -3,6 +3,7 @@
 use super::{apply_window, ep_name, file_stem, roformer_model, run_separation, safe_name,
     say_device, say_engine, start_runtime, transcribe, transkun_assets, work_root, write_stem_wav,
     Args, Knobs};
+use super::expressive_dynamics::Power;
 use crate::audio::{self, Audio, SourceKind};
 use crate::demix::{Planar, Stems};
 use crate::pmidi::Note;
@@ -22,8 +23,8 @@ pub struct Evidence {
     pub(super) instrumental_wave: Vec<f32>,
     pub piano_passages: Vec<(f64, f64)>,
     pub sustain: Vec<(f64, f64)>,
-    /// Mean square energy of pitched stems, excluding percussion; half-second bins.
-    pub(super) pitched_power: Vec<f64>,
+    /// Broadband and low-register mean-square energy of pitched stems per half-second.
+    pub(super) pitched_power: Vec<Power>,
     pub harmonic_notes: Vec<Note>,
     pub duration: f64,
     pub mixture_tempos: Vec<(f64, f64)>,
@@ -63,7 +64,7 @@ struct Signals {
     drums: Vec<f32>,
     harmony: Audio,
     piano_passages: Vec<(f64, f64)>,
-    pitched_power: Vec<f64>,
+    pitched_power: Vec<Power>,
 }
 
 fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
@@ -76,14 +77,16 @@ fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
     let mut harmony = Vec::<f32>::new();
     let half_second = SAMPLE_RATE as usize / 2;
     let mut energy = vec![[0.; 2]; expected_frames.div_ceil(half_second)];
-    let mut pitched_power = vec![0.; energy.len()];
+    let mut pitched_power = vec![Power::default(); energy.len()];
     for (name, channels) in INSTRUMENTS.into_iter().zip(stems) {
         let channel = mono(channels, expected_frames)?;
         let column = usize::from(name != "piano");
         for ((bin, pitched), samples) in energy.iter_mut().zip(&mut pitched_power).zip(channel.chunks(half_second)) {
-            let power = samples.iter().map(|&x| f64::from(x) * f64::from(x)).sum::<f64>();
-            bin[column] += power;
-            if name != "drums" { *pitched += power / samples.len() as f64; }
+            bin[column] += if name == "drums" {
+                samples.iter().map(|&x| f64::from(x).powi(2)).sum::<f64>()
+            } else {
+                pitched.add_stem(samples)
+            };
         }
         match name {
             "vocals" => vocals = Some(channel),
@@ -148,7 +151,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
     if (frames as f64 - duration * SAMPLE_RATE as f64).abs() > 2.0 {
         bail!("Separated audio length differs from the source window.");
     }
-    let Signals { vocals, bass, drums, harmony, piano_passages, pitched_power } = split(separated.stems, frames)?;
+    let Signals { vocals, bass, drums, harmony, mut piano_passages, pitched_power } = split(separated.stems, frames)?;
     let mut instrumental = Vec::new();
     let mut instrumental_wave = Vec::new();
     let mut backing = Vec::new();
@@ -180,6 +183,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
                 sustain.push((start, end));
             }
         }
+        crate::expressive_arrange::align_piano_entries(&mut piano_passages, &backing);
         println!("Detect instrumental lead with Basic Pitch (CPU)");
         let mono = crate::resample::resample_hq(&input.samples, 1,
             f64::from(input.sample_rate), f64::from(crate::basicpitch::SAMPLE_RATE))?;
@@ -249,7 +253,7 @@ mod tests {
         // The loud drum is not part of the piano dynamic target. The short
         // final bin is normalized by its two real samples, not half a second.
         let pitched = (1.5_f64.powi(2) + 4.5_f64.powi(2) + 3. * 0.225_f64.powi(2)) / 2.;
-        assert!((split.pitched_power[0] - pitched).abs() < 1e-6);
+        assert!((split.pitched_power[0].total - pitched).abs() < 1e-6);
     }
 
     #[test]

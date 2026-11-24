@@ -1,12 +1,10 @@
-use super::{expressive_model, expressive_stems, Args, Knobs};
+use super::{expressive_dynamics as dynamics, expressive_model, expressive_stems, Args, Knobs};
 use crate::{expressive_arrange, expressive_vocal};
 use anyhow::{bail, Context, Result};
 use serde_json::json;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-#[path = "expressive_dynamics.rs"]
-mod dynamics;
 #[path = "expressive_attacks.rs"]
 mod attacks;
 

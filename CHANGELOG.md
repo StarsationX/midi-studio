@@ -6,6 +6,15 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.15 "Medley" — 2026-11-24
+
+### Changed
+
+- When the bass steps forward or the upper line takes over, Medley changes their relative touch instead of turning the whole piano up or down. Drum hits do not drive this change.
+- The piano follows short loud and quiet phrases more closely. A high key that has mostly faded no longer counts as much as a ringing bass key when Medley chooses the next accent. Exposed piano passages keep their recorded touch.
+- A brief detector fragment just before a sustained instrumental strike no longer takes its place when both detectors agree on the later note. Genuine short lead-ins and rolled chords are preserved.
+- Medley checks the spacing of the bass waveform across a held note before choosing between adjacent semitones. At an exposed piano entrance, a rolled chord can now begin just before the separator’s half-second boundary without losing its first key.
+
 ## 3.1.14 "Medley" — 2026-11-24
 
 ### Changed

@@ -38,6 +38,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+#[path = "expressive_dynamics.rs"]
+mod expressive_dynamics;
 #[path = "expressive_stems.rs"]
 pub mod expressive_stems;
 

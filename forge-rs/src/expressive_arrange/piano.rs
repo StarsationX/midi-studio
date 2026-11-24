@@ -57,6 +57,25 @@ pub fn piano_passages(energy: &[[f64; 2]], duration: f64) -> Vec<(f64, f64)> {
     passages
 }
 
+// Stem classification runs on half-second bins; a measured rolled chord
+// needn't begin on their edge. Move the entry only for a different key that
+// is already ringing into the first measured strike, not a preceding pickup.
+pub(crate) fn align_piano_entries(passages: &mut [(f64, f64)], keys: &[Note]) {
+    let mut prior_end = 0.;
+    for (start, end) in passages {
+        let i = keys.partition_point(|n| n.start < *start);
+        if let Some(head) = keys.get(i).filter(|n| n.start < *end && n.start - *start <= 0.035
+            && n.velocity > 0 && n.end - n.start >= 0.08) {
+            let from = keys[..i].partition_point(|n| n.start < (head.start - 0.035).max(prior_end));
+            if let Some(first) = keys[from..i].iter().find(|n| n.pitch != head.pitch
+                && n.velocity > 0 && n.end >= head.start + 0.08) {
+                *start = first.start;
+            }
+        }
+        prior_end = *end;
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 struct Shape { first: usize, count: usize, score: f64 }
 
@@ -247,6 +266,16 @@ pub fn arrange_piano_passages(midi: &mut PrettyMidi, piano: &[Note], passages: &
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn piano_entry_keeps_a_chord_crossing_the_bin_but_not_an_earlier_pickup() {
+        let key = |pitch, start, end| Note { pitch, start, end, velocity: 60 };
+        let mut passages = [(1., 4.), (5., 8.)];
+        let keys = [key(47, 0.95, 1.6), key(69, 0.994, 2.), key(64, 1.004, 2.),
+            key(72, 4.985, 4.999), key(67, 5.012, 5.5)];
+        align_piano_entries(&mut passages, &keys);
+        assert_eq!(passages, [(0.994, 4.), (5., 8.)]);
+    }
 
     #[test]
     fn sustained_middle_chord_leaves_a_hand_for_the_upcoming_leap() {

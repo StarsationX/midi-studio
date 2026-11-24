@@ -123,3 +123,27 @@ fn touching_upper_fragment_needs_an_accent_or_an_independent_attack() {
         assert_eq!(extra.len(), count);
     }
 }
+
+#[test]
+fn a_confirmed_strike_replaces_its_short_lead_in_without_cutting_the_next_roll() {
+    let short = key(60, 0.18, 0.238);
+    let strike = Note { velocity: 85, ..key(60, 0.238, 0.75) };
+    let roll = key(65, 0.48, 0.70);
+    let next = Note { velocity: 104, ..key(67, 0.50, 0.80) };
+    let backing = [key(62, 0., 0.13), short, strike, roll, next];
+    let heard = key(60, 0.240, 0.65);
+    let piano = [heard, key(65, 0.485, 0.68)];
+    let line = melody(&[], &backing, &piano, 1., 0.5);
+    assert_eq!(line.len(), 3);
+    assert_eq!((line[1].start, line[1].end, line[2].start), (strike.start, roll.start, next.start));
+    let partners = treble_partners(&line, &backing, &piano, &[], &[]);
+    assert_eq!(partners.len(), 1);
+    assert_eq!((partners[0].pitch, partners[0].start), (roll.pitch, roll.start));
+
+    // Neither a neighboring piano key nor a copied detector event confirms
+    // the strike. An independently heard lead-in must also stay in place.
+    for evidence in [&[key(61, 0.240, 0.65)][..], &[strike], &[short, heard]] {
+        let line = melody(&[], &backing, evidence, 1., 0.5);
+        assert_eq!((line[1].start, line[1].end), (short.start, short.end));
+    }
+}
