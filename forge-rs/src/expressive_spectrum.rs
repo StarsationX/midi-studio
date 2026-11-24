@@ -7,6 +7,8 @@ use realfft::RealFftPlanner;
 use std::sync::LazyLock;
 
 include!("medley_piano_spectra.rs");
+#[path = "expressive_joint.rs"]
+mod joint;
 const N: usize = 1024;
 const HOP: usize = N / 4;
 const EPS: f32 = 1e-14;
@@ -50,7 +52,7 @@ struct Key {
 struct Voice { key: usize, template: usize, scale: f32, observed: [f32; 16] }
 struct Frame { end: usize, shared: bool, written: [f32; 3], target: [f32; 3] }
 
-fn collect(mix: &[f32], piano: &[(f64, f64)], keys: &mut [Key]) -> (Vec<Frame>, Vec<Voice>) {
+fn collect(mix: &[f32], piano: &[(f64, f64)], keys: &mut [Key], mut evidence: Option<&mut joint::Evidence>) -> (Vec<Frame>, Vec<Voice>) {
     let fft = RealFftPlanner::<f32>::new().plan_fft_forward(N);
     let (mut input, mut freq, mut scratch) = (fft.make_input_vec(), fft.make_output_vec(), fft.make_scratch_vec());
     let mut frames = Vec::new();
@@ -108,6 +110,7 @@ fn collect(mix: &[f32], piano: &[(f64, f64)], keys: &mut [Key]) -> (Vec<Frame>, 
         }
         if begin == voices.len() { continue; }
         if shared { for v in &voices[begin..] { keys[v.key].shared = true; } }
+        if let Some(e) = evidence.as_deref_mut() { e.record(target, shared, &amplitude); }
         frames.push(Frame { end: voices.len(), shared, written, target });
     }
     (frames, voices)
@@ -218,30 +221,30 @@ fn repeated_touch(keys: &mut [Key], frames: &[Frame], voices: &[Voice]) -> bool 
             }
         }
     }
-    // Frame indices are no longer needed. Group in place; the original MIDI
-    // track and note index stay on each Key.
-    keys.sort_unstable_by_key(|k| k.note.pitch);
+    // Keep keys in onset order: later observations refer to the same voices.
+    let mut by_pitch: [Vec<f32>; 78] = std::array::from_fn(|_| Vec::new());
+    for k in keys.iter_mut().filter(|k| k.weight > EPS) {
+        k.step = (k.step / k.weight).max(EPS).ln();
+        by_pitch[usize::from(k.note.pitch - 21)].push(k.step);
+    }
+    let medians = by_pitch.map(|mut v| {
+        let mid = v.len() / 2;
+        (v.len() >= 4).then(|| *v.select_nth_unstable_by(mid, f32::total_cmp).1)
+    });
     let mut changed = false;
-    for group in keys.chunk_by_mut(|a, b| a.note.pitch == b.note.pitch) {
-        let count = group.iter().filter(|k| k.weight > EPS).count();
-        if count < 4 { continue; }
-        for k in &mut *group {
-            k.step = if k.weight > EPS { (k.step / k.weight).max(EPS).ln() } else { f32::INFINITY };
-        }
-        let median = group.select_nth_unstable_by(count / 2, |a,b| a.step.total_cmp(&b.step)).1.step;
-        for k in group.iter_mut().filter(|k| k.step.is_finite()) {
+    for k in keys.iter_mut().filter(|k| k.weight > EPS) {
+        if let Some(median) = medians[usize::from(k.note.pitch - 21)] {
             let adjustment = (0.9 * (k.step - median)).clamp(-0.92, 0.92);
-            if adjustment != 0. {
-                k.gain *= adjustment.exp();
-                changed = true;
-            }
+            k.gain *= adjustment.exp();
+            changed |= adjustment != 0.;
         }
     }
     changed
 }
 
-/// Returns whether repeated-key accents were fitted and may need phrase balancing.
-pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)]) -> bool {
+/// Reuse the same source frames before and after the slower phrase balance.
+pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], attacks: &[Vec<f32>; 2],
+    balance_phrase: impl FnOnce(&mut PrettyMidi)) -> bool {
     if mix.len() < N || midi.instruments.len() != 2 { return false; }
     let mut keys = Vec::with_capacity(midi.note_count());
     let mut counts = [0u8; 78];
@@ -261,7 +264,8 @@ pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)]) ->
     let repeats = counts.iter().any(|&n| n >= 4);
     let span = N as f64 / RATE + 0.015;
     if !repeats && !keys.windows(2).any(|pair| pair[0].note.end + span > pair[1].note.start) { return false; }
-    let (mut frames, voices) = collect(mix, piano, &mut keys);
+    let mut evidence = repeats.then(joint::Evidence::default);
+    let (mut frames, mut voices) = collect(mix, piano, &mut keys, evidence.as_mut());
     if keys.iter().any(|k| k.shared) {
         anchor(&mut frames);
         fit(&mut keys, &frames, &voices);
@@ -270,6 +274,25 @@ pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)]) ->
     for k in keys.iter().filter(|k| k.gain != 1.) {
         let touch = (f32::from(k.note.velocity) * k.gain.powf(0.4)).round().clamp(1.,127.) as u8;
         midi.instruments[k.hand].notes[k.index].velocity = touch;
+    }
+    if accented {
+        balance_phrase(midi);
+        // Keys can be rounded or saturated by the half-second balance. Start
+        // the joint fit from what the MIDI will actually play.
+        for k in &mut keys {
+            k.note.velocity = midi.instruments[k.hand].notes[k.index].velocity;
+            let v = f32::from(k.note.velocity);
+            let scale = v*v*v.sqrt();
+            k.gain = scale / k.scale;
+            k.scale = scale;
+        }
+        for v in &mut voices { v.scale *= keys[v.key].gain; }
+        for k in &mut keys { k.gain = 1.; }
+        joint::refine(&mut keys, &frames, &voices, evidence.as_ref().unwrap(), attacks);
+        for k in keys {
+            midi.instruments[k.hand].notes[k.index].velocity =
+                (f32::from(k.note.velocity) * k.gain.powf(0.4)).round().clamp(1., 127.) as u8;
+        }
     }
     accented
 }
@@ -298,7 +321,7 @@ mod tests {
             let high = if (0.35..0.9).contains(&beat) { hi * (415.305 * phase).sin() } else { 0. };
             (low + high) as f32
         }).collect();
-        apply(&mut m, &audio, &[(2.95, 4.)]);
+        apply(&mut m, &audio, &[(2.95, 4.)], &Default::default(), |_| {});
         let (r,l) = (&m.instruments[0].notes, &m.instruments[1].notes);
         assert!(r[1].velocity > r[0].velocity && l[0].velocity > l[1].velocity);
         assert_eq!((r[2].velocity,l[2].velocity,r[3].velocity), (65,65,65));
@@ -321,7 +344,7 @@ mod tests {
                     .map_or(0., |(j, _)| (gain * if j % 2 == 0 { 0.09 } else { 0.5 }
                         * (std::f64::consts::TAU * 440. * t).sin()) as f32)
             }).collect::<Vec<_>>();
-            apply(&mut midi, &audio, &[(3.6, 4.2)]);
+            apply(&mut midi, &audio, &[(3.6, 4.2)], &Default::default(), |_| {});
             midi.instruments[0].notes.iter().map(|n| n.velocity).collect::<Vec<_>>()
         };
         let v = render(1.);

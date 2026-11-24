@@ -32,7 +32,7 @@ static PROBES: LazyLock<[Probe; 88]> = LazyLock::new(|| std::array::from_fn(|i| 
 
 // One Hann window over the early sounding part of the written note. Ignore
 // partials above the analysis band; never fold an overtone onto a lower key.
-fn residual(n: Note, mix: &[f32]) -> Option<f64> {
+fn attack_power(n: Note, mix: &[f32]) -> Option<f64> {
     let probe = PROBES.get(usize::from(n.pitch.checked_sub(21)?))?;
     if probe.weights[0] == 0. { return None; }
     let center = n.start + (0.5 * (n.end - n.start)).min(0.080);
@@ -50,15 +50,16 @@ fn residual(n: Note, mix: &[f32]) -> Option<f64> {
     if peak < 0.0001 { return None; }
     let power: f64 = (0..3).map(|j| probe.weights[j] *
         (a[j]*a[j] + b[j]*b[j] - probe.coeff[j]*a[j]*b[j]).max(0.)).sum();
-    Some(10. * power.max(1e-6).log10() - attack_db(n.pitch) - 25. * f64::from(n.velocity.max(1)).log10())
+    Some(power.max(1e-6))
 }
 
 struct Strike { hand: usize, index: usize, note: Note, section: usize, residual: f64, energy: f64, gain: f64 }
 
-pub(crate) fn balance(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)]) -> bool {
+pub(crate) fn balance(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], measured: &mut [Vec<f32>; 2]) -> bool {
     let [right, left] = midi.instruments.as_slice() else { return false };
     if mix.len() < WIDTH { return false; }
     let hands = [&right.notes, &left.notes];
+    for (dest, notes) in measured.iter_mut().zip(hands) { dest.resize(notes.len(), 0.); }
     let mut strikes = Vec::with_capacity(right.notes.len() + left.notes.len());
     let mut indices = [0; 2];
     let mut section = 0;
@@ -72,7 +73,9 @@ pub(crate) fn balance(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)]) 
         let note = hands[hand][index];
         while section < piano.len() && piano[section].1 <= note.start { section += 1; }
         if piano.get(section).is_some_and(|&(start, _)| start < note.end) { continue; }
-        let Some(residual) = residual(note, mix) else { continue };
+        let Some(power) = attack_power(note, mix) else { continue };
+        measured[hand][index] = power as f32;
+        let residual = 10. * power.log10() - attack_db(note.pitch) - 25. * f64::from(note.velocity.max(1)).log10();
         let duration = note.end - note.start;
         let velocity = f64::from(note.velocity);
         let energy = KeyResponse::new(note.pitch, note.velocity, duration).at(duration.min(0.12)).0
@@ -153,7 +156,7 @@ mod tests {
             let phase = std::f64::consts::TAU * t;
             (lo * (phase * 164.814).sin() + hi * (phase * 391.995).sin()) as f32
         }).collect();
-        assert!(balance(&mut m, &wave, &[(1.3, 1.8)]));
+        assert!(balance(&mut m, &wave, &[(1.3, 1.8)], &mut Default::default()));
         let (r, l) = (&m.instruments[0].notes, &m.instruments[1].notes);
         assert!(l[0].velocity > 64 && r[0].velocity < 64);
         assert!(l[1].velocity < 64 && r[1].velocity > 64);

@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.26 "Medley" — 2026-11-25
+
+### Changed
+
+- Medley now weighs a repeated note’s attack against the keys already ringing underneath it. It fits their velocities together and checks the loudness in 100 ms phrases, rather than letting one accent turn up the whole chord.
+- Regenerate an arrangement in **Forge → Medley** to hear the new dynamics. No new model is required. This changes piano touch, not which notes are detected or when they start and end.
+
 ## 3.1.25 "Medley" — 2026-11-25
 
 ### Changed

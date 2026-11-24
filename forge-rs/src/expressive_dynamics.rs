@@ -87,7 +87,8 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
     }
     let mut fit = Fit::default();
     if !shape_at(midi, source.iter().copied(), WINDOWS_PER_SECOND, &measured_piano, None, &mut fit) { return; }
-    let rebalanced = salience::balance(midi, mix, piano);
+    let mut attacks = Default::default();
+    let rebalanced = salience::balance(midi, mix, piano, &mut attacks);
     // Recompute what the voices sound like together after the melody accent.
     // Only a bounded correction may bring the wider mix back into balance.
     let residual = Some(if rebalanced { (0.95, 5.) } else { (0.65, 3.) });
@@ -108,10 +109,12 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
         shape_at(midi, source.chunks(WINDOWS_PER_SECOND / hz).map(average), hz, &measured_piano, residual, &mut fit);
     }
     shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, residual, &mut fit);
-    if spectrum::apply(midi, mix, piano) {
-        // After fitting repeated keys, restore the half-second phrase contour
-        // without fitting every individual accent back to the same loudness.
+    if spectrum::apply(midi, mix, piano, &attacks, |midi| {
         shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, Some((0.65, 4.)), &mut fit);
+    }) {
+        // Use the full-rate stems for the final short phrase contour: the
+        // pitched spectrum intentionally omits the very top of the recording.
+        shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 10).map(average), 10, &measured_piano, Some((0.62, 3.)), &mut fit);
     }
 }
 
