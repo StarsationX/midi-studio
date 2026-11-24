@@ -105,7 +105,7 @@ impl Fit {
             let focus = if fundamental[i] { 6.0 } else { 1.4 };
             // Agreement matters: a strong piano harmonic alone shouldn't
             // drown out the attack evidence for a different key.
-            let weight = focus * 190. * (played[i]/total * observed[i]/src).sqrt();
+            let weight = focus * 500. * (played[i]/total * observed[i]/src).sqrt();
             self.add(observed[i].max(0.35*noise), weight, NONE, reference,
                 voices.iter().map(|v| (v.key, v.scale * TONES[v.template][FIRST+i])));
         }
@@ -129,7 +129,7 @@ impl Fit {
             let (t, p, src) = (hit.time, usize::from(keys[hit.key].note.pitch - 21), hit.source);
             while next < keys.len() && keys[next].note.start < t+half { active.push(next); next += 1; }
             active.retain(|&i| keys[i].note.end.max(keys[i].note.start+0.06) + half + 0.024 > t);
-            let row = self.add(src, 27., p, NONE, active.iter().map(|&i| {
+            let row = self.add(src, 2500., p, NONE, active.iter().map(|&i| {
                 let k = &keys[i]; let age = t-k.note.start;
                 let cut = |dt: f64| CDF[((dt*RATE).round() + (N/2) as f64).clamp(0., N as f64) as usize];
                 let onset = cut(-age);
@@ -168,13 +168,33 @@ impl Fit {
     }
 
     fn solve(&mut self, keys: &mut [Key]) {
+        // Compare each attack to a typical strike in *its own* performance.
+        // The middle recording strike and the middle piano strike need not
+        // occur at the same time: median(observed / piano) loses that contrast.
         let mut levels: [Vec<f32>; GROUPS] = std::array::from_fn(|_| Vec::new());
-        for r in &self.rows { if r.group != NONE && r.weight > 0. { levels[r.group].push(r.target); } }
-        let medians = levels.map(|mut v| { let mid=v.len()/2; (v.len()>=4).then(|| *v.select_nth_unstable_by(mid,f32::total_cmp).1) });
+        let mut piano: [Vec<f32>; PITCHES] = std::array::from_fn(|_| Vec::new());
+        for r in &self.rows {
+            if r.group == NONE || r.weight == 0. { continue; }
+            if r.group < PITCHES {
+                let log_power = r.base.ln();
+                piano[r.group].push(log_power);
+                levels[r.group].push(r.target + log_power);
+            } else {
+                levels[r.group].push(r.target);
+            }
+        }
+        let median = |mut v: Vec<f32>| {
+            let mid = v.len() / 2;
+            (v.len() >= 4).then(|| *v.select_nth_unstable_by(mid, f32::total_cmp).1)
+        };
+        let mut medians = levels.map(median);
+        for (level, played) in medians.iter_mut().zip(piano.map(median)) {
+            if let (Some(src), Some(base)) = (level, played) { *src -= base; }
+        }
         for r in &mut self.rows {
             if r.group != NONE {
                 if let Some(m) = medians[r.group] {
-                    let bound = if r.group >= PHRASE { 2.5 } else { 1.6 };
+                    let bound = if (PITCHES..PHRASE).contains(&r.group) { 1.6 } else { 2.5 };
                     r.target = (r.target - m).clamp(-bound, bound);
                 } else { r.weight = 0.; }
             }
@@ -254,7 +274,7 @@ pub(super) fn refine(keys: &mut [Key], frames: &[Frame], voices: &[Voice], sourc
             let target = source.bands[i][j];
             if bands[i][j] < peak[j]*0.004 || target < src_peak[j]*0.001 { continue; }
             let reference = if j==0 { mid } else { NONE };
-            let row = fit.add(target, [3.7,2.6,5.4][j], PITCHES+j, reference,
+            let row = fit.add(target, [275.,110.,180.][j], PITCHES+j, reference,
                 sounding.iter().map(|v| (v.key, v.scale*KEYS[v.template].bands[j])));
             if j==1 { mid = row; }
         }
@@ -265,4 +285,29 @@ pub(super) fn refine(keys: &mut [Key], frames: &[Frame], voices: &[Voice], sourc
     let mut strikes = fit.attacks(keys, attacks, true);
     fit.solve(keys);
     fit.follow_repeats(keys, first_row, &mut strikes);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pmidi::Note;
+
+    #[test]
+    fn accents_can_trade_places_without_changing_the_typical_strike_level() {
+        let mut fit = Fit::default();
+        let mut keys = Vec::new();
+        // Same distribution, different order. Most strikes need to get
+        // louder, but the recording as a whole hasn't changed gain.
+        let played = [1., 1.3, 1.7, 2.2, 2.9];
+        let recorded = [1.7, 2.2, 2.9, 1., 1.3];
+        for (i, (&power, src)) in played.iter().zip(recorded).enumerate() {
+            let start = i as f64;
+            keys.push(Key { note: Note { pitch: 69, velocity: 64, start, end: start + 0.3 },
+                hand: 0, index: i, scale: 1., gain: 1., energy: 0., weight: 0., step: 0., shared: false });
+            fit.add(src, 300., 69 - 21, NONE, std::iter::once((i, power)));
+        }
+        fit.solve(&mut keys);
+        assert!(keys[..3].iter().all(|k| k.gain > 1.4));
+        assert!(keys[3..].iter().all(|k| k.gain < 0.65));
+    }
 }

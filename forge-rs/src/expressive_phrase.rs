@@ -18,7 +18,7 @@ impl Fit {
         // accent from pulling a whole phrase away from its recorded level.
         // Give register balance more time than overall loudness: a single
         // accented syllable needn't pull the bass out of the next chord.
-        let windows = [(2, 300., 56.25), (10, 750., 625.)];
+        let windows = [(2, 1650., 225.), (10, 4125., 2500.)];
         for (group, (stride, level_weight, balance_weight)) in windows.into_iter().enumerate() {
             active.clear();
             let (mut next, mut passage) = (0, 0);

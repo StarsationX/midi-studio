@@ -119,9 +119,9 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
     if spectrum::apply(midi, mix, piano, &attacks, source, |midi| {
         shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, Some((0.65, 4.)), &mut fit);
     }) {
-        // Use the full-rate stems for the final short phrase contour: the
-        // pitched spectrum intentionally omits the very top of the recording.
-        shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 10).map(average), 10, &measured_piano, Some((0.72, 3.)), &mut fit);
+        // The joint fit already balances the phrase and its individual
+        // strikes. Trim leftover mix drift without flattening the accents.
+        shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 10).map(average), 10, &measured_piano, Some((0.43, 2.)), &mut fit);
     }
 }
 

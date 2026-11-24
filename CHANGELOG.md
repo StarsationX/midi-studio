@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.31 "Medley" — 2026-11-25
+
+### Changed
+
+- Strong and quiet strikes of the same pitch can sound further apart in a band arrangement. Medley now measures what is typical for that pitch separately in the recording and in the piano, rather than assuming their accents already line up.
+- Re-run **Forge → Medley** to hear the change. No new model is needed. This update changes key velocities, not the note detector or your existing MIDI files.
+
 ## 3.1.30 "Medley" — 2026-11-25
 
 ### Changed

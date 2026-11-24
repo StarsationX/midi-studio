@@ -68,7 +68,7 @@ If the bass steps back while the melody stays loud, the piano should do the same
 
 Listen to a long melody note as the next chord comes in. Medley compares the ringing piano keys with the recording throughout the overlap, not just when the keys are struck. That helps the stronger voice carry without an extra accent from an overtone the two notes share. On sustained bass, it checks whether the low pitch is still ringing before writing an octave jump.
 
-Listen to a repeated melody key: the first strike can be strong, the next a quiet answer. Medley compares nearby strikes of the same pitch, discounting sound from other keys still ringing. In a rolled chord it also compares the two hands, so bringing out the melody needn’t make the whole chord louder. Re-run **Forge → Medley** to hear the change in an existing song.
+Listen to a melody that repeats one key, first as a strong accent and then as a quiet answer. Medley compares each strike with that pitch’s usual level in the recording and in the sampled piano. A naturally bright piano key doesn’t have to play every syllable loudly. Re-run **Forge → Medley** to make a new MIDI; your earlier arrangement stays available for comparison.
 
 Listen to the space between picked notes. One string can keep ringing while the next one starts; Medley can hold that piano key instead of cutting both notes to the same length. For a short low pluck, it follows the pitch and an overtone into the decay rather than stretching every note with the sustain pedal. Vocal phrases still release when the vowel fades.
 
