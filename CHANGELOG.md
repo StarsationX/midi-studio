@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.23 "Medley" — 2026-11-24
+
+### Changed
+
+- When a new chord enters under a held melody, Medley compares the keys throughout the overlap to decide how hard to play each one. A ringing bass string and a new note can share an overtone without both getting a louder touch.
+- Re-run Forge in Medley mode to hear the new voicing. Existing MIDI files stay as they are; no new model or setup is required.
+
 ## 3.1.22 "Medley" — 2026-11-24
 
 ### Changed

@@ -5,7 +5,7 @@ use crate::pmidi::{Note, PrettyMidi};
 use std::sync::LazyLock;
 
 const STEP: usize = 8;
-const RATE: f64 = 44_100. / STEP as f64;
+pub(super) const RATE: f64 = 44_100. / STEP as f64;
 const WIDTH: usize = 640;
 const NEAR: f64 = 0.22;
 const LIMIT_DB: f64 = 6.;

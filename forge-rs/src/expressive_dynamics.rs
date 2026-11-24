@@ -4,6 +4,8 @@ use crate::pmidi::PrettyMidi;
 mod response;
 #[path = "expressive_salience.rs"]
 pub(super) mod salience;
+#[path = "expressive_spectrum.rs"]
+mod spectrum;
 use response::KeyResponse;
 
 // Must divide the 44.1 kHz separator clock and nest inside half-second
@@ -106,6 +108,7 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
         shape_at(midi, source.chunks(WINDOWS_PER_SECOND / hz).map(average), hz, &measured_piano, residual, &mut fit);
     }
     shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, residual, &mut fit);
+    spectrum::apply(midi, mix, piano);
 }
 
 #[derive(Default)]

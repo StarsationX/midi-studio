@@ -66,7 +66,7 @@ Listen for repeated strums: the right hand can strike one key again while the ot
 
 In a band mix, listen for the bass stepping back under the melody. Medley measures the middle register separately from deep bass and very bright sounds, so a wash behind the singer needn’t become a piano accent. It compares that balance with how the bundled Grand Piano’s 88 keys actually sound, from the first strike through the release. Drum hits alone don’t set piano velocity.
 
-When two notes land together, Medley also checks which pitch stands out in the recording. It can bring that piano key forward without turning up the whole chord. On sustained bass, it checks whether the low pitch is still ringing before writing an octave jump.
+Listen to a long melody note as the next chord comes in. Medley compares the ringing piano keys with the recording throughout the overlap, not just when the keys are struck. That helps the stronger voice carry without an extra accent from an overtone the two notes share. On sustained bass, it checks whether the low pitch is still ringing before writing an octave jump.
 
 A quiet pickup and an accented downbeat can now get different touches even a fraction of a beat apart. For a held key, Medley follows the part of the note that still rings rather than assigning it the accent of the next strike.
 
