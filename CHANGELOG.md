@@ -6,6 +6,16 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.22 "Medley" — 2026-11-24
+
+### Changed
+
+- A backing key no longer has to be as loud as the melody just because both land together. Medley compares the overlapping notes with the recording and adjusts their piano touch. Exposed piano passages keep their measured velocities.
+
+### Fixed
+
+- A sustained bass note with a swelling overtone is less likely to jump up an octave. A real change of pitch can still start a new note.
+
 ## 3.1.21 "Medley" — 2026-11-24
 
 ### Changed

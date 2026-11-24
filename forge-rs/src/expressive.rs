@@ -48,7 +48,7 @@ pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> R
     tenor::apply(&mut midi, &evidence.backing, &evidence.instrumental_wave, &evidence.piano_passages);
     strum::apply(&mut midi, &evidence.instrumental, &evidence.backing, &lead, &evidence.piano_passages, &evidence.instrumental_wave);
     attacks::hold_lower(&mut midi, &evidence.backing, &evidence.piano_passages, &evidence.instrumental_wave);
-    dynamics::shape(&mut midi, &evidence.pitched_power, &evidence.piano_passages);
+    dynamics::shape(&mut midi, &evidence.pitched_power, &evidence.piano_passages, &evidence.pitched_mix);
     attacks::accent_repeats(&mut midi, &evidence.instrumental_wave, &evidence.instrumental, &lead, &evidence.piano_passages);
     let count = midi.note_count();
     if count == 0 { bail!("No playable notes were detected in the selected audio"); }

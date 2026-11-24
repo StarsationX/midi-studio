@@ -3,7 +3,7 @@
 use super::{apply_window, ep_name, file_stem, roformer_model, run_separation, safe_name,
     say_device, say_engine, start_runtime, transcribe, transkun_assets, work_root, write_stem_wav,
     Args, Knobs};
-use super::expressive_dynamics::{Power, WINDOWS_PER_SECOND};
+use super::expressive_dynamics::{salience, Power, WINDOWS_PER_SECOND};
 use crate::audio::{self, Audio, SourceKind};
 use crate::demix::{Planar, Stems};
 use crate::pmidi::Note;
@@ -25,6 +25,8 @@ pub struct Evidence {
     pub sustain: Vec<(f64, f64)>,
     /// Broadband, bass and melody-band energy on the dynamics clock.
     pub(super) pitched_power: Vec<Power>,
+    /// Drum-free, reduced-rate signal used to compare individual chord pitches.
+    pub(super) pitched_mix: Vec<f32>,
     pub harmony: crate::expressive_arrange::Harmony,
     pub duration: f64,
     pub mixture_tempos: Vec<(f64, f64)>,
@@ -156,6 +158,12 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         bail!("Separated audio length differs from the source window.");
     }
     let Signals { vocals, bass, drums, harmony, mut piano_passages, pitched_power } = split(separated.stems, frames)?;
+    const { assert!(SAMPLE_RATE == 44_100); }
+    let pitched_mix = if duration < 4. || piano_passages.first().is_some_and(|&(a, b)| a <= 0. && b >= duration) {
+        Vec::new()
+    } else {
+        salience::mix(&bass, &vocals, &harmony.samples)
+    };
     let mut instrumental = Vec::new();
     let mut instrumental_wave = Vec::new();
     let mut backing = Vec::new();
@@ -211,7 +219,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         pm.write(&work.join("backing.mid"))?;
         println!("  (kept stems: {})", work.display());
     }
-    Ok(Evidence { vocals, bass, bass_line, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, harmony: chord_evidence, piano_passages, sustain, pitched_power, duration, source_start, mixture_tempos })
+    Ok(Evidence { vocals, bass, bass_line, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, harmony: chord_evidence, piano_passages, sustain, pitched_power, pitched_mix, duration, source_start, mixture_tempos })
 }
 
 fn supplement_instrumental(instrumental: &mut Vec<Note>, piano: &[Note]) {

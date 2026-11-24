@@ -8,6 +8,11 @@ struct Profile {
 
 include!("medley_piano_profiles.rs");
 
+/// Pitched attack of the piano sample, in the same bands the arrangement measures.
+pub(super) fn attack_db(pitch: u8) -> f64 {
+    0.01 * f64::from(ATTACK_DB_X100[usize::from(pitch - 21)])
+}
+
 const RELEASE: f64 = 0.45;
 const MAX_SPAN: f64 = TIMES[TIMES.len() - 1];
 

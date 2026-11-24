@@ -234,6 +234,28 @@ mod fundamental_tests {
     }
 
     #[test]
+    fn fading_fundamental_is_one_strike_but_a_real_upper_note_is_not() {
+        for harmonic in [2., 3.] {
+            for sustain in [true, false] {
+                let wave: Vec<_> = (0..RATE).map(|i| {
+                    let t = i as f32 / RATE as f32;
+                    let phase = std::f32::consts::TAU * 65.4064 * t; // C2
+                    let remaining = if sustain { 0.35 } else { 0. };
+                    let root = remaining + (1. - remaining) * ((0.55 - t) / 0.2).clamp(0., 1.);
+                    root * phase.sin() + 0.8 * (harmonic * phase).sin()
+                }).collect();
+                let notes = bass_notes(&wave, RATE as u32).unwrap();
+                let pitches: Vec<_> = notes.iter().map(|n| n.pitch).collect();
+                if sustain {
+                    assert_eq!(pitches, [36]);
+                } else {
+                    assert_eq!(pitches, [36, if harmonic == 2. { 48 } else { 55 }]);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn shallow_dip_needs_a_new_attack_not_a_slow_swell() {
         let mut envelope = [1.; 48];
         envelope[20..25].copy_from_slice(&[0.8, 0.65, 0.55, 0.72, 0.97]);
@@ -310,6 +332,48 @@ fn steady_key(audio: &[f32], key: u8) -> u8 {
         }
     }
     key
+}
+
+// A decaying string can lose its fundamental in the spectral picker while
+// its second or third harmonic keeps ringing. Check the waveform across
+// the apparent attack and throughout the higher label. A true octave also
+// repeats at the longer period, so it must fail the shorter-period check.
+fn ringing_overtone(audio: &[f32], first: usize, stop: usize, root: i16, harmonic: usize) -> bool {
+    const WINDOW: usize = 4 * HOP;
+    let at = first * HOP;
+    let end = (stop * HOP).min(audio.len());
+    let period = RATE as f32 / 440. * 2f32.powf((69. - root as f32) / 12.);
+    let power = |at: usize| audio[at..at + WINDOW].iter().map(|&x| x * x).sum::<f32>();
+    let error = |at: usize, period: f32, power: f32| {
+        let current = &audio[at..at + WINDOW];
+        // Allow half a semitone of tuning error on either side.
+        let lo = (period / 1.0293).round() as usize;
+        let hi = (period * 1.0293).round() as usize;
+        (lo..=hi).fold(1_f32, |best, lag| {
+            let mut difference = 0.;
+            let mut previous_power = 0.;
+            for (&x, &y) in current.iter().zip(&audio[at - lag..at - lag + WINDOW]) {
+                difference += (x - y) * (x - y);
+                previous_power += y * y;
+            }
+            best.min(difference / (power + previous_power).max(1e-12))
+        })
+    };
+    let boundary = at - WINDOW / 2 + (period * 0.5) as usize;
+    if error(boundary, period, power(boundary)) > 0.07 {
+        return false;
+    }
+    let last = end - WINDOW;
+    let mut pos = (at + period.round() as usize).min(last);
+    loop {
+        let current_power = power(pos);
+        let low = error(pos, period, current_power);
+        if low > 0.12 { return false; }
+        let upper = error(pos, period / harmonic as f32, current_power);
+        if upper < 0.04 || low >= 0.60 * upper { return false; }
+        if pos == last { return true; }
+        pos = (pos + WINDOW).min(last);
+    }
 }
 
 fn restrikes(smooth: &[f32], a: usize, b: usize, reference: f32) -> Vec<usize> {
@@ -508,6 +572,22 @@ fn detect_bass(mono: &[f32], sample_rate: u32, mut on_note: impl FnMut(Note, f64
         let mut b = a + 1;
         while b < count && keys[b] == keys[a] {
             b += 1;
+        }
+        let mut run_start = a;
+        while keys[a] >= 0 && b < count {
+            let harmonic = match keys[b] - keys[a] {
+                0 => None, // The spectral picker returned to the original root.
+                12 if b - run_start >= 12 => Some(2),
+                19 if b - run_start >= 12 => Some(3),
+                _ => break,
+            };
+            let mut stop = b + 1;
+            while stop < count && keys[stop] == keys[b] { stop += 1; }
+            if let Some(h) = harmonic {
+                if stop - b < 5 || !ringing_overtone(audio, b, stop, keys[a], h) { break; }
+            }
+            run_start = b;
+            b = stop;
         }
         if keys[a] >= 0 && b - a >= 9 {
             for pair in restrikes(&smooth, a, b, reference).windows(2) {

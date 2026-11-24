@@ -2,6 +2,8 @@
 use crate::pmidi::PrettyMidi;
 #[path = "medley_key_response.rs"]
 mod response;
+#[path = "expressive_salience.rs"]
+pub(super) mod salience;
 use response::KeyResponse;
 
 // Must divide the 44.1 kHz separator clock and nest inside half-second
@@ -75,28 +77,35 @@ impl Power {
 // low-band fraction is about two thirds, not one.
 fn bass_touch(low_share: f64) -> f64 { (low_share / 0.65).min(1.) }
 
-pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)]) {
+pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)], mix: &[f32]) {
     let measured_piano = |t: f64| piano.get(piano.partition_point(|&(_, end)| end <= t))
         .is_some_and(|&(start, _)| start <= t);
     if source.len() < 4 * WINDOWS_PER_SECOND || !midi.instruments.iter().flat_map(|t| &t.notes).any(|n| !measured_piano(n.start)) {
         return;
     }
     let mut fit = Fit::default();
-    if !shape_at(midi, source.iter().copied(), WINDOWS_PER_SECOND, &measured_piano, false, &mut fit) { return; }
+    if !shape_at(midi, source.iter().copied(), WINDOWS_PER_SECOND, &measured_piano, None, &mut fit) { return; }
+    let rebalanced = salience::balance(midi, mix, piano);
     // Recompute what the voices sound like together after the melody accent.
     // Only a bounded correction may bring the wider mix back into balance.
-    shape_at(midi, source.iter().copied(), WINDOWS_PER_SECOND, &measured_piano, true, &mut fit);
+    let residual = Some(if rebalanced { (0.95, 5.) } else { (0.65, 3.) });
+    shape_at(midi, source.iter().copied(), WINDOWS_PER_SECOND, &measured_piano, residual, &mut fit);
     // A note can have only one velocity. After fitting the accents, correct
     // leftover phrase drift without flattening their differences.
-    let phrases = source.chunks(WINDOWS_PER_SECOND / 2).map(|chunk| {
+    let average = |chunk: &[Power]| {
         let mut p = Power::default();
         for s in chunk { p.total += s.total; p.low += s.low; p.mid += s.mid; }
         p.total /= chunk.len() as f64;
         p.low /= chunk.len() as f64;
         p.mid /= chunk.len() as f64;
         p
-    });
-    shape_at(midi, phrases, 2, &measured_piano, true, &mut fit);
+    };
+    if rebalanced {
+        // Bring back short accents without undoing the new chord balance.
+        let hz = 10;
+        shape_at(midi, source.chunks(WINDOWS_PER_SECOND / hz).map(average), hz, &measured_piano, residual, &mut fit);
+    }
+    shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, residual, &mut fit);
 }
 
 #[derive(Default)]
@@ -107,7 +116,7 @@ struct Fit {
 }
 
 fn shape_at(midi: &mut PrettyMidi, source: impl ExactSizeIterator<Item = Power>, per_second: usize,
-    measured_piano: &impl Fn(f64) -> bool, residual: bool, fit: &mut Fit) -> bool {
+    measured_piano: &impl Fn(f64) -> bool, residual: Option<(f64, f64)>, fit: &mut Fit) -> bool {
     let hz = per_second as f64;
     // Estimate the relative power of the *written arrangement*: a full chord
     // naturally plays louder than a single key, even at identical velocity.
@@ -153,7 +162,7 @@ fn shape_at(midi: &mut PrettyMidi, source: impl ExactSizeIterator<Item = Power>,
         && p.total > 0.006 * peak.1.total && !measured_piano((i as f64 + 0.5) / hz);
     // Fit a melody accent to its register. For the bounded follow-up,
     // reference the wider mix so an entire phrase doesn't drift in volume.
-    let loudness = |p: Power| if residual { p.phrase_power() } else { p.melody_power() };
+    let loudness = |p: Power| if residual.is_some() { p.phrase_power() } else { p.melody_power() };
     ratios.clear();
     ratios.reserve(bins.len());
     for (i, &(s, p)) in bins.iter().enumerate() {
@@ -180,6 +189,7 @@ fn shape_at(midi: &mut PrettyMidi, source: impl ExactSizeIterator<Item = Power>,
         let level_db = |ratio: f64| (10. * ratio.max(1e-9).log10()).clamp(-9., 6.);
         let floor = peak.1.total * 1e-9;
         let volume = level_db(loudness(s) / (loudness(p).max(floor) * anchor));
+        if per_second == 10 { return (volume, 0.); }
         let bass_volume = level_db(s.total / (p.total.max(floor) * broadband_anchor));
         let tilt = balance_anchor.map_or(0., |base| {
             let confidence = (p.low / (peak.1.low * 0.01)).min(1.);
@@ -208,7 +218,7 @@ fn shape_at(midi: &mut PrettyMidi, source: impl ExactSizeIterator<Item = Power>,
             left + at.fract() * (level(gains[(i + 1).min(gains.len() - 1)]) - left)
         };
         let db = (sample(1. / 6.) + sample(0.5) + sample(5. / 6.)) / 3.;
-        let db = if residual { (0.65 * db).clamp(-3., 3.) } else { db };
+        let db = residual.map_or(db, |(strength, bound)| (strength * db).clamp(-bound, bound));
         n.velocity = (f64::from(n.velocity) * 10_f64.powf(db / 25.)).round().clamp(1.0, 127.0) as u8;
     }
     true
@@ -234,7 +244,7 @@ mod tests {
             let total = if t % 0.5 >= 0.25 { 1. } else { 0.12 };
             Power { total, low: 0.03 * total, mid: 0.7 * total }
         }).collect();
-        shape(&mut midi, &source, &[]);
+        shape(&mut midi, &source, &[], &[]);
         for pair in midi.instruments[0].notes[4..28].chunks_exact(2) {
             assert!(pair[1].velocity > pair[0].velocity + 10);
         }
@@ -251,7 +261,7 @@ mod tests {
         }
         midi.instruments.push(hand);
         let source = [Power { total: 1., low: 0.03, mid: 0.7 }; 12 * WINDOWS_PER_SECOND];
-        shape(&mut midi, &source, &[]);
+        shape(&mut midi, &source, &[], &[]);
         let notes = &midi.instruments[0].notes;
         // The bundled F#4 is much quieter than A4 at the same MIDI velocity.
         assert!(notes[4].velocity > notes[16].velocity + 10);
@@ -271,7 +281,7 @@ mod tests {
                 let total = scale * if i < 6 * WINDOWS_PER_SECOND { 0.1 } else { 1.0 };
                 Power { total, low: 0., mid: 0.7 * total }
             }).collect();
-            shape(&mut m, &source, &[(12., 15.)]);
+            shape(&mut m, &source, &[(12., 15.)], &[]);
             m.instruments[0].notes.iter().map(|n| n.velocity).collect()
         }
         let v = velocities(1.);
@@ -299,7 +309,7 @@ mod tests {
             hand.notes.push(Note { start, end: start + 0.35, pitch: 72, velocity: 75 });
         }
         midi.instruments.push(hand);
-        shape(&mut midi, &source, &[]);
+        shape(&mut midi, &source, &[], &[]);
         let keys = &midi.instruments[0].notes;
         assert!(keys[5].velocity > keys[17].velocity);
     }
@@ -325,7 +335,7 @@ mod tests {
             }
         }
         midi.instruments.push(keys);
-        shape(&mut midi, &phrases, &[]);
+        shape(&mut midi, &phrases, &[], &[]);
         let n = &midi.instruments[0].notes;
         assert!(n[10].velocity > n[34].velocity); // bass steps back
         assert!(n[11].velocity < n[35].velocity); // treble comes forward
