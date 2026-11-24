@@ -63,6 +63,7 @@ Start at **120 BPM** and **2 steps per beat**: each step lasts a quarter second.
 **Medley** (formerly **Expressive Piano**) arranges a recording for two hands: the right hand follows vocal and instrumental melodies, while the left plays bass and chords. Choose **Melody** instead if you want only the lead line.
 
 Quiet piano intros and outros keep both hands through brief rests. When a chord is too wide to play, Medley favors the top and bass notes without shifting their pitches. In dense instrumental passages, the right hand can strike an upper note while a lower one is still ringing. The left hand uses the bass and the strength of the backing notes to choose a chord. It’s an arrangement, not a note-for-note transcription.
+For a strummed chord, Medley can keep a middle note as well as the melody when two detectors agree on its pitch and attack, and the other hand leaves room.
 
 In a band mix, the piano gets softer or louder with the pitched instruments. If a riff repeats the same key, Medley listens for which pluck was accented instead of making each repeat equally loud. A louder drum hit alone won’t accent every key.
 Medley can move an early instrumental attack closer to a clear pluck and release a vocal melody key when the vowel fades. These corrections follow the recording rather than snapping notes to the tempo grid.

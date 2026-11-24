@@ -60,11 +60,10 @@ fn fill_candidate(n: &Note) -> bool {
     (53..=96).contains(&n.pitch) && n.velocity >= 45 && n.end - n.start >= 0.030
 }
 
-// Independent agreement permits an upper instrumental attack to emerge over a
-// sustained backing voice. Piano fallbacks copied into the instrument stream
-// are the same observation, not a confirming second detector.
-fn confirmed_upper_attack(n: &Note, piano: &[Note]) -> bool {
-    if n.pitch < 64 || n.end - n.start < 0.08 { return false; }
+// Piano fallbacks copied into the instrument stream are the same observation,
+// not a confirming second detector.
+fn confirmed_attack(n: &Note, piano: &[Note]) -> bool {
+    if n.end - n.start < 0.08 { return false; }
     let first = piano.partition_point(|k| k.start < n.start - 0.035);
     let mut confirmed = false;
     for k in piano[first..].iter().take_while(|k| k.start <= n.start + 0.035) {
@@ -74,6 +73,10 @@ fn confirmed_upper_attack(n: &Note, piano: &[Note]) -> bool {
         }
     }
     confirmed
+}
+
+fn confirmed_upper_attack(n: &Note, piano: &[Note]) -> bool {
+    n.pitch >= 64 && confirmed_attack(n, piano)
 }
 
 // A short lower-key repeat under an already sounding octave can come from
@@ -215,7 +218,7 @@ fn melody(vocals: &[Note], instrumental: &[Note], piano: &[Note], duration: f64,
 /// Retain a second, sustained instrumental key at an already selected attack.
 /// One of the two keys must agree across detectors. A single piano fallback
 /// or a stack of octave partials is not evidence of two playable voices.
-fn treble_dyads(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[Note], bass: &[Note]) -> Vec<Note> {
+fn treble_dyads(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[Note], mut left: &[Note]) -> Vec<Note> {
     let mut dyads = Vec::new();
     for (i, key) in lead.iter().enumerate() {
         if key.end - key.start < 0.08 || vocals.binary_search_by(|n| n.start.total_cmp(&key.start)).is_ok() {
@@ -227,17 +230,25 @@ fn treble_dyads(lead: &[Note], instrumental: &[Note], piano: &[Note], vocals: &[
         if attacks.len() < 2 { continue; }
         let Some(primary) = attacks.iter().find(|n| n.pitch == key.pitch && n.start == key.start) else { continue };
         let supported = confirmed_upper_attack(primary, piano);
+        // Left-hand chords overlap: a later low note need not release an
+        // earlier high one. Discard only an expired prefix of the sorted track.
+        while left.first().is_some_and(|n| n.end <= key.start - 0.035) {
+            left = &left[1..];
+        }
         let partner = attacks.iter().filter_map(|n| {
-            // Stay above the left-hand chord ceiling. Do not extend across
-            // either neighboring melody key; retain the source's rolled onset.
+            // Preserve the source's rolled onset, but not at the expense of
+            // either neighboring melody key or the sounding left hand.
             let end = n.end.min(key.end);
-            if n.pitch <= 65 || !fill_candidate(n) || !(2..=10).contains(&n.pitch.abs_diff(key.pitch))
+            if !fill_candidate(n) || !(2..=10).contains(&n.pitch.abs_diff(key.pitch))
                 || end - n.start.max(key.start) < 0.08 || (i > 0 && n.start < lead[i - 1].end)
-                || overlapping(bass, n.start, end).any(|b| b.pitch >= n.pitch)
+                || left.iter().take_while(|b| b.start < end).any(|b| b.end > n.start && b.pitch >= n.pitch)
             { return None; }
-            let confirmed = confirmed_upper_attack(n, piano);
-            if !confirmed && !(supported && n.end - n.start >= 0.12) { return None; }
-            Some(((confirmed, n.velocity, n.pitch), Note {
+            let confirmed = confirmed_attack(n, piano);
+            // A middle-register partner must itself be corroborated, and
+            // fills only a free voice; it never displaces an upper dyad.
+            let upper = n.pitch > 65;
+            if !confirmed && !(upper && supported && n.end - n.start >= 0.12) { return None; }
+            Some(((upper, confirmed, n.velocity, n.pitch), Note {
                 end, velocity: key.velocity.saturating_sub(10).max(1), ..*n
             }))
         }).max_by_key(|&(rank, _)| rank);
@@ -612,15 +623,15 @@ pub(crate) fn arrange_with_instruments(
 ) -> PrettyMidi {
     let mut midi = PrettyMidi::with_tempo_map(960, tempos);
     let beat = midi.tick_scales[0].1 * f64::from(midi.resolution);
-    let mut evidence = ordered(backing, duration);
+    let piano = ordered(backing, duration);
     let vocals = ordered(vocals, duration);
     let instrumental = ordered(instrumental, duration);
-    let mut lead = melody(&vocals, &instrumental, &evidence, duration, beat);
+    let mut lead = melody(&vocals, &instrumental, &piano, duration, beat);
     let bass = match bass {
         Some(line) => ordered(line, duration),
         None => {
             let mut low: Vec<Note> = vec![];
-            for &n in evidence.iter().filter(|n| n.pitch < 48 && n.velocity >= 49) {
+            for &n in piano.iter().filter(|n| n.pitch < 48 && n.velocity >= 49) {
                 if low.last().is_none_or(|last| n.start - last.start >= 0.095) {
                     low.push(n);
                 }
@@ -628,14 +639,19 @@ pub(crate) fn arrange_with_instruments(
             low
         }
     };
-    let mut dyads = treble_dyads(&lead, &instrumental, &evidence, &vocals, &bass);
-    interior_treble(&lead, &instrumental, &evidence, &vocals, &bass, &mut dyads, duration);
-    // The instrumental detector can veto a tie, never supply a chord tone.
-    if !harmonic_notes.is_empty() {
-        evidence.extend_from_slice(harmonic_notes);
-        order_in_place(&mut evidence, duration);
-    }
-    let left = left_hand(&bass, &evidence, &instrumental, &groups(&evidence), &lead, duration, beat);
+    // Harmonic estimates can voice the left hand, but cannot independently
+    // confirm a second right-hand attack.
+    let mut combined;
+    let evidence = if harmonic_notes.is_empty() { &piano } else {
+        combined = Vec::with_capacity(piano.len() + harmonic_notes.len());
+        combined.extend_from_slice(&piano);
+        combined.extend_from_slice(harmonic_notes);
+        order_in_place(&mut combined, duration);
+        &combined
+    };
+    let left = left_hand(&bass, evidence, &instrumental, &groups(evidence), &lead, duration, beat);
+    let mut dyads = treble_dyads(&lead, &instrumental, &piano, &vocals, &left);
+    interior_treble(&lead, &instrumental, &piano, &vocals, &bass, &mut dyads, duration);
     if !dyads.is_empty() {
         lead.extend(dyads);
         lead.sort_unstable_by(|a, b| a.start.total_cmp(&b.start).then(a.pitch.cmp(&b.pitch)));

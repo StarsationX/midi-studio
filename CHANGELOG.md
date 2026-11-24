@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.12 "Medley" — 2026-11-24
+
+### Changed
+
+- The right hand can now play a previously missed middle note in a strummed chord when both pitch detectors hear its attack and the left hand leaves room. An upper melody note is not traded away for the extra key.
+- The left hand follows differences in the strength of nearby bass plucks instead of playing a quiet pickup and an accent with nearly the same touch. This changes velocity, not the selected bass pitches or rhythm.
+- A sustained vocal pickup can be recovered before a repeated syllable when both the vocal model and the isolated voice support that key. An unpitched breath alone does not add a note.
+
 ## 3.1.11 "Medley" — 2026-11-24
 
 ### Changed

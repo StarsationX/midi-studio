@@ -236,7 +236,7 @@ mod fundamental_tests {
         let bass = |start| Note { start, end: start + 0.5, pitch: 36, velocity: 60 };
         let line = BassLine {
             notes: (0..4).map(|t| bass(t as f64)).collect(),
-            damped: (0..4).map(|t| (t, t as f64 + 0.4)).collect(),
+            strokes: (0..4).map(|t| Stroke { residual_db: t as f32 * 5., end: t as f64 + 0.4 }).collect(),
         };
         let mut left = Instrument::new(0, false, "Left");
         left.notes = vec![
@@ -248,9 +248,12 @@ mod fundamental_tests {
         let mut midi = PrettyMidi::new(960, 120.);
         midi.instruments.push(Instrument::new(0, false, "Right"));
         midi.instruments.push(left);
-        line.apply_releases(&mut midi, &[(1., 2.)]);
+        line.articulate(&mut midi, &[(1., 2.)]);
         let ends: Vec<_> = midi.instruments[1].notes.iter().map(|n| n.end).collect();
         assert_eq!(ends, [0.4, 0.5, 1.5, 2.3, 3.5]);
+        let velocity: Vec<_> = midi.instruments[1].notes.iter().map(|n| n.velocity).collect();
+        assert!(velocity[0] < 60);
+        assert_eq!(velocity[1..], [60; 4]);
     }
 }
 
@@ -321,18 +324,23 @@ pub fn bass_notes(mono: &[f32], sample_rate: u32) -> Result<Vec<Note>> {
     detect_bass(mono, sample_rate, |_, _| {})
 }
 
+struct Stroke {
+    // Recorded attack power minus the nominal piano velocity, both in dB.
+    residual_db: f32,
+    end: f64,
+}
+
 /// Pitch occupancy is evidence for harmony and voicing. Physical damping is
 /// articulation of the written bass key, not permission to revoice its chord.
 pub(crate) struct BassLine {
     pub(crate) notes: Vec<Note>,
-    damped: Vec<(usize, f64)>,
+    strokes: Vec<Stroke>,
 }
 
 impl BassLine {
-    pub(crate) fn apply_releases(&self, midi: &mut crate::pmidi::PrettyMidi, piano: &[(f64, f64)]) {
+    pub(crate) fn articulate(&self, midi: &mut crate::pmidi::PrettyMidi, piano: &[(f64, f64)]) {
         let Some(hand) = midi.instruments.get_mut(1) else { return };
-        for &(index, end) in &self.damped {
-            let n = self.notes[index];
+        for (i, (&n, stroke)) in self.notes.iter().zip(&self.strokes).enumerate() {
             let section = piano.partition_point(|&(_, stop)| stop <= n.start);
             if piano.get(section).is_some_and(|&(start, _)| start <= n.start) { continue; }
             let first = hand.notes.partition_point(|k| k.start < n.start);
@@ -341,19 +349,45 @@ impl BassLine {
             if let Some(key) = hand.notes[first..].iter_mut().take_while(|k| k.start == n.start)
                 .find(|k| k.pitch == n.pitch && k.end == n.end)
             {
-                key.end = end;
+                key.end = stroke.end;
+                // Compare nearby plucks, not absolute stem volume. This keeps
+                // phrase-level dynamics and makes the touch mastering-independent.
+                let mut nearby = [0.0; 9];
+                let lo = i.saturating_sub(4);
+                let hi = (i + 5).min(self.notes.len());
+                let mut count = 0;
+                for (other, played) in self.notes[lo..hi].iter().zip(&self.strokes[lo..hi]) {
+                    if (other.start - n.start).abs() <= 2.0 {
+                        nearby[count] = played.residual_db;
+                        count += 1;
+                    }
+                }
+                if count > 1 {
+                    nearby[..count].sort_unstable_by(f32::total_cmp);
+                    let anchor = (nearby[count / 2] + nearby[(count - 1) / 2]) * 0.5;
+                    let db = (0.55 * (stroke.residual_db - anchor)).clamp(-4., 2.5);
+                    key.velocity = (f32::from(key.velocity) * 10.0_f32.powf(db / 25.)).round().clamp(1., 127.) as u8;
+                }
             }
         }
     }
 }
 
 pub(crate) fn bass_line(mono: &[f32], sample_rate: u32) -> Result<BassLine> {
-    let mut damped = Vec::new();
-    let notes = detect_bass(mono, sample_rate, |index, end| damped.push((index, end)))?;
-    Ok(BassLine { notes, damped })
+    let mut strokes = Vec::new();
+    let rate = f64::from(sample_rate);
+    let notes = detect_bass(mono, sample_rate, |n, end| {
+        let from = (n.start * rate).round() as usize;
+        let to = ((n.end.min(n.start + 0.16) * rate).round() as usize).min(mono.len());
+        let samples = &mono[from.min(to)..to];
+        let power = samples.iter().map(|&x| f64::from(x) * f64::from(x)).sum::<f64>() / samples.len().max(1) as f64;
+        let residual_db = (10. * power.max(1e-10).log10() - 25. * f64::from(n.velocity).log10()) as f32;
+        strokes.push(Stroke { residual_db, end });
+    })?;
+    Ok(BassLine { notes, strokes })
 }
 
-fn detect_bass(mono: &[f32], sample_rate: u32, mut on_damping: impl FnMut(usize, f64)) -> Result<Vec<Note>> {
+fn detect_bass(mono: &[f32], sample_rate: u32, mut on_note: impl FnMut(Note, f64)) -> Result<Vec<Note>> {
     ensure!(sample_rate > 0, "Bass sample rate must be positive");
     if mono.is_empty() {
         return Ok(vec![]);
@@ -437,15 +471,14 @@ fn detect_bass(mono: &[f32], sample_rate: u32, mut on_damping: impl FnMut(usize,
                     }
                 }
                 let damped = damped_release(&smooth, frame, release, level);
-                if damped < release {
-                    on_damping(notes.len(), damped as f64 * 0.01);
-                }
-                notes.push(Note {
+                let note = Note {
                     pitch: keys[a] as u8,
                     start: begin,
                     end: (release as f64 * 0.01).min(audio.len() as f64 / RATE as f64),
                     velocity: (51. + 19. * (level / reference).min(1.)).round() as u8,
-                });
+                };
+                on_note(note, note.end.min(damped as f64 * 0.01));
+                notes.push(note);
             }
         }
         a = b;

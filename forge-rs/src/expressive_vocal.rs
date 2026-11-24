@@ -42,7 +42,14 @@ impl Game {
         })
     }
 
-    fn notes(&mut self, samples: &[f32], offset: f64, duration: f64) -> Result<Vec<Note>> {
+    fn notes(
+        &mut self,
+        samples: &[f32],
+        offset: f64,
+        duration: f64,
+        seam: f64,
+        rejected: &mut Vec<Note>,
+    ) -> Result<Vec<Note>> {
         let length = samples.len() as f32 / RATE as f32;
         let encoded = self.encoder.run(ort::inputs![
             "waveform" => Tensor::from_array(([1, samples.len()], samples.to_vec()))?,
@@ -94,13 +101,20 @@ impl Game {
             let start = offset + elapsed;
             elapsed += f64::from(*span);
             let end = (offset + elapsed).min(duration);
-            if *present && (36.0..=91.0).contains(pitch) && end - start >= 0.045 {
-                notes.push(Note {
-                    pitch: pitch.round_ties_even() as u8,
-                    start,
-                    end,
-                    velocity: 80,
-                });
+            if !(36.0..=91.0).contains(pitch) || end - start < 0.045 {
+                continue;
+            }
+            let note = Note {
+                pitch: pitch.round_ties_even() as u8,
+                start,
+                end,
+                velocity: 80,
+            };
+            if *present {
+                notes.push(note);
+            } else if end - start >= 0.30 && (seam..seam + 12.).contains(&start) {
+                // Keep the estimator's key, but not a note, from the owning window.
+                rejected.push(note);
             }
         }
         Ok(notes)
@@ -473,7 +487,67 @@ fn refine_release(note: &mut Note, rms: &[f32], pitches: &[f32]) {
     }
 }
 
-fn align_attacks(wave: &[f32], notes: &mut Vec<Note>) -> Result<()> {
+// A GAME segment can contain a sung note followed by enough silence to fail
+// presence detection. Recover only a repeat of the *next* recognized key, when
+// the rejected segment names it too. A quiet echo or an octave is not a repeat.
+fn missed_repeat(
+    previous: &Note,
+    next: &Note,
+    rejected: &[Note],
+    flank: f32,
+    rms: &[f32],
+    pitches: &[f32],
+) -> Option<Note> {
+    let start = frame(previous.end);
+    let stop = frame(next.start).min(rms.len());
+    if stop < start + 60 || !(1..=7).contains(&previous.pitch.abs_diff(next.pitch)) {
+        return None;
+    }
+    let first = rejected.partition_point(|n| n.start < previous.end - 0.06);
+    if !rejected[first..]
+        .iter()
+        .take_while(|n| n.start <= previous.end + 0.06)
+        .any(|n| n.pitch == next.pitch && (n.end - next.start).abs() <= 0.06)
+    {
+        return None;
+    }
+    let head = &rms[start..start + 24];
+    let level = percentile_f32(head, 50.);
+    if level < 0.02f32.max(0.45 * flank) || min_level(head) < 0.13 * level {
+        return None;
+    }
+    // Stop at the first sustained decay. A pitch dropout by itself isn't a release.
+    let search = start + 36;
+    let end = search + rms[search..stop.min(start + 400)].windows(8)
+        .position(|w| max_level(w) < 0.40 * level)?;
+    if end - start < 45
+        || end + 24 > stop
+        || rms[end..end + 24].iter().filter(|&&v| v > 0.55 * level).count() > 2
+    {
+        return None;
+    }
+    let preceding = &pitches[start.saturating_sub(20)..start.saturating_sub(3)];
+    if 10 * preceding.iter().filter(|&&p| near(p, next.pitch, 0.65)).count() > 3 * preceding.len() {
+        return None;
+    }
+    let body = &pitches[start + 3..end - 2];
+    let (attack, hold) = body.split_at(body.len() / 2);
+    let count = |x: &[f32]| x.iter().filter(|&&p| near(p, next.pitch, 0.55)).count();
+    let (a, h) = (count(attack), count(hold));
+    if 100 * (a + h) < 72 * body.len()
+        || 100 * a < 53 * attack.len()
+        || 100 * h < 53 * hold.len()
+    {
+        return None;
+    }
+    Some(Note {
+        start: previous.end,
+        end: end as f64 * FRAME,
+        ..*next
+    })
+}
+
+fn align_attacks(wave: &[f32], notes: &mut Vec<Note>, rejected: &[Note]) -> Result<()> {
     if notes.is_empty() {
         return Ok(());
     }
@@ -509,10 +583,27 @@ fn align_attacks(wave: &[f32], notes: &mut Vec<Note>) -> Result<()> {
         })
         .collect();
     let reference = percentile_f32(&levels, 50.).max(0.001);
-    for (note, level) in notes.iter_mut().zip(levels) {
+    let velocity = |level: f32| {
         let db = 20. * (level.max(0.001) / reference).log10();
-        note.velocity = (80. + (0.72 * db).clamp(-8., 10.)).round_ties_even() as u8;
+        (80. + (0.72 * db).clamp(-8., 10.)).round_ties_even() as u8
+    };
+    let mut recovered = pickups; // Already appended above; reuse its storage.
+    for (pair, levels) in notes.windows(2).zip(levels.windows(2)) {
+        if let Some(mut n) = missed_repeat(
+            &pair[0], &pair[1], rejected, levels[0].max(levels[1]), &rms, &pitches,
+        ) {
+            let body = &rms[frame(n.start) + 2..frame(n.end) - 1];
+            n.velocity = velocity(percentile_f32(body, 65.));
+            recovered.push(n);
+        }
+    }
+    for (note, level) in notes.iter_mut().zip(levels) {
+        note.velocity = velocity(level);
         refine_release(note, &rms, &pitches);
+    }
+    if !recovered.is_empty() {
+        notes.append(&mut recovered);
+        notes.sort_by(|a, b| a.start.total_cmp(&b.start));
     }
     Ok(())
 }
@@ -547,6 +638,7 @@ pub fn transcribe_vocals(
     }
     let duration = wave.len() as f64 / RATE as f64;
     let mut notes = Vec::new();
+    let mut rejected = Vec::new();
     {
         let mut model = Game::open(model_dir, threads)?;
         let count = wave.len().div_ceil(12 * RATE);
@@ -563,12 +655,13 @@ pub fn transcribe_vocals(
             } else {
                 input
             };
-            let next = model.notes(input, left as f64 / RATE as f64, duration)?;
-            join_windows(&mut notes, next, begin as f64 / RATE as f64);
+            let seam = begin as f64 / RATE as f64;
+            let next = model.notes(input, left as f64 / RATE as f64, duration, seam, &mut rejected)?;
+            join_windows(&mut notes, next, seam);
             println!("Vocal analysis: {}/{}", part + 1, count);
         }
     }
-    align_attacks(&wave, &mut notes)?;
+    align_attacks(&wave, &mut notes, &rejected)?;
     Ok(notes)
 }
 
@@ -615,7 +708,7 @@ mod tests {
             0.,
         );
         let mut notes = vec![note(69, 0.385, 0.66), note(72, 0.74, 1.)];
-        align_attacks(&wave, &mut notes).unwrap();
+        align_attacks(&wave, &mut notes, &[]).unwrap();
         assert_eq!(
             notes.iter().map(|n| n.pitch).collect::<Vec<_>>(),
             [68, 69, 72]
@@ -641,16 +734,39 @@ mod tests {
             ],
             0.,
         );
-        align_attacks(&wave, &mut notes).unwrap();
+        align_attacks(&wave, &mut notes, &[]).unwrap();
         assert!((notes[1].start - 0.42).abs() < 0.016);
         assert_eq!(notes[2].start, 0.65);
         let mut repeat = vec![note(64, 0.12, 0.534), note(64, 0.534, 1.)];
         let wave = sing(&[(64, 0.12, 0.46, 0.16), (64, 0.49, 1., 0.16)], 0.);
-        align_attacks(&wave, &mut repeat).unwrap();
+        align_attacks(&wave, &mut repeat, &[]).unwrap();
         assert!((repeat[1].start - 0.493).abs() < 0.016);
         let mut held = vec![note(64, 0.12, 1.)];
-        align_attacks(&sing(&[(64, 0.12, 1., 0.16)], 0.58), &mut held).unwrap();
+        align_attacks(&sing(&[(64, 0.12, 1., 0.16)], 0.58), &mut held, &[]).unwrap();
         assert_eq!(held.len(), 1);
+    }
+
+    #[test]
+    fn recovers_sounding_head_of_rejected_repeat_without_filling_the_rest() {
+        let previous = note(63, 0., 0.20);
+        let next = note(61, 0.90, 1.);
+        let candidate = [note(61, 0.20, 0.90)];
+        let mut rms = [0.2; 200];
+        let mut pitches = [63.; 200];
+        pitches[40..110].fill(61.);
+        rms[110..180].fill(0.01);
+        let recover = |e: &[Note], r: &[f32], p: &[f32]| missed_repeat(&previous, &next, e, 0.2, r, p);
+        assert_eq!(recover(&candidate, &rms, &pitches), Some(note(61, 0.20, 0.55)));
+        assert!(recover(&[], &rms, &pitches).is_none());
+        assert!(recover(&[note(62, 0.20, 0.90)], &rms, &pitches).is_none());
+        assert!(recover(&candidate, &[0.2; 200], &pitches).is_none());
+        rms[40..110].fill(0.035); // Echo below neighboring syllable level.
+        assert!(recover(&candidate, &rms, &pitches).is_none());
+        rms[40..110].fill(0.2);
+        pitches[40..75].fill(59.); // Only lands on the target late in a slide.
+        assert!(recover(&candidate, &rms, &pitches).is_none());
+        pitches[20..110].fill(61.); // Already sounding before the alleged attack.
+        assert!(recover(&candidate, &rms, &pitches).is_none());
     }
 
     #[test]

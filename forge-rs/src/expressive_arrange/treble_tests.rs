@@ -32,6 +32,38 @@ fn copied_detector_keys_and_vocal_attacks_are_not_instrumental_dyads() {
 }
 
 #[test]
+fn middle_partner_needs_its_own_detector_agreement_and_free_left_hand_space() {
+    let lead = key(67, 1., 1.4);
+    let middle = key(62, 1.01, 1.35);
+    let attacks = [lead, middle];
+    let lead_only = [key(67, 1.01, 1.35)];
+    assert!(treble_dyads(&[lead], &attacks, &lead_only, &[], &[]).is_empty());
+    assert!(treble_dyads(&[lead], &attacks, &[middle], &[], &[]).is_empty());
+    let piano = [key(62, 1.015, 1.32)];
+    let low = key(50, 0.94, 1.25);
+    for left in [
+        [key(62, 0.7, 1.04), low], // a held chord member, not the latest bass note
+        [low, key(64, 1.23, 1.36)], // crossing later in the dyad's sustain
+    ] {
+        assert!(treble_dyads(&[lead], &attacks, &piano, &[], &left).is_empty());
+    }
+    let dyads = treble_dyads(&[lead], &attacks, &piano, &[], &[low]);
+    assert_eq!(dyads.len(), 1);
+    assert_eq!((dyads[0].pitch, dyads[0].start, dyads[0].end), (62, 1.01, 1.35));
+}
+
+#[test]
+fn a_corroborated_inner_key_does_not_replace_an_available_upper_voice() {
+    let lead = key(67, 1., 1.4);
+    let mid = Note { velocity: 100, ..key(62, 1., 1.3) };
+    let upper = key(71, 1.01, 1.35);
+    let piano = [key(62, 1.01, 1.35), key(67, 1.02, 1.3)];
+    let dyads = treble_dyads(&[lead], &[mid, lead, upper], &piano, &[], &[]);
+    assert_eq!(dyads.len(), 1);
+    assert_eq!(dyads[0].pitch, 71);
+}
+
+#[test]
 fn separately_timed_keys_keep_their_onsets_and_leave_room_for_the_next_roll() {
     let held = key(66, 0., 0.59);
     let next = key(74, 0.60, 1.);
