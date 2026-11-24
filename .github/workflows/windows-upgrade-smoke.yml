@@ -116,9 +116,10 @@ jobs:
         run: |
           cd $env:RUNNER_TEMP
           $ver = $env:RELEASE_TAG.Substring(1)
-          $app = "$env:RUNNER_TEMP\Clean Studio"
+          $reg = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\MIDI Studio'
           $store = "$env:LOCALAPPDATA\midi-studio\forge-env"
-          $p = Start-Process ".\MIDI-Studio-$ver-Setup.exe" -ArgumentList '/S','/currentuser',"/D=$app" -Wait -PassThru
+          $p = Start-Process ".\MIDI-Studio-$ver-Setup.exe" -ArgumentList '/S','/currentuser' -Wait -PassThru
+          $app = (Get-ItemPropertyValue $reg InstallLocation).Trim('"')
           if ($p.ExitCode -or (Get-Item "$app\MIDI Studio.exe").VersionInfo.ProductVersion -ne $ver) { throw 'Fresh core install failed' }
           if (!(Test-Path "$app\forge-rs.exe") -or (Test-Path "$app\assets\onnx") -or (Test-Path "$app\ort-gpu") -or (Test-Path "$store\native\ort-gpu\onnxruntime.dll")) { throw 'Unexpected fresh payload' }
 
@@ -153,17 +154,19 @@ jobs:
         shell: pwsh
         run: |
           cd $env:RUNNER_TEMP
-          $app = if ($env:INSTALL_SCOPE -eq 'allusers') { "$env:ProgramFiles\MIDI Studio" } else { "$env:LOCALAPPDATA\MIDI Studio" }
+          $hive = if ($env:INSTALL_SCOPE -eq 'allusers') { 'HKLM:' } else { 'HKCU:' }
+          $uninstall = "$hive\Software\Microsoft\Windows\CurrentVersion\Uninstall\MIDI Studio"
           $store = "$env:RUNNER_TEMP\Forge Library"
           $reg = 'HKCU:\Software\StarsationX\MIDI Studio'
           New-Item -ItemType Directory -Path $store -Force | Out-Null
           New-Item $reg -Force | Out-Null
           New-ItemProperty $reg ForgeStorageDir -Value $store -Force | Out-Null
           function Install($exe) {
-            $p = Start-Process $exe -ArgumentList '/S',"/$env:INSTALL_SCOPE","/D=$app" -Wait -PassThru
+            $p = Start-Process $exe -ArgumentList '/S',"/$env:INSTALL_SCOPE" -Wait -PassThru
             if ($p.ExitCode) { throw "$exe failed ($($p.ExitCode))" }
           }
           Install '.\MIDI-Studio-3.1.4-Setup.exe'
+          $app = (Get-ItemPropertyValue $uninstall InstallLocation).Trim('"')
           $components = @(Get-Content -Raw catalog.json | ConvertFrom-Json)
           if ($components.Count -lt 1) { throw 'Missing component catalog' }
           foreach ($c in $components) {
@@ -171,6 +174,7 @@ jobs:
           }
           $next = $env:RELEASE_TAG.Substring(1)
           Install ".\MIDI-Studio-$next-Setup.exe"
+          if ((Get-ItemPropertyValue $uninstall InstallLocation).Trim('"') -ne $app) { throw 'Upgrade relocated the app' }
           if ((Get-Item "$app\MIDI Studio.exe").VersionInfo.ProductVersion -ne $next) { throw 'Wrong version' }
           foreach ($c in $components) {
             $copies = @("$store\native","$env:ProgramFiles\MIDI Studio Shared Models\native") | ForEach-Object { Join-Path $_ $c.path }

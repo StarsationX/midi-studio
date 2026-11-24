@@ -6,7 +6,7 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
-## 3.1.5 "Medley" — 2026-11-24
+## 3.1.6 "Medley" — 2026-11-24
 
 ### Changed
 
