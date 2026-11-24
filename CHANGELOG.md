@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.24 "Medley" — 2026-11-24
+
+### Fixed
+
+- In exposed instrumental passages, Medley could add a low piano key because it fit the chord, even though the recording had a different strike. It now checks for that pitch in the recording before adding the key. The left hand can still move chord tones into reach when accompanying a singer or bass line.
+- Run Forge in Medley mode again to regenerate an arrangement. Existing MIDI files and installed models are unchanged.
+
 ## 3.1.23 "Medley" — 2026-11-24
 
 ### Changed

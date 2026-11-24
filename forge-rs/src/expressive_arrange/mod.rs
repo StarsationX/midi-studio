@@ -559,7 +559,7 @@ fn restore_chord_repeats(harmony: &mut Vec<Note>, piano: &[Note], instrumental: 
 }
 
 fn left_hand(mut bass: Vec<Note>, backing: &[Note], instrumental: &[Note], piano: &[Note],
-    lead: &[Note], partners: &[Note], registers: &[Register], duration: f64, beat: f64) -> Vec<Note> {
+    lead: &[Note], partners: &[Note], vocals: &[Note], registers: &[Register], duration: f64, beat: f64) -> Vec<Note> {
     let mut upper = partners;
     let mut active: Vec<&Note> = vec![];
     let mut next = 0;
@@ -729,6 +729,31 @@ fn left_hand(mut bass: Vec<Note>, backing: &[Note], instrumental: &[Note], piano
         }
     }
     restore_chord_repeats(&mut harmony, piano, instrumental);
+    // A chroma estimate names a chord, not the register of each finger.
+    // Drop an inferred inner key only when nearby strikes resolve other
+    // pitches and the proposed key never forms a stable peak after onset.
+    if !registers.is_empty() {
+        harmony.retain(|n| {
+            // In a band passage this can be an intentional octave reduction
+            // under a singer or beside the bass, not an attempted transcription.
+            let start = n.start - beat;
+            let end = n.start + beat;
+            if overlapping(vocals, start, end).next().is_some()
+                || overlapping(&bass, start, end).next().is_some() { return true; }
+            if [0., 0.08, 0.16].iter().any(|&dt| register_at(registers, n.start + dt).strength(n.pitch) >= 0) {
+                return true;
+            }
+            let mut heard = false;
+            for line in [piano, instrumental] {
+                let i = line.partition_point(|k| k.start < n.start - 0.15);
+                for k in line[i..].iter().take_while(|k| k.start <= n.start + 0.15) {
+                    if k.pitch == n.pitch { return true; }
+                    heard = true;
+                }
+            }
+            !heard
+        });
+    }
     bass.extend(harmony);
     order_in_place(&mut bass, duration);
     bass
@@ -789,7 +814,7 @@ pub(crate) fn arrange_with_instruments(
     };
     let low = playable_bass(&bass, &lead, duration);
     let mut extra = treble_partners(&lead, &instrumental, &piano, &vocals, &low);
-    let left = left_hand(low, evidence, &instrumental, &piano, &lead, &extra, registers, duration, beat);
+    let left = left_hand(low, evidence, &instrumental, &piano, &lead, &extra, &vocals, registers, duration, beat);
     interior_treble(&lead, &instrumental, &piano, &vocals, &bass, &mut extra, duration);
     if !extra.is_empty() {
         lead.extend(extra);

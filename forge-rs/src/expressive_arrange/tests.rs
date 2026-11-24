@@ -336,6 +336,22 @@ fn accompaniment_keeps_the_recorded_octave_when_both_hands_have_room() {
 }
 
 #[test]
+fn inferred_chord_does_not_invent_a_register_among_detected_strikes() {
+    let lead = [note(79, 0., 1.)];
+    let chroma = [note(60, 0.2, 0.9), note(64, 0.2, 0.9)];
+    let unresolved = [Register::default(); 16];
+    let keys = |instrumental: &[Note], vocals: &[Note]| {
+        left_hand(vec![], &chroma, instrumental, &[], &lead, &[], vocals, &unresolved, 1., 0.5)
+            .into_iter().map(|n| n.pitch).collect::<Vec<_>>()
+    };
+    let strikes = [note(79, 0.2, 0.8)];
+    assert_eq!(keys(&[], &[]), [48, 52]); // No resolved strikes: preserve the fallback.
+    assert!(keys(&strikes, &[]).is_empty());
+    assert_eq!(keys(&[note(48, 0.23, 0.8)], &[]), [48]);
+    assert_eq!(keys(&strikes, &lead), [48, 52]); // Keep the octave reduction under a singer.
+}
+
+#[test]
 fn a_playable_inner_voice_does_not_require_a_false_octave_partner() {
     let melody = [note(75, 0., 1.)];
     let bass = [note(40, 0., 1.)];
@@ -365,7 +381,7 @@ fn chord_change_ties_a_held_key_but_respects_a_recorded_restrike() {
         (vec![], vec![(0.1, 1.2)]),
         (vec![note(64, 0.63, 0.85)], vec![(0.1, 0.6), (0.6, 1.2)]),
     ] {
-        let left = left_hand(bass.to_vec(), &backing, &instrumental, &backing, &lead, &[], &[], 1.2, 0.5);
+        let left = left_hand(bass.to_vec(), &backing, &instrumental, &backing, &lead, &[], &[], &[], 1.2, 0.5);
         let times = |pitch| left.iter().filter(|n| n.pitch == pitch)
             .map(|n| (n.start, n.end)).collect::<Vec<_>>();
         assert_eq!(times(52), expected);

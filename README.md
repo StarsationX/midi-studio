@@ -62,7 +62,7 @@ Start at **120 BPM** and **2 steps per beat**: each step lasts a quarter second.
 
 **Medley** (formerly **Expressive Piano**) arranges a recording for two hands: the right hand follows vocal and instrumental melodies, while the left plays bass and chords. Choose **Melody** instead if you want only the lead line.
 
-Listen for repeated strums: the right hand can strike one key again while the other chord tones keep ringing. Medley checks for a new attack rather than splitting the chord on every beat. The left hand can pick up a short, muted backing note when both its pitch and an overtone rise in the recording. If a chord tone is sounding an octave away, Medley won’t automatically double it just to fill the hand. This is a playable arrangement, not a note-for-note transcription.
+On a picked guitar passage, listen for the low notes between strums. Medley checks the recording before adding a left-hand key just because it fits the chord. When a singer or bass line comes back in, it can still move chord tones down to keep them playable. A repeated strum can strike one right-hand key while the others keep ringing. This is a two-hand arrangement, not a note-for-note transcription.
 
 In a band mix, listen for the bass stepping back under the melody. Medley measures the middle register separately from deep bass and very bright sounds, so a wash behind the singer needn’t become a piano accent. It compares that balance with how the bundled Grand Piano’s 88 keys actually sound, from the first strike through the release. Drum hits alone don’t set piano velocity.
 
