@@ -1,46 +1,58 @@
-# MIDI Studio
+<p align="center"><img src="renderer/shared/mark.png" width="72" height="72" alt=""></p>
+<h1 align="center">MIDI Studio</h1>
+<p align="center">Turn a recording into piano notes, edit what you hear, or play a Virtual Piano sheet into a game.</p>
+<p align="center"><strong><a href="https://github.com/StarsationX/midi-studio/releases/latest">Download for Windows x64</a></strong> · <a href="#your-first-song">Your first song</a> · <a href="#play-a-virtual-piano-sheet">Try a VP sheet</a> · <a href="CHANGELOG.md">What’s new</a></p>
 
-Turn a recording into MIDI, fix the notes in a piano roll, and hear the result. You can also play a MIDI into a game or virtual piano that accepts keyboard input.
+![Player with a pasted Virtual Piano sheet, its timing controls, and the resulting piano roll](docs/img/player-vp-sheet.png)
 
-**[Download MIDI Studio for Windows x64](https://github.com/StarsationX/midi-studio/releases/latest)** · [What’s new](CHANGELOG.md)
+## Your first song
 
-Under **Assets**, download `MIDI-Studio-<version>-Setup.exe` and run it. This is the **Rust/Tauri** edition. You don’t need to install Python to listen, edit MIDI, or use the keyboard player. The installer is not code-signed, so Windows SmartScreen may show an unknown-publisher warning.
+On the [release page](https://github.com/StarsationX/midi-studio/releases/latest), open **Assets** and run `MIDI-Studio-<version>-Setup.exe`. This is the Rust/Tauri edition. Windows may show an unknown-publisher warning because the installer is unsigned.
 
-**Already using MIDI Studio?** Install over your existing copy; don’t uninstall it first. Keep your Forge storage folder so setup can preserve your Medley model. The app checks GitHub for updates and verifies the installer’s SHA-256 before launching it. Click the version badge to check manually.
+**Already installed?** Install over your current copy and keep your Forge storage folder. Don’t uninstall first. Studio checks GitHub for updates and verifies the installer’s SHA-256 before launching it.
 
-![Player showing a falling-note piano roll above the keyboard](docs/img/player.png)
+| What you have | Where to start |
+| --- | --- |
+| **A MIDI file to hear** | **Listen → Open MIDI and play.** No game, Python, or model setup needed. |
+| **An MP3 or WAV** | **Forge → Choose audio… → Fast → Create MIDI.** Open the finished file from **Results**. If prompted to **Set up audio conversion**, pick a storage folder with the free space shown; some engines need several GB. |
+| **Notes to correct** | Open the MIDI in **Editor**. You’ll hear a sampled acoustic grand on every channel without changing the instruments saved in the file. Use **Original** to compare with an attached recording. |
+| **A MIDI file to play in a game** | Open the game, then **Player → Open MIDI file**. Under **Target**, select the game window; choose its keyboard mapping and press **Play**. Playback pauses if the target loses focus. |
+| **A pasted sheet instead of a file** | Open **Player → Song → Paste a VP sheet**. Try the example below before selecting a game window. |
 
-## Start with the file you have
+The left sidebar switches workspaces. **Getting started** reopens the first-launch guide; **Ctrl+K** searches commands and songs. In **Player**, **Listen**, and **Editor**, you can change speed mid-song without jumping back to the start.
 
-| I have… | What to do first |
-|---|---|
-| **A MIDI file I want to hear** | Open **Listen → Open MIDI and play**, then choose your `.mid` file. The built-in instruments play it directly; no game, target window, or model needed. |
-| **An MP3 or WAV I want to turn into notes** | In **Forge**, select **Choose audio…**, pick your recording, choose **Fast**, then **Create MIDI**. Open the finished file from **Results**. Fast works without the Medley model. |
-| **A MIDI file with notes I want to fix** | Open it in **Editor**. Playback and note edits use a sampled acoustic grand piano on every channel, without changing the instruments in your MIDI file. Turn on **Original** to compare with an attached recording. |
-| **A MIDI file I want to play in a game** | Open the game first. In **Player**, open the MIDI, select the game window under **Target**, and choose a keyboard mapping that matches the game. Press **Play**. Playback pauses if the target loses focus. |
-| **A Virtual Piano sheet I want to play** | In **Player → Song → Paste a VP sheet**, paste the text and choose **Load only** to see the notes. To play, select your game window under **Target** and press **Play**, or choose **Auto Play** with a target already selected. |
+## Play a Virtual Piano sheet
 
-If Forge shows **Set up audio conversion** instead of **Create MIDI**, check the free space shown, choose a storage folder, and select **Install**. Some engines download several GB. Your recording stays selected. Skip this step if you only want to listen to or edit MIDI.
+Paste this into **Player → Song → Paste a VP sheet** and choose **Load only**. You’ll see the notes before any keys are sent:
 
-You can reopen **Getting started** from the sidebar. In **Player**, **Listen**, and **Editor**, you can slow down a tricky passage without restarting the song. Changing speed while paused keeps your place.
+```text
+t y [ui] - o
+```
 
-**Try a VP sheet:** Paste `t y [ui] - o`. It plays `t`, then `y`, then `u` and `i` together, waits one step, and plays `o`. At 120 BPM with two steps per beat, each step takes a quarter second. Spaces, newlines and `|` are for readability, not timing. Use fewer steps per beat for slower notes at the same BPM. Note length changes how long keys are held when **Sustain** is on.
+Read it as: play `t`, then `y`, press `u` and `i` together, wait one step, then play `o`. Capitals matter. Spaces, newlines, and `|` make the sheet easier to read; they don’t add time.
 
-## Make a two-hand piano arrangement
+Start at **120 BPM** and **2 steps per beat**: each step lasts a quarter second. Lower the BPM to slow down, or change **Note length** for shorter or longer holds with **Sustain** on. When ready, select your game under **Target** and press **Play**. Next time, with the target already selected, **Auto Play** loads and starts the pasted sheet in one click.
+
+## Arrange a recording with Medley
 
 **Medley** (formerly **Expressive Piano**) arranges a recording for two hands: the right hand follows vocal and instrumental melodies, while the left plays bass and chords. Choose **Melody** instead if you want only the lead line.
 
 Medley uses the original six-stem separator. The public installer **does not bundle, download, or substitute** that model.
 The [model source and license information](https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem#license) is provided for reference; the mirror grants no additional rights. Only import a copy you’re authorized to use. Otherwise choose **Fast** in Forge to convert audio without it.
 
+<details>
+<summary><strong>Import or preserve an existing Medley model</strong></summary>
+
 - **On an existing installation:** Setup checks for the original model before replacing the app. If it can’t safely preserve it, setup stops. If you used a portable copy, keep it until the new app shows Medley is ready.
 - **If Setup stops with code 26:** Leave the old app installed. Retry with the new installer under the Windows account that used MIDI Studio; if it still stops, send support the entire message, including the preservation check that failed.
 - **On a new PC with your own model:** Open **Forge → Medley → Import existing Medley model → Choose local model…** and select `bsrofo_sw_body.onnx`. Studio verifies the file before using it.
 - **If you only have `BS-Rofo-SW-Fixed.ckpt`:** Keep its matching YAML file. Offline conversion also needs your original local Forge Python and MSST installation. The checkpoint alone isn’t enough.
 
+</details>
+
 Once Medley is ready, choose a recording and select **Create MIDI**. From **Results**, open the arrangement in **Editor** to adjust it or **Listen** to hear it.
 
-## Other things you can do
+## Beyond your first song
 
 - **Import a MuseScore score without transcribing audio.** Paste the score link into Forge and choose **Get MIDI**. If the public player delivers a MIDI, Studio opens that file unchanged in Editor. Other supported links, such as YouTube and SoundCloud, import **audio** for transcription instead.
 - **If a YouTube audio download stalls:** Forge automatically tries an alternate media server when YouTube lists one and the first one times out. If the download still fails, retry later or on another network.
@@ -48,6 +60,9 @@ Once Medley is ready, choose a recording and select **Create MIDI**. From **Resu
 - **Find a song or diagnose a job.** Use **Library** to search, tag, or favorite a file. If a conversion fails, open **Logs** to copy its diagnostics.
 
 ## Build the Rust edition
+
+<details>
+<summary><strong>Windows prerequisites, development and packaging</strong></summary>
 
 The shipped Windows app uses [Tauri](src-tauri/) with a WebView2 interface, an [in-process Rust keyboard player](player-rs/), and the [Rust Forge engine](forge-rs/). Some optional conversion tools still use [Python](python-engine/). The [Electron host](electron/) is legacy: `npm start` and `npm run build:nsis` are **not** the Rust build.
 
@@ -67,6 +82,8 @@ npm run build:tauri
 ```
 
 The application is `src-tauri\target\release\MIDI Studio.exe`. The Windows installer is under `src-tauri\target\release\bundle\nsis\`.
+
+</details>
 
 ## License and credits
 
