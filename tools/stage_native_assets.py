@@ -1,4 +1,5 @@
 """Construct the public payload only from pinned inputs; never scan a model directory."""
+import argparse
 import hashlib
 import json
 import os
@@ -14,12 +15,10 @@ FORGE = ROOT / 'forge-rs'
 CACHE = FORGE / 'target/release-inputs'
 TARGET = FORGE / 'target/native-resources'
 PINS = ROOT / 'tools/release-inputs.json'
-TRANSKUN = {
-    'transkun_v2.onnx': '2d6e68afdaf341a14adf566afaa7d032cac6160dcae7c34037a46f7fa36ff3bd',
-    'transkun_v2.onnx.data': 'c49407f5ca6ec7b6705722442c0e20b142f1e5ef886aa856fd947324100eb11d',
-    'transkun_v2_aux.safetensors': '3998a1ff1e1e2cbdd48259e74c0a5fdea487125cea1ae851db0d2af1bacfe10e',
-    'transkun_v2_config.json': '988baf3596887d36c33b1ff9851911e5a536fbd575d3d07eedeba1002f6c3556',
-}
+COMPONENTS = json.loads((ROOT / 'tools/forge-components.json').read_text())
+NOTICE_ARCHIVE = 'forge-component-notices.zip'
+NOTICE_HASH = '1e42ec948b12d49627cb0f6ed93da78c7c1c9c18c9d71252393d2051a46d872a'
+NOTICE_URL = 'https://github.com/StarsationX/midi-studio/releases/download/forge-components-v1/' + NOTICE_ARCHIVE
 
 
 def digest(path):
@@ -27,9 +26,10 @@ def digest(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
-def archives():
+def archives(with_components):
     CACHE.mkdir(parents=True, exist_ok=True)
-    for name, (url, expected) in json.loads(PINS.read_text()).items():
+    inputs = json.loads(PINS.read_text()) if with_components else {NOTICE_ARCHIVE: (NOTICE_URL, NOTICE_HASH)}
+    for name, (url, expected) in inputs.items():
         dest = CACHE / name
         if dest.is_file() and digest(dest) == expected:
             continue
@@ -79,13 +79,7 @@ def crate_notices(out):
                 text.write((ROOT / 'third-party/rust' / (key + '.txt')).read_text(encoding='utf-8'))
 
 
-def stage(out):
-    notices = out / 'notices'
-    notices.mkdir()
-    for f in (ROOT / 'third-party').iterdir():
-        if f.is_file():
-            shutil.copyfile(f, notices / f.name)
-    shutil.copyfile(PINS, notices / PINS.name)
+def stage_components(out):
     game = 'GAME-1.0.3-medium-onnx'
     unpack(CACHE / 'game.zip', out, {f'{game}/{n}.onnx': f'game/{game}/{n}.onnx' for n in ('encoder','estimator','segmenter','bd2dur','dur2bd')})
     unpack(CACHE / 'basic.whl', out, {'basic_pitch/saved_models/icassp_2022/nmp.onnx': 'basic_pitch/nmp.onnx',
@@ -97,11 +91,32 @@ def stage(out):
     env = Path(os.environ.get('MIDI_STUDIO_FORGE_ENV_DIR') or Path(os.environ.get('LOCALAPPDATA','')) / 'midi-studio/forge-env')
     models = Path(os.environ.get('MIDI_STUDIO_MODELS_DIR') or env / 'models')
     (out / 'onnx').mkdir()
-    for name, expected in TRANSKUN.items():
+    for item in (c for c in COMPONENTS if c['group'] == 'piano'):
+        name, expected = Path(item['path']).name, item['sha256']
         src = next((p for p in (models/'onnx'/name, FORGE/'assets/onnx'/name, FORGE/'assets'/name) if p.is_file() and digest(p) == expected), None)
         if src is None:
             raise ValueError(f'Missing verified Transkun 2.0.1 export: {name} (sha256={expected}); supply under MIDI_STUDIO_MODELS_DIR/onnx')
         shutil.copyfile(src, out/'onnx'/name)
+
+
+def stage(out, with_components):
+    notices = out / 'notices'
+    notices.mkdir()
+    for f in (ROOT / 'third-party').iterdir():
+        if f.is_file():
+            shutil.copyfile(f, notices / f.name)
+    shutil.copyfile(PINS, notices / PINS.name)
+    shutil.copyfile(ROOT/'tools/forge-components.json', notices/'forge-components.json')
+    if with_components:
+        stage_components(out)
+        for item in COMPONENTS:
+            p = item['path']
+            staged = out / (p.removeprefix('assets/') if p.startswith('assets/') else 'ort/'+Path(p).name)
+            if staged.stat().st_size != item['size'] or digest(staged) != item['sha256']:
+                raise ValueError(f'Unexpected component bytes: {p}')
+    else:
+        unpack(CACHE/NOTICE_ARCHIVE, out, {n: f'notices/{n}' for n in
+               ('BasicPitch-LICENSE','BasicPitch-NOTICE','ORT-LICENSE','ORT-ThirdPartyNotices.txt','Transkun-LICENSE')})
     wheel = ROOT/'python-engine/wheelhouse/ncls-0.0.70-cp313-cp313-win_amd64.whl'
     if digest(wheel) != '92f32b582a199c73e9c20c939ac2fd38e7279c17772f89a697e96b982fab1186':
         raise ValueError('Unexpected NCLS wheel')
@@ -122,11 +137,14 @@ def stage(out):
 
 
 if __name__ == '__main__':
-    # Remove obsolete release-only material before doing anything that can fail.
-    if TARGET.exists():
-        shutil.rmtree(TARGET)
-    archives()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--components', action='store_true', help='Also stage the separate pinned public Forge component payload.')
+    args = parser.parse_args()
+    archives(args.components)
+    target = TARGET if args.components else FORGE/'target/core-resources'
     with tempfile.TemporaryDirectory(dir=CACHE.parent) as temp:
-        stage(Path(temp))
-        Path(temp).rename(TARGET)
-    print(f'Staged public Forge payload at {TARGET}')
+        stage(Path(temp), args.components)
+        if target.exists():
+            shutil.rmtree(target)
+        Path(temp).rename(target)
+    print(f'Staged {"component" if args.components else "core"} payload at {target}')

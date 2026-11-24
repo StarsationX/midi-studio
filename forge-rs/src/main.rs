@@ -1,3 +1,6 @@
+#[cfg(windows)]
+mod standard_user;
+
 use anyhow::{bail, Context, Result};
 use forge_rs::assets::AssetPaths;
 use forge_rs::dump::Dump;
@@ -150,6 +153,11 @@ fn run() -> Result<()> {
             s if s.starts_with("--") => bail!("unknown option {s}\n\n{USAGE}"),
             _ => pos.push(a.clone()),
         }
+    }
+
+    #[cfg(windows)]
+    if matches!(pos.first().map(String::as_str), Some("pipeline" | "transcribe" | "separate")) {
+        standard_user::require()?;
     }
 
     if mem_gb > 0.0 {

@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.5 "Medley" — 2026-11-24
+
+### Changed
+
+- Windows Setup offers optional Forge setup. Install just MIDI Studio to listen, edit, or play without downloading transcription models.
+- Forge shows the missing download size for the chosen transcription profile. NVIDIA acceleration is optional; compatible existing components are reused. Medley still uses your original, locally supplied separator.
+- Medley keeps independently detected piano notes in exposed piano passages instead of forcing them into a single melody. In dense instrumental passages it can keep a lead attack when the piano and instrumental detectors agree.
+
 ## 3.1.4 "Medley" — 2026-11-24
 
 ### New

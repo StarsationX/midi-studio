@@ -242,6 +242,9 @@ fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Result<Value, Str
             h.engine.start();
             json!({"ready": h.engine.last_ready(), "openMidi": h.take_open_path(), "dryRun": h.engine.dry_run()})
         }
+        // Read after subscribing to the event: a launch during window startup
+        // and a launch against an already-open window both get consumed once.
+        "app:takeForgeSetupRequest" => json!(app.state::<crate::ForgeSetupRequest>().0.swap(false, std::sync::atomic::Ordering::SeqCst)),
 
         // ---- Player engine ---------------------------------------------------
         "engine:send" => {

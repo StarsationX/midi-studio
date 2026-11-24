@@ -316,8 +316,9 @@ fn expressive_model(models: Option<&Path>) -> Result<PathBuf> {
         ("encoder.onnx", 40809108), ("segmenter.onnx", 80703699),
         ("estimator.onnx", 74457404), ("bd2dur.onnx", 4569), ("dur2bd.onnx", 2632),
     ];
+    let native = env_file("FORGE_RS_NATIVE_ASSETS").filter(|_| models.is_none());
     let base = models.map(Path::to_path_buf).or_else(crate::assets::default_models_dir);
-    let candidates = base.into_iter().map(|p| p.join(DIR)).chain(exe_assets(DIR));
+    let candidates = native.into_iter().chain(base).map(|p| p.join(DIR)).chain(exe_assets(DIR));
     candidates.into_iter().find(|p| GRAPHS.iter().all(|(name, size)| {
         std::fs::metadata(p.join(name)).is_ok_and(|m| m.is_file() && m.len() == *size)
     })).context("Medley needs the five GAME 1.0.3 medium ONNX files in assets/game/GAME-1.0.3-medium-onnx or the Forge models folder")
@@ -327,6 +328,11 @@ fn expressive_model(models: Option<&Path>) -> Result<PathBuf> {
 /// --aux, FORGE_RS_AUX, next to the ONNX, then the forge-rs assets folder.
 pub fn transkun_assets(models: Option<&Path>, aux: Option<&Path>) -> Result<AssetPaths> {
     let explicit = aux.map(Path::to_path_buf).or_else(|| env_file("FORGE_RS_AUX"));
+    if models.is_none() {
+        if let Some(native) = env_file("FORGE_RS_NATIVE_ASSETS") {
+            if let Ok(paths) = AssetPaths::resolve(Some(&native), explicit.as_deref()) { return Ok(paths); }
+        }
+    }
     let configured = match AssetPaths::resolve(models, explicit.as_deref()) {
         Ok(p) => Ok(p),
         Err(e) if explicit.is_none() => match exe_assets(AUX_NAME).into_iter().find(|p| p.is_file()) {
@@ -363,7 +369,9 @@ pub fn roformer_model(models: Option<&Path>, explicit: Option<&Path>) -> Result<
 /// routing a job here. With `args.mode` set, `ready` / `missing` cover only
 /// what that mode (and `--skip-separation`) needs; without it, every model.
 pub fn probe(args: &Args) -> serde_json::Value {
-    let plan = ortenv::plan(args.ep, args.ort_dylib.as_deref(), args.cuda_dir.as_deref());
+    // Fast and already-isolated Melody use the CPU EP even on a CUDA PC.
+    let cpu_only = args.mode.is_some_and(|m| m == Mode::Fast || (m == Mode::Melody && !m.separates(args.skip_separation)));
+    let plan = ortenv::plan(if cpu_only { EpChoice::Cpu } else { args.ep }, args.ort_dylib.as_deref(), args.cuda_dir.as_deref());
     let tk = transkun_assets(args.models.as_deref(), args.aux.as_deref());
     let rofo = roformer_model(args.models.as_deref(), args.rofo_model.as_deref());
     let bp = bp_model_path(args);
@@ -377,7 +385,7 @@ pub fn probe(args: &Args) -> serde_json::Value {
         if m.separates(args.skip_separation) {
             v.push("roformer");
         }
-        if m.uses_basic_pitch() {
+        if m.uses_basic_pitch() || (m == Mode::Piano && m.separates(args.skip_separation) && args.sparse_recovery) {
             v.push("basic-pitch");
         }
         if m == Mode::Expressive {
@@ -528,6 +536,9 @@ fn start_runtime_with(args: &Args, choice: EpChoice) -> Result<Runtime> {
     let plan = ortenv::plan(choice, args.ort_dylib.as_deref(), args.cuda_dir.as_deref())?;
     if let Some(d) = &plan.cuda_dir {
         ortenv::prepend_path(d)?;
+        // Provider dependencies can live beside ORT in Forge storage, not
+        // beside forge-rs.exe or in the CUDA toolkit.
+        if let Some(dir) = plan.dylib.parent().filter(|dir| *dir != d.as_path()) { ortenv::prepend_path(dir)?; }
     }
     crate::backbone::init_ort(Some(&plan.dylib))?;
     let version = ortenv::loaded_version().map_or("?".into(), |(a, b)| format!("{a}.{b}"));

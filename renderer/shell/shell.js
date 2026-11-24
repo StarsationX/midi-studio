@@ -914,8 +914,7 @@
   }
   $('as-engine').addEventListener('click', () => {
     if (!activity.engine.ready) {
-      activate('forge');
-      runCommand('forge.setup', 'forge', () => openSettings('forge'));
+      handoff('forge', { setup: true });
       return;
     }
     openSettings('forge');
@@ -1154,7 +1153,7 @@
   // immediately, before the target has finished loading.
   // ==========================================================================
   const HANDOFF = {
-    forge:    { type: () => T.NAV_OPEN_FORGE,    legacy: (w, p) => (typeof w.setForgeInput === 'function' ? (w.setForgeInput(p.inputPath || p.url || ''), true) : false) },
+    forge:    { type: () => T.NAV_OPEN_FORGE,    legacy: (w, p) => (!p.setup && typeof w.setForgeInput === 'function' ? (w.setForgeInput(p.inputPath || p.url || ''), true) : false) },
     review:   { type: () => T.NAV_OPEN_EDITOR,   legacy: (w, p) => (typeof w.openReviewProject === 'function' ? (w.openReviewProject(p.projectPath || p.midiPath || ''), true) : false) },
     player:   { type: () => T.NAV_OPEN_PLAYER,   legacy: (w, p) => {
       if (typeof w.setMidiFile === 'function') { w.setMidiFile(p.midiPath || '', !!p.play); return true; }
@@ -2082,8 +2081,7 @@
   });
   $('s-forge-setup').addEventListener('click', () => {
     closeSettings();
-    activate('forge');
-    runCommand('forge.setup', 'forge', () => toast({ severity: 'info', title: 'Setup lives in the Forge tab', message: 'Use the banner at the top of Forge to start it.' }));
+    handoff('forge', { setup: true });
   });
   $('s-openforge').addEventListener('click', () => studio.openForgeFolder && studio.openForgeFolder());
   async function relocateForge(method, button) {
@@ -2881,6 +2879,20 @@
   // every in-app hand-off, so it queues correctly if the Player is not loaded.
   if (studio.onOpenMidi) studio.onOpenMidi((p) => { if (p && p.midiPath) handoff('player', { midiPath: p.midiPath }, { from: 'os' }); });
 
+  // The native flag is latched until consumed. Subscribe before reading it:
+  // a second launch can arrive while this window is still starting.
+  let installerSetupShown = false;
+  async function consumeForgeSetup() {
+    if (!studio.takeForgeSetupRequest || !await studio.takeForgeSetupRequest()) return;
+    installerSetupShown = true;
+    closePalette();
+    closeSettings();
+    closeWhatsNew();
+    handoff('forge', { setup: true });
+  }
+  if (studio.onForgeSetupRequested) studio.onForgeSetupRequested(() => consumeForgeSetup().catch(console.error));
+  const initialForgeSetup = consumeForgeSetup().catch(console.error);
+
   // ---- Forge job tracking -------------------------------------------------
   const forgeJobs = new Map();
   function forgeFailureNotice(error, download) {
@@ -3186,8 +3198,12 @@
     if (w.name && !releaseName) { releaseName = String(w.name); applyVersion(appVersion); }
     if (!w.autoShow) return;
     const shown = String(w.version || appVersion || '');
-    if (studio.markNotesShown) studio.markNotesShown(shown).catch(() => {});
-    onBooted(() => openWhatsNew({ mode: 'installed' }));
+    onBooted(async () => {
+      await initialForgeSetup;
+      if (installerSetupShown) return;
+      if (studio.markNotesShown) studio.markNotesShown(shown).catch(() => {});
+      openWhatsNew({ mode: 'installed' });
+    });
   }).catch(() => {});
   if (studio.getVersion) studio.getVersion().then((v) => {
     applyVersion(v);
@@ -3203,7 +3219,7 @@
     // A user action or an OS file-open routed before settings arrived wins.
     if (!workspaceChosen) activate(normaliseTab(tab), { persist: false, focus: false });
   }
-  const restore = (studio.getUi ? studio.getUi() : Promise.resolve(null)).then((ui) => {
+  const restore = Promise.all([studio.getUi ? studio.getUi() : null, initialForgeSetup]).then(([ui]) => {
     ui = ui || {};
     themePreset = ui.theme || '';
     if (ui.accent) accentVars = deriveAccent(ui.accent);

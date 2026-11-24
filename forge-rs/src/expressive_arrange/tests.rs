@@ -37,6 +37,53 @@ fn note(pitch: u8, start: f64, end: f64) -> Note {
 }
 
 #[test]
+fn piano_passages_require_sustained_piano_not_silence_or_a_short_fill() {
+    assert!(piano_passages(&[[0., 0.]; 8], 4.).is_empty());
+    assert!(piano_passages(&[[1., 0.]; 3], 1.5).is_empty());
+    assert!(piano_passages(&[[1., 0.5]; 8], 4.).is_empty());
+    assert_eq!(piano_passages(&[[1., 0.01]; 5], 2.2), [(0., 2.2)]);
+}
+
+#[test]
+fn piano_preserves_rolled_chord_attacks_and_leaves_the_band_outside() {
+    let band = [note(83, 0., 1.1), note(74, 1.2, 1.5), note(87, 3., 3.4)];
+    let keys = [note(38, 1.2, 2.), note(45, 1.209, 2.), note(69, 1.218, 2.), note(76, 1.227, 2.)];
+    let mut midi = arrange(&band, &[], Some(&[]), 4., &[]);
+    arrange_piano_passages(&mut midi, &keys, &[(1., 3.)]);
+    let rh = &midi.instruments[0].notes;
+    let lh = &midi.instruments[1].notes;
+    assert_eq!(&rh[1..3], &keys[2..]);
+    assert_eq!(lh, &keys[..2]);
+    assert_eq!((rh[0].pitch, rh[0].end, rh[3].pitch), (83, 1., 87));
+}
+
+#[test]
+fn piano_releases_unreachable_holds_instead_of_folding_new_keys() {
+    let keys = [note(33, 0., 2.), note(69, 0., 2.), note(53, 0.6, 1.), note(93, 0.6, 1.)];
+    let mut midi = arrange(&[], &[], Some(&[]), 2., &[]);
+    arrange_piano_passages(&mut midi, &keys, &[(0., 2.)]);
+    for (track, expected) in midi.instruments.iter().zip([[69, 93], [33, 53]]) {
+        assert_eq!(track.notes.iter().map(|n| n.pitch).collect::<Vec<_>>(), expected);
+        assert_eq!(track.notes[0].end, 0.6);
+    }
+}
+
+#[test]
+fn independent_treble_attack_can_interrupt_a_held_instrumental_tone() {
+    let lower = note(60, 0., 0.7);
+    let upper = Note { velocity: 48, ..note(76, 0.3, 0.52) };
+    let piano = [note(76, 0.308, 0.57)];
+    let line = melody(&[], &[lower, upper], &piano, 1., 0.5);
+    assert_eq!(line.iter().map(|n| (n.pitch, n.start, n.end)).collect::<Vec<_>>(),
+        [(60, 0., 0.3), (76, 0.3, 0.52)]);
+    // A borrowed piano fill must not supply its own corroboration.
+    assert!(!confirmed_upper_attack(&upper, &[upper, piano[0]]));
+    let line = melody(&[], &[lower, upper], &[upper], 1., 0.5);
+    assert_eq!(line.len(), 1);
+    assert_eq!(line[0].end, lower.end);
+}
+
+#[test]
 fn keeps_exact_syllable_times_and_register_across_a_breath() {
     let vocals = [
         note(48, 0.1, 0.4),

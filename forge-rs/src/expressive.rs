@@ -25,7 +25,8 @@ pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> R
     if tempos.is_empty() {
         tempos = expressive_arrange::tempo_map(&evidence.bass, evidence.sample_rate);
     }
-    let midi = expressive_arrange::arrange_with_instruments(&lead, &evidence.instrumental, &evidence.backing, &evidence.harmonic_notes, Some(&bass), evidence.duration, &tempos);
+    let mut midi = expressive_arrange::arrange_with_instruments(&lead, &evidence.instrumental, &evidence.backing, &evidence.harmonic_notes, Some(&bass), evidence.duration, &tempos);
+    expressive_arrange::arrange_piano_passages(&mut midi, &evidence.backing, &evidence.piano_passages);
     let count = midi.note_count();
     if count == 0 { bail!("No playable notes were detected in the selected audio"); }
     println!("[6/6] Save piano MIDI");

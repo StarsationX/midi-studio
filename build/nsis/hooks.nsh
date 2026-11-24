@@ -38,13 +38,16 @@ Var ForgeStorageDir
 Var ForgeStorageInput
 Var ForgeStorageFree
 Var ExistingForgeStorage
+Var ForgeSetupNow
+Var ForgeSetupRadio
 Var MsSweepDir
 !ifdef MS_ELECTRON_GUID
   Var MsElectronDir
+  Var MsElectronRunDir
 !endif
 !include "${__FILEDIR__}\medley-upgrade.nsh"
 
-; ---- Temp checks and the Forge default (.onInit, before SetContext) --------
+; ---- Temp checks (.onInit, before SetContext) -------------------------------
 
 !macro MIDISTUDIO_ONINIT_EARLY
   ; Windows unpacks the installer's plugins through Temp on C: whatever the
@@ -63,11 +66,9 @@ Var MsSweepDir
     MessageBox MB_ICONSTOP|MB_OK "Windows Temp folder is not writable:$\r$\n$TEMP$\r$\n$\r$\nThat is where installers unpack. Check the folder exists and that antivirus is not blocking it, then run this again." /SD IDOK
     Abort
   ${EndIf}
-  !ifdef MS_ELECTRON_GUID
-    StrCpy $ForgeStorageDir "$LOCALAPPDATA\midi-studio\forge-env"
-  !else
-    StrCpy $ForgeStorageDir "$LOCALAPPDATA\${PRODUCTNAME}\forge-env"
-  !endif
+  ; Do not persist an elevated administrator's profile as every user's default.
+  ; A blank choice lets each desktop user resolve their own normal Forge root.
+  StrCpy $ForgeStorageDir ""
 !macroend
 
 ; SetContext has now selected the same registry view as the x64 Electron installer.
@@ -122,31 +123,58 @@ Var MsSweepDir
 
 Function ForgeStoragePageCreate
   ${IfThen} $PassiveMode = 1 ${|} Abort ${|}
-  !insertmacro MUI_HEADER_TEXT "Forge storage" "Choose where the AI engine and models are stored."
+  !insertmacro MUI_HEADER_TEXT "Forge audio conversion" "Use MIDI Studio with or without audio-to-MIDI transcription."
   nsDialogs::Create 1018
   Pop $0
   ${If} $0 == error
     Abort
   ${EndIf}
 
-  ${NSD_CreateLabel} 0 0 100% 26u "Choose a local drive for Forge's engine and models. Setup checks for an existing Medley model before replacing the app."
+  ${NSD_CreateLabel} 0 0 100% 20u "Player, Editor, Listen and Library need no Forge download. Setup preserves compatible files from the old app either way."
   Pop $0
-  ${NSD_CreateLabel} 0 38u 100% 10u "Forge storage folder:"
+  ${NSD_CreateRadioButton} 0 26u 100% 12u "Set up Forge now"
+  Pop $ForgeSetupRadio
+  ${NSD_CreateLabel} 10u 40u 95% 20u "After installation, choose a transcription profile and review its missing download size before downloading anything."
   Pop $0
-  ${NSD_CreateText} 0 52u 78% 13u "$ForgeStorageDir"
+  ReadRegStr $1 SHCTX "${UNINSTKEY}" "UninstallString"
+  !ifdef MS_ELECTRON_GUID
+    ReadRegStr $2 SHCTX "${MS_ELECTRON_UNINSTKEY}" "UninstallString"
+    StrCpy $1 "$1$2"
+  !endif
+  ${If} "$1$ExistingForgeStorage" != ""
+  ${OrIf} ${FileExists} "$INSTDIR\forge-rs.exe"
+    StrCpy $1 "Keep my current Forge setup"
+  ${Else}
+    StrCpy $1 "Skip Forge for now"
+  ${EndIf}
+  ${NSD_CreateRadioButton} 0 64u 100% 12u "$1"
+  Pop $0
+  ${If} $ForgeSetupNow = 1
+    ${NSD_Check} $ForgeSetupRadio
+  ${Else}
+    ${NSD_Check} $0
+  ${EndIf}
+  ${NSD_CreateLabel} 0 87u 100% 10u "Forge storage folder (leave blank to keep the app's choice):"
+  Pop $0
+  ${NSD_CreateText} 0 100u 78% 13u "$ForgeStorageDir"
   Pop $ForgeStorageInput
-  ${NSD_CreateBrowseButton} 80% 51u 20% 15u "Browse..."
+  ${NSD_CreateBrowseButton} 80% 99u 20% 15u "Browse..."
   Pop $0
   ${NSD_OnClick} $0 ForgeStorageBrowse
-  ${NSD_CreateLabel} 0 70u 100% 10u ""
+  ${NSD_CreateLabel} 0 116u 100% 10u ""
   Pop $ForgeStorageFree
   Call ForgeStorageShowFree
-  ${NSD_CreateLabel} 0 82u 100% 20u "Setup downloads ~4 GB and needs about 15 GB free on this drive. Your MIDI files stay in Documents\MIDI Studio."
+  ${NSD_CreateLabel} 0 131u 100% 20u "You can set up Forge later from the app. The original Medley separator stays local; it is never downloaded."
   Pop $0
   nsDialogs::Show
 FunctionEnd
 
 Function ForgeStorageShowFree
+  StrCpy $2 $ForgeStorageDir 2 1
+  ${If} $2 != ":\"
+    ${NSD_SetText} $ForgeStorageFree ""
+    Return
+  ${EndIf}
   StrCpy $2 $ForgeStorageDir 3
   ${DriveSpace} "$2" "/D=F /S=G" $3
   ${If} $3 == ""
@@ -175,9 +203,10 @@ FunctionEnd
 
 Function ForgeStoragePageLeave
   ${NSD_GetText} $ForgeStorageInput $ForgeStorageDir
+  ${NSD_GetState} $ForgeSetupRadio $ForgeSetupNow
   ${If} $ForgeStorageDir == ""
-    MessageBox MB_ICONEXCLAMATION|MB_OK "Choose a Forge storage folder." /SD IDOK
-    Abort
+    StrCpy $ForgeStorageDir "$ExistingForgeStorage"
+    Return
   ${EndIf}
   ; The app creates its own storage as its normal user. Never probe an
   ; arbitrary typed/registry path (or a planted write-test file) as admin.
@@ -276,23 +305,34 @@ FunctionEnd
         StrCpy $3 "$3 --keep-shortcuts"
       ${EndIf}
       ClearErrors
-      ; Copy to one exact file (not Shell CopyFiles' directory semantics).
-      System::Call 'kernel32::CopyFileW(w "$MsElectronDir\${MS_ELECTRON_UNINSTALLER}", w "$PLUGINSDIR\electron-uninstaller.exe", i 0) i.r0'
-      ${If} $0 = 0
-        MessageBox MB_ICONSTOP|MB_OK "Could not copy the previous uninstaller. Remove the old version from Settings > Apps first." /SD IDOK
+      ${If} $MsMedleyParentElevated != 0
+        ; The executable AND its DLL search directory must be protected. The
+        ; shared helper stages only the published, verified uninstaller.
+        System::Call 'kernel32::SetEnvironmentVariableW(w "MS_MEDLEY_OPERATION", w "StageElectron")'
+        Call MidiStudioProtectedOperation
+        ; Only the ASCII temporary leaf crosses nsExec's output code page.
+        StrCpy $MsElectronRunDir "$PROGRAMFILES64\MIDI Studio Shared Models\$MsMedleyDiagnostic"
+      ${Else}
+        StrCpy $MsElectronRunDir "$PLUGINSDIR"
+        StrCpy $MsMedleyStatus 26
+        System::Call 'kernel32::CopyFileW(w "$MsElectronDir\${MS_ELECTRON_UNINSTALLER}", w "$MsElectronRunDir\electron-uninstaller.exe", i 0) i.r0'
+        ${IfThen} $0 != 0 ${|} StrCpy $MsMedleyStatus 0 ${|}
+      ${EndIf}
+      ${If} $MsMedleyStatus != 0
+        MessageBox MB_ICONSTOP|MB_OK "Could not stage the verified previous uninstaller. The old app has not been removed.$\r$\n$MsMedleyDiagnostic" /SD IDOK
         Abort
       ${EndIf}
       ; A per-user installation is writable. Never elevate a binary just
       ; because it lives there. Lock our copy against replacement from the
       ; hash check through ExecWait, and use the system PowerShell by path.
-      System::Call 'kernel32::CreateFileW(w "$PLUGINSDIR\electron-uninstaller.exe", i 0x80000000, i 1, p 0, i 3, i 0, p 0) p .r5'
+      System::Call 'kernel32::CreateFileW(w "$MsElectronRunDir\electron-uninstaller.exe", i 0x80000000, i 1, p 0, i 3, i 0, p 0) p .r5'
       ${If} $5 = -1
         MessageBox MB_ICONSTOP|MB_OK "Could not verify the previous uninstaller. Remove the old version from Settings > Apps first." /SD IDOK
         Abort
       ${EndIf}
       ; nsExec's child cwd is not $OUTDIR. Hash the very file locked above
       ; without module lookup or interpreting a filesystem path as shell code.
-      System::Call 'kernel32::SetEnvironmentVariableW(w "MS_STUDIO_LEGACY_UNINSTALLER", w "$PLUGINSDIR\electron-uninstaller.exe") i.r0'
+      System::Call 'kernel32::SetEnvironmentVariableW(w "MS_STUDIO_LEGACY_UNINSTALLER", w "$MsElectronRunDir\electron-uninstaller.exe") i.r0'
       ${If} $0 != 0
         SetOutPath "$SYSDIR"
         nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "try { $$f=[IO.File]::OpenRead($$env:MS_STUDIO_LEGACY_UNINSTALLER); try { $$h=[BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($$f)).Replace('-',''); if ($$h -eq '${MS_ELECTRON_UNINSTALLER_SHA256}') { exit 0 } } finally { $$f.Dispose() } } catch { }; exit 1"`
@@ -306,7 +346,7 @@ FunctionEnd
         Abort
       ${EndIf}
       ClearErrors
-      ExecWait '"$PLUGINSDIR\electron-uninstaller.exe" /S /KEEP_APP_DATA --updated $3 _?=$MsElectronDir' $0
+      ExecWait '"$MsElectronRunDir\electron-uninstaller.exe" /S /KEEP_APP_DATA --updated $3 _?=$MsElectronDir' $0
       System::Call 'kernel32::CloseHandle(p r5)'
       ${If} ${Errors}
       ${OrIf} $0 != 0
@@ -318,7 +358,8 @@ FunctionEnd
         MessageBox MB_ICONSTOP|MB_OK "The previous MIDI Studio is still registered. Remove it from Settings > Apps before installing this update." /SD IDOK
         Abort
       ${EndIf}
-      Delete "$PLUGINSDIR\electron-uninstaller.exe"
+      Delete "$MsElectronRunDir\electron-uninstaller.exe"
+      ${IfThen} $MsMedleyParentElevated != 0 ${|} RMDir "$MsElectronRunDir" ${|}
       ; It may have removed this very folder; the files below need it back.
       SetOutPath $INSTDIR
     ${Else}
@@ -340,12 +381,12 @@ FunctionEnd
   ; mid-install, elevated, is what used to break shortcuts and the next
   ; install's running-app check.
   ;
-  ; A silent run never shows the page, so $ForgeStorageDir is only the
-  ; computed default; it must not replace a choice that is already recorded.
+  ; Silent installs keep the recorded choice; a fresh install with no choice
+  ; leaves the per-user default to the app rather than mirroring an admin path.
   ${If} ${Silent}
   ${AndIf} $ExistingForgeStorage != ""
     DetailPrint "Keeping existing Forge storage: $ExistingForgeStorage"
-  ${Else}
+  ${ElseIf} $ForgeStorageDir != ""
     WriteRegStr HKCU "${MS_FORGE_KEY}" "${MS_FORGE_VALUE}" "$ForgeStorageDir"
     ; Mirrored for an ELEVATED installer next time, which sees the admin's
     ; HKCU. Fails harmlessly in a per-user, unelevated install.

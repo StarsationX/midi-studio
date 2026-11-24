@@ -189,7 +189,16 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
   !insertmacro MULTIUSER_PAGE_INSTALLMODE
 !endif
 
-; 4. Custom page to ask user if he wants to reinstall/uninstall
+; Choose the final app and Forge directories before any maintenance uninstall.
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!insertmacro MUI_PAGE_DIRECTORY
+
+; MIDI Studio: optional user-mode Forge handoff and persistent storage.
+!ifmacrodef MIDISTUDIO_FORGE_PAGE
+  !insertmacro MIDISTUDIO_FORGE_PAGE
+!endif
+
+; Maintenance choice
 ;    only if a previous installation was detected
 Var ReinstallPageCheck
 Page custom PageReinstall PageLeaveReinstall
@@ -387,6 +396,7 @@ Function PageLeaveReinstall
       System::Call 'ole32::StringFromGUID2(p r2, w .r11, i 39) i.r3'
       System::Free $2
       HideWindow
+      StrCpy $4 "$MsMedleyWixDir"
       ExecWait '"$SYSDIR\msiexec.exe" /x $R1' $0
     ${Else}
       ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
@@ -429,7 +439,7 @@ Function PageLeaveReinstall
     ${IfThen} ${Errors} ${|} StrCpy $0 2 ${|} ; ExecWait failed, set fake exit code
 
     ${If} $0 <> 0
-    ${OrIf} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
+    ${OrIf} ${FileExists} "$4\${MAINBINARYNAME}.exe"
       ; User cancelled wix uninstaller? return to select un/reinstall page
       ${If} $WixMode = 1
       ${AndIf} $0 = 1602
@@ -444,6 +454,8 @@ Function PageLeaveReinstall
       ; Other errors? show generic error message and return to select un/reinstall page
       MessageBox MB_ICONEXCLAMATION "$(unableToUninstall)"
       Abort
+    ${ElseIf} $WixMode = 0
+      StrCpy $MsRemovedTauriDir "$4"
     ${EndIf}
 
     ; The NSIS uninstaller was run in place (`_?=`), so it cannot delete itself
@@ -457,14 +469,6 @@ Function PageLeaveReinstall
   reinst_done:
 FunctionEnd
 
-; 5. Choose install directory page
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
-!insertmacro MUI_PAGE_DIRECTORY
-
-; MIDI Studio: where Forge keeps its multi-GB engine and models (hooks.nsh).
-!ifmacrodef MIDISTUDIO_FORGE_PAGE
-  !insertmacro MIDISTUDIO_FORGE_PAGE
-!endif
 
 ; 6. Start menu shortcut page
 Var AppStartMenuFolder
@@ -495,7 +499,24 @@ Var AppStartMenuFolder
 !insertmacro MUI_PAGE_FINISH
 
 Function RunMainBinary
-  nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
+  ; A requested Forge handoff launches exactly once from .onInstSuccess,
+  ; independently of the optional normal Launch checkbox.
+  ${If} $ForgeSetupNow != 1
+    StrCpy $R0 ""
+    Call LaunchInstalledAsDesktop
+  ${EndIf}
+FunctionEnd
+
+Function LaunchInstalledAsDesktop
+  StrCpy $MsUserProgram "$INSTDIR\${MAINBINARYNAME}.exe"
+  StrCpy $MsUserCommand '"$MsUserProgram" $R0'
+  StrCpy $MsWaitForHelper 0
+  Call MidiStudioRunAsDesktop
+  ${If} $MsMedleyStatus != 0
+  ${AndIf} $PassiveMode != 1
+  ${AndIfNot} ${Silent}
+    MessageBox MB_ICONEXCLAMATION|MB_OK "MIDI Studio is installed, but Setup could not launch it as your desktop user. Open it from Start and choose Forge to continue."
+  ${EndIf}
 FunctionEnd
 
 ; Uninstaller Pages
@@ -560,7 +581,7 @@ LangString choowHowToInstall 0 ""
 {{/each}}
 
 Function .onInit
-  ; Capture the per-user Forge default before SetContext changes shell folders.
+  ; Check Temp before SetContext and any payload extraction.
   !ifmacrodef MIDISTUDIO_ONINIT_EARLY
     !insertmacro MIDISTUDIO_ONINIT_EARLY
   !endif
@@ -858,8 +879,11 @@ Function .onInstSuccess
     ${GetOptions} $CMDLINE "/R" $R0
     ${IfNot} ${Errors}
       ${GetOptions} $CMDLINE "/ARGS" $R0
-      nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "$R0"
+      Call LaunchInstalledAsDesktop
     ${EndIf}
+  ${ElseIf} $ForgeSetupNow = 1
+    StrCpy $R0 "--setup-forge"
+    Call LaunchInstalledAsDesktop
   ${EndIf}
 FunctionEnd
 

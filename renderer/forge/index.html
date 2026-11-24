@@ -542,6 +542,40 @@
 <!-- ======================================================================
      FIRST-TIME SETUP — full width, out of the columns
      ====================================================================== -->
+<dialog class="dlg" id="component-setup" aria-labelledby="component-title" aria-describedby="component-intro">
+  <header class="dlg-head">
+    <div class="fg-dlgh">
+      <h2 class="dlg-title" id="component-title">Set up Forge</h2>
+      <p class="dlg-sub" id="component-intro">Installing these files selects the native Rust conversion engine. Playing and editing MIDI need no download.</p>
+    </div>
+  </header>
+  <div class="dlg-body fg-setup-store">
+    <label class="field-label" for="component-profile">Conversion profile</label>
+    <select class="select" id="component-profile" aria-describedby="component-profile-hint" autofocus>
+      <option value="fast">Fast · Basic Pitch</option>
+      <option value="piano">Piano · adds full-precision Transkun</option>
+      <option value="full">Full · adds GAME for Medley</option>
+    </select>
+    <p class="field-hint" id="component-profile-hint">Piano includes Fast. Full includes both. Stem separation uses your own BS-Rofo model, never a download. Choose Medley in Forge to import it if needed.</p>
+    <label class="field-label"><input id="component-cuda" type="checkbox" aria-describedby="component-cuda-hint"> Add NVIDIA CUDA acceleration</label>
+    <p class="field-hint" id="component-cuda-hint">Basic Pitch uses the CPU. Acceleration for supported models requires a compatible NVIDIA GPU, driver, CUDA 12 and cuDNN 9.</p>
+    <p id="component-status" role="status" aria-live="polite"></p>
+    <details id="component-details" hidden>
+      <summary>Component files</summary>
+      <ul id="component-files"></ul>
+    </details>
+    <div class="fg-setup-row">
+      <button class="link" id="component-python" type="button">Optional Python tools…</button>
+      <button class="link" id="component-medley" type="button" hidden>Import local separator model…</button>
+    </div>
+  </div>
+  <footer class="dlg-foot">
+    <button class="btn btn-ghost" id="component-skip" type="button">Skip for now</button>
+    <span class="u-spacer"></span>
+    <button class="btn btn-primary" id="component-action" type="button" disabled>Checking files…</button>
+  </footer>
+</dialog>
+
 <div class="dlg-scrim" id="setup-scrim" hidden>
   <div class="dlg is-wide" id="setup" role="dialog" aria-modal="true" aria-labelledby="setup-title">
     <header class="dlg-head">

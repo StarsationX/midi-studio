@@ -510,6 +510,11 @@ body {
 
 /* ---- setup modal ------------------------------------------------------ */
 .fg-dlgh { flex: 1 1 auto; min-width: 0; }
+#component-setup { padding: 0; color: var(--text); max-height: calc(100% - var(--s6)); width: min(560px, calc(100% - var(--s6))); }
+#component-setup:not([open]) { display: none; }
+#component-setup[open] { margin: auto; opacity: 1; transform: none; }
+#component-setup::backdrop { background: #0a0b0dcc; }
+#component-files { font: var(--t1)/1.5 var(--font-mono); overflow-wrap: anywhere; padding-inline-start: var(--s4); }
 .fg-setup-store { display: flex; flex-direction: column; gap: var(--s2); }
 .fg-group-head { display: flex; align-items: center; gap: var(--s2); min-height: 22px; }
 .fg-group-title { font: 600 var(--t2)/1.2 var(--font-body); color: var(--text); }

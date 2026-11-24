@@ -2,9 +2,11 @@
 //! pitched attacks; the drum pulse only sets the editor grid and density.
 mod bass;
 mod harmony;
+mod piano;
 mod tempo;
 pub use bass::bass_notes;
 pub use harmony::harmony_notes;
+pub use piano::{arrange_piano_passages, piano_passages};
 pub use tempo::tempo_map;
 
 use crate::pmidi::{Instrument, Note, PrettyMidi};
@@ -55,6 +57,22 @@ fn fold(pitch: u8, low: u8, high: u8) -> u8 {
 // is poor evidence of melody. These limits are independent of chord voicing.
 fn fill_candidate(n: &Note) -> bool {
     (53..=96).contains(&n.pitch) && n.velocity >= 45 && n.end - n.start >= 0.030
+}
+
+// Independent agreement permits an upper instrumental attack to emerge over a
+// sustained backing voice. Piano fallbacks copied into the instrument stream
+// are the same observation, not a confirming second detector.
+fn confirmed_upper_attack(n: &Note, piano: &[Note]) -> bool {
+    if n.pitch < 64 || n.end - n.start < 0.08 { return false; }
+    let first = piano.partition_point(|k| k.start < n.start - 0.035);
+    let mut confirmed = false;
+    for k in piano[first..].iter().take_while(|k| k.start <= n.start + 0.035) {
+        if k == n { return false; }
+        if k.pitch == n.pitch && k.velocity >= 55 && k.end - k.start >= 0.03 {
+            confirmed = true;
+        }
+    }
+    confirmed
 }
 
 // A short lower-key repeat under an already sounding octave can come from
@@ -124,17 +142,19 @@ fn melody(vocals: &[Note], instrumental: &[Note], piano: &[Note], duration: f64,
                 .map(|f| f.pitch.abs_diff(n.pitch)).min();
             let continues = next.is_some_and(|d| d <= 5);
             let established = prior.is_some_and(|p| p.pitch.abs_diff(n.pitch) <= 7 && n.start - p.start <= horizon);
+            let confirmed = confirmed_upper_attack(n, piano);
             let independent = (57..=88).contains(&n.pitch) && n.velocity >= 53 && n.end - n.start >= 0.12;
-            if !independent && !established && !continues {
+            if !confirmed && !independent && !established && !continues {
                 return None;
             }
             if prior.is_some_and(|p| n.start - p.start < 0.065 ||
-                (n.start < p.end && p.pitch.abs_diff(n.pitch) > 7 && (!continues || old_line_continues))) {
+                (n.start < p.end && p.pitch.abs_diff(n.pitch) > 7 && (!continues || old_line_continues)
+                    && !(confirmed && n.pitch > p.pitch))) {
                 return None;
             }
             let score = f64::from(n.velocity) + 0.38 * f64::from(n.pitch)
                 - 1.6 * f64::from(distance.unwrap_or(0).min(12))
-                + f64::from(6 - next.unwrap_or(6).min(6));
+                + f64::from(6 - next.unwrap_or(6).min(6)) + if confirmed { 10. } else { 0. };
             Some((score, n))
         }).max_by(|a, b| a.0.total_cmp(&b.0));
         if let Some((_, n)) = best {

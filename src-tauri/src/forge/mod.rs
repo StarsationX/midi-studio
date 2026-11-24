@@ -9,6 +9,10 @@
 //   storage    where the env lives and the rules for moving or deleting it
 //   fpaths     the forge env lookup, the child env, the installer's registry
 //   winjob     Job Objects, NtSuspendProcess, SetPriorityClass
+mod components;
+#[path = "../../../forge-rs/src/standard_user.rs"]
+mod standard_user;
+mod verified;
 mod fpaths;
 mod medley;
 mod provision;
@@ -57,7 +61,8 @@ pub struct Forge {
     runner: Arc<Runner>,
     musescore: Arc<musescore::MuseScore>,
     provisioner: Arc<provision::Provisioner>,
-    model_import: Mutex<()>,
+    /// Serializes storage changes, imports, native setup and job startup.
+    storage_action: Mutex<()>,
     settled: Gate,
     reaped: Gate,
     /// Paused because a game came up under "Pause Forge jobs entirely", so
@@ -236,7 +241,8 @@ fn adopt_installer_forge_path(h: &Host) {
     if storage::same_path(&chosen, &current) {
         return;
     }
-    if fpaths::forge_env_ready(&ForgePaths::dir(&current)) && !fpaths::forge_env_ready(&ForgePaths::dir(&chosen)) {
+    if fpaths::forge_env_ready(&ForgePaths::dir(&current)) && !fpaths::forge_env_ready(&ForgePaths::dir(&chosen))
+        && !chosen.join("native").is_dir() {
         blog(&format!("ignored installer Forge storage {}: not provisioned, keeping {}", chosen.display(), current.display()));
         return;
     }
@@ -245,7 +251,7 @@ fn adopt_installer_forge_path(h: &Host) {
         Ok(_) => {
             let is_default = storage::same_path(&chosen, &fpaths::forge_env_dir(&ForgePaths::default()));
             let dir = if is_default { String::new() } else { chosen.to_string_lossy().into_owned() };
-            h.settings.merge(&clear_paths_patch(&dir));
+            h.settings.merge(&json!({"paths":{"forgeEnvDir":dir}}));
             blog(&format!("adopted installer Forge storage: {}", chosen.display()));
         }
         Err(e) => blog(&format!("installer Forge storage {} unusable ({e}); keeping {}", chosen.display(), current.display())),
@@ -255,15 +261,16 @@ fn adopt_installer_forge_path(h: &Host) {
 /// main.js recoverForgeEnv: pointed at an empty folder while a provisioned
 /// env sits somewhere else (2.20.0's update could do that) -> use that one.
 fn recover_forge_env(app: &AppHandle, h: &Host) {
-    if fpaths::forge_env_ready(&forge_paths(h)) {
+    let paths = forge_paths(h);
+    if fpaths::forge_env_ready(&paths) || fpaths::forge_env_dir(&paths).join("native").is_dir() {
         return;
     }
-    let Some(found) = fpaths::find_ready_forge_env(&forge_paths(h)) else { return };
-    let current = fpaths::forge_env_dir(&forge_paths(h));
+    let Some(found) = fpaths::find_ready_forge_env(&paths) else { return };
+    let current = fpaths::forge_env_dir(&paths);
     if storage::same_path(&found, &current) {
         return;
     }
-    h.settings.merge(&clear_paths_patch(&found.to_string_lossy()));
+    h.settings.merge(&json!({"paths":{"forgeEnvDir":found.to_string_lossy()}}));
     fpaths::sync_installer_forge_path(&found);
     blog(&format!("recovered Forge env: {} was empty, using {}", current.display(), found.display()));
     let app = app.clone();
@@ -292,7 +299,7 @@ pub fn init(app: &AppHandle) {
         runner: Runner::new(emit.clone(), log.clone(), ctx, fpaths::forge_jobs_file()),
         musescore: musescore::MuseScore::new(app, emit.clone()),
         provisioner: provision::Provisioner::new(emit, log),
-        model_import: Mutex::new(()),
+        storage_action: Mutex::new(()),
         settled: Gate::default(),
         reaped: Gate::default(),
         auto_paused: AtomicBool::new(false),
@@ -380,7 +387,7 @@ fn forge_info(app: &AppHandle, h: &Host) -> Value {
 }
 
 fn busy(f: &Forge) -> bool {
-    f.runner.is_running() || f.musescore.is_running() || f.provisioner.is_running() || f.model_import.try_lock().is_err()
+    f.runner.is_running() || f.musescore.is_running() || f.provisioner.is_running()
 }
 
 const BUSY: &str = "Wait for the current Forge job or setup to finish.";
@@ -400,6 +407,7 @@ fn is_choice(r: &MessageDialogResult, label: &str) -> bool {
 /// main.js changeForgeStorage: pick (or be given) a folder, then move the env
 /// there, use what is already there, or start fresh.
 fn change_forge_storage(app: &AppHandle, h: &Host, f: &Forge, fixed: Option<PathBuf>) -> Value {
+    let Ok(_guard) = f.storage_action.try_lock() else { return json!({"ok":false,"error":BUSY}); };
     if busy(f) {
         return json!({"ok": false, "error": BUSY});
     }
@@ -492,15 +500,15 @@ fn open_path(app: &AppHandle, p: &Path) -> Result<(), String> {
 /// setup download, without asking. Some(()) = the user chose to keep it.
 fn close_guard(app: &AppHandle, f: &Forge) -> Option<()> {
     let (job, midi, setup) = (f.runner.is_running(), f.musescore.is_running(), f.provisioner.is_running());
-    let importing = f.model_import.try_lock().is_err();
-    if !job && !midi && !setup && !importing {
+    let changing = f.storage_action.try_lock().is_err();
+    if !job && !midi && !setup && !changing {
         return None;
     }
     let visible = app.get_webview_window(MAIN).is_some_and(|w| w.is_visible().unwrap_or(false));
     if !visible {
         return None; // nobody to ask
     }
-    let what = if importing { "Your local Medley model is still being imported." }
+    let what = if changing { "Forge is still preparing its files." }
         else if job { "A transcription is still running." } else if midi { "A MIDI download is still running." } else { "Midi Forge setup is still downloading." };
     let r = ask(
         app,
@@ -532,10 +540,27 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
             let mode = a0.get("mode").and_then(Value::as_str).filter(|m| runner::RUST_MODES.contains(m));
             f.runner.check_mode(mode, truthy(a0.get("skipSeparation")), truthy(a0.get("fresh")))
         }
+        "forge:componentStatus" => {
+            f.settled.wait();
+            components::status(&forge_paths(&h), &a0)
+        }
+        "forge:installComponents" => {
+            f.settled.wait();
+            let Ok(_guard) = f.storage_action.try_lock() else { return Some(Ok(json!({"ok":false,"error":BUSY}))); };
+            if busy(&f) { return Some(Ok(json!({"ok":false,"error":BUSY}))); }
+            match components::install(&forge_paths(&h), &a0) {
+                Ok(()) => {
+                    h.settings.merge(&json!({"forge":{"engine":"rust"}}));
+                    f.runner.invalidate_check();
+                    json!({"ok":true})
+                }
+                Err(error) => json!({"ok":false,"error":error}),
+            }
+        }
         "forge:importMedleyModel" => {
             f.settled.wait();
+            let Ok(_guard) = f.storage_action.try_lock() else { return Some(Ok(json!({"ok":false, "error": BUSY}))); };
             if busy(&f) { return Some(Ok(json!({"ok":false, "error": BUSY}))); }
-            let Ok(_guard) = f.model_import.try_lock() else { return Some(Ok(json!({"ok":false, "error": BUSY}))); };
             let mut picker = app.dialog().file().set_title("Import existing Medley model")
                 .add_filter("Medley ONNX or original checkpoint", &["onnx", "ckpt"]);
             if let Some(window) = app.get_webview_window(MAIN) { picker = picker.set_parent(&window); }
@@ -552,7 +577,8 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
         }
         "forge:provision" => {
             f.settled.wait();
-            if f.model_import.try_lock().is_err() { return Some(Err(BUSY.into())); }
+            let Ok(_guard) = f.storage_action.try_lock() else { return Some(Err(BUSY.into())); };
+            if let Err(e) = standard_user::require() { return Some(Err(e.to_string())); }
             if f.provisioner.is_running() {
                 return Some(Ok(json!({"running": true})));
             }
@@ -578,6 +604,7 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
         "forge:run" => {
             f.reaped.wait(); // invariant 10: a leftover job is gone before a new one starts
             f.settled.wait();
+            let Ok(_guard) = f.storage_action.try_lock() else { return Some(Err(BUSY.into())); };
             let o = opts();
             let pipeline = match js_str(o.get("pipeline")) {
                 p if p.is_empty() => "melody".to_string(),
@@ -596,6 +623,7 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
         "forge:yt" => {
             f.reaped.wait();
             f.settled.wait();
+            let Ok(_guard) = f.storage_action.try_lock() else { return Some(Err(BUSY.into())); };
             let o = opts();
             let out = match js_str(o.get("outDir")) {
                 d if d.is_empty() => output_dir(&h).to_string_lossy().into_owned(),
@@ -659,6 +687,7 @@ pub fn dispatch(app: &AppHandle, channel: &str, args: &[Value]) -> Option<Result
             json!(open_path(app, &target).err().unwrap_or_default())
         }
         "app:cleanReinstall" => {
+            let Ok(_guard) = f.storage_action.try_lock() else { return Some(Ok(json!({"ok":false,"error":BUSY}))); };
             if busy(&f) {
                 return Some(Ok(json!({"ok": false, "error": BUSY})));
             }

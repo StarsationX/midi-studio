@@ -236,6 +236,20 @@ try {
         Write-Output 'No prior Medley model. Nothing to preserve.'
     } elseif ($source -ne $target) { Keep-File $source $onnx; Write-Output "Verified and preserved: $target" }
     else { Write-Output "Already preserved: $target" }
+    if ($Installer) {
+        # Existing app preferences outrank the registry default. Honor an
+        # explicit new wizard location, but otherwise keep the active store.
+        $store = $env:MS_MEDLEY_STORAGE
+        if ((!$store -or $store -eq $env:MS_MEDLEY_OLD_STORAGE) -and $settings.paths.forgeEnvDir) { $store = $settings.paths.forgeEnvDir }
+        if (!$store) {
+            $store = $defaultEnv
+            $appDrive = [IO.Path]::GetPathRoot((Local-Path $env:MS_MEDLEY_TARGET))
+            if (!$testProduct -and $appDrive -ne [IO.Path]::GetPathRoot($defaultEnv)) { $store = [IO.Path]::Combine($appDrive,'MIDI Studio Forge') }
+        }
+        $other = @($env:MS_MEDLEY_OLD_STORAGE,$env:MS_MEDLEY_STORAGE,$settings.paths.forgeEnvDir,$settings.paths.modelsDir)
+        if (!$testProduct) { $other += @($env:MIDI_STUDIO_FORGE_ENV_DIR,$env:MIDI_STUDIO_MODELS_DIR) }
+        & "$PSScriptRoot\preserve-native.ps1" -InstallRoots $InstallRoots -StorageDir $store -OtherStorageDirs $other -ManifestBytes ([IO.File]::ReadAllBytes("$PSScriptRoot\forge-components.json"))
+    }
     if ($source -and $machineRoots.Count) {
         $shared = $PriorMedley -and $env:MS_MEDLEY_TAURI
         foreach ($r in $machineRoots) {

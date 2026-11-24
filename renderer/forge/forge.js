@@ -1701,7 +1701,7 @@
   function updateStart() {
     const label = !inputPath ? 'Choose audio…' : envReady ? 'Create MIDI'
       : envState === 'checking' ? 'Checking engine…' : envState === 'unknown' ? 'Check engine again'
-      : envState === 'import' ? 'Import existing Medley model…' : envState === 'repair' ? 'Show missing files' : 'Set up audio conversion…';
+      : envState === 'import' ? 'Import existing Medley model…' : 'Set up audio conversion…';
     $('start-label').textContent = label;
     const invalidRange = !!(envReady && inputPath && !validateTiming(false));
     $('start').disabled = busy || !!(inputPath && envState === 'checking' && !envReady) || invalidRange;
@@ -1734,6 +1734,7 @@
     if (!inputPath) { browse('replace'); return; }
     if (!envReady) {
       if (envState === 'unknown') refreshEnv();
+      else if (envState === 'import') openEngineSetup(false);
       else if (envState !== 'checking') openSetup();
       return;
     }
@@ -2232,8 +2233,8 @@
     envReady = !!(s && s.forgeReady);
     envGpu = (s && s.gpu) || '';
     envMissing = (s && s.missing) || [];
-    envState = !s ? 'unknown' : envReady ? 'ready' : native && s.importMedleyModel ? 'import'
-      : expressive && s.engine === 'rust' ? 'repair' : 'missing';
+    envState = !s ? 'unknown' : envReady ? 'ready' : native && s.importMedleyModel ? 'import' : 'missing';
+    $('component-medley').hidden = envState !== 'import';
     if (!native) {
       try { localStorage.setItem(cacheKey, JSON.stringify({ forgeReady: envReady, gpu: envGpu })); } catch (_) {}
     }
@@ -2243,13 +2244,11 @@
         cpuNoticeShown = true;
         logLine('Forge runs on the processor here. Piano and Full Song take 20 to 40 minutes per song here. Fast finishes in a couple of minutes at lower quality.', { level: 'warn' });
       }
-      closeSetup();
+      if (!pythonTools) closeSetup();
     } else if (envState === 'unknown') {
       setEnv('warn', 'Check again');
     } else if (envState === 'import') {
       setEnv('warn', 'Import existing Medley model');
-    } else if (envState === 'repair') {
-      setEnv('err', 'Medley files missing');
     } else {
       setEnv('err', 'Not set up' + (envMissing.length ? ' · missing ' + envMissing.join(', ') : ''));
     }
@@ -2261,30 +2260,117 @@
   on($('env-recheck'), 'click', refreshEnv);
 
   // ---- modal -------------------------------------------------------------
+  const componentDialog = $('component-setup');
+  const componentProfile = $('component-profile'), componentCuda = $('component-cuda');
+  const componentAction = $('component-action'), componentMessage = $('component-status');
+  let componentRequest = 0, componentResult = null, componentInstalling = false;
+  const componentSelection = () => ({ profile: componentProfile.value, cuda: componentCuda.checked });
+
+  async function scanComponents() {
+    const request = ++componentRequest;
+    componentResult = null;
+    componentAction.disabled = true;
+    componentAction.textContent = 'Checking files…';
+    componentMessage.textContent = 'Verifying installed files and looking for reusable copies…';
+    $('component-details').hidden = true;
+    try {
+      const result = await F.componentStatus(componentSelection());
+      if (request !== componentRequest || !componentDialog.open) return;
+      if (!result || !result.ok) throw new Error(result && result.error || 'Could not check Forge files.');
+      const { files, missingBytes } = result;
+      if (!Array.isArray(files) || !files.length || !Number.isSafeInteger(missingBytes) || missingBytes < 0) {
+        throw new Error('The component scan returned no valid inventory.');
+      }
+      const labels = { installed: 'Verified', reusable: 'Reuse local copy', missing: 'Download', conflict: 'Conflicting file' };
+      const rows = files.map(file => {
+        const row = document.createElement('li');
+        row.textContent = `${labels[file.state] || file.state} · ${file.path} (${Fmt.bytes(file.size)})`;
+        return row;
+      });
+      $('component-files').replaceChildren(...rows);
+      $('component-details').hidden = false;
+      if (files.some(f => f.state === 'conflict')) throw new Error(result.error || 'A conflicting file is in the Forge folder. Move it aside, then check again.');
+      componentResult = result;
+      const reuse = files.filter(f => f.state === 'reusable').length;
+      componentMessage.textContent = missingBytes ? `${Fmt.bytes(missingBytes)} (${missingBytes.toLocaleString()} bytes) to download.`
+        : reuse ? '0 bytes to download.' : 'All selected files are verified. 0 bytes to download.';
+      if (reuse) componentMessage.textContent += ` ${reuse} verified local ${reuse === 1 ? 'file will' : 'files will'} be reused.`;
+      componentAction.textContent = missingBytes ? 'Download missing files' : reuse ? 'Use local files' : 'Done';
+    } catch (error) {
+      if (request !== componentRequest || !componentDialog.open) return;
+      componentMessage.textContent = String(error.message || error);
+      componentAction.textContent = 'Check again';
+    } finally {
+      if (request === componentRequest && componentDialog.open) componentAction.disabled = false;
+    }
+  }
+
+  function openSetup() {
+    if (!F.componentStatus) { openEngineSetup(false); return; }
+    if (componentDialog.open) { componentDialog.focus(); return; }
+    closeSetup();
+    componentProfile.value = pipeline === 'expressive' ? 'full' : ['piano', 'general'].includes(pipeline) ? 'piano' : 'fast';
+    componentDialog.showModal();
+    scanComponents();
+  }
+  on(componentProfile, 'change', scanComponents);
+  on(componentCuda, 'change', scanComponents);
+  on($('component-skip'), 'click', () => componentDialog.close());
+  on(componentDialog, 'cancel', e => { if (componentInstalling) e.preventDefault(); });
+  on($('component-python'), 'click', () => { componentDialog.close(); openEngineSetup(true); });
+  on($('component-medley'), 'click', () => { componentDialog.close(); openEngineSetup(false); });
+  on(componentAction, 'click', async () => {
+    if (!componentResult) { scanComponents(); return; }
+    if (componentResult.files.every(f => f.state === 'installed')) { componentDialog.close(); return; }
+    const selection = componentSelection();
+    const controls = [componentAction, componentProfile, componentCuda, $('component-skip'), $('component-python'), $('component-medley')];
+    componentInstalling = true;
+    controls.forEach(el => { el.disabled = true; });
+    componentAction.textContent = 'Installing…';
+    componentMessage.textContent = componentResult.missingBytes ? 'Downloading and verifying missing files…' : 'Installing verified local files…';
+    try {
+      const result = await F.installComponents({ ...selection, maxDownloadBytes: componentResult.missingBytes });
+      if (!result || !result.ok) throw new Error(result && result.error || 'Forge installation failed.');
+      logLine('Installed Forge components: ' + selection.profile + (selection.cuda ? ' + CUDA' : ''));
+      refreshEnv();
+      if (Bus) F.check().then(s => {
+        if (s) Bus.send(T.FORGE_STATUS, { ...s, event: 'forge.env' });
+      }).catch(() => {});
+      await scanComponents();
+    } catch (error) {
+      componentResult = null;
+      componentMessage.textContent = 'Installation failed: ' + String(error.message || error);
+      componentAction.textContent = 'Check again';
+    } finally {
+      componentInstalling = false;
+      controls.forEach(el => { el.disabled = false; });
+    }
+  });
+
   let setupReturn = null;
   let importingModel = false;
+  let pythonTools = false;
   function syncSetupAction() {
-    const localModel = envState === 'import';
-    const repair = envState === 'repair';
-    const retry = envState === 'unknown';
-    $('setup-title').textContent = localModel ? 'Import existing Medley model' : repair ? 'Restore the Medley files' : retry ? 'Couldn’t check the engine'
+    const localModel = !pythonTools && envState === 'import';
+    const retry = !pythonTools && envState === 'unknown';
+    $('setup-title').textContent = pythonTools ? 'Optional Python tools' : localModel ? 'Import existing Medley model' : retry ? 'Couldn’t check the engine'
       : envReady ? 'Audio conversion is ready' : 'Set up audio conversion';
-    $('setup-description').textContent = localModel
-      ? 'Medley requires the original BS-Rofo-SW-Fixed model. Studio doesn’t include or download it. Import a local copy you’re authorized to use, or choose Fast in Forge to convert audio without it.'
-      : repair ? 'Other engine files are missing. Restore the application files from the installer, then check again. ' + envMissing.join('; ')
+    $('setup-description').textContent = pythonTools ? 'Use the Python engine, URL downloads and advanced Python-only settings. This separate setup can download several GB.'
+      : localModel ? 'Medley requires the original BS-Rofo-SW-Fixed model. Studio doesn’t include or download it. Import a local copy you’re authorized to use, or choose Fast in Forge to convert audio without it.'
       : retry ? 'Check again before installing anything. You can still listen to or edit MIDI files.'
       : envReady ? 'This mode is ready to use. Close this window to make a MIDI. Install is optional and downloads additional engine tools.'
       : 'Audio conversion can need a one-time download of several GB. Listening to or editing MIDI needs no download. Choose Install when you’re ready.';
-    $('setup-store').hidden = localModel || repair || retry;
-    if (localModel || repair || retry) $('setup-prog').hidden = true;
+    $('setup-store').hidden = localModel || retry;
+    if (localModel || retry) $('setup-prog').hidden = true;
     $('model-import-info').hidden = !localModel;
     $('model-import-status').hidden = !localModel;
-    if (!$('setup-start').disabled) $('setup-start').textContent = localModel ? 'Choose local model…'
-      : envState === 'checking' ? 'Checking engine…' : repair || retry ? 'Check again' : envReady ? 'Install optional tools' : 'Install';
+    if (!$('setup-start').disabled) $('setup-start').textContent = pythonTools ? 'Install Python tools' : localModel ? 'Choose local model…'
+      : envState === 'checking' ? 'Checking engine…' : retry ? 'Check again' : envReady ? 'Install optional tools' : 'Install';
   }
-  function openSetup() {
+  function openEngineSetup(forPython) {
     const scrim = $('setup-scrim');
     if (!scrim.hidden) return;
+    pythonTools = forPython;
     setupReturn = document.activeElement;
     scrim.hidden = false;
     if (!importingModel) $('model-import-status').textContent = '';
@@ -2322,6 +2408,7 @@
   });
   on(document, 'keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (componentDialog.open) return; // native dialog handles Escape
     if (!$('setup-scrim').hidden) { e.preventDefault(); closeSetup(); return; }
     // Not silent: onSelectionChange is what clears `selected` and hides the
     // Selected Result panel, so the two halves of the column stay in step.
@@ -2382,8 +2469,8 @@
   function noteSetupOutput() { setupHeard = true; clearTimeout(setupSilence); setupSilence = 0; }
 
   on($('setup-start'), 'click', async () => {
-    if (envState === 'checking' || importingModel) return;
-    if (envState === 'import') {
+    if ((!pythonTools && envState === 'checking') || importingModel) return;
+    if (!pythonTools && envState === 'import') {
       const button = $('setup-start'), status = $('model-import-status');
       importingModel = true;
       button.disabled = true;
@@ -2406,7 +2493,7 @@
       }
       return;
     }
-    if (envState === 'repair' || envState === 'unknown') { closeSetup(); refreshEnv(); return; }
+    if (!pythonTools && envState === 'unknown') { closeSetup(); refreshEnv(); return; }
     $('setup-start').disabled = true;
     try {
       if (S.forgeInfo) {
@@ -2627,6 +2714,7 @@
   if (Bus) {
     keep(Bus.on(T.NAV_OPEN_FORGE, (p) => {
       if (!p) return;
+      if (p.setup) { openSetup(); return; }
       const paths = [];
       if (Array.isArray(p.inputPaths)) paths.push(...p.inputPaths);
       if (p.inputPath) paths.unshift(p.inputPath);

@@ -265,16 +265,18 @@ pub fn forge_child_env(p: &ForgePaths) -> EnvMap {
     forge_child_env_from(EnvMap::from_process(), p)
 }
 
-fn shared_medley_model() -> Option<&'static Path> {
+pub(super) fn shared_models_dir() -> Option<&'static Path> {
     // The all-users installer's copy lives outside both uninstall trees.
     // Always use the native 64-bit Program Files, never an x86 registry view.
-    static MODEL: std::sync::LazyLock<Option<PathBuf>> = std::sync::LazyLock::new(|| {
+    static DIR: std::sync::LazyLock<Option<PathBuf>> = std::sync::LazyLock::new(|| {
         let dir: String = RegKey::predef(HKEY_LOCAL_MACHINE)
             .open_subkey_with_flags(r"SOFTWARE\Microsoft\Windows\CurrentVersion", KEY_READ | KEY_WOW64_64KEY).ok()?
             .get_value("ProgramFilesDir").ok()?;
-        Some(PathBuf::from(dir).join("MIDI Studio Shared Models").join("bs_rofo_sw").join(super::medley::ONNX))
+        let test = std::env::current_exe().ok().as_deref().and_then(Path::file_stem)
+            .is_some_and(|name| name.eq_ignore_ascii_case("MIDI Studio Test"));
+        Some(PathBuf::from(dir).join(if test { "MIDI Studio Test Shared Models" } else { "MIDI Studio Shared Models" }))
     });
-    MODEL.as_deref()
+    DIR.as_deref()
 }
 
 pub fn forge_child_env_from(mut env: EnvMap, p: &ForgePaths) -> EnvMap {
@@ -287,11 +289,40 @@ pub fn forge_child_env_from(mut env: EnvMap, p: &ForgePaths) -> EnvMap {
     if medley.is_file() {
         env.set("FORGE_RS_ROFO_MODEL", &medley.to_string_lossy());
     } else if env.get("FORGE_RS_ROFO_MODEL").is_none_or(str::is_empty) {
-        if let Some(shared) = shared_medley_model().filter(|p| p.is_file()) {
+        if let Some(shared) = shared_models_dir().map(|d| d.join("bs_rofo_sw").join(super::medley::ONNX)).filter(|p| p.is_file()) {
             env.set("FORGE_RS_ROFO_MODEL", &shared.to_string_lossy());
         }
     }
-    env.set("MIDI_STUDIO_FORGE_ENV_DIR", &forge_env_dir(p).to_string_lossy());
+    let root = forge_env_dir(p);
+    env.set("MIDI_STUDIO_FORGE_ENV_DIR", &root.to_string_lossy());
+    // A headless upgrade can write only the protected machine cache. Use it
+    // directly on first launch; do not require another setup or download.
+    let local_native = root.join("native");
+    if let Some(native) = Some(local_native).filter(|d| d.is_dir())
+        .or_else(|| shared_models_dir().map(|d| d.join("native")).filter(|d| d.is_dir())) {
+        let assets = native.join("assets");
+        // Do not replace MIDI_STUDIO_MODELS_DIR: it may point to the user's
+        // existing separator, and the Python engine also consumes that setting.
+        env.set("FORGE_RS_NATIVE_ASSETS", &assets.to_string_lossy());
+        let pitch = assets.join("basic_pitch/nmp.onnx");
+        if pitch.is_file() { env.set_default("FORGE_RS_BP_MODEL", &pitch.to_string_lossy()); }
+        let ort = native.join("ort-gpu");
+        let dll = ort.join("onnxruntime.dll");
+        if dll.is_file() {
+            env.set_default("ORT_DYLIB_PATH", &dll.to_string_lossy());
+            env.set_default("FORGE_RS_ORT_GPU_DIR", &ort.to_string_lossy());
+            if !p.forge_python_path.is_empty() {
+                // A custom interpreter can be outside the native component
+                // store. Its CUDA runtime is useful even without its Python.
+                if let Some(dir) = Path::new(&p.forge_python_path).parent() {
+                    for base in [Some(dir), dir.parent()].into_iter().flatten() {
+                        let lib = base.join("Lib/site-packages/torch/lib");
+                        if lib.is_dir() { env.set_default("FORGE_RS_CUDA_DIR", &lib.to_string_lossy()); break; }
+                    }
+                }
+            }
+        }
+    }
     let pp = match env.get("PYTHONPATH").filter(|v| !v.is_empty()) {
         Some(old) => format!("{engine};{old}"),
         None => engine,
@@ -440,6 +471,27 @@ mod tests {
         e.set_default("OMP_NUM_THREADS", "9");
         assert_eq!(e.get("OMP_NUM_THREADS"), Some("3"));
         assert_eq!(e.0.len(), 1);
+    }
+
+    #[test]
+    fn native_pack_keeps_separate_custom_model_and_cuda_locations() {
+        let d = scratch("native");
+        let ort = d.join("native/ort-gpu");
+        let assets = d.join("native/assets");
+        let pitch = assets.join("basic_pitch/nmp.onnx");
+        let torch = d.join("custom-python/Lib/site-packages/torch/lib");
+        for dir in [ort.as_path(), pitch.parent().unwrap(), torch.as_path()] { std::fs::create_dir_all(dir).unwrap(); }
+        std::fs::write(ort.join("onnxruntime.dll"), []).unwrap();
+        std::fs::write(&pitch, []).unwrap();
+        let paths = ForgePaths { models_dir: d.join("my-models").to_string_lossy().into_owned(),
+            forge_python_path: d.join("custom-python/python.exe").to_string_lossy().into_owned(), ..ForgePaths::dir(&d) };
+        let env = forge_child_env_from(EnvMap::default(), &paths);
+        for (var, want) in [("FORGE_RS_NATIVE_ASSETS", assets), ("FORGE_RS_BP_MODEL", pitch),
+            ("ORT_DYLIB_PATH", ort.join("onnxruntime.dll")), ("FORGE_RS_ORT_GPU_DIR", ort), ("FORGE_RS_CUDA_DIR", torch)] {
+            assert_eq!(env.get(var).map(Path::new), Some(want.as_path()));
+        }
+        assert_eq!(env.get("MIDI_STUDIO_MODELS_DIR"), Some(paths.models_dir.as_str()));
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     #[test]

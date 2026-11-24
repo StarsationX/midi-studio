@@ -1,11 +1,18 @@
 # The installer hashes this *script's bytes* against its compile-time pin
-# before interpreting them. Runs only for an actual machine-wide old bundle.
-# No destination path, executable, script or command comes from the user.
+# before interpreting them. No user-selected destination or executable is
+# accepted for elevated publication, including on a headless machine.
+param([string]$NativeScriptPin,[string]$ManifestPin,[string]$LegacyPin)
 $ErrorActionPreference = 'Stop'
 $pin = 'fa89f1997f7120f1eb3cac19e7590653d6e6b92ba9dd2d486645d86c0667aede'
 function Digest([IO.Stream]$f) {
     $sha = [Security.Cryptography.SHA256]::Create()
     try { [BitConverter]::ToString($sha.ComputeHash($f)).Replace('-','') } finally { $sha.Dispose() }
+}
+function Read-PinnedBytes([string]$path,[string]$expected) {
+    $b = [IO.File]::ReadAllBytes($path)
+    $stream = [IO.MemoryStream]::new($b,$false)
+    try { if ((Digest $stream) -ne $expected) { throw "The packaged $([IO.Path]::GetFileName($path)) failed verification." } } finally { $stream.Dispose() }
+    return ,$b
 }
 function Assert-Protected([string]$path, [bool]$file) {
     if ([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReparsePoint) { throw "Shared path is a link: $path" }
@@ -98,7 +105,7 @@ function Check-HeadlessTarget {
     $old = $null
     if ($kind -eq 'tauri') {
         $version = $env:MS_MEDLEY_OLD_VERSION
-        if ($env:MS_MEDLEY_ELECTRON -or $version -notin '3.1.2','3.1.3','3.1.4') { throw "Mixed registration or unrecognized nonbundled release ($version). Sign in as the user of the old app." }
+        if ($env:MS_MEDLEY_ELECTRON -or $version -notin '3.1.2','3.1.3','3.1.4','3.1.5') { throw "Mixed registration or unrecognized nonbundled release ($version). Sign in as the user of the old app." }
         $old = Local-Path $env:MS_MEDLEY_TAURI
         if (![string]::Equals($old,$target,[StringComparison]::OrdinalIgnoreCase)) { throw 'The selected folder differs from the registered Tauri installation.' }
         $names = 'MIDI Studio.exe','uninstall.exe'
@@ -156,6 +163,12 @@ function Check-HeadlessTarget {
         if ($paths) { $stores += $paths.forgeEnvDir; $models += $paths.modelsDir }
     }
     $stores += [IO.Path]::Combine([Environment]::GetFolderPath('LocalApplicationData'),$product,'forge-env')
+    foreach ($dir in ($stores + $models)) { if ($dir) {
+        $dir = Local-Path $dir
+        foreach ($r in $old,$target) {
+            if ($r -and ($dir -eq $r -or $dir.StartsWith($r + '\',[StringComparison]::OrdinalIgnoreCase))) { throw "Move Forge storage outside the old app before upgrading: $dir" }
+        }
+    }}
     foreach ($store in $stores) { if ($store) { $models += [IO.Path]::Combine((Local-Path $store),'models') } }
     foreach ($m in $models) { if ($m) { foreach ($sub in '','bs_rofo_sw','onnx') { foreach ($name in 'bsrofo_sw_body.onnx','BS-Rofo-SW-Fixed.ckpt') {
         if ($null -ne (Local-Attributes ([IO.Path]::Combine($m,$sub,$name)))) { throw 'Stored Medley weights require their interactive user.' }
@@ -174,6 +187,15 @@ try {
         try { $pf = $key.GetValue('ProgramFilesDir') } finally { $key.Dispose() }
     } finally { $lm.Dispose() }
     if ($pf -notmatch '^[A-Z]:\\[^\\]+$') { throw 'Cannot establish a trusted native Program Files root.' }
+    if ($env:MS_MEDLEY_OPERATION -eq 'PreserveNative') {
+        $helpers = [IO.Path]::GetDirectoryName($env:MS_MEDLEY_SHARED_SCRIPT)
+        $manifest = Read-PinnedBytes ([IO.Path]::Combine($helpers,'forge-components.json')) $ManifestPin
+        $scriptBytes = Read-PinnedBytes ([IO.Path]::Combine($helpers,'preserve-native.ps1')) $NativeScriptPin
+        $shared = if ($env:MS_MEDLEY_PRODUCT -eq 'MIDI Studio') { 'MIDI Studio Shared Models' } else { 'MIDI Studio Test Shared Models' }
+        $roots = @($env:MS_MEDLEY_TARGET,$env:MS_MEDLEY_TAURI,$env:MS_MEDLEY_ELECTRON,$env:MS_MEDLEY_WIX)
+        & ([scriptblock]::Create([Text.Encoding]::UTF8.GetString($scriptBytes))) -InstallRoots $roots -ManifestBytes $manifest -ProtectedProgramFiles $pf -SharedFolder $shared -OtherStorageDirs @($env:MS_MEDLEY_STORAGE,$env:MS_MEDLEY_OLD_STORAGE)
+        exit 0
+    }
     Assert-Protected $pf $false
     if ($env:MS_MEDLEY_OPERATION -eq 'VerifyMachineUninstaller') {
         $install = [IO.Path]::GetFullPath($env:MS_MEDLEY_TAURI.Trim('"')).TrimEnd('\')
@@ -185,19 +207,25 @@ try {
         Assert-Protected ([IO.Path]::Combine($dir,'uninstall.exe')) $true
         exit 0
     }
-    if ($env:MS_MEDLEY_OPERATION -ne 'PreserveShared') { throw 'Unknown protected operation.' }
+    $sub = 'bs_rofo_sw'; $name = 'bsrofo_sw_body.onnx'; $src = $env:MS_MEDLEY_SHARED_INPUT
+    $stageElectron = $env:MS_MEDLEY_OPERATION -eq 'StageElectron'
+    if ($stageElectron -and $LegacyPin -match '^[a-f0-9]{64}$') {
+        $pin = $LegacyPin; $name = 'electron-uninstaller.exe'
+        $src = [IO.Path]::Combine((Local-Path $env:MS_MEDLEY_ELECTRON),'Uninstall MIDI Studio.exe')
+        $sub = 'setup-' + [Guid]::NewGuid().ToString('N')
+    } elseif ($env:MS_MEDLEY_OPERATION -ne 'PreserveShared') { throw 'Unknown protected operation.' }
     # An arbitrary target (including a disposable/test install) must never
     # contain the recovery cache. The parent populated these before preflight.
     $base = if ($env:MS_MEDLEY_PRODUCT -eq 'MIDI Studio') { 'MIDI Studio Shared Models' } else { 'MIDI Studio Test Shared Models' }
-    $planned = [IO.Path]::Combine($pf,$base,'bs_rofo_sw')
+    $planned = [IO.Path]::Combine($pf,$base,$sub)
     foreach ($root in $env:MS_MEDLEY_TAURI,$env:MS_MEDLEY_TARGET,$env:MS_MEDLEY_ELECTRON,$env:MS_MEDLEY_WIX) {
         if (!$root) { continue }
         $r = [IO.Path]::GetFullPath($root.Trim('"')).TrimEnd('\')
         if ($planned -eq $r -or $planned.StartsWith($r+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Shared storage is inside the install tree.' }
     }
     $d = Protected-Child $pf $base
-    $d = Protected-Child $d 'bs_rofo_sw'
-    $target = [IO.Path]::Combine($d,'bsrofo_sw_body.onnx')
+    $d = Protected-Child $d $sub
+    $target = [IO.Path]::Combine($d,$name)
     if ([IO.File]::Exists($target)) {
         Assert-Protected $target $true
         $f = [IO.File]::OpenRead($target)
@@ -206,7 +234,6 @@ try {
         # The lower-privilege helper supplied a *path*, never code. A malicious
         # path cannot publish an arbitrary privileged file: hash the opened,
         # write/delete-locked handle before creating anything readable by others.
-        $src = $env:MS_MEDLEY_SHARED_INPUT
         if ($src -notmatch '^[A-Z]:\\' -or $src.Substring(2) -match '[:"*?<>|\x00-\x1f]|~\d|[ .](?=\\|$)' -or [IO.DriveInfo]::new($src.Substring(0,3)).DriveType -ne 'Fixed') { throw 'Invalid local source path.' }
         for ($p = $src; $p; $p = [IO.Path]::GetDirectoryName($p)) {
             if ([IO.File]::GetAttributes($p) -band [IO.FileAttributes]::ReparsePoint) { throw 'A link is not a valid shared-copy source.' }
@@ -230,6 +257,6 @@ try {
             } finally { [IO.File]::Delete($tmp) }
         } finally { $f.Dispose() }
     }
-    [Console]::WriteLine("Verified shared model: $target")
+    if ($stageElectron) { [Console]::Write($sub) } else { [Console]::WriteLine("Verified shared model: $target") }
     exit 0
 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 26 }

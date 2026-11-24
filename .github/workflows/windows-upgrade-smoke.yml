@@ -92,3 +92,89 @@ jobs:
           $hive = if ($env:INSTALL_SCOPE -eq 'allusers') { 'HKLM:' } else { 'HKCU:' }
           if (Test-Path "$hive\Software\Microsoft\Windows\CurrentVersion\Uninstall\ab5bc8e7-f120-5de1-b7c5-f5b41892fd91") { throw 'Old app still registered' }
           Write-Output "3.0.1 -> ${next}: custom paths and settings preserved; native app installed."
+
+  fresh-core:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    env:
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Fetch and authenticate candidate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_DIGEST: ${{ inputs.sha256 }}
+        run: |
+          cd $env:RUNNER_TEMP
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw 'Unexpected tag' }
+          $next = 'MIDI-Studio-' + $env:RELEASE_TAG.Substring(1) + '-Setup.exe'
+          gh release download $env:RELEASE_TAG -p $next
+          if ($LASTEXITCODE -or (Get-FileHash $next).Hash -ne $env:NEXT_DIGEST) { throw 'Invalid core installer' }
+      - name: Install desktop without opting into any model or GPU downloads
+        shell: pwsh
+        run: |
+          cd $env:RUNNER_TEMP
+          $ver = $env:RELEASE_TAG.Substring(1)
+          $app = "$env:RUNNER_TEMP\Clean Studio"
+          $store = "$env:LOCALAPPDATA\midi-studio\forge-env"
+          $p = Start-Process ".\MIDI-Studio-$ver-Setup.exe" -ArgumentList '/S','/currentuser',"/D=$app" -Wait -PassThru
+          if ($p.ExitCode -or (Get-Item "$app\MIDI Studio.exe").VersionInfo.ProductVersion -ne $ver) { throw 'Fresh core install failed' }
+          if (!(Test-Path "$app\forge-rs.exe") -or (Test-Path "$app\assets\onnx") -or (Test-Path "$app\ort-gpu") -or (Test-Path "$store\native\ort-gpu\onnxruntime.dll")) { throw 'Unexpected fresh payload' }
+
+  preserve-native:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: [currentuser, allusers]
+    env:
+      GH_REPO: ${{ github.repository }}
+      INSTALL_SCOPE: ${{ matrix.scope }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Fetch pinned full installer, slim candidate and public component catalog
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_DIGEST: ${{ inputs.sha256 }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw 'Invalid tag' }
+          cd $env:RUNNER_TEMP
+          gh release download v3.1.4 -p MIDI-Studio-3.1.4-Setup.exe
+          if ($LASTEXITCODE -or (Get-FileHash MIDI-Studio-3.1.4-Setup.exe).Hash -ne '02bde64c52fe78ff8c73a0d5e26d81ade884331ed2494b497a3eb82205252e0c') { throw 'Invalid predecessor' }
+          $next = 'MIDI-Studio-' + $env:RELEASE_TAG.Substring(1) + '-Setup.exe'
+          gh release download $env:RELEASE_TAG -p $next
+          if ($LASTEXITCODE -or (Get-FileHash $next).Hash -ne $env:NEXT_DIGEST) { throw 'Invalid candidate' }
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$env:GH_REPO/contents/tools/forge-components.json?ref=$env:RELEASE_TAG" > catalog.json
+          if ($LASTEXITCODE) { throw 'Catalog fetch failed' }
+      - name: Upgrade installed 3.1.4 and verify all legacy bytes are reusable offline
+        shell: pwsh
+        run: |
+          cd $env:RUNNER_TEMP
+          $app = if ($env:INSTALL_SCOPE -eq 'allusers') { "$env:ProgramFiles\MIDI Studio" } else { "$env:LOCALAPPDATA\MIDI Studio" }
+          $store = "$env:RUNNER_TEMP\Forge Library"
+          $reg = 'HKCU:\Software\StarsationX\MIDI Studio'
+          New-Item -ItemType Directory -Path $store -Force | Out-Null
+          New-Item $reg -Force | Out-Null
+          New-ItemProperty $reg ForgeStorageDir -Value $store -Force | Out-Null
+          function Install($exe) {
+            $p = Start-Process $exe -ArgumentList '/S',"/$env:INSTALL_SCOPE","/D=$app" -Wait -PassThru
+            if ($p.ExitCode) { throw "$exe failed ($($p.ExitCode))" }
+          }
+          Install '.\MIDI-Studio-3.1.4-Setup.exe'
+          $components = @(Get-Content -Raw catalog.json | ConvertFrom-Json)
+          if ($components.Count -lt 1) { throw 'Missing component catalog' }
+          foreach ($c in $components) {
+            if ((Get-FileHash (Join-Path $app $c.path)).Hash -ne $c.sha256) { throw "Invalid 3.1.4 fixture: $($c.path)" }
+          }
+          $next = $env:RELEASE_TAG.Substring(1)
+          Install ".\MIDI-Studio-$next-Setup.exe"
+          if ((Get-Item "$app\MIDI Studio.exe").VersionInfo.ProductVersion -ne $next) { throw 'Wrong version' }
+          foreach ($c in $components) {
+            $copies = @("$store\native","$env:ProgramFiles\MIDI Studio Shared Models\native") | ForEach-Object { Join-Path $_ $c.path }
+            if (!($copies | Where-Object { (Test-Path -LiteralPath $_ -PathType Leaf) -and (Get-FileHash -LiteralPath $_).Hash -eq $c.sha256 })) {
+              throw "Legacy component not safely preserved outside the installation: $($c.path)"
+            }
+          }

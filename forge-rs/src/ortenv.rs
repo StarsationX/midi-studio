@@ -94,6 +94,14 @@ pub fn cuda_dirs() -> Vec<PathBuf> {
         v.push(f.join("python").join("Lib").join("site-packages").join("torch").join("lib"));
         v.push(f.join("ort-gpu"));
     }
+    // A native-only store on another drive may coexist with the older
+    // provisioner's CUDA/cuDNN runtime. Reuse it without provisioning Python.
+    if let Some(local) = env_path("LOCALAPPDATA") {
+        for rel in ["midi-studio/forge-env", "midi-forge"] {
+            let lib = local.join(rel).join("python/Lib/site-packages/torch/lib");
+            if !v.contains(&lib) { v.push(lib); }
+        }
+    }
     if let Some(d) = exe_dir() {
         v.push(d.join("cuda"));
     }

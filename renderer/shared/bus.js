@@ -65,7 +65,7 @@
     // -- navigation / hand-off (frame -> shell, shell -> frames) -------------
     NAV_ACTIVATE:       'nav:activate',        // {tab, focus?}
     NAV_ACTIVATED:      'nav:activated',       // {tab, previous, focus}
-    NAV_OPEN_FORGE:     'nav:open-forge',      // {inputPath?, url?}
+    NAV_OPEN_FORGE:     'nav:open-forge',      // {inputPath?, inputPaths?, url?, setup?}
     NAV_OPEN_EDITOR:    'nav:open-editor',     // {projectPath?, midiPath?}
     NAV_OPEN_PLAYER:    'nav:open-player',     // {midiPath?, play?}
     NAV_OPEN_SELFMIDI:  'nav:open-selfmidi',   // {midiPath?, play?}

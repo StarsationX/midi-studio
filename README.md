@@ -13,7 +13,9 @@
 
 On the [release page](https://github.com/StarsationX/midi-studio/releases/latest), open **Assets** and run `MIDI-Studio-<version>-Setup.exe`. This is the Rust/Tauri edition. Windows may show an unknown-publisher warning because the installer is unsigned.
 
-**Already installed?** Install over your current copy and keep your Forge storage folder. Don’t uninstall first. Studio checks GitHub for updates and verifies the installer’s SHA-256 before launching it.
+**Forge setup is optional.** Skip it if you only want to listen, edit MIDI, or play sheets. To convert recordings, opt in during installation or open setup in Forge later. Review the missing download size before continuing. NVIDIA acceleration is a separate choice; it is not required for CPU transcription.
+
+**Already installed?** Install over your current copy and keep your Forge storage folder. Don’t uninstall first. Setup preserves compatible components and the original local Medley model before replacing the old app. Studio checks GitHub for updates and verifies the installer’s SHA-256 before launching it.
 
 | What you have | Where to start |
 | --- | --- |
@@ -42,7 +44,7 @@ Select a screenshot to see it at full size.
 
 </details>
 
-The download badges use GitHub’s release asset counts. Repeat downloads and updater downloads can count; the badges don’t measure unique users or completed installs. No in-app tracking is needed.
+The download badges use GitHub’s release asset counts. The all-releases count includes optional Forge component downloads; the latest stable app release contains only the installer. Repeat downloads and updates can count. These are not unique users or completed installs; no in-app tracking is needed.
 
 ## Play a Virtual Piano sheet
 
@@ -59,6 +61,8 @@ Start at **120 BPM** and **2 steps per beat**: each step lasts a quarter second.
 ## Arrange a recording with Medley
 
 **Medley** (formerly **Expressive Piano**) arranges a recording for two hands: the right hand follows vocal and instrumental melodies, while the left plays bass and chords. Choose **Melody** instead if you want only the lead line.
+
+Quiet piano intros and outros can keep both hands of the detected piano part. In a dense mix, Medley looks for agreement between instruments before adding a lead note. It’s an arrangement, not a note-for-note transcription: compare the result with the recording in passages where several instruments share the melody.
 
 Medley uses the original six-stem separator. The public installer **does not bundle, download, or substitute** that model.
 The [model source and license information](https://huggingface.co/FractalSurfer/BS-RoFormer-SW-6stem#license) is provided for reference; the mirror grants no additional rights. Only import a copy you’re authorized to use. Otherwise choose **Fast** in Forge to convert audio without it.
@@ -98,7 +102,7 @@ npm ci
 cargo run --locked --manifest-path src-tauri/Cargo.toml --bin midi-studio
 ```
 
-For a **full installer**, staging also needs Python 3.11+ and the verified Transkun 2.0.1 exports. Point `MIDI_STUDIO_MODELS_DIR` at a directory containing those exports under `onnx/`. The [staging script](tools/stage_native_assets.py) lists the exact filenames and hashes. The private Medley separator is **not** a build input.
+To package the **slim Windows installer**, staging needs Python 3.11+ for notices and archives. It does not require any model weights. The [optional Forge component manifest](tools/forge-components.json) pins the downloadable files by size and SHA-256. To reproduce those components separately, run `python tools/stage_native_assets.py --components` with the verified Transkun 2.0.1 exports under `MIDI_STUDIO_MODELS_DIR/onnx`. The private Medley separator is **not** a build input.
 
 ```powershell
 npm run build:tauri
@@ -110,6 +114,6 @@ The application is `src-tauri\target\release\MIDI Studio.exe`. The Windows insta
 
 ## License and credits
 
-MIDI Studio’s code is [MIT-licensed](LICENSE). Bundled models, instruments, fonts, and runtimes have [separate licenses and credits](third-party/THIRD-PARTY.txt); in particular, the GAME model weights are licensed for noncommercial use under CC BY-NC-SA 4.0.
+MIDI Studio’s code is [MIT-licensed](LICENSE). Instruments, fonts, runtimes and optional transcription models have [separate licenses and credits](third-party/THIRD-PARTY.txt); in particular, the GAME model weights are licensed for noncommercial use under CC BY-NC-SA 4.0.
 
 The MuseScore public-player import was informed by [ingui-n/musescore-downloader](https://github.com/ingui-n/musescore-downloader); its extension is not bundled. See [DESIGN.md](DESIGN.md) for interface credits.

@@ -68,6 +68,9 @@ jobs:
           if grep -Ei '^Path = (.*[/\\])?(app\.asar|app-(32|64|arm64)\.7z)$' installer-files.txt; then
             echo "Refusing an Electron payload."; exit 1
           fi
+          if grep -Ei '^Path = .*(\.onnx(\.data)?|\.safetensors|onnxruntime[^/\\]*\.dll)$' installer-files.txt; then
+            echo "Optional Forge weights or ONNX Runtime found in the core installer."; exit 1
+          fi
           if grep -Ei '^Path = .*(bs[_-]?rofo.*\.(onnx|ckpt|yaml)|\.ckpt)$' installer-files.txt; then
             echo "Refusing restricted model payload."; exit 1
           fi

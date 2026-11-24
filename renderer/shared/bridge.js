@@ -49,10 +49,10 @@
   const PUSH = [
     'engine-event', 'engine-error', 'update-status', 'overlay-wants-state', 'overlay-state',
     'overlay-config', 'forge:status', 'library-changed', 'library-progress', 'shell-shortcut',
-    'open-midi', 'game-active', 'window-state', 'panel-failed', 'boot-milestone',
+    'open-midi', 'setup-forge-requested', 'game-active', 'window-state', 'panel-failed', 'boot-milestone',
     'close-requested', 'studio-drag',
   ];
-  const SHELL_ONLY = new Set(['update-status', 'shell-shortcut', 'open-midi', 'window-state', 'panel-failed', 'boot-milestone', 'close-requested']);
+  const SHELL_ONLY = new Set(['update-status', 'shell-shortcut', 'open-midi', 'setup-forge-requested', 'window-state', 'panel-failed', 'boot-milestone', 'close-requested']);
 
   const errText = (e) => String((e && e.message) || e);
 
@@ -183,6 +183,8 @@
       },
       forge: {
         check: c('forge:check'),
+        componentStatus: c('forge:componentStatus'),
+        installComponents: c('forge:installComponents'),
         importMedleyModel: c('forge:importMedleyModel'),
         provision: c('forge:provision'),
         cancelProvision: c('forge:provision:cancel'),
@@ -254,6 +256,8 @@
         forgeInfo: c('app:forgeInfo'),
         onShortcut: on('shell-shortcut'),
         onOpenMidi: on('open-midi'),
+        onForgeSetupRequested: on('setup-forge-requested'),
+        takeForgeSetupRequest: () => attached.then(() => call(win, 'app:takeForgeSetupRequest', [])),
         getPerformance: c('app:performance'),
         setPerformance: c('app:setPerformance'),
         onGameActive: on('game-active'),

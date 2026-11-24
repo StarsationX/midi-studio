@@ -160,6 +160,7 @@ impl Job {
 /// take it (an old Windows without nested jobs), it runs anyway and the pid
 /// file reap is what is left to catch an orphan.
 pub fn spawn_in_job(cmd: &mut Command, job: &Job, idle: bool) -> io::Result<(Child, bool)> {
+    super::standard_user::require()?;
     let class = if idle { IDLE_PRIORITY_CLASS } else { BELOW_NORMAL_PRIORITY_CLASS };
     cmd.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED | class);
     let child = cmd.spawn()?;

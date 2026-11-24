@@ -18,6 +18,7 @@ pub struct Evidence {
     pub sample_rate: u32,
     pub backing: Vec<Note>,
     pub instrumental: Vec<Note>,
+    pub piano_passages: Vec<(f64, f64)>,
     pub harmonic_notes: Vec<Note>,
     pub duration: f64,
     pub mixture_tempos: Vec<(f64, f64)>,
@@ -56,6 +57,7 @@ struct Signals {
     bass: Vec<f32>,
     drums: Vec<f32>,
     harmony: Audio,
+    piano_passages: Vec<(f64, f64)>,
 }
 
 fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
@@ -66,8 +68,14 @@ fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
     let mut bass = None;
     let mut drums = None;
     let mut harmony = Vec::<f32>::new();
+    let half_second = SAMPLE_RATE as usize / 2;
+    let mut energy = vec![[0.; 2]; expected_frames.div_ceil(half_second)];
     for (name, channels) in INSTRUMENTS.into_iter().zip(stems) {
         let channel = mono(channels, expected_frames)?;
+        let column = usize::from(name != "piano");
+        for (bin, samples) in energy.iter_mut().zip(channel.chunks(half_second)) {
+            bin[column] += samples.iter().map(|&x| f64::from(x) * f64::from(x)).sum::<f64>();
+        }
         match name {
             "vocals" => vocals = Some(channel),
             "bass" => bass = Some(channel),
@@ -92,6 +100,7 @@ fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
         bass: bass.context("missing bass")?,
         drums: drums.context("missing drums")?,
         harmony: Audio { channels: 1, kind: SourceKind::Float, sample_rate: SAMPLE_RATE, samples: harmony },
+        piano_passages: crate::expressive_arrange::piano_passages(&energy, expected_frames as f64 / f64::from(SAMPLE_RATE)),
     })
 }
 
@@ -129,7 +138,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
     if (frames as f64 - duration * SAMPLE_RATE as f64).abs() > 2.0 {
         bail!("Separated audio length differs from the source window.");
     }
-    let Signals { vocals, bass, drums, harmony } = split(separated.stems, frames)?;
+    let Signals { vocals, bass, drums, harmony, piano_passages } = split(separated.stems, frames)?;
     let mut instrumental = Vec::new();
     let mut backing = Vec::new();
     let tk_ep = if args.transkun_gpu { separated.ep } else { Ep::Cpu };
@@ -179,7 +188,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         pm.write(&work.join("backing.mid"))?;
         println!("  (kept stems: {})", work.display());
     }
-    Ok(Evidence { vocals, bass, bass_notes, drums, sample_rate: SAMPLE_RATE, backing, instrumental, harmonic_notes, duration, source_start, mixture_tempos })
+    Ok(Evidence { vocals, bass, bass_notes, drums, sample_rate: SAMPLE_RATE, backing, instrumental, harmonic_notes, piano_passages, duration, source_start, mixture_tempos })
 }
 
 fn supplement_instrumental(instrumental: &mut Vec<Note>, piano: &[Note]) {

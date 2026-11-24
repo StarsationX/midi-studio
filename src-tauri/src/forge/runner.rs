@@ -172,6 +172,7 @@ fn expressive_engine(env: &mut EnvMap) -> Result<PathBuf, String> {
 }
 
 pub fn probe_rust_for(exe: &Path, env: &EnvMap, job: Option<(&str, bool)>) -> Result<Value, String> {
+    super::standard_user::require().map_err(|e| e.to_string())?;
     let mut cmd = Command::new(exe);
     cmd.arg("probe").arg("--mem-limit-gb").arg("0");
     if let Some((mode, skip)) = job {
@@ -994,7 +995,9 @@ impl Runner {
             None => match fpaths::forge_rs_exe() {
                 None => "this build does not include the Rust engine".into(),
                 Some(exe) => match probe_rust_for(&exe, env, Some((pipeline, skip))) {
-                    Ok(v) => match cpu_blocker(&v).filter(|_| fpaths::forge_env_ready(paths)) {
+                    // Installing native components explicitly selected Rust. An
+                    // older Python env must not override the user's CPU pack.
+                    Ok(v) => match cpu_blocker(&v).filter(|_| env.get("FORGE_RS_NATIVE_ASSETS").is_none() && fpaths::forge_env_ready(paths)) {
                         Some(why) => why,
                         None => return Some(exe),
                     },

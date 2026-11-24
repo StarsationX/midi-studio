@@ -427,6 +427,14 @@ ok(!/'\/S'|"\/S"/.test(require('fs').readFileSync(path.join(root, 'electron', 'u
     && sent[2].args.length === 0, 'native mode probes preserve mode and stem selection separately from the global verdict');
   ok(sent[3].channel === 'forge:importMedleyModel' && sent[3].args.length === 0,
     'model import goes through the native picker, without renderer-supplied filesystem paths');
+  const profile = { profile: 'piano', cuda: true };
+  window.forge.componentStatus(profile);
+  ok(sent.length === 5 && sent[4].channel === 'forge:componentStatus' && sent[4].args.length === 1
+    && sent[4].args[0] === profile, 'scanning a profile does not start an install');
+  const install = { ...profile, maxDownloadBytes: 0 };
+  window.forge.installComponents(install);
+  ok(sent.length === 6 && sent[5].channel === 'forge:installComponents' && sent[5].args.length === 1
+    && sent[5].args[0] === install, 'the explicit install forwards the selected profile, CUDA flag and approved byte ceiling');
   const sh = fsx.readFileSync(path.join(root, 'renderer', 'shell', 'shell.js'), 'utf8');
   ok(!/no CUDA GPU was found/.test(sh), 'the CPU chip does not claim there is no GPU (Rust on CPU may sit on one)');
 }

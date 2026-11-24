@@ -45,6 +45,10 @@ const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreen
 
 const BOOT_LOG_MAX: u64 = 64 * 1024;
 
+// Register before the single-instance plugin: a second launch can arrive
+// before setup() creates Host or its first webview.
+struct ForgeSetupRequest(AtomicBool);
+
 pub struct Host {
     pub settings: Settings,
     pub engine: Engine,
@@ -425,11 +429,16 @@ fn main() {
     blog(&format!("--- boot --- tauri argv={}", argv.iter().skip(1).cloned().collect::<Vec<_>>().join(" ")));
 
     let app = tauri::Builder::default()
+        .manage(ForgeSetupRequest(AtomicBool::new(argv.iter().any(|a| a == "--setup-forge"))))
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // Launching again must always end with the window on screen, and a
             // .mid double-clicked in Explorer goes to the Player.
             blog("second-instance");
-            let h = host(app);
+            if argv.iter().any(|a| a == "--setup-forge") {
+                app.state::<ForgeSetupRequest>().0.store(true, Ordering::SeqCst);
+                Host::push(app, "setup-forge-requested", json!({}));
+            }
+            let Some(h) = app.try_state::<Arc<Host>>() else { return };
             if let Some(p) = midi_path_from_argv(&argv) {
                 allow_file(app, &p);
                 let p = p.to_string_lossy().into_owned();
