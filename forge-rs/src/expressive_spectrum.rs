@@ -184,31 +184,94 @@ fn fit(keys: &mut [Key], frames: &[Frame], voices: &[Voice]) {
     }
 }
 
-pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)]) {
-    if mix.len() < N || midi.instruments.len() != 2 { return; }
+// The same guitar string or sung pitch need not have the piano's timbre.
+// Compare its louder and quieter appearances against its own median rather
+// than making the whole performance imitate one instrument's spectrum.
+fn repeated_touch(keys: &mut [Key], frames: &[Frame], voices: &[Voice]) -> bool {
+    for k in &mut *keys {
+        k.gain = k.gain.min((127. / f32::from(k.note.velocity)).powf(2.5));
+        k.weight = 0.;
+        k.step = 0.;
+    }
+    let mut start = 0;
+    for f in frames {
+        let sounding = &voices[start..f.end];
+        start = f.end;
+        let mut power = [0.; N / 2 + 1];
+        for v in sounding {
+            let t = &KEYS[v.template];
+            let scale = v.scale * keys[v.key].gain;
+            for j in 0..16 { power[usize::from(t.bin[j])] += scale * t.power[j]; }
+        }
+        for v in sounding {
+            let k = &mut keys[v.key];
+            let t = &KEYS[v.template];
+            let scale = v.scale * k.gain;
+            for j in 0..16 {
+                let played = power[usize::from(t.bin[j])].max(EPS);
+                let own = scale * t.power[j];
+                let share = own / played;
+                // A shared overtone is weak evidence for either individual key.
+                let weight = own * share * share;
+                k.step += weight * v.observed[j] / played.sqrt();
+                k.weight += weight;
+            }
+        }
+    }
+    // Frame indices are no longer needed. Group in place; the original MIDI
+    // track and note index stay on each Key.
+    keys.sort_unstable_by_key(|k| k.note.pitch);
+    let mut changed = false;
+    for group in keys.chunk_by_mut(|a, b| a.note.pitch == b.note.pitch) {
+        let count = group.iter().filter(|k| k.weight > EPS).count();
+        if count < 4 { continue; }
+        for k in &mut *group {
+            k.step = if k.weight > EPS { (k.step / k.weight).max(EPS).ln() } else { f32::INFINITY };
+        }
+        let median = group.select_nth_unstable_by(count / 2, |a,b| a.step.total_cmp(&b.step)).1.step;
+        for k in group.iter_mut().filter(|k| k.step.is_finite()) {
+            let adjustment = (0.9 * (k.step - median)).clamp(-0.92, 0.92);
+            if adjustment != 0. {
+                k.gain *= adjustment.exp();
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// Returns whether repeated-key accents were fitted and may need phrase balancing.
+pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)]) -> bool {
+    if mix.len() < N || midi.instruments.len() != 2 { return false; }
     let mut keys = Vec::with_capacity(midi.note_count());
+    let mut counts = [0u8; 78];
     for (hand, track) in midi.instruments.iter().enumerate() {
         for (index, &note) in track.notes.iter().enumerate() {
             let p = piano.partition_point(|s| s.1 <= note.start);
             if note.velocity == 0 || !(21..=98).contains(&note.pitch)
                 || piano.get(p).is_some_and(|s| s.0 < note.end) { continue; }
             let v = f32::from(note.velocity);
+            let count = &mut counts[usize::from(note.pitch - 21)];
+            *count = count.saturating_add(1);
             keys.push(Key { note, hand, index, scale: v*v*v.sqrt(), gain: 1., energy: 0., weight: 0., step: 0., shared: false });
         }
     }
-    if keys.len() < 2 { return; }
+    if keys.len() < 2 { return false; }
     keys.sort_unstable_by(|a,b| a.note.start.total_cmp(&b.note.start));
-    // If even the release windows don't overlap, no relative touch can be fitted.
+    let repeats = counts.iter().any(|&n| n >= 4);
     let span = N as f64 / RATE + 0.015;
-    if !keys.windows(2).any(|pair| pair[0].note.end + span > pair[1].note.start) { return; }
+    if !repeats && !keys.windows(2).any(|pair| pair[0].note.end + span > pair[1].note.start) { return false; }
     let (mut frames, voices) = collect(mix, piano, &mut keys);
-    if !keys.iter().any(|k| k.shared) { return; }
-    anchor(&mut frames);
-    fit(&mut keys, &frames, &voices);
-    for k in keys.iter().filter(|k| k.shared) {
+    if keys.iter().any(|k| k.shared) {
+        anchor(&mut frames);
+        fit(&mut keys, &frames, &voices);
+    }
+    let accented = repeats && repeated_touch(&mut keys, &frames, &voices);
+    for k in keys.iter().filter(|k| k.gain != 1.) {
         let touch = (f32::from(k.note.velocity) * k.gain.powf(0.4)).round().clamp(1.,127.) as u8;
         midi.instruments[k.hand].notes[k.index].velocity = touch;
     }
+    accented
 }
 
 #[cfg(test)]
@@ -239,5 +302,31 @@ mod tests {
         let (r,l) = (&m.instruments[0].notes, &m.instruments[1].notes);
         assert!(r[1].velocity > r[0].velocity && l[0].velocity > l[1].velocity);
         assert_eq!((r[2].velocity,l[2].velocity,r[3].velocity), (65,65,65));
+    }
+
+    #[test]
+    fn repeated_exposed_note_follows_the_recorded_accent_not_master_gain() {
+        let render = |gain: f64| {
+            let mut midi = PrettyMidi::new(960, 120.);
+            let mut melody = Instrument::new(0, false, "Right");
+            for i in 0..6 {
+                let start = 0.2 + f64::from(i) * 0.7;
+                melody.notes.push(Note { pitch: 69, velocity: 64, start, end: start + 0.24 });
+            }
+            midi.instruments.extend([melody, Instrument::new(0, false, "Left")]);
+            let notes = &midi.instruments[0].notes;
+            let audio = (0..(4.5 * RATE) as usize).map(|i| {
+                let t = i as f64 / RATE;
+                notes.iter().enumerate().find(|(_, n)| n.start <= t && t < n.end)
+                    .map_or(0., |(j, _)| (gain * if j % 2 == 0 { 0.09 } else { 0.5 }
+                        * (std::f64::consts::TAU * 440. * t).sin()) as f32)
+            }).collect::<Vec<_>>();
+            apply(&mut midi, &audio, &[(3.6, 4.2)]);
+            midi.instruments[0].notes.iter().map(|n| n.velocity).collect::<Vec<_>>()
+        };
+        let v = render(1.);
+        assert_eq!(v, render(0.25));
+        assert!(v[1] > v[0] + 8 && v[3] > v[2] + 8);
+        assert_eq!(v[5], 64); // Exposed piano retains its detected keystroke.
     }
 }

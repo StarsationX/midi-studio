@@ -108,7 +108,11 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
         shape_at(midi, source.chunks(WINDOWS_PER_SECOND / hz).map(average), hz, &measured_piano, residual, &mut fit);
     }
     shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, residual, &mut fit);
-    spectrum::apply(midi, mix, piano);
+    if spectrum::apply(midi, mix, piano) {
+        // After fitting repeated keys, restore the half-second phrase contour
+        // without fitting every individual accent back to the same loudness.
+        shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, Some((0.65, 4.)), &mut fit);
+    }
 }
 
 #[derive(Default)]

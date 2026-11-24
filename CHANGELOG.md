@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.25 "Medley" — 2026-11-25
+
+### Changed
+
+- Repeated melody and backing notes can now carry different accents across phrases. Medley compares each strike with other appearances of the same pitch in the recording, giving less weight to overtones shared with the rest of the chord.
+- Regenerate a song in **Forge → Medley** to hear the change. Existing MIDI files, models and detected solo-piano keystrokes are unchanged.
+
 ## 3.1.24 "Medley" — 2026-11-24
 
 ### Fixed
