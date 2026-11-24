@@ -3,7 +3,7 @@
 use super::{apply_window, ep_name, file_stem, roformer_model, run_separation, safe_name,
     say_device, say_engine, start_runtime, transcribe, transkun_assets, work_root, write_stem_wav,
     Args, Knobs};
-use super::expressive_dynamics::{salience, Power, WINDOWS_PER_SECOND};
+use super::expressive_dynamics::{salience, Power, Recording, WINDOWS_PER_SECOND};
 use crate::audio::{self, Audio, SourceKind};
 use crate::demix::{Planar, Stems};
 use crate::pmidi::Note;
@@ -28,6 +28,7 @@ pub struct Evidence {
     pub sustain: Vec<(f64, f64)>,
     /// Broadband, bass and melody-band energy on the dynamics clock.
     pub(super) pitched_power: Vec<Power>,
+    pub(super) recording: Recording,
     /// Drum-free, reduced-rate signal used to compare individual chord pitches.
     pub(super) pitched_mix: Vec<f32>,
     pub harmony: crate::expressive_arrange::Harmony,
@@ -173,11 +174,14 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
     let duration = input.frames() as f64 / input_rate;
     // Harmony and subdivisions can establish a quarter-note pulse even when
     // snare accents alone suggest half time. Drop the mono mix before demixing.
-    let mixture_tempos = if input.channels == 1 {
-        crate::expressive_arrange::tempo_map(&input.samples, input.sample_rate)
-    } else {
-        let mix = Audio::downmix(&input.samples, input.channels);
-        crate::expressive_arrange::tempo_map(&mix, input.sample_rate)
+    let (mixture_tempos, mut recording) = {
+        let mono;
+        let samples = if input.channels == 1 { &input.samples } else {
+            mono = Audio::downmix(&input.samples, input.channels);
+            &mono
+        };
+        (crate::expressive_arrange::tempo_map(samples, input.sample_rate),
+            Recording::measure(samples, input.sample_rate)?)
     };
     let work = work_root(src, "-expressive");
     let work = if knobs.keep_stems { keep_directory(&work)? } else { work };
@@ -191,6 +195,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         bail!("Separated audio length differs from the source window.");
     }
     let Signals { vocals, bass, drums, harmony, mut piano_passages, pitched_power, guitar_wave, guitar_isolated } = split(separated.stems, frames)?;
+    recording.limit_to_pitched(&pitched_power);
     const { assert!(SAMPLE_RATE == 44_100); }
     let pitched_mix = if duration < 4. || piano_passages.first().is_some_and(|&(a, b)| a <= 0. && b >= duration) {
         Vec::new()
@@ -252,7 +257,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         pm.write(&work.join("backing.mid"))?;
         println!("  (kept stems: {})", work.display());
     }
-    Ok(Evidence { vocals, bass, bass_line, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, guitar_wave, guitar_isolated, harmony: chord_evidence, piano_passages, sustain, pitched_power, pitched_mix, duration, source_start, mixture_tempos })
+    Ok(Evidence { vocals, bass, bass_line, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, guitar_wave, guitar_isolated, harmony: chord_evidence, piano_passages, sustain, pitched_power, pitched_mix, recording, duration, source_start, mixture_tempos })
 }
 
 fn supplement_instrumental(instrumental: &mut Vec<Note>, piano: &[Note]) {

@@ -374,7 +374,7 @@ mod tests {
                 (master * amp * (std::f64::consts::TAU * 440. * t).sin()) as f32
             }).collect();
             let mut attacks = Default::default();
-            super::super::salience::balance(&mut midi, &audio, &[], &mut attacks);
+            super::super::salience::balance(&mut midi, &audio, &audio, &[], &mut attacks);
             apply(&mut midi, &audio, &[], &attacks, &[], |_| {});
             midi.instruments[0].notes.iter().map(|k| k.velocity).collect::<Vec<_>>()
         };

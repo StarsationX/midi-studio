@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.33 "Medley" — 2026-11-25
+
+### Changed
+
+- Medley now follows quiet and loud passages in the original mix, rather than estimating their volume only by adding the separated instruments. It measures the sampled Grand Piano in the same frequency ranges.
+- When the stems confirm a pitched strike, its level in the mix helps set the piano accent. Drum-only breaks still do not add notes. Re-run **Forge → Medley** to hear the change; it needs no new model and does not rewrite existing MIDI files.
+
 ## 3.1.32 "Medley" — 2026-11-25
 
 ### Changed

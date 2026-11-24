@@ -64,7 +64,7 @@ Start at **120 BPM** and **2 steps per beat**: each step lasts a quarter second.
 
 On a picked guitar passage, listen for the low notes between strums. Medley can keep a softly picked low note when both its pitch and an overtone rise above the surrounding sound. It requires an isolated guitar for this extra recovery, so a quiet harmonic in a full band needn’t become a new left-hand key. This is a two-hand arrangement, not a note-for-note transcription.
 
-If the bass steps back while the melody stays loud, the piano should do the same. Medley compares what its sampled Grand Piano would play with the pitched instruments in the recording, both over a short accent and across half a second. That lets the two hands trade emphasis without treating every change as a swell in the whole band. A drum hit in a gap still doesn’t become a piano note.
+If the bass steps back while the melody stays loud, listen for the same change in the piano. Medley measures the original mix and its sampled Grand Piano in the same frequency ranges, over both a short accent and half a second of music. The separated instruments tell it where there’s pitched sound to follow, so a drum-only break doesn’t turn into a piano swell.
 
 Try a passage where the melody holds a note over a chord change. Medley compares the notes you would hear from its Grand Piano with the pitches in the recording. It can bring out a buried voice by changing how hard a key is struck, without adding notes or moving the beat. On sustained bass, it also checks whether the low pitch is still ringing before writing an octave jump.
 

@@ -7,7 +7,7 @@ impl Fit {
     pub(super) fn phrases(&mut self, keys: &[Key], source: &[Power], piano: &[(f64, f64)]) {
         if source.is_empty() { return; }
         let curves: Vec<_> = keys.iter().map(|k|
-            KeyResponse::new(k.note.pitch, k.note.velocity, k.note.end - k.note.start)
+            KeyResponse::matched(k.note.pitch, k.note.velocity, k.note.end - k.note.start)
         ).collect();
         let mut active = Vec::<usize>::new();
         // One pair of response lookups per ringing key, shared by all three
@@ -35,7 +35,7 @@ impl Fit {
                 if active.is_empty() { continue; }
                 let mut source_power = [0.; 3];
                 for p in chunk {
-                    source_power[0] += p.total - 0.78 * p.low + p.supported_beat();
+                    source_power[0] += p.total;
                     source_power[1] += p.low;
                     source_power[2] += p.mid;
                 }
@@ -46,7 +46,7 @@ impl Fit {
                     let onset = keys[j].note.start;
                     let (a, lo_a, mid_a) = curves[j].at(start - onset);
                     let (b, lo_b, mid_b) = curves[j].at(end - onset);
-                    let bands = [(b - a) - 0.78 * (lo_b - lo_a), lo_b - lo_a, mid_b - mid_a];
+                    let bands = [b - a, lo_b - lo_a, mid_b - mid_a];
                     terms.push((j, bands.map(|x| keys[j].scale * x as f32)));
                 }
                 let band = |n: usize| terms.iter().map(move |&(j, x)| (j, x[n]));
@@ -83,7 +83,7 @@ mod tests {
         }
         let source: Vec<_> = (0..6 * WINDOWS_PER_SECOND).map(|i| {
             let low = if i < 3 * WINDOWS_PER_SECOND { 0.50 } else { 0.08 };
-            Power { total: 1. + 0.78 * low, low, mid: 0.50, beat: 0. }
+            Power { total: 1., low, mid: 0.50, beat: 0. }
         }).collect();
         let mut fit = Fit::default();
         fit.phrases(&keys, &source, &[]);

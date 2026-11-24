@@ -55,7 +55,7 @@ fn attack_power(n: Note, mix: &[f32]) -> Option<f64> {
 
 struct Strike { hand: usize, index: usize, note: Note, section: usize, residual: f64, energy: f64, gain: f64 }
 
-pub(crate) fn balance(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], measured: &mut [Vec<f32>; 2]) -> bool {
+pub(crate) fn balance(midi: &mut PrettyMidi, mix: &[f32], recording: &[f32], piano: &[(f64, f64)], measured: &mut [Vec<f32>; 2]) -> bool {
     let [right, left] = midi.instruments.as_slice() else { return false };
     if mix.len() < WIDTH { return false; }
     let hands = [&right.notes, &left.notes];
@@ -74,7 +74,12 @@ pub(crate) fn balance(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], 
         while section < piano.len() && piano[section].1 <= note.start { section += 1; }
         if piano.get(section).is_some_and(|&(start, _)| start < note.end) { continue; }
         let Some(power) = attack_power(note, mix) else { continue };
-        measured[hand][index] = power as f32;
+        // Isolated instruments establish that the pitch is present. The mix
+        // tells us how strongly that supported strike actually came through.
+        let reference = attack_power(note, recording).map_or(power, |full| {
+            full.clamp(0.1 * power, 10. * power)
+        });
+        measured[hand][index] = reference as f32;
         let residual = 10. * power.log10() - attack_db(note.pitch) - 25. * f64::from(note.velocity.max(1)).log10();
         let duration = note.end - note.start;
         let velocity = f64::from(note.velocity);
@@ -156,7 +161,7 @@ mod tests {
             let phase = std::f64::consts::TAU * t;
             (lo * (phase * 164.814).sin() + hi * (phase * 391.995).sin()) as f32
         }).collect();
-        assert!(balance(&mut m, &wave, &[(1.3, 1.8)], &mut Default::default()));
+        assert!(balance(&mut m, &wave, &wave, &[(1.3, 1.8)], &mut Default::default()));
         let (r, l) = (&m.instruments[0].notes, &m.instruments[1].notes);
         assert!(l[0].velocity > 64 && r[0].velocity < 64);
         assert!(l[1].velocity < 64 && r[1].velocity > 64);

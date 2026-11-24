@@ -7,6 +7,7 @@ struct Profile {
 }
 
 include!("medley_piano_profiles.rs");
+include!("medley_recording_profiles.rs");
 
 /// Pitched attack of the piano sample, in the same bands the arrangement measures.
 pub(super) fn attack_db(pitch: u8) -> f64 {
@@ -24,11 +25,19 @@ pub(super) struct KeyResponse {
 
 impl KeyResponse {
     pub(super) fn new(pitch: u8, velocity: u8, duration: f64) -> Self {
+        Self::with_profile(&PROFILES, pitch, velocity, duration)
+    }
+
+    pub(super) fn matched(pitch: u8, velocity: u8, duration: f64) -> Self {
+        Self::with_profile(&RECORDING_PROFILES, pitch, velocity, duration)
+    }
+
+    fn with_profile(bank: &'static [Profile; 88], pitch: u8, velocity: u8, duration: f64) -> Self {
         // player.js: peak = 0.72 * (v/127)^1.25, ramping exponentially to
         // 0.0001 over 450 ms. Twice the log-amplitude slope gives power decay.
         let v = f64::from(velocity.clamp(1, 127)) / 127.;
         Self {
-            profile: &PROFILES[usize::from(pitch.clamp(21, 108) - 21)],
+            profile: &bank[usize::from(pitch.clamp(21, 108) - 21)],
             hold: duration.max(0.06).min(MAX_SPAN),
             release_rate: (2. / RELEASE) * (7200_f64.ln() + 1.25 * v.ln()),
         }
