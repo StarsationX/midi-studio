@@ -293,7 +293,7 @@ pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], at
         }
         for v in &mut voices { v.scale *= keys[v.key].gain; }
         for k in &mut keys { k.gain = 1.; }
-        joint::refine(&mut keys, &frames, &voices, evidence.as_ref().unwrap(), attacks, envelope, piano);
+        joint::refine(&mut keys, &frames, &voices, evidence.as_ref().unwrap(), attacks, envelope, piano, mix);
         for k in keys {
             midi.instruments[k.hand].notes[k.index].velocity =
                 (f32::from(k.note.velocity) * k.gain.powf(0.4)).round().clamp(1., 127.) as u8;

@@ -127,6 +127,9 @@ def stage(out, with_components):
     with zipfile.ZipFile(notices/'forge-relink-source.zip','w',zipfile.ZIP_DEFLATED) as z:
         for p in [ROOT/'LICENSE', FORGE/'Cargo.toml', FORGE/'Cargo.lock', FORGE/'build.rs']:
             z.write(p,p.name)
+        reference = FORGE/'src/medley_reference.pcm'
+        if reference.is_file():
+            z.write(reference, 'src/medley_reference.pcm')
         for folder in ('src','vendor'):
             for p in sorted((FORGE/folder).rglob('*')):
                 if p.is_file() and p.suffix.lower() in ('.c','.h','.rs','','.txt','.lgpl'):

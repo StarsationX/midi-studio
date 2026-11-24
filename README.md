@@ -66,9 +66,9 @@ On a picked guitar passage, listen for the low notes between strums. Medley can 
 
 If the bass steps back while the melody stays loud, listen for the same change in the piano. Medley measures the original mix and its sampled Grand Piano in the same frequency ranges, over both a short accent and half a second of music. The separated instruments tell it where there’s pitched sound to follow, so a drum-only break doesn’t turn into a piano swell.
 
-Try a passage where the melody holds a note over a chord change. Medley compares the notes you would hear from its Grand Piano with the pitches in the recording. It can bring out a buried voice by changing how hard a key is struck, without adding notes or moving the beat. On sustained bass, it also checks whether the low pitch is still ringing before writing an octave jump.
+Try a passage where one hand changes chords while the other repeats a note. Medley compares the sound of its sampled keys, including what keeps ringing after key-up, with the same passage in the original. A loud tail from the last chord needn’t become a loud new strike. This adjusts how hard the keys are played; it doesn’t add notes or move the beat.
 
-Listen to a melody that repeats one key, first as a strong accent and then as a quiet answer. Medley compares each strike with that pitch’s usual level in the recording and in the sampled piano. A naturally bright piano key doesn’t have to play every syllable loudly. Re-run **Forge → Medley** to make a new MIDI; your earlier arrangement stays available for comparison.
+Re-run **Forge → Medley** to hear the new touch. Your earlier MIDI stays available for comparison; no new model is needed.
 
 Listen to the space between picked notes. One string can keep ringing while the next one starts; Medley can hold that piano key instead of cutting both notes to the same length. For a short low pluck, it follows the pitch and an overtone into the decay rather than stretching every note with the sustain pedal. Vocal phrases still release when the vowel fades.
 

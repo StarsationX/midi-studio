@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.34 "Medley" — 2026-11-25
+
+### Changed
+
+- Medley now checks a new piano strike against keys that are still ringing, including their sound after key-up. This helps separate a quiet repeat from the tail of a louder note.
+- It compares overlapping sampled piano keys with the same passage in the original recording before choosing their velocities. No new separator, GPU step or model download. Re-run **Forge → Medley** to create a new arrangement.
+
 ## 3.1.33 "Medley" — 2026-11-25
 
 ### Changed

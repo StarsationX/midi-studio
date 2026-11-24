@@ -119,7 +119,7 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
         shape_at(midi, source.chunks(WINDOWS_PER_SECOND / hz).map(average), hz, &measured_piano, residual, Meter::Stems, &mut fit);
     }
     shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, residual, Meter::Stems, &mut fit);
-    if spectrum::apply(midi, mix, piano, &attacks, &recording.bands, |midi| {
+    if spectrum::apply(midi, &recording.wave, piano, &attacks, &recording.bands, |midi| {
         shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, Some((0.65, 4.)), Meter::Stems, &mut fit);
     }) && !recording.bands.is_empty() {
         // The joint fit already balances the phrase and its individual
@@ -128,7 +128,7 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
             total: chunk.iter().map(|p| p.total).sum::<f64>() / chunk.len() as f64,
             ..Power::default()
         });
-        shape_at(midi, level, 10, &measured_piano, Some((0.56, 3.)), Meter::Recording, &mut fit);
+        shape_at(midi, level, 10, &measured_piano, Some((0.67, 3.7)), Meter::Recording, &mut fit);
     }
 }
 
