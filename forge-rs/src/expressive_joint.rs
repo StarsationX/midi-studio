@@ -11,6 +11,9 @@ use repeats::Strike;
 const PITCHES: usize = 78;
 const FIRST: usize = 14; // Register used for relative chord colour (MIDI 35..89).
 const WIDTH: usize = 54;
+
+struct ProbeProfile { peak: f32, codes: [u8; PITCHES] }
+include!("medley_piano_probes.rs");
 const PHRASE: usize = PITCHES + 3;
 const GROUPS: usize = PHRASE + 6; // Level, middle and bass/middle at two time scales.
 const NONE: usize = usize::MAX;
@@ -103,9 +106,9 @@ impl Fit {
             // A sounding key's fundamental is stronger evidence of its
             // intended level than an overtone it may share with another key.
             let focus = if fundamental[i] { 6.0 } else { 1.4 };
-            // Agreement matters: a strong piano harmonic alone shouldn't
-            // drown out the attack evidence for a different key.
-            let weight = focus * 500. * (played[i]/total * observed[i]/src).sqrt();
+            // A loud partial on either side matters. Weighting by agreement
+            // alone gave a missing partial zero say in correcting the chord.
+            let weight = focus * 350. * (played[i]/total + observed[i]/src);
             self.add(observed[i].max(0.35*noise), weight, NONE, reference,
                 voices.iter().map(|v| (v.key, v.scale * TONES[v.template][FIRST+i])));
         }
@@ -118,7 +121,10 @@ impl Fit {
             (src > 0.).then(|| Strike::new(n.start + 0.08_f64.min((n.end-n.start)*0.5), i, src))
         }).collect();
         probes.sort_unstable_by(|a,b| a.time.total_cmp(&b.time));
-        let half = N as f64 / (2.*RATE);
+        // Use the same listening window and three partials as the recording
+        // meter, not the broader spectrum used to colour a sustained chord.
+        let width = super::super::salience::WIDTH as f64;
+        let half = width / (2.*RATE);
         let mut next = 0;
         let mut active = Vec::<usize>::new();
         const NEAR: f64 = 0.14;
@@ -127,20 +133,22 @@ impl Fit {
         let mut previous = [None; PITCHES];
         for (j, hit) in probes.iter().enumerate() {
             let (t, p, src) = (hit.time, usize::from(keys[hit.key].note.pitch - 21), hit.source);
-            while next < keys.len() && keys[next].note.start < t+half { active.push(next); next += 1; }
-            active.retain(|&i| keys[i].note.end.max(keys[i].note.start+0.06) + half + 0.024 > t);
-            let row = self.add(src, 2500., p, NONE, active.iter().map(|&i| {
-                let k = &keys[i]; let age = t-k.note.start;
-                let cut = |dt: f64| CDF[((dt*RATE).round() + (N/2) as f64).clamp(0., N as f64) as usize];
+            // The recording meter cannot start before sample zero.
+            let center = t.max(half);
+            while next < keys.len() && keys[next].note.start < center+half { active.push(next); next += 1; }
+            active.retain(|&i| keys[i].note.end.max(keys[i].note.start+0.06) + half + 0.024 > center);
+            let row = self.add(src, 2950., p, NONE, active.iter().map(|&i| {
+                let k = &keys[i]; let age = center-k.note.start;
+                let cut = |dt: f64| CDF[((dt*RATE*N as f64/width).round() + (N/2) as f64).clamp(0., N as f64) as usize];
                 let onset = cut(-age);
-                let gate = (cut(k.note.end.max(k.note.start+0.06)+0.024-t)-onset)/(1.-onset).max(EPS);
+                let gate = (cut(k.note.end.max(k.note.start+0.06)+0.024-center)-onset)/(1.-onset).max(EPS);
                 let upper = AGES.partition_point(|&s| s < age).clamp(1, AGES.len()-1);
                 let lower = upper-1;
                 let fraction = ((age-AGES[lower])/(AGES[upper]-AGES[lower])).clamp(0.,1.) as f32;
                 let base = usize::from(k.note.pitch-21)*AGES.len();
-                let projected = |a| {
-                    let tones: &[f32; PITCHES] = &TONES[base+a];
-                    tones[p] + 0.45*tones.get(p+12).copied().unwrap_or(0.) + 0.2*tones.get(p+19).copied().unwrap_or(0.)
+                let projected = |a: usize| {
+                    let probe = &ATTACKS[base+a];
+                    probe.peak * PROBE_RATIO[usize::from(probe.codes[p])]
                 };
                 let left = projected(lower);
                 (i, k.scale*gate*(left+fraction*(projected(upper)-left)))
@@ -151,12 +159,12 @@ impl Fit {
             if let Some((time, earlier)) = previous[p].replace((t, row)) {
                 let gap = t - time;
                 if (0.04..2.).contains(&gap) {
-                    self.pairs.push(AttackPair { earlier, later: row, weight: 1500. / (1. + gap as f32), target: 0. });
+                    self.pairs.push(AttackPair { earlier, later: row, weight: 2025. / (1. + gap as f32), target: 0. });
                 }
             }
             while t-probes[first].time >= NEAR { first += 1; }
             // Do not let a dense rolled chord outweigh every other beat.
-            let weight = 500./(1.+0.28*(j-first) as f32);
+            let weight = 675./(1.+0.28*(j-first) as f32);
             for (k, other) in probes[first..j].iter().enumerate() {
                 if keys[other.key].note.pitch != keys[hit.key].note.pitch {
                     self.pairs.push(AttackPair { earlier: first_row+first+k, later: row,
@@ -291,6 +299,26 @@ pub(super) fn refine(keys: &mut [Key], frames: &[Frame], voices: &[Voice], sourc
 mod tests {
     use super::*;
     use crate::pmidi::Note;
+
+    #[test]
+    fn later_bass_entry_cannot_hide_an_already_measured_accent() {
+        let gains = |bass| {
+            let key = |pitch, start, hand, index, scale| Key {
+                note: Note { pitch, start, end: start + 0.18, velocity: 60 },
+                hand, index, scale, gain: 1., shared: false, energy: 0., weight: 0., step: 0.,
+            };
+            let mut keys = vec![key(69, 0.12, 0, 0, 1.)];
+            // The first probe is centered at .20 s and ends before .26 s.
+            // This loud octave must not borrow part of the melody's attack.
+            if bass { keys.push(key(57, 0.264, 1, 0, 12.)); }
+            keys.push(key(69, 1., 0, 1, 1.));
+            sparse_repeats(&mut keys, &[vec![1., 1.5], vec![]]);
+            (keys[0].gain, keys.last().unwrap().gain)
+        };
+        let alone = gains(false);
+        assert!(alone.0 < 1. && alone.1 > 1.);
+        assert_eq!(alone, gains(true));
+    }
 
     #[test]
     fn accents_can_trade_places_without_changing_the_typical_strike_level() {

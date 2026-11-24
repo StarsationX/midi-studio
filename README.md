@@ -66,7 +66,7 @@ On a picked guitar passage, listen for the low notes between strums. Medley can 
 
 If the bass steps back while the melody stays loud, the piano should do the same. Medley compares what its sampled Grand Piano would play with the pitched instruments in the recording, both over a short accent and across half a second. That lets the two hands trade emphasis without treating every change as a swell in the whole band. A drum hit in a gap still doesn’t become a piano note.
 
-Listen to a long melody note as the next chord comes in. Medley compares the ringing piano keys with the recording throughout the overlap, not just when the keys are struck. That helps the stronger voice carry without an extra accent from an overtone the two notes share. On sustained bass, it checks whether the low pitch is still ringing before writing an octave jump.
+Try a passage where the melody holds a note over a chord change. Medley compares the notes you would hear from its Grand Piano with the pitches in the recording. It can bring out a buried voice by changing how hard a key is struck, without adding notes or moving the beat. On sustained bass, it also checks whether the low pitch is still ringing before writing an octave jump.
 
 Listen to a melody that repeats one key, first as a strong accent and then as a quiet answer. Medley compares each strike with that pitch’s usual level in the recording and in the sampled piano. A naturally bright piano key doesn’t have to play every syllable loudly. Re-run **Forge → Medley** to make a new MIDI; your earlier arrangement stays available for comparison.
 

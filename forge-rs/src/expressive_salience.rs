@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 
 const STEP: usize = 8;
 pub(super) const RATE: f64 = 44_100. / STEP as f64;
-const WIDTH: usize = 640;
+pub(super) const WIDTH: usize = 640;
 const NEAR: f64 = 0.22;
 const LIMIT_DB: f64 = 6.;
 static WINDOW: LazyLock<[f32; WIDTH]> = LazyLock::new(|| std::array::from_fn(|i|

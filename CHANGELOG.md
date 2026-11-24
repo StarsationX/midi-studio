@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.32 "Medley" — 2026-11-25
+
+### Changed
+
+- Medley adjusts the balance of the sounding piano keys when a chord covers up a voice that stands out in the recording. The change is in how hard the keys are struck, not which notes are detected.
+- Re-run **Forge → Medley** to hear the new arrangement. Existing MIDI files and installed models are unchanged.
+
 ## 3.1.31 "Medley" — 2026-11-25
 
 ### Changed
