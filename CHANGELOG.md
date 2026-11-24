@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.29 "Medley" — 2026-11-25
+
+### Changed
+
+- When the drums and pitched instruments swell together, the piano arrangement can follow the band’s change in volume. A drum hit on its own cannot add a key or turn a rest into an accent.
+- Medley checks the contrast between successive strikes of the same key as it balances the phrase. Re-run **Forge → Medley** to hear the change. Existing MIDI files and installed models stay as they are.
+
 ## 3.1.28 "Medley" — 2026-11-25
 
 ### Changed

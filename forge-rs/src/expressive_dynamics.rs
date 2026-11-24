@@ -17,6 +17,8 @@ pub(super) struct Power {
     pub(super) total: f64,
     low: f64,
     mid: f64,
+    /// Mean-square drum energy on the same clock. Never used for pitch detection.
+    pub(super) beat: f64,
 }
 
 impl Power {
@@ -57,6 +59,7 @@ impl Power {
             total: (before.total + 4. * self.total + after.total) / 6.,
             low: (before.low + 4. * self.low + after.low) / 6.,
             mid: (before.mid + 4. * self.mid + after.mid) / 6.,
+            beat: 0., // Pulse support is applied before averaging a phrase, never to individual bins here.
         }
     }
 
@@ -65,6 +68,10 @@ impl Power {
     fn melody_power(self) -> f64 { 0.75 * self.mid + 0.25 * self.phrase_power() }
 
     fn phrase_power(self) -> f64 { self.total - 0.65 * self.low }
+
+    // The drums may reinforce an audible phrase by at most about 3 dB.
+    // A drum-only window contributes nothing, regardless of the kick level.
+    fn supported_beat(self) -> f64 { 0.85 * self.beat.min(1.25 * self.phrase_power()) }
 
     fn low_share(self) -> f64 {
         (self.low / self.total.max(f64::MIN_POSITIVE)).clamp(0.01, 0.98)
@@ -97,7 +104,7 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
     // leftover phrase drift without flattening their differences.
     let average = |chunk: &[Power]| {
         let mut p = Power::default();
-        for s in chunk { p.total += s.total; p.low += s.low; p.mid += s.mid; }
+        for s in chunk { p.total += s.total + s.supported_beat(); p.low += s.low; p.mid += s.mid; }
         p.total /= chunk.len() as f64;
         p.low /= chunk.len() as f64;
         p.mid /= chunk.len() as f64;
@@ -109,7 +116,7 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
         shape_at(midi, source.chunks(WINDOWS_PER_SECOND / hz).map(average), hz, &measured_piano, residual, &mut fit);
     }
     shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, residual, &mut fit);
-    if spectrum::apply(midi, mix, piano, &attacks, |midi| {
+    if spectrum::apply(midi, mix, piano, &attacks, source, |midi| {
         shape_at(midi, source.chunks(WINDOWS_PER_SECOND / 2).map(average), 2, &measured_piano, Some((0.65, 4.)), &mut fit);
     }) {
         // Use the full-rate stems for the final short phrase contour: the
@@ -252,7 +259,7 @@ mod tests {
         let source: Vec<_> = (0..8 * WINDOWS_PER_SECOND).map(|i| {
             let t = (i as f64 + 0.5) / WINDOWS_PER_SECOND as f64;
             let total = if t % 0.5 >= 0.25 { 1. } else { 0.12 };
-            Power { total, low: 0.03 * total, mid: 0.7 * total }
+            Power { total, low: 0.03 * total, mid: 0.7 * total, beat: 0. }
         }).collect();
         shape(&mut midi, &source, &[], &[]);
         for pair in midi.instruments[0].notes[4..28].chunks_exact(2) {
@@ -270,7 +277,7 @@ mod tests {
                 start, end: start + 0.3 });
         }
         midi.instruments.push(hand);
-        let source = [Power { total: 1., low: 0.03, mid: 0.7 }; 12 * WINDOWS_PER_SECOND];
+        let source = [Power { total: 1., low: 0.03, mid: 0.7, beat: 0. }; 12 * WINDOWS_PER_SECOND];
         shape(&mut midi, &source, &[], &[]);
         let notes = &midi.instruments[0].notes;
         // The bundled F#4 is much quieter than A4 at the same MIDI velocity.
@@ -289,7 +296,7 @@ mod tests {
             m.instruments.push(hand);
             let source: Vec<_> = (0..15 * WINDOWS_PER_SECOND).map(|i| {
                 let total = scale * if i < 6 * WINDOWS_PER_SECOND { 0.1 } else { 1.0 };
-                Power { total, low: 0., mid: 0.7 * total }
+                Power { total, low: 0., mid: 0.7 * total, beat: 0. }
             }).collect();
             shape(&mut m, &source, &[(12., 15.)], &[]);
             m.instruments[0].notes.iter().map(|n| n.velocity).collect()
@@ -322,6 +329,30 @@ mod tests {
         shape(&mut midi, &source, &[], &[]);
         let keys = &midi.instruments[0].notes;
         assert!(keys[5].velocity > keys[17].velocity);
+    }
+
+    #[test]
+    fn a_supported_beat_can_lift_a_phrase_without_drowning_out_the_keys() {
+        fn touches(drum_power: f64) -> Vec<u8> {
+            let mut midi = PrettyMidi::new(960, 120.);
+            let mut hand = Instrument::new(0, false, "Piano");
+            for i in 0..24 {
+                let start = f64::from(i) / 2.;
+                hand.notes.push(Note { start, end: start + 0.3, pitch: 67, velocity: 70 });
+            }
+            midi.instruments.push(hand);
+            let source: Vec<_> = (0..12 * WINDOWS_PER_SECOND).map(|i| Power {
+                total: 1., low: 0.05, mid: 0.7,
+                beat: if (4 * WINDOWS_PER_SECOND..8 * WINDOWS_PER_SECOND).contains(&i) { drum_power } else { 0. },
+            }).collect();
+            shape(&mut midi, &source, &[(10., 12.)], &[]);
+            midi.instruments[0].notes.iter().map(|n| n.velocity).collect()
+        }
+        let quiet = touches(0.);
+        let band = touches(2.);
+        assert!(band[12] > quiet[12] && band[12] > band[4]);
+        assert_eq!(band, touches(2_000.)); // Excess percussion cannot keep boosting the piano.
+        assert_eq!(band[20..], [70; 4]); // Measured solo-piano passage.
     }
 
     #[test]

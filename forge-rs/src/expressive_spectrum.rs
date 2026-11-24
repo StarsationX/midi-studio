@@ -244,7 +244,7 @@ fn repeated_touch(keys: &mut [Key], frames: &[Frame], voices: &[Voice]) -> bool 
 
 /// Reuse the same source frames before and after the slower phrase balance.
 pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], attacks: &[Vec<f32>; 2],
-    balance_phrase: impl FnOnce(&mut PrettyMidi)) -> bool {
+    envelope: &[super::Power], balance_phrase: impl FnOnce(&mut PrettyMidi)) -> bool {
     if mix.len() < N || midi.instruments.len() != 2 { return false; }
     let mut keys = Vec::with_capacity(midi.note_count());
     let mut counts = [0u8; 78];
@@ -293,7 +293,7 @@ pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], at
         }
         for v in &mut voices { v.scale *= keys[v.key].gain; }
         for k in &mut keys { k.gain = 1.; }
-        joint::refine(&mut keys, &frames, &voices, evidence.as_ref().unwrap(), attacks);
+        joint::refine(&mut keys, &frames, &voices, evidence.as_ref().unwrap(), attacks, envelope, piano);
         for k in keys {
             midi.instruments[k.hand].notes[k.index].velocity =
                 (f32::from(k.note.velocity) * k.gain.powf(0.4)).round().clamp(1., 127.) as u8;
@@ -326,7 +326,7 @@ mod tests {
             let high = if (0.35..0.9).contains(&beat) { hi * (415.305 * phase).sin() } else { 0. };
             (low + high) as f32
         }).collect();
-        apply(&mut m, &audio, &[(2.95, 4.)], &Default::default(), |_| {});
+        apply(&mut m, &audio, &[(2.95, 4.)], &Default::default(), &[], |_| {});
         let (r,l) = (&m.instruments[0].notes, &m.instruments[1].notes);
         assert!(r[1].velocity > r[0].velocity && l[0].velocity > l[1].velocity);
         assert_eq!((r[2].velocity,l[2].velocity,r[3].velocity), (65,65,65));
@@ -349,7 +349,7 @@ mod tests {
                     .map_or(0., |(j, _)| (gain * if j % 2 == 0 { 0.09 } else { 0.5 }
                         * (std::f64::consts::TAU * 440. * t).sin()) as f32)
             }).collect::<Vec<_>>();
-            apply(&mut midi, &audio, &[(3.6, 4.2)], &Default::default(), |_| {});
+            apply(&mut midi, &audio, &[(3.6, 4.2)], &Default::default(), &[], |_| {});
             midi.instruments[0].notes.iter().map(|n| n.velocity).collect::<Vec<_>>()
         };
         let v = render(1.);
@@ -375,7 +375,7 @@ mod tests {
             }).collect();
             let mut attacks = Default::default();
             super::super::salience::balance(&mut midi, &audio, &[], &mut attacks);
-            apply(&mut midi, &audio, &[], &attacks, |_| {});
+            apply(&mut midi, &audio, &[], &attacks, &[], |_| {});
             midi.instruments[0].notes.iter().map(|k| k.velocity).collect::<Vec<_>>()
         };
         let touch = render(1.);

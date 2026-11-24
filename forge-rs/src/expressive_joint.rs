@@ -2,6 +2,8 @@
 //! every frame in which its key rings, including other notes' attack windows.
 use super::{Frame, Key, Voice, AGES, CDF, EPS, KEYS, N, RATE};
 use std::sync::LazyLock;
+#[path = "expressive_phrase.rs"]
+mod phrase;
 #[path = "expressive_repeats.rs"]
 mod repeats;
 use repeats::Strike;
@@ -9,7 +11,8 @@ use repeats::Strike;
 const PITCHES: usize = 78;
 const FIRST: usize = 14; // Register used for relative chord colour (MIDI 35..89).
 const WIDTH: usize = 54;
-const GROUPS: usize = PITCHES + 3;
+const PHRASE: usize = PITCHES + 3;
+const GROUPS: usize = PHRASE + 2;
 const NONE: usize = usize::MAX;
 struct Filter { first: usize, weights: Vec<f32> }
 static FILTERS: LazyLock<[Filter; PITCHES]> = LazyLock::new(|| std::array::from_fn(|p| {
@@ -99,7 +102,7 @@ impl Fit {
         for &i in bins {
             // A sounding key's fundamental is stronger evidence of its
             // intended level than an overtone it may share with another key.
-            let focus = if fundamental[i] { 2.5 } else { 0.9 };
+            let focus = if fundamental[i] { 6.0 } else { 1.4 };
             let weight = focus * 30. * (0.45*played[i]/total + 0.55*observed[i]/src);
             self.add(observed[i].max(0.35*noise), weight, NONE, reference,
                 voices.iter().map(|v| (v.key, v.scale * TONES[v.template][FIRST+i])));
@@ -119,11 +122,12 @@ impl Fit {
         const NEAR: f64 = 0.14;
         let first_row = self.rows.len();
         let mut first = 0;
+        let mut previous = [None; PITCHES];
         for (j, hit) in probes.iter().enumerate() {
             let (t, p, src) = (hit.time, usize::from(keys[hit.key].note.pitch - 21), hit.source);
             while next < keys.len() && keys[next].note.start < t+half { active.push(next); next += 1; }
             active.retain(|&i| keys[i].note.end.max(keys[i].note.start+0.06) + half + 0.024 > t);
-            let row = self.add(src, 18., p, NONE, active.iter().map(|&i| {
+            let row = self.add(src, 27., p, NONE, active.iter().map(|&i| {
                 let k = &keys[i]; let age = t-k.note.start;
                 let cut = |dt: f64| CDF[((dt*RATE).round() + (N/2) as f64).clamp(0., N as f64) as usize];
                 let onset = cut(-age);
@@ -140,9 +144,17 @@ impl Fit {
                 (i, k.scale*gate*(left+fraction*(projected(upper)-left)))
             }));
             if !compare_chords { continue; }
+            // A pitch's relative power is comparable between strikes even
+            // when the arrangement and the original have different timbres.
+            if let Some((time, earlier)) = previous[p].replace((t, row)) {
+                let gap = t - time;
+                if (0.04..2.).contains(&gap) {
+                    self.pairs.push(AttackPair { earlier, later: row, weight: 300. / (1. + gap as f32), target: 0. });
+                }
+            }
             while t-probes[first].time >= NEAR { first += 1; }
             // Do not let a dense rolled chord outweigh every other beat.
-            let weight = 48./(1.+0.28*(j-first) as f32);
+            let weight = 100./(1.+0.28*(j-first) as f32);
             for (k, other) in probes[first..j].iter().enumerate() {
                 if keys[other.key].note.pitch != keys[hit.key].note.pitch {
                     self.pairs.push(AttackPair { earlier: first_row+first+k, later: row,
@@ -159,7 +171,10 @@ impl Fit {
         let medians = levels.map(|mut v| { let mid=v.len()/2; (v.len()>=4).then(|| *v.select_nth_unstable_by(mid,f32::total_cmp).1) });
         for r in &mut self.rows {
             if r.group != NONE {
-                if let Some(m) = medians[r.group] { r.target = (r.target-m).clamp(-1.6, 1.6); } else { r.weight = 0.; }
+                if let Some(m) = medians[r.group] {
+                    let bound = if r.group >= PHRASE { 2.5 } else { 1.6 };
+                    r.target = (r.target - m).clamp(-bound, bound);
+                } else { r.weight = 0.; }
             }
         }
         self.pairs.retain_mut(|p| {
@@ -169,7 +184,7 @@ impl Fit {
             p.target = (b.target-a.target).clamp(-2.,2.);
             a.weight > 0. && b.weight > 0.
         });
-        for _ in 0..9 {
+        for _ in 0..14 {
             for k in &mut *keys { k.step = 0.; k.weight = 0.; }
             let mut begin = 0;
             for r in &mut self.rows {
@@ -204,7 +219,7 @@ impl Fit {
             for k in &mut *keys {
                 let prior = 0.18+0.75*k.weight.sqrt(); let log = k.gain.ln();
                 let step = (k.step-prior*log)/(k.weight+prior);
-                k.gain = (log+1.2*step).clamp(-1.,1.).exp().min((127./f32::from(k.note.velocity)).powf(2.5));
+                k.gain = (log+1.2*step).clamp(-1.3,1.3).exp().min((127./f32::from(k.note.velocity)).powf(2.5));
             }
         }
     }
@@ -218,7 +233,8 @@ pub(super) fn sparse_repeats(keys: &mut [Key], attacks: &[Vec<f32>; 2]) {
     fit.follow_repeats(keys, 0, &mut strikes);
 }
 
-pub(super) fn refine(keys: &mut [Key], frames: &[Frame], voices: &[Voice], source: &Evidence, attacks: &[Vec<f32>; 2]) {
+pub(super) fn refine(keys: &mut [Key], frames: &[Frame], voices: &[Voice], source: &Evidence,
+    attacks: &[Vec<f32>; 2], envelope: &[super::super::Power], piano: &[(f64, f64)]) {
     let mut peak = [0_f32; 3]; let mut src_peak = [0_f32; 3];
     let mut start = 0;
     let bands: Vec<[f32; 3]> = frames.iter().zip(&source.bands).map(|(f, src)| {
@@ -242,6 +258,7 @@ pub(super) fn refine(keys: &mut [Key], frames: &[Frame], voices: &[Voice], sourc
         }
         if f.shared && i%2==0 { fit.chord(sounding, chords.next().unwrap()); }
     }
+    fit.phrases(keys, envelope, piano);
     let first_row = fit.rows.len();
     let mut strikes = fit.attacks(keys, attacks, true);
     fit.solve(keys);

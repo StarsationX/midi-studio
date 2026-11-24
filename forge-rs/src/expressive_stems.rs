@@ -115,7 +115,9 @@ fn split(stems: Stems, expected_frames: usize) -> Result<Signals> {
         // energy in the same pass rather than scanning the stems a second time.
         for (i, (pitched, samples)) in pitched_power.iter_mut().zip(channel.chunks(accent_window)).enumerate() {
             let power = if name == "drums" {
-                samples.iter().map(|&x| f64::from(x).powi(2)).sum::<f64>()
+                let energy = samples.iter().map(|&x| f64::from(x).powi(2)).sum::<f64>();
+                pitched.beat = energy / samples.len() as f64;
+                energy
             } else {
                 pitched.add_stem(samples)
             };
