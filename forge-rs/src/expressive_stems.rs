@@ -18,6 +18,8 @@ pub struct Evidence {
     pub sample_rate: u32,
     pub backing: Vec<Note>,
     pub instrumental: Vec<Note>,
+    /// Existing mono detector input, reused to locate attacks in the selected instrumental keys.
+    pub(super) instrumental_wave: Vec<f32>,
     pub piano_passages: Vec<(f64, f64)>,
     pub sustain: Vec<(f64, f64)>,
     /// Mean square energy of pitched stems, excluding percussion; half-second bins.
@@ -148,6 +150,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
     }
     let Signals { vocals, bass, drums, harmony, piano_passages, pitched_power } = split(separated.stems, frames)?;
     let mut instrumental = Vec::new();
+    let mut instrumental_wave = Vec::new();
     let mut backing = Vec::new();
     let mut sustain = Vec::new();
     let tk_ep = if args.transkun_gpu { separated.ep } else { Ep::Cpu };
@@ -182,6 +185,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
             f64::from(input.sample_rate), f64::from(crate::basicpitch::SAMPLE_RATE))?;
         let mut model = crate::basicpitch::Model::load(&super::bp_model_path(args)?, Some(args.threads.unwrap_or(4)))?;
         instrumental = model.instrumental_notes(&mono)?;
+        instrumental_wave = mono;
         // Keep the piano detector's attacks where the instrumental detector
         // has no playable attack. Never turn two views of one onset into a trill.
         supplement_instrumental(&mut instrumental, &backing);
@@ -199,7 +203,7 @@ pub fn extract(args: &Args, knobs: &Knobs, src: &Path) -> Result<Evidence> {
         pm.write(&work.join("backing.mid"))?;
         println!("  (kept stems: {})", work.display());
     }
-    Ok(Evidence { vocals, bass, bass_notes, drums, sample_rate: SAMPLE_RATE, backing, instrumental, harmonic_notes, piano_passages, sustain, pitched_power, duration, source_start, mixture_tempos })
+    Ok(Evidence { vocals, bass, bass_notes, drums, sample_rate: SAMPLE_RATE, backing, instrumental, instrumental_wave, harmonic_notes, piano_passages, sustain, pitched_power, duration, source_start, mixture_tempos })
 }
 
 fn supplement_instrumental(instrumental: &mut Vec<Note>, piano: &[Note]) {

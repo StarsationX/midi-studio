@@ -6,6 +6,14 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.10 "Medley" — 2026-11-24
+
+### Changed
+
+- When an instrumental melody key is written just before a clear pluck in the recording, Medley can delay its attack by less than 17 ms, leaving time for the piano sample to sound. It leaves block chords, vocal attacks and exposed piano alone.
+- The vocal melody releases a held key when the pitched vowel has faded into a sustained, quiet, unvoiced tail. A brief dip in volume is not enough to cut a syllable short.
+- A stronger stretch of the recording can refine the tempo estimate. A fading outro needs a distinct new pulse before it can change the MIDI tempo; the notes are not snapped to the grid.
+
 ## 3.1.9 "Medley" — 2026-11-24
 
 ### Changed

@@ -139,6 +139,13 @@ fn shared_pulse(env: &[f64], fps: f64, estimate: f64, old: f64, new: f64) -> f64
     }
 }
 
+struct TempoRun {
+    first: f64,
+    last: f64,
+    bpms: Vec<f64>,
+    peaked: usize,
+}
+
 /// Stable local periodicities, in source seconds and BPM. Empty means the
 /// caller can retry the backing when a drum stem has no measurable pulse.
 pub fn tempo_map(mono: &[f32], sample_rate: u32) -> Vec<(f64, f64)> {
@@ -158,64 +165,125 @@ pub fn tempo_map(mono: &[f32], sample_rate: u32) -> Vec<(f64, f64)> {
             (bpm, (-0.16 * (bpm / 118.).log2().powi(2)).exp())
         })
         .collect();
-    let mut runs: Vec<(f64, f64, Vec<f64>)> = Vec::new();
+    let mut runs: Vec<TempoRun> = Vec::new();
     for i in 0..windows {
         let t = i as f64 + radius;
         let corr = correlation(part(&envelope, fps, t, radius), fps);
-        let (bpm, confidence) = candidates
+        let (bpm, confidence, strength) = candidates
             .iter()
-            .map(|&(b, prior)| (b, pulse(&corr, fps, b) * prior))
+            .map(|&(b, prior)| {
+                let strength = pulse(&corr, fps, b);
+                (b, strength * prior, strength)
+            })
             .max_by(|a, b| a.1.total_cmp(&b.1))
             .unwrap();
         if confidence < 0.16 {
             continue;
         }
-        if let Some((_, last, previous)) = runs.last_mut() {
-            let typical = percentile_f64(&previous[previous.len().saturating_sub(5)..], 50.);
+        // A decaying sound can correlate even at unrelated lags. Count windows
+        // that distinguish the proposed pulse from the tempi on either side.
+        let skirts = pulse(&corr, fps, bpm / 1.08) + pulse(&corr, fps, bpm * 1.08);
+        let peaked = usize::from(skirts * 0.5 < strength * 0.9);
+        if let Some(run) = runs.last_mut() {
+            let typical = percentile_f64(&run.bpms[run.bpms.len().saturating_sub(5)..], 50.);
             if (bpm / typical).log2().abs() < 0.048 {
-                *last = t;
-                previous.push(bpm);
+                run.last = t;
+                run.bpms.push(bpm);
+                run.peaked += peaked;
                 continue;
             }
         }
-        runs.push((t, t, vec![bpm]));
+        runs.push(TempoRun { first: t, last: t, bpms: vec![bpm], peaked });
     }
     let mut changes: Vec<(f64, f64)> = vec![];
     let mut last_center: f64 = 0.;
-    for (first, last, values) in runs.iter().filter(|r| r.2.len() >= windows.min(5)) {
-        let mut bpm = percentile_f64(values, 50.);
+    let mut anchor = 0.;
+    let mut support = 0;
+    for run in runs.iter().filter(|r| r.bpms.len() >= windows.min(5)) {
+        let mut bpm = percentile_f64(&run.bpms, 50.);
         let mut begin = 0.;
-        if let Some(&(_, previous)) = changes.last() {
-            bpm *= (previous / bpm).log2().round().exp2();
-            if (bpm / previous).log2().abs() < 0.043 {
-                last_center = *last;
+        if let Some((_, previous)) = changes.last_mut() {
+            bpm *= (anchor / bpm).log2().round().exp2();
+            if (bpm / anchor).log2().abs() < 0.043 {
+                // A short intro need not set the BPM for the whole section.
+                // Keep its metrical level and change threshold fixed, though.
+                if run.peaked > support {
+                    *previous = bpm;
+                    support = run.peaked;
+                }
+                last_center = run.last;
                 continue;
             }
-            let mut t = (last_center - 3.).max(first - 8.).max(1.);
-            let stop = (first + 3.).min(duration - 1.);
+            if run.peaked * 2 < run.bpms.len() {
+                continue;
+            }
+            let mut t = (last_center - 3.).max(run.first - 8.).max(1.);
+            let stop = (run.first + 3.).min(duration - 1.);
             let mut sum = 0.;
             let mut best = f64::NEG_INFINITY;
-            begin = *first;
+            begin = run.first;
             while t < stop {
                 let corr = correlation(part(&envelope, fps, t, 2.), fps);
-                sum += pulse(&corr, fps, previous) - pulse(&corr, fps, bpm);
+                sum += pulse(&corr, fps, *previous) - pulse(&corr, fps, bpm);
                 if sum > best {
                     best = sum;
                     begin = t;
                 }
                 t += 0.15;
             }
-            begin = shared_pulse(&envelope, fps, begin, previous, bpm);
+            begin = shared_pulse(&envelope, fps, begin, *previous, bpm);
         }
         changes.push((begin, bpm));
-        last_center = *last;
+        anchor = bpm;
+        support = run.peaked;
+        last_center = run.last;
     }
     if changes.is_empty() {
-        if let Some((_, _, run)) = runs.iter().max_by_key(|r| r.2.len()) {
-            if run.len() >= windows.min(3) {
-                changes.push((0., percentile_f64(run, 50.)));
+        if let Some(run) = runs.iter().max_by_key(|r| r.bpms.len()) {
+            if run.bpms.len() >= windows.min(3) {
+                changes.push((0., percentile_f64(&run.bpms, 50.)));
             }
         }
     }
     changes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tempo_map;
+
+    const RATE: usize = 8000;
+
+    fn clicks(wave: &mut [f32], bpm: f64) {
+        let mut position: f64 = 0.;
+        while position.round() as usize + 80 <= wave.len() {
+            let start = position.round() as usize;
+            for (k, sample) in wave[start..start + 80].iter_mut().enumerate() {
+                let phase = std::f64::consts::TAU * k as f64;
+                *sample = ((0.5 - 0.5 * (phase / 79.).cos()) * (phase * 1830. / RATE as f64).sin()) as f32;
+            }
+            position += 60. * RATE as f64 / bpm;
+        }
+    }
+
+    #[test]
+    fn unmetered_decay_does_not_replace_the_clock() {
+        let mut wave = vec![0.; 48 * RATE];
+        clicks(&mut wave[..19 * RATE], 120.);
+        let mut state = 0xabc123u32;
+        for (i, x) in wave[20 * RATE..].iter_mut().enumerate() {
+            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            let noise = f64::from(state >> 8) / 8388608. - 1.;
+            *x = (0.3 * noise * (-(i as f64) / (2. * RATE as f64)).exp()) as f32;
+        }
+        assert_eq!(tempo_map(&wave, RATE as u32), vec![(0., 120.)]);
+    }
+
+    #[test]
+    fn longer_half_time_pulse_refines_the_intro_without_switching_metrical_level() {
+        let mut wave = vec![0.; 52 * RATE];
+        clicks(&mut wave[..19 * RATE], 121.5);
+        clicks(&mut wave[20 * RATE..], 60.);
+        assert_eq!(tempo_map(&wave, RATE as u32), vec![(0., 120.)]);
+    }
 }

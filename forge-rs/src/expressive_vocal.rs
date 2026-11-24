@@ -440,6 +440,39 @@ fn refine_phrase(
     None
 }
 
+// GAME can hold the piano key through a quiet consonant or a rest after the
+// vowel has ended. Missing pitch alone is not a release: require a sustained
+// fall in level from a confirmed vowel, and keep any audible decay.
+fn refine_release(note: &mut Note, rms: &[f32], pitches: &[f32]) {
+    let start = frame(note.start);
+    let end = frame(note.end);
+    if end < start + 26 || end >= rms.len().saturating_sub(1) {
+        return;
+    }
+    let first = (start + 20).max(end.saturating_sub(35));
+    let Some(last) = (first..end).rfind(|&i| near(pitches[i], note.pitch, 0.85)) else {
+        return;
+    };
+    if end - last < 10
+        || pitches[last - 9..=last].iter().filter(|&&p| near(p, note.pitch, 0.85)).count() < 6
+    {
+        return;
+    }
+    let level = rms[last - 9..=last].iter().sum::<f32>() / 10.;
+    let tail = &pitches[last + 3..end];
+    if level <= 0.012
+        || max_level(&rms[last + 3..end]) >= 0.48 * level
+        || 10 * tail.iter().filter(|p| p.is_finite()).count() >= 3 * tail.len()
+    {
+        return;
+    }
+    let threshold = (0.34 * level).max(0.003);
+    let release = (last..end).rfind(|&i| rms[i] >= threshold).map_or(last, |i| i + 1);
+    if end - release >= 6 {
+        note.end = release as f64 * FRAME;
+    }
+}
+
 fn align_attacks(wave: &[f32], notes: &mut Vec<Note>) -> Result<()> {
     if notes.is_empty() {
         return Ok(());
@@ -479,6 +512,7 @@ fn align_attacks(wave: &[f32], notes: &mut Vec<Note>) -> Result<()> {
     for (note, level) in notes.iter_mut().zip(levels) {
         let db = 20. * (level.max(0.001) / reference).log10();
         note.velocity = (80. + (0.72 * db).clamp(-8., 10.)).round_ties_even() as u8;
+        refine_release(note, &rms, &pitches);
     }
     Ok(())
 }
@@ -617,6 +651,32 @@ mod tests {
         let mut held = vec![note(64, 0.12, 1.)];
         align_attacks(&sing(&[(64, 0.12, 1., 0.16)], 0.58), &mut held).unwrap();
         assert_eq!(held.len(), 1);
+    }
+
+    #[test]
+    fn trims_quiet_unvoiced_tails_but_not_short_attacks_or_pitch_dropouts() {
+        let mut rms = [0.2; 120];
+        let mut pitches = [65.; 120];
+        pitches[50..].fill(f32::NAN);
+        rms[50..55].fill(0.085); // Audible decay, no longer pitch-trackable.
+        rms[55..].fill(0.012);
+        let mut held = note(65, 0., 0.35);
+        refine_release(&mut held, &rms, &pitches);
+        assert_eq!(held, note(65, 0., 55. * FRAME));
+
+        for candidate in [note(65, 0.20, 0.31), note(65, 0., 0.24)] {
+            let mut unchanged = candidate;
+            refine_release(&mut unchanged, &rms, &pitches);
+            assert_eq!(unchanged, candidate);
+        }
+        let candidate = note(65, 0., 0.35);
+        for (level, pitch) in [(0.2, f32::NAN), (0.012, 65.), (0.012, 67.)] {
+            rms[50..].fill(level);
+            pitches[50..].fill(pitch);
+            let mut unchanged = candidate;
+            refine_release(&mut unchanged, &rms, &pitches);
+            assert_eq!(unchanged, candidate);
+        }
     }
 
     #[test]

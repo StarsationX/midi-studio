@@ -105,7 +105,7 @@ function Check-HeadlessTarget {
     $old = $null
     if ($kind -eq 'tauri') {
         $version = $env:MS_MEDLEY_OLD_VERSION
-        if ($env:MS_MEDLEY_ELECTRON -or $version -notin '3.1.2','3.1.3','3.1.4','3.1.5','3.1.6','3.1.7','3.1.8','3.1.9') { throw "Mixed registration or unrecognized nonbundled release ($version). Sign in as the user of the old app." }
+        if ($env:MS_MEDLEY_ELECTRON -or $version -notin '3.1.2','3.1.3','3.1.4','3.1.5','3.1.6','3.1.7','3.1.8','3.1.9','3.1.10') { throw "Mixed registration or unrecognized nonbundled release ($version). Sign in as the user of the old app." }
         $old = Local-Path $env:MS_MEDLEY_TAURI
         if (![string]::Equals($old,$target,[StringComparison]::OrdinalIgnoreCase)) { throw 'The selected folder differs from the registered Tauri installation.' }
         $names = 'MIDI Studio.exe','uninstall.exe'
