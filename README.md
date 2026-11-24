@@ -62,13 +62,13 @@ Start at **120 BPM** and **2 steps per beat**: each step lasts a quarter second.
 
 **Medley** (formerly **Expressive Piano**) arranges a recording for two hands: the right hand follows vocal and instrumental melodies, while the left plays bass and chords. Choose **Melody** instead if you want only the lead line.
 
-On a picked guitar passage, listen for the low notes between strums. Medley checks the recording before adding a left-hand key just because it fits the chord. When a singer or bass line comes back in, it can still move chord tones down to keep them playable. A repeated strum can strike one right-hand key while the others keep ringing. This is a two-hand arrangement, not a note-for-note transcription.
+On a picked guitar passage, listen for the low notes between strums. Medley can keep a softly picked low note when both its pitch and an overtone rise above the surrounding sound. It requires an isolated guitar for this extra recovery, so a quiet harmonic in a full band needn’t become a new left-hand key. This is a two-hand arrangement, not a note-for-note transcription.
 
 In a band mix, listen for the bass stepping back under the melody. Medley measures the middle register separately from deep bass and very bright sounds, so a wash behind the singer needn’t become a piano accent. It compares that balance with how the bundled Grand Piano’s 88 keys actually sound, from the first strike through the release. Drum hits alone don’t set piano velocity.
 
 Listen to a long melody note as the next chord comes in. Medley compares the ringing piano keys with the recording throughout the overlap, not just when the keys are struck. That helps the stronger voice carry without an extra accent from an overtone the two notes share. On sustained bass, it checks whether the low pitch is still ringing before writing an octave jump.
 
-Listen for the melody inside a rolled chord. When notes land close together, Medley compares how much each stands out from its usual level in the recording. That lets the melody come forward without giving the accompaniment the same accent. Re-run **Forge → Medley** to hear the change in an existing song.
+Listen to a repeated melody key: the first strike can be strong, the next a quiet answer. Medley compares nearby strikes of the same pitch, discounting sound from other keys still ringing. In a rolled chord it also compares the two hands, so bringing out the melody needn’t make the whole chord louder. Re-run **Forge → Medley** to hear the change in an existing song.
 
 Listen to the space between picked notes. One string can keep ringing while the next one starts; Medley can hold that piano key instead of cutting both notes to the same length. For a short low pluck, it follows the pitch and an overtone into the decay rather than stretching every note with the sustain pedal. Vocal phrases still release when the vowel fades.
 

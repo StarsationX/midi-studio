@@ -263,14 +263,19 @@ pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], at
     keys.sort_unstable_by(|a,b| a.note.start.total_cmp(&b.note.start));
     let repeats = counts.iter().any(|&n| n >= 4);
     let span = N as f64 / RATE + 0.015;
-    if !repeats && !keys.windows(2).any(|pair| pair[0].note.end + span > pair[1].note.start) { return false; }
+    let overlap = keys.windows(2).any(|pair| pair[0].note.end + span > pair[1].note.start);
+    let short_repeats = !repeats && counts.iter().any(|&n| n >= 2);
+    if !repeats && !overlap && !short_repeats { return false; }
     let mut evidence = repeats.then(joint::Evidence::default);
-    let (mut frames, mut voices) = collect(mix, piano, &mut keys, evidence.as_mut());
+    let (mut frames, mut voices) = if repeats || overlap {
+        collect(mix, piano, &mut keys, evidence.as_mut())
+    } else { (Vec::new(), Vec::new()) };
     if keys.iter().any(|k| k.shared) {
         anchor(&mut frames);
         fit(&mut keys, &frames, &voices);
     }
     let accented = repeats && repeated_touch(&mut keys, &frames, &voices);
+    if short_repeats { joint::sparse_repeats(&mut keys, attacks); }
     for k in keys.iter().filter(|k| k.gain != 1.) {
         let touch = (f32::from(k.note.velocity) * k.gain.powf(0.4)).round().clamp(1.,127.) as u8;
         midi.instruments[k.hand].notes[k.index].velocity = touch;
@@ -351,5 +356,31 @@ mod tests {
         assert_eq!(v, render(0.25));
         assert!(v[1] > v[0] + 8 && v[3] > v[2] + 8);
         assert_eq!(v[5], 64); // Exposed piano retains its detected keystroke.
+    }
+
+    #[test]
+    fn two_local_strikes_keep_their_accent_without_borrowing_a_distant_one() {
+        let render = |master: f64| {
+            let mut midi = PrettyMidi::new(960, 120.);
+            let mut right = Instrument::new(0, false, "Melody");
+            for start in [0.3, 0.9, 3.4] {
+                right.notes.push(Note { pitch: 69, start, end: start + 0.2, velocity: 64 });
+            }
+            midi.instruments.extend([right, Instrument::new(0, false, "Bass")]);
+            let audio: Vec<_> = (0..(4.*RATE) as usize).map(|i| {
+                let t = i as f64 / RATE;
+                let amp = if (0.3..0.5).contains(&t) { 0.07 } else if (0.9..1.1).contains(&t) { 0.35 }
+                    else if (3.4..3.6).contains(&t) { 0.6 } else { 0. };
+                (master * amp * (std::f64::consts::TAU * 440. * t).sin()) as f32
+            }).collect();
+            let mut attacks = Default::default();
+            super::super::salience::balance(&mut midi, &audio, &[], &mut attacks);
+            apply(&mut midi, &audio, &[], &attacks, |_| {});
+            midi.instruments[0].notes.iter().map(|k| k.velocity).collect::<Vec<_>>()
+        };
+        let touch = render(1.);
+        assert_eq!(touch, render(0.2));
+        assert!(touch[0] < 64 && touch[1] > 64);
+        assert_eq!(touch[2], 64);
     }
 }

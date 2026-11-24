@@ -6,6 +6,17 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.28 "Medley" — 2026-11-25
+
+### Changed
+
+- A repeated key can now carry a different accent on its second strike. Medley compares it with nearby strikes of the same pitch, accounts for the other strings still ringing, and limits how far the correction can move the volume of the phrase.
+
+### Fixed
+
+- Soft low guitar plucks could disappear between stronger notes. In exposed guitar passages, Medley can recover them when both the fundamental and an overtone confirm a fresh attack and the left hand has room.
+- Re-run **Forge → Medley** to regenerate an arrangement. Existing MIDI files and installed models are unchanged.
+
 ## 3.1.27 "Medley" — 2026-11-25
 
 ### Changed

@@ -49,7 +49,7 @@ pub(super) fn run(args: &Args, knobs: &Knobs, source: &Path, output: &Path) -> R
             &evidence.instrumental_wave, &evidence.guitar_wave, &evidence.guitar_isolated);
     }
     treble_recovery::apply(&mut midi, &evidence.instrumental, &evidence.backing, &lead, &evidence.piano_passages, &evidence.instrumental_wave);
-    tenor::apply(&mut midi, &evidence.backing, &evidence.instrumental_wave, &evidence.piano_passages);
+    tenor::apply(&mut midi, &evidence.backing, &evidence.instrumental_wave, &evidence.piano_passages, &evidence.guitar_isolated);
     strum::apply(&mut midi, &evidence.instrumental, &evidence.backing, &lead, &evidence.piano_passages, &evidence.instrumental_wave);
     attacks::hold_lower(&mut midi, &evidence.backing, &evidence.piano_passages, &evidence.instrumental_wave);
     dynamics::shape(&mut midi, &evidence.pitched_power, &evidence.piano_passages, &evidence.pitched_mix);
