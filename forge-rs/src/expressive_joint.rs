@@ -290,6 +290,21 @@ pub(super) fn refine(keys: &mut [Key], frames: &[Frame], voices: &[Voice], sourc
     fit.follow_repeats(keys, first_row, &mut strikes);
 }
 
+/// Refit after the level trims: the phrase level carries far more weight than
+/// in `refine`, and the register balance somewhat more.
+pub(super) fn polish(keys: &mut [Key], piano: &[(f64, f64)], recording: &[f32], attacks: &[Vec<f32>; 2],
+    envelope: &[super::super::Power]) {
+    let mut fit = Fit::default();
+    fit.phrases(keys, envelope, piano);
+    for r in &mut fit.rows {
+        r.weight *= if r.group < PHRASE + 2 { 14. } else { 1.7 };
+    }
+    let samples: Vec<_> = keys.iter().map(reference::Voice::new).collect();
+    voicing::measure(&mut fit, &samples, recording, piano);
+    fit.attacks(keys, &samples, attacks, true);
+    fit.solve(keys);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

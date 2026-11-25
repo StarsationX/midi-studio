@@ -70,6 +70,8 @@ Try a passage where one hand changes chords while the other repeats a note. Medl
 
 To hear the bass balance, try a verse where the left-hand line grows stronger under a steady melody. Medley checks how much each ringing piano key contributes to the low and middle ranges: it can bring out a separate bass note without turning up the whole chord.
 
+For a long crescendo, listen to whether the piano grows with the band. Medley compares each moment with about a second of the original around it, so the arrangement can follow a gradual swell without flattening the accents inside it.
+
 Re-run **Forge → Medley** to hear the new touch. Your earlier MIDI stays available for comparison; no new model is needed.
 
 Listen to the space between picked notes. One string can keep ringing while the next one starts; Medley can hold that piano key instead of cutting both notes to the same length. For a short low pluck, it follows the pitch and an overtone into the decay rather than stretching every note with the sustain pedal. Vocal phrases still release when the vowel fades.

@@ -124,11 +124,15 @@ pub(super) fn shape(midi: &mut PrettyMidi, source: &[Power], piano: &[(f64, f64)
     }) && !recording.bands.is_empty() {
         // The joint fit already balances the phrase and its individual
         // strikes. Trim leftover mix drift without flattening the accents.
-        let level = recording.bands.chunks(WINDOWS_PER_SECOND / 10).map(|chunk| Power {
+        let level: Vec<_> = recording.bands.chunks(WINDOWS_PER_SECOND / 10).map(|chunk| Power {
             total: chunk.iter().map(|p| p.total).sum::<f64>() / chunk.len() as f64,
             ..Power::default()
-        });
-        shape_at(midi, level, 10, &measured_piano, Some((0.71, 3.95)), Meter::Recording, &mut fit);
+        }).collect();
+        shape_at(midi, level.iter().copied(), 10, &measured_piano, Some((0.71, 3.95)), Meter::Recording, &mut fit);
+        // Then compare each window with the phrase around it, so a long
+        // crescendo is followed without flattening the strikes inside it.
+        shape_at(midi, level.iter().copied(), 10, &measured_piano, Some((0.38, 2.8)), Meter::Phrase, &mut fit);
+        spectrum::polish(midi, piano, &recording.wave, &attacks, &recording.bands);
     }
 }
 
@@ -140,13 +144,13 @@ struct Fit {
 }
 
 #[derive(Clone, Copy)]
-enum Meter { Stems, Recording }
+enum Meter { Stems, Recording, Phrase }
 
 fn shape_at(midi: &mut PrettyMidi, source: impl ExactSizeIterator<Item = Power>, per_second: usize,
     measured_piano: &impl Fn(f64) -> bool, residual: Option<(f64, f64)>, meter: Meter, fit: &mut Fit) -> bool {
     let response = |n: &crate::pmidi::Note| match meter {
         Meter::Stems => KeyResponse::new(n.pitch, n.velocity, n.end - n.start),
-        Meter::Recording => KeyResponse::matched(n.pitch, n.velocity, n.end - n.start),
+        Meter::Recording | Meter::Phrase => KeyResponse::matched(n.pitch, n.velocity, n.end - n.start),
     };
     let hz = per_second as f64;
     // Estimate the relative power of the *written arrangement*: a full chord
@@ -187,6 +191,16 @@ fn shape_at(midi: &mut PrettyMidi, source: impl ExactSizeIterator<Item = Power>,
         peak.1.total = peak.1.total.max(p.total);
         peak.1.low = peak.1.low.max(p.low);
     }
+    if let Meter::Phrase = meter {
+        // About a second of recording and arrangement around each window.
+        const HALF: usize = 5;
+        let phrase: Vec<_> = (0..bins.len()).map(|i| {
+            let window = &bins[i.saturating_sub(HALF)..(i + HALF + 1).min(bins.len())];
+            let n = window.len() as f64;
+            (window.iter().map(|b| b.0.total).sum::<f64>() / n, window.iter().map(|b| b.1.total).sum::<f64>() / n)
+        }).collect();
+        for (b, (s, p)) in bins.iter_mut().zip(phrase) { b.0.total = s; b.1.total = p; }
+    }
     // Anchor relative gains only where both the recording and the written
     // notes are audible. Rests and solo piano must not set the band's level.
     let audible = |i: usize, s: Power, p: Power| s.total > 0.001 * peak.0.total
@@ -194,7 +208,7 @@ fn shape_at(midi: &mut PrettyMidi, source: impl ExactSizeIterator<Item = Power>,
     // Fit a melody accent to its register. For the bounded follow-up,
     // reference the wider mix so an entire phrase doesn't drift in volume.
     let loudness = |p: Power| match meter {
-        Meter::Recording => p.total, // already measured in the piano's broadband passband
+        Meter::Recording | Meter::Phrase => p.total, // already measured in the piano's broadband passband
         Meter::Stems if residual.is_some() => p.phrase_power(),
         Meter::Stems => p.melody_power(),
     };

@@ -135,7 +135,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       INSTALL_SCOPE: ${{ matrix.scope }}
     steps:
-      - name: Authenticate the public 3.1.34 installer and candidate
+      - name: Authenticate the public 3.1.35 installer and candidate
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -143,12 +143,12 @@ jobs:
         run: |
           cd $env:RUNNER_TEMP
           if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw 'Invalid release tag' }
-          gh release download v3.1.34 -p MIDI-Studio-3.1.34-Setup.exe
-          if ($LASTEXITCODE -or (Get-FileHash MIDI-Studio-3.1.34-Setup.exe).Hash -ne '376d1fb9e58111a5ab4264ddf7f5c404c7cbf39cd3beacecd0490fb0fc8d3b47') { throw 'Invalid public 3.1.34 installer' }
+          gh release download v3.1.35 -p MIDI-Studio-3.1.35-Setup.exe
+          if ($LASTEXITCODE -or (Get-FileHash MIDI-Studio-3.1.35-Setup.exe).Hash -ne '7aab34f0f7b21b6e77c5c9a313daa5a2ba1d6e6998983b97f8bbdf898fc5d4f1') { throw 'Invalid public 3.1.35 installer' }
           $next = 'MIDI-Studio-' + $env:RELEASE_TAG.Substring(1) + '-Setup.exe'
           gh release download $env:RELEASE_TAG -p $next
           if ($LASTEXITCODE -or (Get-FileHash $next).Hash -ne $env:NEXT_DIGEST) { throw 'Invalid candidate' }
-      - name: Upgrade 3.1.34 in place without moving settings or Forge storage
+      - name: Upgrade 3.1.35 in place without moving settings or Forge storage
         shell: pwsh
         run: |
           cd $env:RUNNER_TEMP
@@ -161,9 +161,9 @@ jobs:
             $p = Start-Process ".\MIDI-Studio-$version-Setup.exe" -ArgumentList '/S',"/$env:INSTALL_SCOPE" -Wait -PassThru
             if ($p.ExitCode) { throw "Install of $version exited $($p.ExitCode)" }
           }
-          Install '3.1.34'
+          Install '3.1.35'
           $app = (Get-ItemPropertyValue $uninstall InstallLocation).Trim('"')
-          if ((Get-FileHash "$app\MIDI Studio.exe").Hash -ne '35cb8faa4e3e55e6b8b9b9e5820f3c0c02ae1bf162aeb8adaedfa03b3e7f82d8') { throw 'Not the public 3.1.34 desktop' }
+          if ((Get-FileHash "$app\MIDI Studio.exe").Hash -ne 'ed578fd63a5706587b296f0f73863aa25227a0dcd19c81d818bf5c34bc8e8631') { throw 'Not the public 3.1.35 desktop' }
           New-Item (Split-Path $prefs),$store -ItemType Directory -Force | Out-Null
           if (!(Test-Path $reg)) { New-Item $reg -Force | Out-Null }
           New-ItemProperty $reg ForgeStorageDir -Value $store -Force | Out-Null

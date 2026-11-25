@@ -242,10 +242,9 @@ fn repeated_touch(keys: &mut [Key], frames: &[Frame], voices: &[Voice]) -> bool 
     changed
 }
 
-/// Reuse the same source frames before and after the slower phrase balance.
-pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], attacks: &[Vec<f32>; 2],
-    envelope: &[super::Power], balance_phrase: impl FnOnce(&mut PrettyMidi)) -> bool {
-    if mix.len() < N || midi.instruments.len() != 2 { return false; }
+/// Detected, playable keys outside measured solo-piano passages, in onset order,
+/// and how often each pitch is struck.
+fn playable(midi: &PrettyMidi, piano: &[(f64, f64)]) -> (Vec<Key>, [u8; 78]) {
     let mut keys = Vec::with_capacity(midi.note_count());
     let mut counts = [0u8; 78];
     for (hand, track) in midi.instruments.iter().enumerate() {
@@ -259,8 +258,31 @@ pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], at
             keys.push(Key { note, hand, index, scale: v*v*v.sqrt(), gain: 1., energy: 0., weight: 0., step: 0., shared: false });
         }
     }
-    if keys.len() < 2 { return false; }
     keys.sort_unstable_by(|a,b| a.note.start.total_cmp(&b.note.start));
+    (keys, counts)
+}
+
+/// After the level trims, fit the half-second phrase together with the
+/// strikes and the sampled chord colour once more. The level carries more
+/// weight than in the joint fit, and only a fraction of each gain is applied.
+pub(super) fn polish(midi: &mut PrettyMidi, piano: &[(f64, f64)], mix: &[f32], attacks: &[Vec<f32>; 2],
+    envelope: &[super::Power]) {
+    if mix.len() < N || midi.instruments.len() != 2 { return; }
+    let (mut keys, _) = playable(midi, piano);
+    if keys.len() < 2 { return; }
+    joint::polish(&mut keys, piano, mix, attacks, envelope);
+    for k in keys {
+        midi.instruments[k.hand].notes[k.index].velocity =
+            (f32::from(k.note.velocity) * k.gain.powf(0.26)).round().clamp(1., 127.) as u8;
+    }
+}
+
+/// Reuse the same source frames before and after the slower phrase balance.
+pub(super) fn apply(midi: &mut PrettyMidi, mix: &[f32], piano: &[(f64, f64)], attacks: &[Vec<f32>; 2],
+    envelope: &[super::Power], balance_phrase: impl FnOnce(&mut PrettyMidi)) -> bool {
+    if mix.len() < N || midi.instruments.len() != 2 { return false; }
+    let (mut keys, counts) = playable(midi, piano);
+    if keys.len() < 2 { return false; }
     let repeats = counts.iter().any(|&n| n >= 4);
     let span = N as f64 / RATE + 0.015;
     let overlap = keys.windows(2).any(|pair| pair[0].note.end + span > pair[1].note.start);

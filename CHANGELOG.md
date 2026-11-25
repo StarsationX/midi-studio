@@ -6,6 +6,13 @@ a `## <version> "<name>" — <date>` heading per release, then `### New`,
 bullets. Anything outside that shape is ignored by the parser and shown only
 in the full changelog view.
 
+## 3.1.36 "Medley" — 2026-11-25
+
+### Changed
+
+- Medley follows a gradual swell or fade in the recording more closely. After matching each short window, it compares the piano with about a second of the original around it, then balances the phrase, the register and the individual strikes together once more. This changes key velocities, not the notes or their timing.
+- Re-run **Forge → Medley** on the original recording to hear the change. Existing MIDI files and installed models are unchanged.
+
 ## 3.1.35 "Medley" — 2026-11-25
 
 ### Changed
